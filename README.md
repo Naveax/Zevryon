@@ -33,7 +33,7 @@ Additional RAM is optional cache capacity, not permission to exceed the contract
 | Largest record | **64 MiB** |
 | Largest unbroken token | **16 MiB** |
 
-## Implemented M1 foundation
+## Implemented foundations
 
 The native `zevryon-massivedoc` executable now provides:
 
@@ -45,9 +45,13 @@ The native `zevryon-massivedoc` executable now provides:
 - bounded record-slice materialization;
 - streaming verification and export;
 - corruption detection;
-- browser document-process commands: `MASSIVE_OPEN`, `MASSIVE_STATS`, `MASSIVE_FIND`, and `MASSIVE_RECORD`.
+- browser document-process commands: `MASSIVE_OPEN`, `MASSIVE_STATS`, `MASSIVE_FIND`, and `MASSIVE_RECORD`;
+- disk-backed compact height arena with 4-byte record entries;
+- sparse block-height directory for logarithmic viewport lookup;
+- bounded top/middle/end viewport materialization;
+- pressure-derived viewport residency policy for normal, soft, hard, and survival modes.
 
-The native store does **not** materialize the complete payload or descriptor set in RAM.
+The native store does **not** materialize the complete payload or descriptor set in RAM. The compact arena does not allocate one resident C++ object per logical node.
 
 ## Build
 
@@ -69,16 +73,19 @@ build/zevryon-massivedoc stats store
 build/zevryon-massivedoc search store ZEVRYON_WORST_CASE_TAIL_MARKER 2
 build/zevryon-massivedoc verify store
 build/zevryon-massivedoc export store payload.bin
+build/zevryon-massivedoc arena-build store 96 18
+build/zevryon-massivedoc arena-stats store
+build/zevryon-massivedoc viewport store 0 720 720 512
 ```
 
-Run the reproducible smoke benchmark:
+Run the reproducible M2 benchmark:
 
 ```bash
 PYTHONPATH=. python scripts/massivedoc_benchmark.py \
   --logical-bytes 67108864 --records 131072 \
-  --output evidence/milestones/m1-native-store-64mib.json
+  --output evidence/milestones/m2-compact-viewport-64mib.json
 ```
 
 ## Current limitation
 
-The disk-backed store and document-process protocol are implemented. Full HTML/CSS layout, JavaScript, accessibility, and paint are not yet reading directly from compact MassiveDoc nodes; the next milestone is the compact node arena plus viewport materializer. Zevryon is not a safe daily browser for sensitive accounts.
+The disk-backed store, compact height arena, and bounded viewport materializer are implemented. Full HTML/CSS style resolution, text shaping, accessibility projection, and paint are not yet consuming the materialized window; the next milestone is an incremental layout fragment cache and scroll-anchor correction path. Zevryon is not a safe daily browser for sensitive accounts.
