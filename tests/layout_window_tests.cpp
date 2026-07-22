@@ -31,6 +31,10 @@ std::vector<std::byte> bytes(std::string_view text) {
     return output;
 }
 
+bool is_utf8_continuation(std::byte value) {
+    return (std::to_integer<unsigned int>(value) & 0xc0U) == 0x80U;
+}
+
 } // namespace
 
 int main() {
@@ -120,6 +124,31 @@ int main() {
         !require(cached_top.cache_hits != 0U, "second layout reuses cache") ||
         !require(cached_top.cache_bytes <= layout_config.max_cache_bytes, "reused cache stays bounded")) {
         return 1;
+    }
+
+    zevryon::massivedoc::LayoutWindowResult narrow;
+    if (!require(engine.layout(0U, 40U * 256U, 2000U * 256U, 0U, 256U, &narrow, &error), error) ||
+        !require(!narrow.fragments.empty(), "narrow UTF-8 layout has fragments")) {
+        return 1;
+    }
+    for (const auto& fragment : narrow.fragments) {
+        if (fragment.record_index != 0U) {
+            continue;
+        }
+        if (!require(fragment.source_start <= first.size(), "UTF-8 fragment start in record") ||
+            !require(fragment.source_end <= first.size(), "UTF-8 fragment end in record")) {
+            return 1;
+        }
+        if (fragment.source_start < first.size() &&
+            !require(!is_utf8_continuation(first[static_cast<std::size_t>(fragment.source_start)]),
+                     "fragment start never splits UTF-8 sequence")) {
+            return 1;
+        }
+        if (fragment.source_end < first.size() &&
+            !require(!is_utf8_continuation(first[static_cast<std::size_t>(fragment.source_end)]),
+                     "fragment end never splits UTF-8 sequence")) {
+            return 1;
+        }
     }
 
     zevryon::massivedoc::CompactArenaReader arena(root);
