@@ -42,6 +42,7 @@ endforeach()
 
 add_library(zevryon-massivedoc-core STATIC
   "${ZEVRYON_MASSIVEDOC_SOURCE}"
+  src/bidi_resolver.cpp
   src/compact_document.cpp
   src/grapheme_segmenter.cpp
   src/layout_checkpoint.cpp
@@ -49,6 +50,7 @@ add_library(zevryon-massivedoc-core STATIC
   src/ledger_memory_resource.cpp
   src/resource_ledger.cpp
   src/script_run.cpp
+  src/unicode_bidi.cpp
   src/unicode_grapheme_data.cpp
   src/unicode_script.cpp
   src/unicode_stream.cpp
@@ -89,6 +91,18 @@ zevryon_options(zevryon-script-conformance)
 add_executable(zevryon-script-run-benchmark src/script_run_benchmark_main.cpp)
 target_link_libraries(zevryon-script-run-benchmark PRIVATE zevryon-massivedoc-core)
 zevryon_options(zevryon-script-run-benchmark)
+
+add_executable(zevryon-bidi-test-conformance src/bidi_test_conformance_main.cpp)
+target_link_libraries(zevryon-bidi-test-conformance PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-bidi-test-conformance)
+
+add_executable(zevryon-bidi-character-conformance src/bidi_character_conformance_main.cpp)
+target_link_libraries(zevryon-bidi-character-conformance PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-bidi-character-conformance)
+
+add_executable(zevryon-bidi-benchmark src/bidi_benchmark_main.cpp)
+target_link_libraries(zevryon-bidi-benchmark PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-bidi-benchmark)
 
 include(CTest)
 if(BUILD_TESTING)
@@ -141,4 +155,9 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-script-run-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-script-run-tests)
   add_test(NAME script-run-tests COMMAND zevryon-script-run-tests)
+
+  add_executable(zevryon-bidi-resolver-tests tests/bidi_resolver_tests.cpp)
+  target_link_libraries(zevryon-bidi-resolver-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-bidi-resolver-tests)
+  add_test(NAME bidi-resolver-tests COMMAND zevryon-bidi-resolver-tests)
 endif()
