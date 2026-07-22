@@ -22,7 +22,22 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install --upgrade pip pytest
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-      - run: cmake --build build --config Release --parallel 2
+      - name: Build on Unix
+        if: runner.os != 'Windows'
+        run: cmake --build build --config Release --parallel 2
+      - name: Build on Windows with diagnostic log
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel 2 2>&1 | Tee-Object -FilePath windows-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload Windows compiler log
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build-${{ github.sha }}
+          path: windows-build.log
+          if-no-files-found: warn
       - run: ctest --test-dir build -C Release --output-on-failure
       - run: python -m pytest -q tests
 
