@@ -40,6 +40,14 @@ struct ViewportResult {
     std::vector<MaterializedRecord> records;
 };
 
+struct HeightUpdateResult {
+    std::uint64_t record_index{0};
+    std::uint64_t block_index{0};
+    std::uint32_t old_height_q8{0};
+    std::uint32_t new_height_q8{0};
+    std::uint64_t total_height_q8{0};
+};
+
 bool build_compact_arena(
     const std::filesystem::path& store_root,
     ArenaConfig config,
@@ -59,15 +67,26 @@ public:
         std::size_t max_records,
         ViewportResult* result,
         std::string* error) const;
+    bool update_height(
+        std::uint64_t record_index,
+        std::uint32_t new_height_q8,
+        HeightUpdateResult* result,
+        std::string* error);
 
 private:
+    std::uint64_t fenwick_prefix(std::size_t block_count) const noexcept;
+    void fenwick_replace(std::size_t block_index, std::uint64_t old_value, std::uint64_t new_value) noexcept;
+    std::size_t block_for_offset(std::uint64_t offset_q8) const noexcept;
+
     std::filesystem::path root_;
     ArenaStats stats_{};
-    std::vector<std::uint64_t> block_prefix_q8_;
+    std::vector<std::uint64_t> block_heights_q8_;
+    std::vector<std::uint64_t> fenwick_q8_;
     bool opened_{false};
 };
 
 std::string arena_stats_json(const ArenaStats& stats);
 std::string viewport_json(const ViewportResult& result);
+std::string height_update_json(const HeightUpdateResult& result);
 
 } // namespace zevryon::massivedoc
