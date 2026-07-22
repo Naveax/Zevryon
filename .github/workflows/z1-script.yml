@@ -78,9 +78,9 @@ jobs:
           > evidence/ci/z1-script-conformance.json
       - name: Run three independent 64 KiB distributions
         run: |
-          build/zevryon-script-run-benchmark 1024 1048576 > evidence/ci/z1-script-benchmark-1.json
-          build/zevryon-script-run-benchmark 1024 1048576 > evidence/ci/z1-script-benchmark-2.json
-          build/zevryon-script-run-benchmark 1024 1048576 > evidence/ci/z1-script-benchmark-3.json
+          build/zevryon-script-run-benchmark 1024 262144 > evidence/ci/z1-script-benchmark-1.json
+          build/zevryon-script-run-benchmark 1024 262144 > evidence/ci/z1-script-benchmark-2.json
+          build/zevryon-script-run-benchmark 1024 262144 > evidence/ci/z1-script-benchmark-3.json
       - name: Enforce conformance, memory, and latency gates
         run: |
           python - <<'PY'
@@ -113,8 +113,8 @@ jobs:
               assert report['boundary_record_bytes'] <= 16
               assert report['output_boundaries'] == report['output_runs'] + 1
               assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
-              assert report['script_run_hard_limit_bytes'] == 1048576
-              assert report['script_run_current_bytes'] <= report['script_run_peak_bytes'] <= 1048576
+              assert report['script_run_hard_limit_bytes'] == 262144
+              assert report['script_run_current_bytes'] <= report['script_run_peak_bytes'] <= 262144
               assert report['rejected_reservations'] == 0
               assert report['accounting_errors'] == 0
               assert report['within_hard_limits'] is True
@@ -131,9 +131,10 @@ jobs:
               'output_runs': reports[0]['output_runs'],
               'passed': True,
           }
-          assert aggregate['median_p95_ms'] <= 10.0
-          assert aggregate['median_p99_ms'] <= 15.0
-          assert aggregate['worst_peak_bytes'] <= 1048576
+          assert aggregate['median_p95_ms'] <= 1.50
+          assert aggregate['median_p99_ms'] <= 2.00
+          assert aggregate['worst_maximum_ms'] <= 3.00
+          assert aggregate['worst_peak_bytes'] <= 262144
           Path('evidence/ci/z1-script-certification.json').write_text(
               json.dumps(aggregate, indent=2, sort_keys=True) + '\n'
           )
