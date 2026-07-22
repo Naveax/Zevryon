@@ -75,13 +75,19 @@ public:
     std::array<std::uint8_t, 32> finish() const {
         Sha256 copy = *this;
         const std::uint64_t total_bits = copy.total_bytes_ * 8ULL;
-        copy.buffer_[copy.buffer_size_++] = 0x80U;
+        copy.buffer_[copy.buffer_size_++] = static_cast<std::uint8_t>(0x80U);
         if (copy.buffer_size_ > 56U) {
-            std::fill(copy.buffer_.begin() + static_cast<std::ptrdiff_t>(copy.buffer_size_), copy.buffer_.end(), 0U);
+            std::fill(
+                copy.buffer_.begin() + static_cast<std::ptrdiff_t>(copy.buffer_size_),
+                copy.buffer_.end(),
+                std::uint8_t{0});
             copy.transform(copy.buffer_.data());
             copy.buffer_size_ = 0U;
         }
-        std::fill(copy.buffer_.begin() + static_cast<std::ptrdiff_t>(copy.buffer_size_), copy.buffer_.begin() + 56, 0U);
+        std::fill(
+            copy.buffer_.begin() + static_cast<std::ptrdiff_t>(copy.buffer_size_),
+            copy.buffer_.begin() + 56,
+            std::uint8_t{0});
         for (std::size_t index = 0U; index < 8U; ++index) {
             copy.buffer_[56U + index] = static_cast<std::uint8_t>(total_bits >> ((7U - index) * 8U));
         }
@@ -130,13 +136,13 @@ private:
         std::uint32_t f = state_[5];
         std::uint32_t g = state_[6];
         std::uint32_t h = state_[7];
-        for (std::size_t index = 0U; index < words.size(); ++index) {
-            const std::uint32_t s1 = std::rotr(e, 6) ^ std::rotr(e, 11) ^ std::rotr(e, 25);
-            const std::uint32_t choose = (e & f) ^ ((~e) & g);
-            const std::uint32_t temp1 = h + s1 + choose + kRound[index] + words[index];
-            const std::uint32_t s0 = std::rotr(a, 2) ^ std::rotr(a, 13) ^ std::rotr(a, 22);
+        for (std::size_t index = 0U; index < kRound.size(); ++index) {
+            const std::uint32_t sum1 = std::rotr(e, 6) ^ std::rotr(e, 11) ^ std::rotr(e, 25);
+            const std::uint32_t choose = (e & f) ^ (~e & g);
+            const std::uint32_t temp1 = h + sum1 + choose + kRound[index] + words[index];
+            const std::uint32_t sum0 = std::rotr(a, 2) ^ std::rotr(a, 13) ^ std::rotr(a, 22);
             const std::uint32_t majority = (a & b) ^ (a & c) ^ (b & c);
-            const std::uint32_t temp2 = s0 + majority;
+            const std::uint32_t temp2 = sum0 + majority;
             h = g;
             g = f;
             f = e;
@@ -161,28 +167,3 @@ private:
     std::size_t buffer_size_{0U};
     std::uint64_t total_bytes_{0U};
 };
-
-std::string hex_digest(const std::array<std::uint8_t, 32>& digest) {
-    std::ostringstream output;
-    output << std::hex << std::setfill('0');
-    for (const std::uint8_t byte : digest) {
-        output << std::setw(2) << static_cast<unsigned int>(byte);
-    }
-    return output.str();
-}
-
-template <typename T>
-void append_le(std::vector<std::byte>& output, T value) {
-    static_assert(std::is_unsigned_v<T>);
-    for (std::size_t index = 0U; index < sizeof(T); ++index) {
-        output.push_back(static_cast<std::byte>((value >> (index * 8U)) & static_cast<T>(0xffU)));
-    }
-}
-
-template <typename T>
-std::optional<T> read_le(std::span<const std::byte> bytes, std::size_t offset) {
-    static_assert(std::is_unsigned_v<T>);
-    if (offset > bytes.size() || bytes.size() - offset < sizeof(T)) {
-        return std::nullopt;
-    }
-    T value = 0;
