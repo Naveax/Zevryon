@@ -165,6 +165,7 @@ int main() {
                                          : 0U;
     zevryon::massivedoc::LayoutWindowResult giant;
     if (!require(engine.layout(end_scroll, 800U * 256U, 720U * 256U, 360U * 256U, 128U, &giant, &error), error) ||
+        !require(giant.scroll_clamped, "width correction clamps stale end scroll") ||
         !require(!giant.fragments.empty(), "giant token produces viewport fragments") ||
         !require(giant.fragments.size() <= 128U, "giant token respects fragment cap") ||
         !require(giant.cache_bytes <= layout_config.max_cache_bytes, "giant token cannot expand cache") ||
@@ -196,6 +197,7 @@ int main() {
                      &giant_reused,
                      &error),
                  error) ||
+        !require(!giant_reused.scroll_clamped, "stable end scroll does not clamp repeatedly") ||
         !require(giant_reused.cache_hits != 0U, "giant record reuses measured-height metadata") ||
         !require(!giant_reused.fragments.empty(), "reused giant viewport remains materialized") ||
         !require(giant_reused.fragments.size() <= 128U, "reused giant viewport respects fragment cap") ||
