@@ -22,8 +22,38 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install --upgrade pip pytest
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-      - run: cmake --build build --config Release --parallel 2
-      - run: ctest --test-dir build -C Release --output-on-failure
+      - name: Build on Unix
+        if: runner.os != 'Windows'
+        run: cmake --build build --config Release --parallel 2
+      - name: Build on Windows with diagnostic log
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel 2 2>&1 | Tee-Object -FilePath windows-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload Windows compiler log
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build-${{ github.sha }}
+          path: windows-build.log
+          if-no-files-found: warn
+      - name: Run CTest on Unix
+        if: runner.os != 'Windows'
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Run CTest on Windows with diagnostic log
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ctest --test-dir build -C Release --output-on-failure 2>&1 | Tee-Object -FilePath windows-ctest.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload Windows CTest log
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-ctest-${{ github.sha }}
+          path: windows-ctest.log
+          if-no-files-found: warn
       - run: python -m pytest -q tests
 
   giant-record-benchmark:
@@ -53,8 +83,46 @@ jobs:
 
   sanitizer:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON
       - run: cmake --build build --parallel 2
       - run: ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 ctest --test-dir build --output-on-failure
+
+  windows-sanitizer:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure MSVC AddressSanitizer
+        run: cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          cmake --build build-asan --config RelWithDebInfo --parallel 2 2>&1 | Tee-Object -FilePath windows-asan-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run store tests under MSVC AddressSanitizer
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          $env:ASAN_OPTIONS = "halt_on_error=1:abort_on_error=1:symbolize=1"
+          & .\build-asan\RelWithDebInfo\zevryon-massivedoc-tests.exe 2>&1 | Tee-Object -FilePath windows-asan-store.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run compact document tests under MSVC AddressSanitizer
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          $env:ASAN_OPTIONS = "halt_on_error=1:abort_on_error=1:symbolize=1"
+          & .\build-asan\RelWithDebInfo\zevryon-compact-document-tests.exe 2>&1 | Tee-Object -FilePath windows-asan-compact.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload Windows AddressSanitizer logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-asan-${{ github.sha }}
+          path: |
+            windows-asan-build.log
+            windows-asan-store.log
+            windows-asan-compact.log
+          if-no-files-found: warn
