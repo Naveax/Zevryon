@@ -32,6 +32,10 @@ If a later metadata write fails, earlier metadata writes are restored where poss
 - viewport offsets after reopen use persisted corrected heights;
 - memory use remains bounded by block size plus the small Fenwick tree.
 
+## Cross-platform gate
+
+M2 remains draft until strict C++20 builds and native tests pass on Linux, macOS, and Windows, the sanitizer job passes, and the real 64 MiB giant-record benchmark remains lossless. Windows compiler and CTest output are retained as workflow artifacts so `/WX` failures are diagnosed rather than suppressed.
+
 ## Current boundary
 
 This milestone supports height correction, not record insertion/removal. Dynamic sequence edits require the next order-statistics sequence layer and crash-safe arena journaling.
