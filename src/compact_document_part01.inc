@@ -157,6 +157,17 @@ bool build_compact_arena(
     }
     heights.flush();
     blocks.flush();
+    if (!heights || !blocks) {
+        *error = "cannot flush arena indexes";
+        return false;
+    }
+    heights.close();
+    blocks.close();
+    records.close();
+    if (heights.fail() || blocks.fail() || records.fail()) {
+        *error = "cannot close arena indexes";
+        return false;
+    }
 
     output.physical_bytes = kArenaHeaderBytes + logical_records * kHeightEntryBytes + output.block_count * kBlockEntryBytes;
     const auto header_bytes = serialize_header(output);
