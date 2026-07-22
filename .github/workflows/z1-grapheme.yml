@@ -85,8 +85,8 @@ jobs:
           assert conformance['schema'] == 'zevryon.grapheme-conformance.v1'
           assert conformance['unicode_version'] == '17.0.0'
           assert conformance['tests'] == 766
-          assert conformance['codepoints'] == 1906
-          assert conformance['clusters'] == 1271
+          assert conformance['codepoints'] == 1990
+          assert conformance['clusters'] == 1391
           assert conformance['passed'] is True
 
           benchmark = json.loads(
