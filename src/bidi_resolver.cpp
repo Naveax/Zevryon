@@ -1048,49 +1048,52 @@ bool resolve_impl(
             return true;
         }
 
-        std::pmr::vector<std::int32_t> matching_pdi(memory);
-        if (!match_isolates(
-                units,
-                &matching_pdi,
-                memory,
-                error)) {
-            return false;
-        }
-        const std::uint8_t paragraph_level = direction == ParagraphDirection::Auto
-            ? decide_paragraph_level(units, 0U, units.size(), matching_pdi)
-            : static_cast<std::uint8_t>(direction);
-        stats->paragraph_level = paragraph_level;
-        apply_explicit_levels(
-            &units,
-            paragraph_level,
-            matching_pdi,
-            stats);
-
-        std::pmr::vector<std::uint32_t> visible(memory);
-        std::pmr::vector<LevelRun> runs(memory);
-        std::pmr::vector<std::int32_t> index_to_run(memory);
-        if (!build_level_runs(
-                units,
-                paragraph_level,
-                matching_pdi,
-                &visible,
-                &runs,
-                &index_to_run,
-                stats,
-                error)) {
-            return false;
-        }
-        if (!runs.empty() &&
-            !process_isolating_sequences(
+        std::uint8_t paragraph_level = 0U;
+        {
+            std::pmr::vector<std::int32_t> matching_pdi(memory);
+            if (!match_isolates(
+                    units,
+                    &matching_pdi,
+                    memory,
+                    error)) {
+                return false;
+            }
+            paragraph_level = direction == ParagraphDirection::Auto
+                ? decide_paragraph_level(units, 0U, units.size(), matching_pdi)
+                : static_cast<std::uint8_t>(direction);
+            stats->paragraph_level = paragraph_level;
+            apply_explicit_levels(
                 &units,
                 paragraph_level,
                 matching_pdi,
-                visible,
-                &runs,
-                memory,
-                stats,
-                error)) {
-            return false;
+                stats);
+    
+            std::pmr::vector<std::uint32_t> visible(memory);
+            std::pmr::vector<LevelRun> runs(memory);
+            std::pmr::vector<std::int32_t> index_to_run(memory);
+            if (!build_level_runs(
+                    units,
+                    paragraph_level,
+                    matching_pdi,
+                    &visible,
+                    &runs,
+                    &index_to_run,
+                    stats,
+                    error)) {
+                return false;
+            }
+            if (!runs.empty() &&
+                !process_isolating_sequences(
+                    &units,
+                    paragraph_level,
+                    matching_pdi,
+                    visible,
+                    &runs,
+                    memory,
+                    stats,
+                    error)) {
+                return false;
+            }
         }
         resolve_implicit_levels(&units, stats);
         reset_whitespace_levels(&units, paragraph_level);
