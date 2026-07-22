@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/z1-bidi-data.yml'
       - 'scripts/generate_unicode_bidi_data.py'
+      - 'src/unicode_bidi_data.generated.hpp'
+      - 'evidence/unicode_bidi_data.manifest.json'
   workflow_dispatch:
 
 concurrency:
@@ -12,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   generate:
@@ -20,10 +22,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Download versioned Unicode 17 bidi sources
+      - name: Download and pin Unicode 17 bidi sources
         run: |
           python - <<'PY'
           import hashlib
@@ -32,26 +36,29 @@ jobs:
           from pathlib import Path
 
           sources = {
-              'DerivedBidiClass.txt': 'extracted/DerivedBidiClass.txt',
-              'BidiBrackets.txt': 'BidiBrackets.txt',
-              'BidiMirroring.txt': 'BidiMirroring.txt',
-              'PropertyValueAliases.txt': 'PropertyValueAliases.txt',
-              'BidiTest.txt': 'BidiTest.txt',
-              'BidiCharacterTest.txt': 'BidiCharacterTest.txt',
+              'DerivedBidiClass.txt': ('extracted/DerivedBidiClass.txt', '4867b4b7f0731ed1bfcd34cc6251211ff1542541fce0734b6fbda139ee80b3a4'),
+              'BidiBrackets.txt': ('BidiBrackets.txt', 'dadbaf38a0d0246e5b805bf8725cb81b7c621f93d030595635f5ba2c2f179428'),
+              'BidiMirroring.txt': ('BidiMirroring.txt', 'a2f16fb873ab4fcdf3221cb1a8a85a134ddd6ed03603181823ff5206af3741ce'),
+              'PropertyValueAliases.txt': ('PropertyValueAliases.txt', '64e9a5f76f7a1e8b5a47d6a1f9a26522a251208f5276bdfa1559dac7cf2e827a'),
+              'BidiTest.txt': ('BidiTest.txt', '888bdfc8090652272d1f859cdb00ae659e2dc6c26740be61ef1d03998a687620'),
+              'BidiCharacterTest.txt': ('BidiCharacterTest.txt', 'a3e6e905ab5afbe318a96df5401d0372a04cd73ef139ab5e3cf0ae241c255488'),
           }
           root = Path('evidence/ci/ucd-17.0.0')
           root.mkdir(parents=True, exist_ok=True)
           hashes = {}
-          for name, relative in sources.items():
+          for name, (relative, expected) in sources.items():
               data = urllib.request.urlopen(
                   'https://www.unicode.org/Public/17.0.0/ucd/' + relative,
                   timeout=120,
               ).read()
+              actual = hashlib.sha256(data).hexdigest()
+              if actual != expected:
+                  raise RuntimeError(f'{name} SHA-256 mismatch: {actual} != {expected}')
               if b'17.0.0' not in data[:8192]:
                   raise RuntimeError(f'unexpected Unicode version in {name}')
               (root / name).write_bytes(data)
-              hashes[name] = hashlib.sha256(data).hexdigest()
-              print(name, len(data), hashes[name])
+              hashes[name] = actual
+              print(name, len(data), actual)
           Path('evidence/ci/unicode_bidi_sources.json').write_text(
               json.dumps(hashes, indent=2, sort_keys=True) + '\n'
           )
@@ -74,22 +81,43 @@ jobs:
             --manifest evidence/generated/unicode_bidi_data.manifest.second.json
           cmp evidence/generated/unicode_bidi_data.generated.hpp evidence/generated/unicode_bidi_data.generated.second.hpp
           cmp evidence/generated/unicode_bidi_data.manifest.json evidence/generated/unicode_bidi_data.manifest.second.json
-      - name: Validate generated contract
+      - name: Validate exact generated contract
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
 
           manifest = json.loads(Path('evidence/generated/unicode_bidi_data.manifest.json').read_text())
-          assert manifest['schema'] == 'zevryon.unicode-bidi-data.v1'
-          assert manifest['unicode_version'] == '17.0.0'
-          assert manifest['bidi_class_count'] == 23
-          assert manifest['bidi_class_range_count'] >= 1000
-          assert manifest['bracket_entry_count'] >= 100
-          assert manifest['mirror_entry_count'] >= 400
-          assert manifest['generated_header_bytes'] < 500000
-          print(json.dumps(manifest, indent=2, sort_keys=True))
+          assert manifest == {
+              'bidi_class_count': 23,
+              'bidi_class_range_count': 1267,
+              'bracket_entry_count': 128,
+              'fingerprint': 'db4c3660e8e846eb5805bcdbedca8c96f84967ad136b3305b6bf0d33409a8e91',
+              'generated_header_bytes': 94929,
+              'mirror_entry_count': 428,
+              'schema': 'zevryon.unicode-bidi-data.v1',
+              'source_sha256': {
+                  'BidiBrackets.txt': 'dadbaf38a0d0246e5b805bf8725cb81b7c621f93d030595635f5ba2c2f179428',
+                  'BidiMirroring.txt': 'a2f16fb873ab4fcdf3221cb1a8a85a134ddd6ed03603181823ff5206af3741ce',
+                  'DerivedBidiClass.txt': '4867b4b7f0731ed1bfcd34cc6251211ff1542541fce0734b6fbda139ee80b3a4',
+                  'PropertyValueAliases.txt': '64e9a5f76f7a1e8b5a47d6a1f9a26522a251208f5276bdfa1559dac7cf2e827a',
+              },
+              'unicode_version': '17.0.0',
+          }
           PY
+      - name: Vendor generated tables on the PR branch
+        if: github.event_name == 'pull_request'
+        run: |
+          mkdir -p src evidence
+          cp evidence/generated/unicode_bidi_data.generated.hpp src/unicode_bidi_data.generated.hpp
+          cp evidence/generated/unicode_bidi_data.manifest.json evidence/unicode_bidi_data.manifest.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/unicode_bidi_data.generated.hpp evidence/unicode_bidi_data.manifest.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Vendor Unicode 17 bidi data [skip bidi-data]'
+            git push origin HEAD:${{ github.head_ref }}
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: z1-bidi-data-${{ github.sha }}
