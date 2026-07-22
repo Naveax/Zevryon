@@ -54,6 +54,10 @@ add_executable(zevryon-massivedoc src/main.cpp)
 target_link_libraries(zevryon-massivedoc PRIVATE zevryon-massivedoc-core)
 zevryon_options(zevryon-massivedoc)
 
+add_executable(zevryon-zenith-layout src/zenith_main.cpp)
+target_link_libraries(zevryon-zenith-layout PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-zenith-layout)
+
 include(CTest)
 if(BUILD_TESTING)
   add_executable(zevryon-massivedoc-tests tests/massivedoc_store_tests.cpp)
