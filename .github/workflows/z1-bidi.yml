@@ -1,0 +1,226 @@
+name: z1-bidi
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-bidi.yml'
+      - 'CMakeLists.txt'
+      - 'src/bidi_*'
+      - 'src/unicode_bidi*'
+      - 'src/resource_ledger.*'
+      - 'tests/bidi_*'
+      - 'scripts/generate_unicode_bidi_data.py'
+      - 'evidence/unicode_bidi_data.manifest.json'
+  workflow_dispatch:
+
+concurrency:
+  group: z1-bidi-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  bidi-conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch pinned Unicode 17 bidi sources
+        run: |
+          python - <<'PY'
+          import hashlib
+          import urllib.request
+          from pathlib import Path
+
+          sources = {
+              'DerivedBidiClass.txt': ('extracted/DerivedBidiClass.txt', '4867b4b7f0731ed1bfcd34cc6251211ff1542541fce0734b6fbda139ee80b3a4'),
+              'BidiBrackets.txt': ('BidiBrackets.txt', 'dadbaf38a0d0246e5b805bf8725cb81b7c621f93d030595635f5ba2c2f179428'),
+              'BidiMirroring.txt': ('BidiMirroring.txt', 'a2f16fb873ab4fcdf3221cb1a8a85a134ddd6ed03603181823ff5206af3741ce'),
+              'PropertyValueAliases.txt': ('PropertyValueAliases.txt', '64e9a5f76f7a1e8b5a47d6a1f9a26522a251208f5276bdfa1559dac7cf2e827a'),
+              'BidiTest.txt': ('BidiTest.txt', '888bdfc8090652272d1f859cdb00ae659e2dc6c26740be61ef1d03998a687620'),
+              'BidiCharacterTest.txt': ('BidiCharacterTest.txt', 'a3e6e905ab5afbe318a96df5401d0372a04cd73ef139ab5e3cf0ae241c255488'),
+          }
+          root = Path('evidence/ci/ucd-17.0.0')
+          root.mkdir(parents=True, exist_ok=True)
+          for name, (relative, expected) in sources.items():
+              data = urllib.request.urlopen(
+                  'https://www.unicode.org/Public/17.0.0/ucd/' + relative,
+                  timeout=120,
+              ).read()
+              actual = hashlib.sha256(data).hexdigest()
+              if actual != expected:
+                  raise RuntimeError(f'{name} SHA-256 mismatch: {actual} != {expected}')
+              (root / name).write_bytes(data)
+          PY
+      - name: Reproduce vendored bidi tables
+        run: |
+          python scripts/generate_unicode_bidi_data.py \
+            --derived-bidi-class evidence/ci/ucd-17.0.0/DerivedBidiClass.txt \
+            --bidi-brackets evidence/ci/ucd-17.0.0/BidiBrackets.txt \
+            --bidi-mirroring evidence/ci/ucd-17.0.0/BidiMirroring.txt \
+            --aliases evidence/ci/ucd-17.0.0/PropertyValueAliases.txt \
+            --output evidence/ci/unicode_bidi_data.generated.hpp \
+            --manifest evidence/ci/unicode_bidi_data.manifest.json
+          cmp src/unicode_bidi_data.generated.hpp evidence/ci/unicode_bidi_data.generated.hpp
+          cmp evidence/unicode_bidi_data.manifest.json evidence/ci/unicode_bidi_data.manifest.json
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-bidi-resolver-tests
+          zevryon-bidi-test-conformance
+          zevryon-bidi-character-conformance
+          zevryon-bidi-benchmark
+      - name: Run adversarial bidi tests
+        run: ctest --test-dir build -R bidi-resolver-tests --output-on-failure
+      - name: Run complete Unicode 17 BidiTest
+        run: >-
+          build/zevryon-bidi-test-conformance
+          evidence/ci/ucd-17.0.0/BidiTest.txt
+          > evidence/ci/z1-bidi-test-conformance.json
+      - name: Run complete Unicode 17 BidiCharacterTest
+        run: >-
+          build/zevryon-bidi-character-conformance
+          evidence/ci/ucd-17.0.0/BidiCharacterTest.txt
+          > evidence/ci/z1-bidi-character-conformance.json
+      - name: Run three independent 64 KiB distributions
+        run: |
+          build/zevryon-bidi-benchmark 1024 8388608 > evidence/ci/z1-bidi-benchmark-1.json
+          build/zevryon-bidi-benchmark 1024 8388608 > evidence/ci/z1-bidi-benchmark-2.json
+          build/zevryon-bidi-benchmark 1024 8388608 > evidence/ci/z1-bidi-benchmark-3.json
+      - name: Enforce conformance, memory, and provisional latency gates
+        run: |
+          python - <<'PY'
+          import json
+          import statistics
+          from pathlib import Path
+
+          bidi_test = json.loads(
+              Path('evidence/ci/z1-bidi-test-conformance.json').read_text()
+          )
+          character_test = json.loads(
+              Path('evidence/ci/z1-bidi-character-conformance.json').read_text()
+          )
+          for report in (bidi_test, character_test):
+              assert report['unicode_version'] == '17.0.0'
+              assert report['data_fingerprint'] == 'db4c3660e8e846eb5805bcdbedca8c96f84967ad136b3305b6bf0d33409a8e91'
+              assert report['bidi_peak_bytes'] <= 262144
+              assert report['passed'] is True
+          assert bidi_test['schema'] == 'zevryon.bidi-test-conformance.v1'
+          assert bidi_test['data_lines'] == 490846
+          assert bidi_test['resolved_cases'] == 770241
+          assert character_test['schema'] == 'zevryon.bidi-character-conformance.v1'
+          assert character_test['tests'] == 91707
+
+          reports = [
+              json.loads(Path(f'evidence/ci/z1-bidi-benchmark-{index}.json').read_text())
+              for index in range(1, 4)
+          ]
+          for report in reports:
+              assert report['schema'] == 'zevryon.bidi-benchmark.v1'
+              assert report['unicode_version'] == '17.0.0'
+              assert report['fixture_bytes'] == 65536
+              assert report['iterations'] == 1024
+              assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
+              assert report['bidi_hard_limit_bytes'] == 8388608
+              assert report['bidi_current_bytes'] <= report['bidi_peak_bytes'] <= 8388608
+              assert report['rejected_reservations'] == 0
+              assert report['accounting_errors'] == 0
+              assert report['within_hard_limits'] is True
+              assert report['accounting_clean'] is True
+          aggregate = {
+              'schema': 'zevryon.bidi-certification.v1',
+              'unicode_version': '17.0.0',
+              'runs': len(reports),
+              'median_p50_ms': statistics.median(item['p50_ms'] for item in reports),
+              'median_p95_ms': statistics.median(item['p95_ms'] for item in reports),
+              'median_p99_ms': statistics.median(item['p99_ms'] for item in reports),
+              'worst_maximum_ms': max(item['maximum_ms'] for item in reports),
+              'worst_peak_bytes': max(item['bidi_peak_bytes'] for item in reports),
+              'bidi_test_cases': bidi_test['resolved_cases'],
+              'bidi_character_tests': character_test['tests'],
+              'passed': True,
+          }
+          assert aggregate['median_p95_ms'] <= 20.0
+          assert aggregate['median_p99_ms'] <= 30.0
+          assert aggregate['worst_peak_bytes'] <= 8388608
+          Path('evidence/ci/z1-bidi-certification.json').write_text(
+              json.dumps(aggregate, indent=2, sort_keys=True) + '\n'
+          )
+          print(json.dumps({
+              'bidi_test': bidi_test,
+              'character_test': character_test,
+              'aggregate': aggregate,
+          }, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z1-bidi-${{ github.sha }}
+          path: |
+            evidence/ci/ucd-17.0.0/BidiTest.txt
+            evidence/ci/ucd-17.0.0/BidiCharacterTest.txt
+            evidence/ci/z1-bidi-test-conformance.json
+            evidence/ci/z1-bidi-character-conformance.json
+            evidence/ci/z1-bidi-benchmark-*.json
+            evidence/ci/z1-bidi-certification.json
+          if-no-files-found: warn
+
+  windows-bidi-asan:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure MSVC AddressSanitizer
+        run: cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build bidi tests with MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          cmake --build build-asan --config RelWithDebInfo --target zevryon-bidi-resolver-tests --parallel 2 2>&1 | Tee-Object -FilePath windows-bidi-asan-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Stage MSVC AddressSanitizer runtime
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw 'vswhere.exe not found' }
+          $installation = (& $vswhere -latest -products * -property installationPath).Trim()
+          if (-not $installation) { throw 'Visual Studio installation not found' }
+          $patterns = @(
+            "$installation\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan*dynamic-x86_64.dll",
+            "$installation\VC\Tools\Llvm\x64\bin\clang_rt.asan*dynamic-x86_64.dll"
+          )
+          $runtimes = @($patterns | ForEach-Object {
+            Get-ChildItem -Path $_ -File -ErrorAction SilentlyContinue
+          })
+          if (-not $runtimes) { throw 'MSVC AddressSanitizer runtime DLL not found' }
+          $output = Resolve-Path '.\build-asan\RelWithDebInfo'
+          $runtimes | Group-Object Name | ForEach-Object {
+            $runtime = $_.Group | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            Copy-Item $runtime.FullName -Destination $output -Force
+          }
+      - name: Run bidi tests under MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          $env:ASAN_OPTIONS = 'halt_on_error=1:abort_on_error=1:symbolize=1'
+          $env:ASAN_SAVE_DUMPS = 'windows-bidi-asan.dmp'
+          $process = Start-Process `
+            -FilePath '.\build-asan\RelWithDebInfo\zevryon-bidi-resolver-tests.exe' `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput 'windows-bidi-asan.stdout.log' `
+            -RedirectStandardError 'windows-bidi-asan.stderr.log'
+          "exit_code=$($process.ExitCode)" | Set-Content 'windows-bidi-asan.exit.log'
+          Get-Content 'windows-bidi-asan.stdout.log' -ErrorAction SilentlyContinue
+          Get-Content 'windows-bidi-asan.stderr.log' -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-bidi-asan-${{ github.sha }}
+          path: |
+            windows-bidi-asan-build.log
+            windows-bidi-asan.*.log
+            windows-bidi-asan.dmp
+          if-no-files-found: warn
