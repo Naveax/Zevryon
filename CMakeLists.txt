@@ -43,6 +43,7 @@ endforeach()
 add_library(zevryon-massivedoc-core STATIC
   "${ZEVRYON_MASSIVEDOC_SOURCE}"
   src/compact_document.cpp
+  src/layout_window.cpp
 )
 target_include_directories(zevryon-massivedoc-core PUBLIC src)
 zevryon_options(zevryon-massivedoc-core)
@@ -62,4 +63,9 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-compact-document-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-compact-document-tests)
   add_test(NAME compact-document-tests COMMAND zevryon-compact-document-tests)
+
+  add_executable(zevryon-layout-window-tests tests/layout_window_tests.cpp)
+  target_link_libraries(zevryon-layout-window-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-layout-window-tests)
+  add_test(NAME layout-window-tests COMMAND zevryon-layout-window-tests)
 endif()
