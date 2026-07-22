@@ -1,0 +1,53 @@
+name: competitor-benchmark
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  giant-document-competitors:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install benchmark dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install playwright psutil
+          python -m playwright install --with-deps chromium firefox
+      - name: Build Zevryon
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          cmake --build build --parallel 2
+      - name: Produce Zevryon 64 MiB giant-record evidence
+        run: >-
+          python scripts/massivedoc_benchmark.py
+          --logical-bytes 134217728
+          --records 131072
+          --segment-mib 16
+          --largest-record-limit-bytes 67108864
+          --giant-record-bytes 67108864
+          --work-dir "${{ runner.temp }}/zevryon-competitor"
+          --output evidence/ci/competitor-zevryon.json
+      - name: Benchmark Chromium and Firefox
+        run: >-
+          python scripts/browser_competitor_benchmark.py
+          --zevryon-report evidence/ci/competitor-zevryon.json
+          --payload-bytes 67108864
+          --query-count 21
+          --virtual-slice-bytes 131072
+          --output evidence/ci/competitor-report.json
+      - name: Upload comparison evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: competitor-giant-document-${{ github.sha }}
+          path: |
+            evidence/ci/competitor-zevryon.json
+            evidence/ci/competitor-report.json
+          if-no-files-found: warn
