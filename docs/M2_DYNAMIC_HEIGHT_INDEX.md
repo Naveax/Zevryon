@@ -34,7 +34,7 @@ If a later metadata write fails, earlier metadata writes are restored where poss
 
 ## Cross-platform gate
 
-M2 remains draft until strict C++20 builds and native tests pass on Linux, macOS, and Windows, the sanitizer job passes, and the real 64 MiB giant-record benchmark remains lossless. Windows compiler and CTest output are retained as workflow artifacts so `/WX` failures are diagnosed rather than suppressed.
+M2 remains draft until strict C++20 builds and native tests pass on Linux, macOS, and Windows, the sanitizer job passes, and the real 64 MiB giant-record benchmark remains lossless. Windows compiler and CTest output are retained as workflow artifacts so `/WX` failures are diagnosed rather than suppressed. A separate MSVC AddressSanitizer job is required for Windows-only runtime faults; the warnings-as-errors contract is not relaxed to make that job pass.
 
 ## Current boundary
 
