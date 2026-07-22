@@ -25,8 +25,7 @@ enum class Utf8ErrorKind : std::uint8_t {
     SurrogateCodePoint,
     CodePointOutOfRange,
     TruncatedSequence,
-    OutputBudgetExceeded,
-    InvalidSourceRange
+    OutputBudgetExceeded
 };
 
 const char* utf8_error_kind_name(Utf8ErrorKind kind) noexcept;
@@ -47,11 +46,16 @@ struct DecodedCodePoint {
     constexpr DecodedCodePoint(
         std::uint32_t input_value,
         std::uint64_t input_source_start,
-        std::uint8_t input_source_length,
+        std::uint64_t input_source_end,
         bool input_replacement) noexcept
         : source_start(input_source_start),
           value(input_value),
-          source_length(input_source_length),
+          source_length(
+              input_source_end >= input_source_start &&
+                      input_source_end - input_source_start <= 255U
+                  ? static_cast<std::uint8_t>(
+                        input_source_end - input_source_start)
+                  : 0U),
           replacement(input_replacement) {}
 
     constexpr std::uint64_t source_end() const noexcept {
