@@ -560,6 +560,7 @@ void resolve_weak_types(
             last_strong = unit.current;
         } else if (unit.current == BidiClass::EN && last_strong == BidiClass::L) {
             unit.current = BidiClass::L;
+            set_flag(&unit, kFlagNumeric, false);
         }
     }
 }
