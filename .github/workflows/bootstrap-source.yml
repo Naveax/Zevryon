@@ -40,11 +40,11 @@ jobs:
           PY
       - name: Validate reconstructed source
         run: |
-          cmake -S .bootstrap/extracted/bootstrap-engine -B .bootstrap/build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          cmake -S .bootstrap/extracted -B .bootstrap/build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
           cmake --build .bootstrap/build -j2
           ctest --test-dir .bootstrap/build --output-on-failure
           cd .bootstrap/extracted
-          PYTHONPATH=. python3 -m pytest -q tests/performance
+          PYTHONPATH=. python3 -m pytest -q tests
       - name: Replace bootstrap with source tree
         run: |
           rsync -a --delete --exclude=.git --exclude=.bootstrap .bootstrap/extracted/ ./
