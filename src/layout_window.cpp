@@ -4,12 +4,14 @@
 #include "massivedoc_store.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <limits>
 #include <list>
 #include <sstream>
 #include <span>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace zevryon::massivedoc {
 namespace {
@@ -60,6 +62,10 @@ struct ScanResult {
     std::vector<LayoutFragment> visible_fragments;
 };
 
+constexpr std::size_t kCacheContainerPointerSlots = 12U;
+constexpr std::size_t kCacheFixedCharge =
+    sizeof(CacheEntry) + sizeof(CacheKey) + kCacheContainerPointerSlots * sizeof(void*);
+
 std::uint32_t bucket_width(std::uint32_t width_q8, std::uint32_t bucket_q8) noexcept {
     if (bucket_q8 == 0U || width_q8 < bucket_q8) {
         return width_q8;
@@ -79,6 +85,19 @@ std::uint64_t saturating_multiply(std::uint64_t left, std::uint64_t right) noexc
         return std::numeric_limits<std::uint64_t>::max();
     }
     return left * right;
+}
+
+std::size_t conservative_cache_charge(const std::vector<LayoutFragment>& fragments) noexcept {
+    if (fragments.capacity() >
+        (std::numeric_limits<std::size_t>::max() - kCacheFixedCharge) / sizeof(LayoutFragment)) {
+        return std::numeric_limits<std::size_t>::max();
+    }
+    return kCacheFixedCharge + fragments.capacity() * sizeof(LayoutFragment);
+}
+
+void release_fragment_storage(std::vector<LayoutFragment>* fragments) {
+    std::vector<LayoutFragment> empty;
+    empty.swap(*fragments);
 }
 
 bool intersects(
@@ -126,55 +145,69 @@ struct LayoutWindowEngine::Impl {
         return &found->second;
     }
 
+    void erase_cache_entry(std::unordered_map<CacheKey, CacheEntry, CacheKeyHash>::iterator entry) {
+        if (entry->second.charge_bytes <= cache_bytes_value) {
+            cache_bytes_value -= entry->second.charge_bytes;
+        } else {
+            cache_bytes_value = 0U;
+        }
+        lru.erase(entry->second.lru_position);
+        cache.erase(entry);
+    }
+
     void evict_for(std::size_t incoming) {
         while (!lru.empty() &&
                (incoming > config.max_cache_bytes || cache_bytes_value > config.max_cache_bytes - incoming)) {
             const CacheKey key = lru.back();
             const auto found = cache.find(key);
-            if (found != cache.end()) {
-                cache_bytes_value -= found->second.charge_bytes;
-                cache.erase(found);
+            if (found == cache.end()) {
+                lru.pop_back();
+                continue;
             }
-            lru.pop_back();
+            erase_cache_entry(found);
         }
     }
 
     void store_cache(const CacheKey& key, ScanResult scan) {
-        if (config.max_cache_bytes == 0U) {
+        if (config.max_cache_bytes < kCacheFixedCharge) {
             return;
         }
-        if (scan.fragments.size() >
-            (std::numeric_limits<std::size_t>::max() - sizeof(CacheEntry)) / sizeof(LayoutFragment)) {
-            return;
-        }
-        const std::size_t fragment_bytes = scan.fragments.size() * sizeof(LayoutFragment);
-        const std::size_t charge = sizeof(CacheEntry) + fragment_bytes;
-        if (charge > config.max_cache_bytes) {
-            return;
-        }
-        const auto existing = cache.find(key);
-        if (existing != cache.end()) {
-            cache_bytes_value -= existing->second.charge_bytes;
-            lru.erase(existing->second.lru_position);
-            cache.erase(existing);
-        }
-        evict_for(charge);
-        lru.push_front(key);
+
         CacheEntry entry;
         entry.measured_height_q8 = scan.measured_height_q8;
         entry.height_saturated = scan.height_saturated;
         entry.complete_fragments = scan.complete_fragments;
         entry.fragments = std::move(scan.fragments);
-        entry.charge_bytes = charge;
+        entry.charge_bytes = conservative_cache_charge(entry.fragments);
+        if (entry.charge_bytes > config.max_cache_bytes) {
+            return;
+        }
+
+        const auto existing = cache.find(key);
+        if (existing != cache.end()) {
+            erase_cache_entry(existing);
+        }
+        evict_for(entry.charge_bytes);
+        if (entry.charge_bytes > config.max_cache_bytes ||
+            cache_bytes_value > config.max_cache_bytes - entry.charge_bytes) {
+            return;
+        }
+
+        lru.push_front(key);
         entry.lru_position = lru.begin();
+        const std::size_t charge = entry.charge_bytes;
+        const auto inserted = cache.emplace(key, std::move(entry));
+        if (!inserted.second) {
+            lru.pop_front();
+            return;
+        }
         cache_bytes_value += charge;
-        cache.emplace(key, std::move(entry));
     }
 
     bool scan_record(
         const MaterializedRecord& record,
         const CacheKey& key,
-        std::size_t fragment_cache_limit,
+        std::size_t fragment_cache_budget,
         std::uint64_t visible_start_q8,
         std::uint64_t visible_end_q8,
         std::size_t visible_limit,
@@ -203,7 +236,7 @@ struct LayoutWindowEngine::Impl {
         std::uint64_t pending_start = 0U;
         std::uint8_t pending_remaining = 0U;
         bool emitted_any = false;
-        const bool cache_enabled = fragment_cache_limit != 0U;
+        const bool cache_enabled = fragment_cache_budget >= kCacheFixedCharge;
         bool cache_complete = cache_enabled;
 
         const auto emit_line = [&](std::uint64_t source_end, bool hard_break) {
@@ -222,11 +255,11 @@ struct LayoutWindowEngine::Impl {
                 std::min<std::uint64_t>(content_width, std::numeric_limits<std::uint32_t>::max())));
             fragment.height_q8 = config.line_height_q8;
             fragment.hard_break = hard_break;
+
             if (cache_complete) {
-                if (output->fragments.size() < fragment_cache_limit) {
-                    output->fragments.push_back(fragment);
-                } else {
-                    output->fragments.clear();
+                output->fragments.push_back(fragment);
+                if (conservative_cache_charge(output->fragments) > fragment_cache_budget) {
+                    release_fragment_storage(&output->fragments);
                     cache_complete = false;
                 }
             }
@@ -262,7 +295,7 @@ struct LayoutWindowEngine::Impl {
         const bool read_ok = store.read_record(
             record.record_index,
             [&](std::span<const std::byte> bytes) {
-                output->bytes_read += bytes.size();
+                output->bytes_read += static_cast<std::uint64_t>(bytes.size());
                 for (const std::byte raw : bytes) {
                     const std::uint8_t byte = static_cast<std::uint8_t>(std::to_integer<unsigned int>(raw));
                     bool retry = true;
@@ -370,10 +403,6 @@ bool LayoutWindowEngine::layout(
     result->query_end_q8 = initial.query_end_q8;
     result->truncated = initial.truncated;
 
-    const std::size_t per_entry_limit = impl_->config.max_cache_bytes <= sizeof(CacheEntry)
-                                            ? 0U
-                                            : (impl_->config.max_cache_bytes - sizeof(CacheEntry)) /
-                                                  sizeof(LayoutFragment);
     for (const MaterializedRecord& record : initial.records) {
         const CacheKey key = impl_->key_for(record.record_index, viewport_width_q8);
         CacheEntry* cached = impl_->find_cache(key);
@@ -386,7 +415,15 @@ bool LayoutWindowEngine::layout(
         } else {
             ++result->cache_misses;
             ScanResult scan;
-            if (!impl_->scan_record(record, key, per_entry_limit, 0U, 0U, 0U, &scan, error)) {
+            if (!impl_->scan_record(
+                    record,
+                    key,
+                    impl_->config.max_cache_bytes,
+                    0U,
+                    0U,
+                    0U,
+                    &scan,
+                    error)) {
                 return false;
             }
             result->source_bytes_read += scan.bytes_read;
@@ -421,11 +458,11 @@ bool LayoutWindowEngine::layout(
         }
         const CacheKey key = impl_->key_for(record.record_index, viewport_width_q8);
         CacheEntry* cached = impl_->find_cache(key);
-        std::vector<LayoutFragment> local_fragments;
+        ScanResult scan;
+        const std::vector<LayoutFragment>* local_fragments = nullptr;
         if (cached != nullptr && cached->complete_fragments) {
-            local_fragments = cached->fragments;
+            local_fragments = &cached->fragments;
         } else {
-            ScanResult scan;
             const std::uint64_t local_start = corrected.query_start_q8 > record.y_q8
                                                   ? corrected.query_start_q8 - record.y_q8
                                                   : 0U;
@@ -438,13 +475,14 @@ bool LayoutWindowEngine::layout(
             }
             result->source_bytes_read += scan.bytes_read;
             result->truncated = result->truncated || scan.visible_truncated;
-            local_fragments = std::move(scan.visible_fragments);
+            local_fragments = &scan.visible_fragments;
         }
-        for (LayoutFragment fragment : local_fragments) {
-            const std::uint64_t absolute_y = saturating_add(record.y_q8, fragment.y_q8);
+
+        for (const LayoutFragment& cached_fragment : *local_fragments) {
+            const std::uint64_t absolute_y = saturating_add(record.y_q8, cached_fragment.y_q8);
             if (!intersects(
                     absolute_y,
-                    fragment.height_q8,
+                    cached_fragment.height_q8,
                     corrected.query_start_q8,
                     corrected.query_end_q8)) {
                 continue;
@@ -453,6 +491,7 @@ bool LayoutWindowEngine::layout(
                 result->truncated = true;
                 break;
             }
+            LayoutFragment fragment = cached_fragment;
             fragment.y_q8 = absolute_y;
             result->fragments.push_back(fragment);
         }
