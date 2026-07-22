@@ -45,6 +45,7 @@ add_library(zevryon-massivedoc-core STATIC
   src/compact_document.cpp
   src/layout_checkpoint.cpp
   src/layout_window.cpp
+  src/resource_ledger.cpp
   src/zenith_layout_window.cpp
   src/zenith_hot_scroll.cpp
 )
@@ -94,4 +95,9 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-zenith-hot-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-zenith-hot-tests)
   add_test(NAME zenith-hot-scroll-tests COMMAND zevryon-zenith-hot-tests)
+
+  add_executable(zevryon-resource-ledger-tests tests/resource_ledger_tests.cpp)
+  target_link_libraries(zevryon-resource-ledger-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-resource-ledger-tests)
+  add_test(NAME resource-ledger-tests COMMAND zevryon-resource-ledger-tests)
 endif()
