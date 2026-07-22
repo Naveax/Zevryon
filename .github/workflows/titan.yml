@@ -44,6 +44,7 @@ jobs:
             --segment-mib 64 \
             --largest-record-limit-bytes 67108864 \
             --giant-record-bytes 67108864 \
+            --cleanup-large-files \
             --work-dir "${{ runner.temp }}/zevryon-titan" \
             --output "evidence/titan/titan-${GITHUB_SHA}.json" \
             2>&1 | tee "evidence/titan/titan-${GITHUB_SHA}.log"
