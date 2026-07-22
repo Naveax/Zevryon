@@ -1,0 +1,105 @@
+name: z1-bidi-data
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-bidi-data.yml'
+      - 'scripts/generate_unicode_bidi_data.py'
+  workflow_dispatch:
+
+concurrency:
+  group: z1-bidi-data-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download versioned Unicode 17 bidi sources
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import urllib.request
+          from pathlib import Path
+
+          sources = {
+              'DerivedBidiClass.txt': 'extracted/DerivedBidiClass.txt',
+              'BidiBrackets.txt': 'BidiBrackets.txt',
+              'BidiMirroring.txt': 'BidiMirroring.txt',
+              'PropertyValueAliases.txt': 'PropertyValueAliases.txt',
+              'BidiTest.txt': 'BidiTest.txt',
+              'BidiCharacterTest.txt': 'BidiCharacterTest.txt',
+          }
+          root = Path('evidence/ci/ucd-17.0.0')
+          root.mkdir(parents=True, exist_ok=True)
+          hashes = {}
+          for name, relative in sources.items():
+              data = urllib.request.urlopen(
+                  'https://www.unicode.org/Public/17.0.0/ucd/' + relative,
+                  timeout=120,
+              ).read()
+              if b'17.0.0' not in data[:8192]:
+                  raise RuntimeError(f'unexpected Unicode version in {name}')
+              (root / name).write_bytes(data)
+              hashes[name] = hashlib.sha256(data).hexdigest()
+              print(name, len(data), hashes[name])
+          Path('evidence/ci/unicode_bidi_sources.json').write_text(
+              json.dumps(hashes, indent=2, sort_keys=True) + '\n'
+          )
+          PY
+      - name: Generate deterministic bidi tables twice
+        run: |
+          python scripts/generate_unicode_bidi_data.py \
+            --derived-bidi-class evidence/ci/ucd-17.0.0/DerivedBidiClass.txt \
+            --bidi-brackets evidence/ci/ucd-17.0.0/BidiBrackets.txt \
+            --bidi-mirroring evidence/ci/ucd-17.0.0/BidiMirroring.txt \
+            --aliases evidence/ci/ucd-17.0.0/PropertyValueAliases.txt \
+            --output evidence/generated/unicode_bidi_data.generated.hpp \
+            --manifest evidence/generated/unicode_bidi_data.manifest.json
+          python scripts/generate_unicode_bidi_data.py \
+            --derived-bidi-class evidence/ci/ucd-17.0.0/DerivedBidiClass.txt \
+            --bidi-brackets evidence/ci/ucd-17.0.0/BidiBrackets.txt \
+            --bidi-mirroring evidence/ci/ucd-17.0.0/BidiMirroring.txt \
+            --aliases evidence/ci/ucd-17.0.0/PropertyValueAliases.txt \
+            --output evidence/generated/unicode_bidi_data.generated.second.hpp \
+            --manifest evidence/generated/unicode_bidi_data.manifest.second.json
+          cmp evidence/generated/unicode_bidi_data.generated.hpp evidence/generated/unicode_bidi_data.generated.second.hpp
+          cmp evidence/generated/unicode_bidi_data.manifest.json evidence/generated/unicode_bidi_data.manifest.second.json
+      - name: Validate generated contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path('evidence/generated/unicode_bidi_data.manifest.json').read_text())
+          assert manifest['schema'] == 'zevryon.unicode-bidi-data.v1'
+          assert manifest['unicode_version'] == '17.0.0'
+          assert manifest['bidi_class_count'] == 23
+          assert manifest['bidi_class_range_count'] >= 1000
+          assert manifest['bracket_entry_count'] >= 100
+          assert manifest['mirror_entry_count'] >= 400
+          assert manifest['generated_header_bytes'] < 500000
+          print(json.dumps(manifest, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: z1-bidi-data-${{ github.sha }}
+          path: |
+            evidence/generated/unicode_bidi_data.generated.hpp
+            evidence/generated/unicode_bidi_data.manifest.json
+            evidence/ci/unicode_bidi_sources.json
+            evidence/ci/ucd-17.0.0/DerivedBidiClass.txt
+            evidence/ci/ucd-17.0.0/BidiBrackets.txt
+            evidence/ci/ucd-17.0.0/BidiMirroring.txt
+            evidence/ci/ucd-17.0.0/PropertyValueAliases.txt
+            evidence/ci/ucd-17.0.0/BidiTest.txt
+            evidence/ci/ucd-17.0.0/BidiCharacterTest.txt
