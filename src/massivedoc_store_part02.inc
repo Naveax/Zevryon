@@ -68,7 +68,7 @@ bool StoreWriter::append_stream(
     std::uint64_t remaining = length;
     std::uint32_t chunk_count = 0U;
     std::uint32_t crc = 0U;
-    std::array<std::byte, kIoWindowBytes> buffer{};
+    std::vector<std::byte> buffer(kIoWindowBytes);
     bool have_previous = false;
     unsigned char previous = 0U;
     while (remaining != 0U) {
