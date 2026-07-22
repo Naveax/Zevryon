@@ -35,7 +35,10 @@ foreach(part IN LISTS ZEVRYON_MASSIVEDOC_PARTS)
   file(APPEND "${ZEVRYON_MASSIVEDOC_SOURCE}" "${part_content}")
 endforeach()
 
-add_library(zevryon-massivedoc-core STATIC "${ZEVRYON_MASSIVEDOC_SOURCE}")
+add_library(zevryon-massivedoc-core STATIC
+  "${ZEVRYON_MASSIVEDOC_SOURCE}"
+  src/compact_document.cpp
+)
 target_include_directories(zevryon-massivedoc-core PUBLIC src)
 zevryon_options(zevryon-massivedoc-core)
 
@@ -49,4 +52,9 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-massivedoc-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-massivedoc-tests)
   add_test(NAME massivedoc-store-tests COMMAND zevryon-massivedoc-tests)
+
+  add_executable(zevryon-compact-document-tests tests/compact_document_tests.cpp)
+  target_link_libraries(zevryon-compact-document-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-compact-document-tests)
+  add_test(NAME compact-document-tests COMMAND zevryon-compact-document-tests)
 endif()
