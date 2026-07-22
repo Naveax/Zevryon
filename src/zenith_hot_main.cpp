@@ -33,6 +33,16 @@ std::optional<std::uint64_t> pixels_to_q8(std::string_view text) {
     return *pixels * 256U;
 }
 
+std::uint64_t bounded_add(
+    std::uint64_t base,
+    std::uint64_t delta,
+    std::uint64_t maximum) noexcept {
+    if (base >= maximum || delta >= maximum - base) {
+        return maximum;
+    }
+    return base + delta;
+}
+
 struct ProfileResult {
     double p50_ms{0.0};
     double p95_ms{0.0};
@@ -231,12 +241,9 @@ int main(int argc, char** argv) {
             const std::uint64_t delta = radius - sample;
             position = position >= delta ? position - delta : 0U;
         } else {
-            const std::uint64_t delta = sample - radius;
-            position = position > max_scroll_q8 - std::min(delta, max_scroll_q8)
-                           ? max_scroll_q8
-                           : position + delta;
+            position = bounded_add(position, sample - radius, max_scroll_q8);
         }
-        random_positions.push_back(std::min(position, max_scroll_q8));
+        random_positions.push_back(position);
     }
 
     std::vector<std::uint64_t> adjacent_positions;
@@ -250,9 +257,7 @@ int main(int argc, char** argv) {
                                         ? std::numeric_limits<std::uint64_t>::max()
                                         : index_u64 * kAdjacentStepQ8;
         adjacent_positions.push_back(
-            bounded_center_q8 > max_scroll_q8 - std::min(delta, max_scroll_q8)
-                ? max_scroll_q8
-                : bounded_center_q8 + delta);
+            bounded_add(bounded_center_q8, delta, max_scroll_q8));
     }
 
     ProfileResult random_profile;
