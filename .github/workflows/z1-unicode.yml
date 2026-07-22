@@ -34,7 +34,7 @@ jobs:
       - name: Run 64 KiB streaming UTF-8 benchmark
         run: |
           mkdir -p evidence/ci
-          build/zevryon-unicode-benchmark 1024 4096 4194304 > evidence/ci/z1-unicode-benchmark.json
+          build/zevryon-unicode-benchmark 1024 4096 2097152 > evidence/ci/z1-unicode-benchmark.json
           python - <<'PY'
           import json
           from pathlib import Path
@@ -43,7 +43,9 @@ jobs:
           assert report['fixture_bytes'] == 65536
           assert report['iterations'] == 1024
           assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
-          assert report['p95_ms'] <= 2.0
+          assert report['p95_ms'] <= 0.50
+          assert report['p99_ms'] <= 0.75
+          assert report['unicode_hard_limit_bytes'] == 2097152
           assert report['unicode_current_bytes'] <= report['unicode_peak_bytes']
           assert report['unicode_peak_bytes'] <= report['unicode_hard_limit_bytes']
           assert report['rejected_reservations'] == 0
