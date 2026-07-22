@@ -45,23 +45,18 @@ bool parse_case(const std::string& input, TestCase* test_case) {
     test_case->values.clear();
     test_case->expected_cluster_starts.clear();
     const std::size_t comment = input.find('#');
-    const std::string content = input.substr(0U, comment);
-    std::istringstream stream(content);
+    std::istringstream stream(input.substr(0U, comment));
     std::string marker;
-    if (!(stream >> marker)) {
+    if (!(stream >> marker) || marker != "÷") {
         return false;
     }
-    if (marker != "÷") {
-        return false;
-    }
-
     while (true) {
-        std::string codepoint_token;
-        if (!(stream >> codepoint_token)) {
+        std::string token;
+        if (!(stream >> token)) {
             break;
         }
         std::uint32_t value = 0U;
-        if (!parse_hex(codepoint_token, &value)) {
+        if (!parse_hex(token, &value)) {
             return false;
         }
         if (marker == "÷") {
@@ -96,12 +91,12 @@ bool run_case(
     zevryon::core::LedgerMemoryResource memory(
         ledger,
         zevryon::core::ResourceClass::GraphemeCluster);
-    std::pmr::vector<zevryon::text::GraphemeCluster> clusters(&memory);
+    std::pmr::vector<zevryon::text::GraphemeBoundary> boundaries(&memory);
     zevryon::text::GraphemeSegmentStats stats;
     zevryon::text::GraphemeError error;
     if (!zevryon::text::segment_graphemes(
             codepoints,
-            &clusters,
+            &boundaries,
             &stats,
             &error)) {
         std::cerr << "line " << line_number << ": segmentation failed: "
@@ -110,38 +105,39 @@ bool run_case(
                   << error.message << '\n';
         return false;
     }
-    if (clusters.size() != test_case.expected_cluster_starts.size()) {
-        std::cerr << "line " << line_number << ": cluster count mismatch, expected "
-                  << test_case.expected_cluster_starts.size() << " got "
-                  << clusters.size() << '\n';
+    if (boundaries.size() !=
+        test_case.expected_cluster_starts.size() + 1U) {
+        std::cerr << "line " << line_number
+                  << ": boundary count mismatch, expected "
+                  << test_case.expected_cluster_starts.size() + 1U
+                  << " got " << boundaries.size() << '\n';
         return false;
     }
-    for (std::size_t index = 0U; index < clusters.size(); ++index) {
-        if (clusters[index].first_codepoint !=
+    for (std::size_t index = 0U;
+         index < test_case.expected_cluster_starts.size();
+         ++index) {
+        if (boundaries[index].codepoint_index !=
             test_case.expected_cluster_starts[index]) {
-            std::cerr << "line " << line_number << ": cluster " << index
-                      << " starts at " << clusters[index].first_codepoint
+            std::cerr << "line " << line_number << ": boundary " << index
+                      << " starts at " << boundaries[index].codepoint_index
                       << ", expected "
                       << test_case.expected_cluster_starts[index] << '\n';
             return false;
         }
-        const std::uint32_t expected_end =
-            index + 1U < clusters.size()
-                ? test_case.expected_cluster_starts[index + 1U]
-                : static_cast<std::uint32_t>(test_case.values.size());
-        if (clusters[index].codepoint_count !=
-            expected_end - test_case.expected_cluster_starts[index]) {
-            std::cerr << "line " << line_number << ": cluster " << index
-                      << " length mismatch\n";
-            return false;
-        }
     }
-    if (!ledger.within_hard_limits() || !ledger.accounting_clean()) {
+    if (boundaries.back().codepoint_index != test_case.values.size() ||
+        boundaries.back().source_offset != source) {
         std::cerr << "line " << line_number
-                  << ": grapheme resource accounting failed\n";
+                  << ": final sentinel mismatch\n";
         return false;
     }
-    *cluster_total += static_cast<std::uint64_t>(clusters.size());
+    if (stats.output_clusters != test_case.expected_cluster_starts.size() ||
+        !ledger.within_hard_limits() || !ledger.accounting_clean()) {
+        std::cerr << "line " << line_number
+                  << ": grapheme accounting or stats failed\n";
+        return false;
+    }
+    *cluster_total += stats.output_clusters;
     return true;
 }
 
@@ -171,14 +167,16 @@ int main(int argc, char** argv) {
             continue;
         }
         if (!parse_case(line, &test_case)) {
-            std::cerr << "line " << line_number << ": invalid conformance syntax\n";
+            std::cerr << "line " << line_number
+                      << ": invalid conformance syntax\n";
             return 1;
         }
         if (!run_case(test_case, line_number, &cluster_total)) {
             return 1;
         }
         ++test_count;
-        codepoint_total += static_cast<std::uint64_t>(test_case.values.size());
+        codepoint_total +=
+            static_cast<std::uint64_t>(test_case.values.size());
     }
     if (test_count == 0U) {
         std::cerr << "conformance file contained no tests\n";
