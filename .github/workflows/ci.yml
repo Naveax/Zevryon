@@ -63,7 +63,7 @@ jobs:
 
   giant-record-benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -89,12 +89,27 @@ jobs:
           --layout-report "${{ runner.temp }}/zevryon-giant/layout-window-report.json"
           --expected-record 65536
           --output evidence/ci/zenith-global-layout.json
+      - name: Certify bounded ZENITH hot-scroll
+        run: >-
+          python scripts/zenith_hot_scroll_benchmark.py
+          --massivedoc-binary build/zevryon-massivedoc
+          --hot-binary build/zevryon-zenith-hot
+          --store "${{ runner.temp }}/zevryon-giant/store"
+          --layout-report "${{ runner.temp }}/zevryon-giant/layout-window-report.json"
+          --expected-record 65536
+          --queries 257
+          --stride-kib 16
+          --random-p95-ms 2.0
+          --adjacent-p95-ms 0.5
+          --max-source-bytes 65536
+          --output evidence/ci/zenith-hot-scroll.json
       - uses: actions/upload-artifact@v4
         with:
           name: m1-giant-record-${{ github.sha }}
           path: |
             evidence/ci/m1-giant-record.json
             evidence/ci/zenith-global-layout.json
+            evidence/ci/zenith-hot-scroll.json
 
   sanitizer:
     runs-on: ubuntu-latest
@@ -107,7 +122,7 @@ jobs:
 
   windows-sanitizer:
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Configure MSVC AddressSanitizer
@@ -228,6 +243,24 @@ jobs:
           Get-Content "windows-asan-zenith.stdout.log" -ErrorAction SilentlyContinue
           Get-Content "windows-asan-zenith.stderr.log" -ErrorAction SilentlyContinue
           if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - name: Run ZENITH hot-scroll tests under MSVC AddressSanitizer
+        id: asan_hot
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          $env:ASAN_OPTIONS = "halt_on_error=1:abort_on_error=1:symbolize=1"
+          $env:ASAN_SAVE_DUMPS = "windows-asan-hot.dmp"
+          $process = Start-Process `
+            -FilePath ".\build-asan\RelWithDebInfo\zevryon-zenith-hot-tests.exe" `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput "windows-asan-hot.stdout.log" `
+            -RedirectStandardError "windows-asan-hot.stderr.log"
+          "exit_code=$($process.ExitCode)" | Set-Content "windows-asan-hot.exit.log"
+          Get-Content "windows-asan-hot.stdout.log" -ErrorAction SilentlyContinue
+          Get-Content "windows-asan-hot.stderr.log" -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
       - name: Enforce MSVC AddressSanitizer results
         if: always()
         shell: pwsh
@@ -238,7 +271,8 @@ jobs:
             "windows-asan-compact.exit.log",
             "windows-asan-layout.exit.log",
             "windows-asan-checkpoint.exit.log",
-            "windows-asan-zenith.exit.log"
+            "windows-asan-zenith.exit.log",
+            "windows-asan-hot.exit.log"
           )) {
             if (-not (Test-Path $path)) {
               Write-Error "missing sanitizer exit record: $path"
@@ -267,4 +301,6 @@ jobs:
             windows-asan-checkpoint.dmp
             windows-asan-zenith.*.log
             windows-asan-zenith.dmp
+            windows-asan-hot.*.log
+            windows-asan-hot.dmp
           if-no-files-found: warn
