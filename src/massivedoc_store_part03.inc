@@ -181,7 +181,7 @@ bool StoreReader::read_record(
     if (!impl_->read_record_descriptor(record_index, &record, error)) {
         return false;
     }
-    std::array<std::byte, kIoWindowBytes> buffer{};
+    std::vector<std::byte> buffer(kIoWindowBytes);
     std::uint64_t read_total = 0U;
     for (std::uint32_t relative = 0U; relative < record.chunk_count; ++relative) {
         ChunkDescriptor chunk;
