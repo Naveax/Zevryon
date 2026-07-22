@@ -41,6 +41,7 @@ struct LayoutWindowResult {
     std::size_t cache_bytes{0};
     bool truncated{false};
     bool height_saturated{false};
+    bool scroll_clamped{false};
     std::vector<LayoutFragment> fragments;
 };
 
