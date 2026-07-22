@@ -46,6 +46,7 @@ add_library(zevryon-massivedoc-core STATIC
   src/layout_checkpoint.cpp
   src/layout_window.cpp
   src/zenith_layout_window.cpp
+  src/zenith_hot_scroll.cpp
 )
 target_include_directories(zevryon-massivedoc-core PUBLIC src)
 zevryon_options(zevryon-massivedoc-core)
@@ -57,6 +58,10 @@ zevryon_options(zevryon-massivedoc)
 add_executable(zevryon-zenith-layout src/zenith_main.cpp)
 target_link_libraries(zevryon-zenith-layout PRIVATE zevryon-massivedoc-core)
 zevryon_options(zevryon-zenith-layout)
+
+add_executable(zevryon-zenith-hot src/zenith_hot_main.cpp)
+target_link_libraries(zevryon-zenith-hot PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-zenith-hot)
 
 include(CTest)
 if(BUILD_TESTING)
@@ -84,4 +89,9 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-zenith-layout-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-zenith-layout-tests)
   add_test(NAME zenith-layout-tests COMMAND zevryon-zenith-layout-tests)
+
+  add_executable(zevryon-zenith-hot-tests tests/zenith_hot_scroll_tests.cpp)
+  target_link_libraries(zevryon-zenith-hot-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-zenith-hot-tests)
+  add_test(NAME zenith-hot-scroll-tests COMMAND zevryon-zenith-hot-tests)
 endif()
