@@ -1,0 +1,83 @@
+name: z1-script-data
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-script-data.yml'
+      - 'scripts/generate_unicode_script_data.py'
+  workflow_dispatch:
+
+concurrency:
+  group: z1-script-data-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download versioned Unicode 17 sources
+        run: |
+          python - <<'PY'
+          import urllib.request
+          from pathlib import Path
+
+          base = 'https://www.unicode.org/Public/17.0.0/ucd/'
+          names = ['Scripts.txt', 'ScriptExtensions.txt', 'PropertyValueAliases.txt']
+          root = Path('evidence/ci/ucd-17.0.0')
+          root.mkdir(parents=True, exist_ok=True)
+          for name in names:
+              data = urllib.request.urlopen(base + name, timeout=60).read()
+              if b'17.0.0' not in data[:4096]:
+                  raise RuntimeError(f'unexpected Unicode version in {name}')
+              (root / name).write_bytes(data)
+              print(name, len(data))
+          PY
+      - name: Generate deterministic script tables
+        run: |
+          python scripts/generate_unicode_script_data.py \
+            --scripts evidence/ci/ucd-17.0.0/Scripts.txt \
+            --script-extensions evidence/ci/ucd-17.0.0/ScriptExtensions.txt \
+            --aliases evidence/ci/ucd-17.0.0/PropertyValueAliases.txt \
+            --output evidence/generated/unicode_script_data.generated.hpp \
+            --manifest evidence/generated/unicode_script_data.manifest.json
+          python scripts/generate_unicode_script_data.py \
+            --scripts evidence/ci/ucd-17.0.0/Scripts.txt \
+            --script-extensions evidence/ci/ucd-17.0.0/ScriptExtensions.txt \
+            --aliases evidence/ci/ucd-17.0.0/PropertyValueAliases.txt \
+            --output evidence/generated/unicode_script_data.generated.second.hpp \
+            --manifest evidence/generated/unicode_script_data.manifest.second.json
+          cmp evidence/generated/unicode_script_data.generated.hpp evidence/generated/unicode_script_data.generated.second.hpp
+          cmp evidence/generated/unicode_script_data.manifest.json evidence/generated/unicode_script_data.manifest.second.json
+      - name: Validate generated data contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path('evidence/generated/unicode_script_data.manifest.json').read_text())
+          assert manifest['schema'] == 'zevryon.unicode-script-data.v1'
+          assert manifest['unicode_version'] == '17.0.0'
+          assert manifest['script_count'] >= 170
+          assert manifest['script_range_count'] >= 900
+          assert manifest['script_extension_range_count'] >= 100
+          assert manifest['script_extension_set_count'] >= 50
+          assert manifest['generated_header_bytes'] < 500000
+          print(json.dumps(manifest, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: z1-script-data-${{ github.sha }}
+          path: |
+            evidence/generated/unicode_script_data.generated.hpp
+            evidence/generated/unicode_script_data.manifest.json
+            evidence/ci/ucd-17.0.0/Scripts.txt
+            evidence/ci/ucd-17.0.0/ScriptExtensions.txt
+            evidence/ci/ucd-17.0.0/PropertyValueAliases.txt
