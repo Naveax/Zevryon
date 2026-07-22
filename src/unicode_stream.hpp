@@ -37,13 +37,28 @@ struct Utf8DecodeError {
 };
 
 struct DecodedCodePoint {
-    std::uint32_t value{0};
     std::uint64_t source_start{0};
     std::uint64_t source_end{0};
+    std::uint32_t value{0};
     bool replacement{false};
+
+    constexpr DecodedCodePoint() noexcept = default;
+    constexpr DecodedCodePoint(
+        std::uint32_t input_value,
+        std::uint64_t input_source_start,
+        std::uint64_t input_source_end,
+        bool input_replacement) noexcept
+        : source_start(input_source_start),
+          source_end(input_source_end),
+          value(input_value),
+          replacement(input_replacement) {}
 
     bool operator==(const DecodedCodePoint&) const noexcept = default;
 };
+
+static_assert(
+    sizeof(DecodedCodePoint) <= 24U,
+    "decoded code point records must remain within the Z1 memory contract");
 
 struct Utf8DecodeStats {
     std::uint64_t source_bytes{0};
