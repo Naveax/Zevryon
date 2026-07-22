@@ -441,9 +441,16 @@ bool LayoutWindowEngine::layout(
         }
     }
 
+    const std::uint64_t corrected_total_height = impl_->arena.stats().total_height_q8;
+    const std::uint64_t max_corrected_scroll = corrected_total_height > viewport_height_q8
+                                                   ? corrected_total_height - viewport_height_q8
+                                                   : 0U;
+    const std::uint64_t corrected_scroll_y = std::min(scroll_y_q8, max_corrected_scroll);
+    result->scroll_clamped = corrected_scroll_y != scroll_y_q8;
+
     ViewportResult corrected;
     if (!impl_->arena.materialize(
-            scroll_y_q8, viewport_height_q8, overscan_q8, max_fragments, &corrected, error)) {
+            corrected_scroll_y, viewport_height_q8, overscan_q8, max_fragments, &corrected, error)) {
         return false;
     }
     result->query_start_q8 = corrected.query_start_q8;
@@ -512,7 +519,8 @@ std::string layout_window_json(const LayoutWindowResult& result) {
            << result.measured_records << ",\"cache_hits\":" << result.cache_hits << ",\"cache_misses\":"
            << result.cache_misses << ",\"cache_bytes\":" << result.cache_bytes << ",\"truncated\":"
            << (result.truncated ? "true" : "false") << ",\"height_saturated\":"
-           << (result.height_saturated ? "true" : "false") << ",\"fragment_count\":"
+           << (result.height_saturated ? "true" : "false") << ",\"scroll_clamped\":"
+           << (result.scroll_clamped ? "true" : "false") << ",\"fragment_count\":"
            << result.fragments.size() << ",\"fragments\":[";
     bool first = true;
     for (const LayoutFragment& fragment : result.fragments) {
