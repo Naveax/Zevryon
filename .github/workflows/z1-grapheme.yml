@@ -1,0 +1,171 @@
+name: z1-grapheme
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-grapheme.yml'
+      - 'CMakeLists.txt'
+      - 'src/grapheme_*'
+      - 'src/unicode_grapheme_*'
+      - 'src/resource_ledger.*'
+      - 'tests/grapheme_*'
+  workflow_dispatch:
+
+concurrency:
+  group: z1-grapheme-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  grapheme-conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-grapheme-segmenter-tests
+          zevryon-grapheme-conformance
+          zevryon-grapheme-benchmark
+      - run: ctest --test-dir build -R grapheme-segmenter-tests --output-on-failure
+      - name: Download pinned Unicode 17 GraphemeBreakTest
+        run: |
+          python - <<'PY'
+          import hashlib
+          import urllib.request
+          from pathlib import Path
+
+          url = (
+              'https://raw.githubusercontent.com/openjdk/jdk/'
+              '611f186cf3a47258116146d70e405ef483e65e2a/'
+              'src/java.base/share/data/unicodedata/auxiliary/'
+              'GraphemeBreakTest.txt'
+          )
+          data = urllib.request.urlopen(url, timeout=60).read()
+          git_blob = hashlib.sha1(
+              b'blob ' + str(len(data)).encode('ascii') + b'\0' + data
+          ).hexdigest()
+          expected = 'e1215547c58f959a0eec9928e1915901c168f6a9'
+          if git_blob != expected:
+              raise RuntimeError(
+                  f'GraphemeBreakTest blob mismatch: {git_blob} != {expected}'
+              )
+          if not data.startswith(b'# GraphemeBreakTest-17.0.0.txt'):
+              raise RuntimeError('unexpected GraphemeBreakTest Unicode version')
+          path = Path('evidence/ci/GraphemeBreakTest-17.0.0.txt')
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_bytes(data)
+          print(f'downloaded {len(data)} bytes, git blob {git_blob}')
+          PY
+      - name: Run complete Unicode 17 grapheme conformance file
+        run: >-
+          build/zevryon-grapheme-conformance
+          evidence/ci/GraphemeBreakTest-17.0.0.txt
+          > evidence/ci/z1-grapheme-conformance.json
+      - name: Run 64 KiB grapheme benchmark
+        run: >-
+          build/zevryon-grapheme-benchmark
+          1024 2097152
+          > evidence/ci/z1-grapheme-benchmark.json
+      - name: Enforce grapheme evidence
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          conformance = json.loads(
+              Path('evidence/ci/z1-grapheme-conformance.json').read_text()
+          )
+          assert conformance['schema'] == 'zevryon.grapheme-conformance.v1'
+          assert conformance['unicode_version'] == '17.0.0'
+          assert conformance['tests'] >= 500
+          assert conformance['passed'] is True
+
+          benchmark = json.loads(
+              Path('evidence/ci/z1-grapheme-benchmark.json').read_text()
+          )
+          assert benchmark['schema'] == 'zevryon.grapheme-benchmark.v1'
+          assert benchmark['unicode_version'] == '17.0.0'
+          assert benchmark['fixture_bytes'] == 65536
+          assert benchmark['iterations'] == 1024
+          assert benchmark['p50_ms'] <= benchmark['p95_ms'] <= benchmark['p99_ms'] <= benchmark['maximum_ms']
+          assert benchmark['p95_ms'] <= 5.0
+          assert benchmark['p99_ms'] <= 7.5
+          assert benchmark['cluster_hard_limit_bytes'] == 2097152
+          assert benchmark['cluster_current_bytes'] <= benchmark['cluster_peak_bytes']
+          assert benchmark['cluster_peak_bytes'] <= benchmark['cluster_hard_limit_bytes']
+          assert benchmark['rejected_reservations'] == 0
+          assert benchmark['accounting_errors'] == 0
+          assert benchmark['within_hard_limits'] is True
+          assert benchmark['accounting_clean'] is True
+          print(json.dumps({'conformance': conformance, 'benchmark': benchmark}, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: z1-grapheme-${{ github.sha }}
+          path: |
+            evidence/ci/GraphemeBreakTest-17.0.0.txt
+            evidence/ci/z1-grapheme-conformance.json
+            evidence/ci/z1-grapheme-benchmark.json
+
+  windows-grapheme-asan:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure MSVC AddressSanitizer
+        run: cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build grapheme test with MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          cmake --build build-asan --config RelWithDebInfo --target zevryon-grapheme-segmenter-tests --parallel 2 2>&1 | Tee-Object -FilePath windows-grapheme-asan-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Stage MSVC AddressSanitizer runtime
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw 'vswhere.exe not found' }
+          $installation = (& $vswhere -latest -products * -property installationPath).Trim()
+          if (-not $installation) { throw 'Visual Studio installation not found' }
+          $patterns = @(
+            "$installation\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan*dynamic-x86_64.dll",
+            "$installation\VC\Tools\Llvm\x64\bin\clang_rt.asan*dynamic-x86_64.dll"
+          )
+          $runtimes = @($patterns | ForEach-Object {
+            Get-ChildItem -Path $_ -File -ErrorAction SilentlyContinue
+          })
+          if (-not $runtimes) { throw 'MSVC AddressSanitizer runtime DLL not found' }
+          $output = Resolve-Path '.\build-asan\RelWithDebInfo'
+          $runtimes | Group-Object Name | ForEach-Object {
+            $runtime = $_.Group | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            Copy-Item $runtime.FullName -Destination $output -Force
+          }
+      - name: Run grapheme tests under MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          $env:ASAN_OPTIONS = 'halt_on_error=1:abort_on_error=1:symbolize=1'
+          $env:ASAN_SAVE_DUMPS = 'windows-grapheme-asan.dmp'
+          $process = Start-Process `
+            -FilePath '.\build-asan\RelWithDebInfo\zevryon-grapheme-segmenter-tests.exe' `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput 'windows-grapheme-asan.stdout.log' `
+            -RedirectStandardError 'windows-grapheme-asan.stderr.log'
+          "exit_code=$($process.ExitCode)" | Set-Content 'windows-grapheme-asan.exit.log'
+          Get-Content 'windows-grapheme-asan.stdout.log' -ErrorAction SilentlyContinue
+          Get-Content 'windows-grapheme-asan.stderr.log' -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-grapheme-asan-${{ github.sha }}
+          path: |
+            windows-grapheme-asan-build.log
+            windows-grapheme-asan.*.log
+            windows-grapheme-asan.dmp
+          if-no-files-found: warn
