@@ -1,5 +1,6 @@
 #pragma once
 
+#include "compact_document.hpp"
 #include "layout_window.hpp"
 
 #include <cstddef>
