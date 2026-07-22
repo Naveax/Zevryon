@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -11,29 +13,62 @@ import threading
 import time
 
 
-def read_pss_mb(pid: int) -> float | None:
-    path = Path(f"/proc/{pid}/smaps_rollup")
+def read_process_sample(pid: int) -> dict[str, int | float | None]:
+    sample: dict[str, int | float | None] = {
+        "pss_bytes": None,
+        "read_bytes": 0,
+        "write_bytes": 0,
+        "minor_faults": 0,
+        "major_faults": 0,
+        "cpu_seconds": 0.0,
+    }
     try:
-        for line in path.read_text(encoding="ascii", errors="ignore").splitlines():
+        for line in Path(f"/proc/{pid}/smaps_rollup").read_text(
+            encoding="ascii", errors="ignore"
+        ).splitlines():
             if line.startswith("Pss:"):
-                return int(line.split()[1]) * 1024 / 1_000_000
+                sample["pss_bytes"] = int(line.split()[1]) * 1024
+                break
     except (FileNotFoundError, PermissionError, ProcessLookupError):
-        return None
-    return None
+        pass
+    try:
+        for line in Path(f"/proc/{pid}/io").read_text(
+            encoding="ascii", errors="ignore"
+        ).splitlines():
+            key, _, value = line.partition(":")
+            if key == "read_bytes":
+                sample["read_bytes"] = int(value.strip())
+            elif key == "write_bytes":
+                sample["write_bytes"] = int(value.strip())
+    except (FileNotFoundError, PermissionError, ProcessLookupError):
+        pass
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+        fields = stat[stat.rfind(")") + 2 :].split()
+        sample["minor_faults"] = int(fields[7])
+        sample["major_faults"] = int(fields[9])
+        ticks = os.sysconf("SC_CLK_TCK")
+        sample["cpu_seconds"] = (int(fields[11]) + int(fields[12])) / ticks
+    except (FileNotFoundError, PermissionError, ProcessLookupError, ValueError, IndexError):
+        pass
+    return sample
 
 
 def run_measured(command: list[str]) -> dict:
     started = time.perf_counter()
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    peak_pss_mb = 0.0
+    peak_pss_bytes = 0
+    final_sample: dict[str, int | float | None] = {}
     stop = threading.Event()
 
     def monitor() -> None:
-        nonlocal peak_pss_mb
+        nonlocal peak_pss_bytes, final_sample
         while not stop.is_set():
-            value = read_pss_mb(process.pid)
-            if value is not None:
-                peak_pss_mb = max(peak_pss_mb, value)
+            sample = read_process_sample(process.pid)
+            pss = sample.get("pss_bytes")
+            if isinstance(pss, int):
+                peak_pss_bytes = max(peak_pss_bytes, pss)
+            final_sample = sample
             if process.poll() is not None:
                 break
             time.sleep(0.002)
@@ -50,10 +85,31 @@ def run_measured(command: list[str]) -> dict:
     return {
         "command": command,
         "seconds": elapsed,
-        "peak_pss_mb": peak_pss_mb or None,
+        "peak_pss_bytes": peak_pss_bytes or None,
+        "peak_pss_mb": peak_pss_bytes / 1_000_000 if peak_pss_bytes else None,
+        "read_bytes": final_sample.get("read_bytes"),
+        "write_bytes": final_sample.get("write_bytes"),
+        "minor_faults": final_sample.get("minor_faults"),
+        "major_faults": final_sample.get("major_faults"),
+        "cpu_seconds": final_sample.get("cpu_seconds"),
         "result": payload,
         "stderr": stderr.strip(),
     }
+
+
+def sha256_file(path: Path, chunk_bytes: int = 4 * 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while True:
+            chunk = stream.read(chunk_bytes)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def throughput_mb_s(logical_bytes: int, seconds: float) -> float:
+    return logical_bytes / 1_000_000 / seconds if seconds else 0.0
 
 
 def viewport_command(binary: Path, store: Path, y_px: int, height_px: int, overscan_px: int) -> list[str]:
@@ -67,6 +123,8 @@ def main() -> int:
     parser.add_argument("--logical-bytes", type=int, default=64 * 1024 * 1024)
     parser.add_argument("--records", type=int, default=131_072)
     parser.add_argument("--segment-mib", type=int, default=16)
+    parser.add_argument("--largest-record-limit-bytes", type=int, default=64 * 1024 * 1024)
+    parser.add_argument("--giant-record-bytes", type=int, default=0)
     parser.add_argument("--viewport-height", type=int, default=720)
     parser.add_argument("--overscan", type=int, default=720)
     parser.add_argument("--output", type=Path)
@@ -77,16 +135,28 @@ def main() -> int:
     args.work_dir.mkdir(parents=True)
     corpus = args.work_dir / "corpus.zmdoc"
     store = args.work_dir / "store"
+    exported = args.work_dir / "exported-payload.bin"
     generator = Path(__file__).with_name("generate_massivedoc_corpus.py")
-    generated = subprocess.run(
-        [sys.executable, str(generator), str(corpus), "--logical-bytes", str(args.logical_bytes),
-         "--records", str(args.records)],
-        check=True, capture_output=True, text=True,
-    )
+    generator_command = [
+        sys.executable,
+        str(generator),
+        str(corpus),
+        "--logical-bytes",
+        str(args.logical_bytes),
+        "--records",
+        str(args.records),
+        "--largest-record-limit-bytes",
+        str(args.largest_record_limit_bytes),
+    ]
+    if args.giant_record_bytes:
+        generator_command.extend(["--giant-record-bytes", str(args.giant_record_bytes)])
+    generated = subprocess.run(generator_command, check=True, capture_output=True, text=True)
     corpus_summary = json.loads(generated.stdout)
+
     imported = run_measured([str(args.binary), "import", str(corpus), str(store), str(args.segment_mib)])
     searched = run_measured([str(args.binary), "search", str(store), corpus_summary["tail_marker"], "2"])
     verified = run_measured([str(args.binary), "verify", str(store)])
+    exported_run = run_measured([str(args.binary), "export", str(store), str(exported)])
     arena = run_measured([str(args.binary), "arena-build", str(store), "96", "18"])
 
     total_height_q8 = arena["result"]["arena"]["total_height_q8"]
@@ -101,9 +171,13 @@ def main() -> int:
         for name, position in positions.items()
     }
 
-    store_sha = imported["result"]["store"]["payload_sha256"]
+    store_summary = imported["result"]["store"]
+    store_sha = store_summary["payload_sha256"]
     if store_sha != corpus_summary["payload_sha256"]:
         raise RuntimeError("store payload hash differs from generated corpus")
+    export_sha = sha256_file(exported)
+    if export_sha != corpus_summary["payload_sha256"]:
+        raise RuntimeError("exported payload hash differs from generated corpus")
     hits = searched["result"]["hits"]
     if len(hits) != 1 or hits[0]["record_index"] != args.records - 1:
         raise RuntimeError("tail marker was not found in final record")
@@ -116,18 +190,38 @@ def main() -> int:
     if any(item["result"]["viewport"]["count"] > 512 for item in viewports.values()):
         raise RuntimeError("viewport exceeded bounded materialization count")
 
+    physical_store_bytes = int(store_summary["physical_bytes"])
+    metadata_overhead_bytes = physical_store_bytes - args.logical_bytes
     report = {
-        "schema": "zevryon.massivedoc.benchmark.v2",
+        "schema": "zevryon.massivedoc.benchmark.v3",
         "logical_bytes": args.logical_bytes,
         "logical_records": args.records,
+        "logical_nodes": corpus_summary["logical_nodes"],
+        "style_runs": corpus_summary["style_runs"],
+        "resource_references": corpus_summary["resource_references"],
+        "largest_record_limit_bytes": corpus_summary["largest_record_limit_bytes"],
+        "largest_record_observed_bytes": corpus_summary["largest_record_observed_bytes"],
+        "average_record_bytes": corpus_summary["average_record_bytes"],
+        "giant_record_bytes": corpus_summary["giant_record_bytes"],
         "payload_sha256": store_sha,
+        "export_sha256": export_sha,
+        "physical_store_bytes": physical_store_bytes,
+        "metadata_overhead_bytes": metadata_overhead_bytes,
+        "metadata_overhead_percent": metadata_overhead_bytes / args.logical_bytes * 100,
         "import": imported,
         "search": searched,
         "verify": verified,
+        "export": exported_run,
         "arena_build": arena,
         "viewports": viewports,
+        "throughput_mb_s_decimal": {
+            "import": throughput_mb_s(args.logical_bytes, float(imported["seconds"])),
+            "verify": throughput_mb_s(args.logical_bytes, float(verified["seconds"])),
+            "export": throughput_mb_s(args.logical_bytes, float(exported_run["seconds"])),
+        },
         "bounded_viewport_materialization": True,
         "zero_data_loss": True,
+        "tail_marker_in_final_record": True,
     }
     text = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if args.output:
