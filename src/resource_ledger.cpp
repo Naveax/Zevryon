@@ -10,6 +10,7 @@ constexpr std::array<const char*, resource_class_count> kResourceNames{
     "source_window",
     "checkpoint_index",
     "unicode_buffer",
+    "grapheme_cluster",
     "glyph_run",
     "computed_style",
     "layout_fragment",

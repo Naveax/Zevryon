@@ -12,6 +12,7 @@ enum class ResourceClass : std::uint8_t {
     SourceWindow = 0,
     CheckpointIndex,
     UnicodeBuffer,
+    GraphemeCluster,
     GlyphRun,
     ComputedStyle,
     LayoutFragment,

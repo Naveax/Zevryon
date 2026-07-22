@@ -1,0 +1,140 @@
+name: z1-grapheme-certification
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-grapheme-certification.yml'
+      - 'CMakeLists.txt'
+      - 'src/grapheme_*'
+      - 'src/unicode_grapheme_*'
+      - 'src/resource_ledger.*'
+      - 'tests/grapheme_*'
+  workflow_dispatch:
+
+concurrency:
+  group: z1-grapheme-certification-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-grapheme-segmenter-tests
+          zevryon-grapheme-conformance
+          zevryon-grapheme-benchmark
+      - run: ctest --test-dir build -R grapheme-segmenter-tests --output-on-failure
+      - name: Fetch immutable Unicode 17 conformance corpus
+        run: |
+          python - <<'PY'
+          import hashlib
+          import urllib.request
+          from pathlib import Path
+
+          url = (
+              'https://raw.githubusercontent.com/openjdk/jdk/'
+              '611f186cf3a47258116146d70e405ef483e65e2a/'
+              'src/java.base/share/data/unicodedata/auxiliary/'
+              'GraphemeBreakTest.txt'
+          )
+          data = urllib.request.urlopen(url, timeout=60).read()
+          blob = hashlib.sha1(
+              b'blob ' + str(len(data)).encode('ascii') + b'\0' + data
+          ).hexdigest()
+          expected = 'e1215547c58f959a0eec9928e1915901c168f6a9'
+          if blob != expected:
+              raise RuntimeError(f'Unicode corpus blob mismatch: {blob}')
+          if not data.startswith(b'# GraphemeBreakTest-17.0.0.txt'):
+              raise RuntimeError('Unicode corpus version mismatch')
+          path = Path('evidence/ci/GraphemeBreakTest-17.0.0.txt')
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_bytes(data)
+          PY
+      - name: Run complete Unicode 17 conformance
+        run: >-
+          build/zevryon-grapheme-conformance
+          evidence/ci/GraphemeBreakTest-17.0.0.txt
+          > evidence/ci/z1-grapheme-conformance.json
+      - name: Run three independent 64 KiB distributions
+        run: |
+          build/zevryon-grapheme-benchmark 1024 1048576 > evidence/ci/z1-grapheme-benchmark-1.json
+          build/zevryon-grapheme-benchmark 1024 1048576 > evidence/ci/z1-grapheme-benchmark-2.json
+          build/zevryon-grapheme-benchmark 1024 1048576 > evidence/ci/z1-grapheme-benchmark-3.json
+      - name: Enforce conformance, memory, and robust latency gates
+        run: |
+          python - <<'PY'
+          import json
+          import statistics
+          from pathlib import Path
+
+          conformance = json.loads(
+              Path('evidence/ci/z1-grapheme-conformance.json').read_text()
+          )
+          assert conformance == {
+              'schema': 'zevryon.grapheme-conformance.v1',
+              'unicode_version': '17.0.0',
+              'data_fingerprint': 'fde26abeb242fbe7c5a3d5ced5d4666286a08baaf15822f71e7a0af9f9ff5a91',
+              'tests': 766,
+              'codepoints': 1990,
+              'clusters': 1391,
+              'passed': True,
+          }
+
+          reports = [
+              json.loads(Path(f'evidence/ci/z1-grapheme-benchmark-{index}.json').read_text())
+              for index in range(1, 4)
+          ]
+          for report in reports:
+              assert report['schema'] == 'zevryon.grapheme-benchmark.v1'
+              assert report['unicode_version'] == '17.0.0'
+              assert report['boundary_record_bytes'] <= 16
+              assert report['fixture_bytes'] == 65536
+              assert report['iterations'] == 1024
+              assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
+              assert report['cluster_hard_limit_bytes'] == 1048576
+              assert report['cluster_current_bytes'] <= report['cluster_peak_bytes'] <= 1048576
+              assert report['rejected_reservations'] == 0
+              assert report['accounting_errors'] == 0
+              assert report['within_hard_limits'] is True
+              assert report['accounting_clean'] is True
+
+          aggregate = {
+              'schema': 'zevryon.grapheme-certification.v1',
+              'unicode_version': '17.0.0',
+              'runs': len(reports),
+              'median_p50_ms': statistics.median(r['p50_ms'] for r in reports),
+              'median_p95_ms': statistics.median(r['p95_ms'] for r in reports),
+              'median_p99_ms': statistics.median(r['p99_ms'] for r in reports),
+              'worst_peak_bytes': max(r['cluster_peak_bytes'] for r in reports),
+              'worst_maximum_ms': max(r['maximum_ms'] for r in reports),
+              'conformance_tests': conformance['tests'],
+              'passed': True,
+          }
+          assert aggregate['median_p95_ms'] <= 1.50
+          assert aggregate['median_p99_ms'] <= 2.00
+          assert aggregate['worst_peak_bytes'] <= 1048576
+          Path('evidence/ci/z1-grapheme-certification.json').write_text(
+              json.dumps(aggregate, indent=2, sort_keys=True) + '\n'
+          )
+          print(json.dumps({'conformance': conformance, 'aggregate': aggregate}, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z1-grapheme-certification-${{ github.sha }}
+          path: |
+            evidence/ci/GraphemeBreakTest-17.0.0.txt
+            evidence/ci/z1-grapheme-conformance.json
+            evidence/ci/z1-grapheme-benchmark-*.json
+            evidence/ci/z1-grapheme-certification.json
+          if-no-files-found: warn
