@@ -1,0 +1,209 @@
+name: z1-script
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-script.yml'
+      - 'CMakeLists.txt'
+      - 'src/script_*'
+      - 'src/unicode_script*'
+      - 'src/resource_ledger.*'
+      - 'tests/script_*'
+      - 'scripts/generate_unicode_script_data.py'
+      - 'evidence/unicode_script_data.manifest.json'
+  workflow_dispatch:
+
+concurrency:
+  group: z1-script-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  script-conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch pinned Unicode 17 sources
+        run: |
+          python - <<'PY'
+          import hashlib
+          import urllib.request
+          from pathlib import Path
+
+          expected = {
+              'Scripts.txt': '9f5e50d3abaee7d6ce09480f325c706f485ae3240912527e651954d2d6b035bf',
+              'ScriptExtensions.txt': 'ec2107e58825a1586acee8e0911ce18260394ac8b87e535ca325f1ccbeb06bc6',
+              'PropertyValueAliases.txt': '64e9a5f76f7a1e8b5a47d6a1f9a26522a251208f5276bdfa1559dac7cf2e827a',
+          }
+          root = Path('evidence/ci/ucd-17.0.0')
+          root.mkdir(parents=True, exist_ok=True)
+          for name, expected_sha in expected.items():
+              data = urllib.request.urlopen(
+                  'https://www.unicode.org/Public/17.0.0/ucd/' + name,
+                  timeout=60,
+              ).read()
+              actual = hashlib.sha256(data).hexdigest()
+              if actual != expected_sha:
+                  raise RuntimeError(f'{name} SHA-256 mismatch: {actual}')
+              (root / name).write_bytes(data)
+          PY
+      - name: Reproduce vendored Unicode tables
+        run: |
+          python scripts/generate_unicode_script_data.py \
+            --scripts evidence/ci/ucd-17.0.0/Scripts.txt \
+            --script-extensions evidence/ci/ucd-17.0.0/ScriptExtensions.txt \
+            --aliases evidence/ci/ucd-17.0.0/PropertyValueAliases.txt \
+            --output evidence/ci/unicode_script_data.generated.hpp \
+            --manifest evidence/ci/unicode_script_data.manifest.json
+          cmp src/unicode_script_data.generated.hpp evidence/ci/unicode_script_data.generated.hpp
+          cmp evidence/unicode_script_data.manifest.json evidence/ci/unicode_script_data.manifest.json
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-script-run-tests
+          zevryon-script-conformance
+          zevryon-script-run-benchmark
+      - run: ctest --test-dir build -R script-run-tests --output-on-failure
+      - name: Run full Unicode 17 Script conformance
+        run: >-
+          build/zevryon-script-conformance
+          evidence/ci/ucd-17.0.0/Scripts.txt
+          evidence/ci/ucd-17.0.0/ScriptExtensions.txt
+          > evidence/ci/z1-script-conformance.json
+      - name: Run three independent 64 KiB distributions
+        run: |
+          build/zevryon-script-run-benchmark 1024 1048576 > evidence/ci/z1-script-benchmark-1.json
+          build/zevryon-script-run-benchmark 1024 1048576 > evidence/ci/z1-script-benchmark-2.json
+          build/zevryon-script-run-benchmark 1024 1048576 > evidence/ci/z1-script-benchmark-3.json
+      - name: Enforce conformance, memory, and latency gates
+        run: |
+          python - <<'PY'
+          import json
+          import statistics
+          from pathlib import Path
+
+          conformance = json.loads(
+              Path('evidence/ci/z1-script-conformance.json').read_text()
+          )
+          assert conformance == {
+              'schema': 'zevryon.script-conformance.v1',
+              'unicode_version': '17.0.0',
+              'data_fingerprint': '8f402bcab66ac57762f8078956a562f3e702aed37c5d32f290821dceeb573c18',
+              'codepoints': 1114112,
+              'script_ranges': 2287,
+              'script_extension_ranges': 206,
+              'explicit_extension_codepoints': 669,
+              'passed': True,
+          }
+          reports = [
+              json.loads(Path(f'evidence/ci/z1-script-benchmark-{index}.json').read_text())
+              for index in range(1, 4)
+          ]
+          for report in reports:
+              assert report['schema'] == 'zevryon.script-run-benchmark.v1'
+              assert report['unicode_version'] == '17.0.0'
+              assert report['fixture_bytes'] == 65536
+              assert report['iterations'] == 1024
+              assert report['boundary_record_bytes'] <= 16
+              assert report['output_boundaries'] == report['output_runs'] + 1
+              assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
+              assert report['script_run_hard_limit_bytes'] == 1048576
+              assert report['script_run_current_bytes'] <= report['script_run_peak_bytes'] <= 1048576
+              assert report['rejected_reservations'] == 0
+              assert report['accounting_errors'] == 0
+              assert report['within_hard_limits'] is True
+              assert report['accounting_clean'] is True
+          aggregate = {
+              'schema': 'zevryon.script-run-certification.v1',
+              'unicode_version': '17.0.0',
+              'runs': len(reports),
+              'median_p50_ms': statistics.median(item['p50_ms'] for item in reports),
+              'median_p95_ms': statistics.median(item['p95_ms'] for item in reports),
+              'median_p99_ms': statistics.median(item['p99_ms'] for item in reports),
+              'worst_maximum_ms': max(item['maximum_ms'] for item in reports),
+              'worst_peak_bytes': max(item['script_run_peak_bytes'] for item in reports),
+              'output_runs': reports[0]['output_runs'],
+              'passed': True,
+          }
+          assert aggregate['median_p95_ms'] <= 10.0
+          assert aggregate['median_p99_ms'] <= 15.0
+          assert aggregate['worst_peak_bytes'] <= 1048576
+          Path('evidence/ci/z1-script-certification.json').write_text(
+              json.dumps(aggregate, indent=2, sort_keys=True) + '\n'
+          )
+          print(json.dumps({'conformance': conformance, 'aggregate': aggregate}, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z1-script-${{ github.sha }}
+          path: |
+            evidence/ci/ucd-17.0.0/Scripts.txt
+            evidence/ci/ucd-17.0.0/ScriptExtensions.txt
+            evidence/ci/ucd-17.0.0/PropertyValueAliases.txt
+            evidence/ci/z1-script-conformance.json
+            evidence/ci/z1-script-benchmark-*.json
+            evidence/ci/z1-script-certification.json
+          if-no-files-found: warn
+
+  windows-script-asan:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure MSVC AddressSanitizer
+        run: cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build script-run test with MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          cmake --build build-asan --config RelWithDebInfo --target zevryon-script-run-tests --parallel 2 2>&1 | Tee-Object -FilePath windows-script-asan-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Stage MSVC AddressSanitizer runtime
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw 'vswhere.exe not found' }
+          $installation = (& $vswhere -latest -products * -property installationPath).Trim()
+          if (-not $installation) { throw 'Visual Studio installation not found' }
+          $patterns = @(
+            "$installation\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan*dynamic-x86_64.dll",
+            "$installation\VC\Tools\Llvm\x64\bin\clang_rt.asan*dynamic-x86_64.dll"
+          )
+          $runtimes = @($patterns | ForEach-Object {
+            Get-ChildItem -Path $_ -File -ErrorAction SilentlyContinue
+          })
+          if (-not $runtimes) { throw 'MSVC AddressSanitizer runtime DLL not found' }
+          $output = Resolve-Path '.\build-asan\RelWithDebInfo'
+          $runtimes | Group-Object Name | ForEach-Object {
+            $runtime = $_.Group | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            Copy-Item $runtime.FullName -Destination $output -Force
+          }
+      - name: Run script-run tests under MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          $env:ASAN_OPTIONS = 'halt_on_error=1:abort_on_error=1:symbolize=1'
+          $env:ASAN_SAVE_DUMPS = 'windows-script-asan.dmp'
+          $process = Start-Process `
+            -FilePath '.\build-asan\RelWithDebInfo\zevryon-script-run-tests.exe' `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput 'windows-script-asan.stdout.log' `
+            -RedirectStandardError 'windows-script-asan.stderr.log'
+          "exit_code=$($process.ExitCode)" | Set-Content 'windows-script-asan.exit.log'
+          Get-Content 'windows-script-asan.stdout.log' -ErrorAction SilentlyContinue
+          Get-Content 'windows-script-asan.stderr.log' -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-script-asan-${{ github.sha }}
+          path: |
+            windows-script-asan-build.log
+            windows-script-asan.*.log
+            windows-script-asan.dmp
+          if-no-files-found: warn
