@@ -15,9 +15,11 @@ struct LayoutConfig {
     std::uint32_t horizontal_padding_q8{12U * 256U};
     std::uint32_t vertical_padding_q8{12U * 256U};
     std::uint32_t width_bucket_q8{8U * 256U};
-    std::uint32_t checkpoint_stride_bytes{64U * 1024U};
+    std::uint32_t checkpoint_stride_bytes{16U * 1024U};
     std::uint64_t checkpoint_min_record_bytes{1024U * 1024U};
     std::size_t max_cache_bytes{8U * 1000U * 1000U};
+    std::size_t max_checkpoint_cache_bytes{1U * 1000U * 1000U};
+    std::size_t max_source_window_cache_bytes{512U * 1024U};
     bool enable_persistent_checkpoints{true};
 };
 
@@ -43,7 +45,15 @@ struct LayoutWindowResult {
     std::uint64_t cache_misses{0};
     std::uint64_t checkpoint_hits{0};
     std::uint64_t checkpoint_index_bytes{0};
+    std::uint64_t checkpoint_cache_hits{0};
+    std::uint64_t checkpoint_cache_misses{0};
+    std::uint64_t checkpoint_cache_evictions{0};
+    std::uint64_t source_window_cache_hits{0};
+    std::uint64_t source_window_cache_misses{0};
+    std::uint64_t source_window_cache_evictions{0};
     std::size_t cache_bytes{0};
+    std::size_t checkpoint_cache_bytes{0};
+    std::size_t source_window_cache_bytes{0};
     bool truncated{false};
     bool height_saturated{false};
     bool scroll_anchor_adjusted{false};
