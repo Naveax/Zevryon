@@ -40,6 +40,7 @@ void usage() {
         << "  zevryon-massivedoc export <store-dir> <output.bin>\n"
         << "  zevryon-massivedoc arena-build <store-dir> [bytes-per-line] [line-height-px]\n"
         << "  zevryon-massivedoc arena-stats <store-dir>\n"
+        << "  zevryon-massivedoc height-update <store-dir> <record-index> <height-px>\n"
         << "  zevryon-massivedoc viewport <store-dir> <scroll-y-px> <height-px> [overscan-px] [max-records]\n";
 }
 
@@ -118,6 +119,38 @@ int main(int argc, char** argv) {
             return 1;
         }
         std::cout << zevryon::massivedoc::arena_stats_json(arena.stats()) << '\n';
+        return 0;
+    }
+
+    if (command == "height-update") {
+        if (argc != 5) {
+            usage();
+            return 2;
+        }
+        const auto record_index = parse_number<std::uint64_t>(argv[3]);
+        const auto height_q8 = pixels_to_q8(argv[4]);
+        if (!record_index || !height_q8 || *height_q8 == 0U ||
+            *height_q8 > std::numeric_limits<std::uint32_t>::max()) {
+            std::cerr << "invalid height update arguments\n";
+            return 2;
+        }
+        zevryon::massivedoc::CompactArenaReader arena(argv[2]);
+        if (!arena.open(&error)) {
+            std::cerr << "arena open failed: " << error << '\n';
+            return 1;
+        }
+        zevryon::massivedoc::HeightUpdateResult result;
+        if (!arena.update_height(
+                *record_index,
+                static_cast<std::uint32_t>(*height_q8),
+                &result,
+                &error)) {
+            std::cerr << "height update failed: " << error << '\n';
+            return 1;
+        }
+        const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+        std::cout << "{\"operation\":\"height-update\",\"seconds\":" << elapsed
+                  << ",\"update\":" << zevryon::massivedoc::height_update_json(result) << "}\n";
         return 0;
     }
 
