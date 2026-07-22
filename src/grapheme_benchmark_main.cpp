@@ -81,12 +81,12 @@ double percentile(std::vector<double> values, double percentage) {
 
 int main(int argc, char** argv) {
     std::size_t iterations = 1024U;
-    std::size_t cluster_budget_bytes = 2U * 1024U * 1024U;
+    std::size_t cluster_budget_bytes = 1024U * 1024U;
     if ((argc > 1 && !parse_size(argv[1], &iterations)) ||
         (argc > 2 && !parse_size(argv[2], &cluster_budget_bytes)) ||
         argc > 3 || iterations < 10U || cluster_budget_bytes == 0U) {
         std::cerr << "usage: zevryon-grapheme-benchmark "
-                     "[iterations>=10] [cluster-budget-bytes]\n";
+                     "[iterations>=10] [boundary-budget-bytes]\n";
         return 2;
     }
 
@@ -99,19 +99,21 @@ int main(int argc, char** argv) {
     zevryon::core::LedgerMemoryResource memory(
         ledger,
         zevryon::core::ResourceClass::GraphemeCluster);
-    std::pmr::vector<zevryon::text::GraphemeCluster> clusters(&memory);
+    std::pmr::vector<zevryon::text::GraphemeBoundary> boundaries(&memory);
     std::vector<double> samples_ms;
     samples_ms.reserve(iterations);
     std::size_t expected_clusters = 0U;
     zevryon::text::GraphemeSegmentStats final_stats;
 
-    for (std::size_t iteration = 0U; iteration < iterations + 32U; ++iteration) {
+    for (std::size_t iteration = 0U;
+         iteration < iterations + 32U;
+         ++iteration) {
         zevryon::text::GraphemeSegmentStats stats;
         zevryon::text::GraphemeError error;
         const auto started = std::chrono::steady_clock::now();
         if (!zevryon::text::segment_graphemes(
                 codepoints,
-                &clusters,
+                &boundaries,
                 &stats,
                 &error)) {
             std::cerr << "segmentation failed: "
@@ -121,14 +123,19 @@ int main(int argc, char** argv) {
             return 1;
         }
         const auto ended = std::chrono::steady_clock::now();
+        const std::size_t cluster_count =
+            boundaries.empty() ? 0U : boundaries.size() - 1U;
         if (stats.input_codepoints != codepoints.size() ||
-            stats.output_clusters != clusters.size() || clusters.empty()) {
+            stats.output_clusters != cluster_count ||
+            boundaries.size() < 2U ||
+            boundaries.front().codepoint_index != 0U ||
+            boundaries.back().codepoint_index != codepoints.size()) {
             std::cerr << "grapheme statistics failed benchmark contract\n";
             return 1;
         }
         if (expected_clusters == 0U) {
-            expected_clusters = clusters.size();
-        } else if (clusters.size() != expected_clusters) {
+            expected_clusters = cluster_count;
+        } else if (cluster_count != expected_clusters) {
             std::cerr << "cluster count changed between iterations\n";
             return 1;
         }
@@ -155,11 +162,14 @@ int main(int argc, char** argv) {
               << zevryon::text::kUnicodeGraphemeDataVersion << "\","
               << "\"data_fingerprint\":\""
               << zevryon::text::kUnicodeGraphemeDataFingerprint << "\","
+              << "\"boundary_record_bytes\":"
+              << sizeof(zevryon::text::GraphemeBoundary) << ','
               << "\"fixture_bytes\":" << kFixtureBytes << ','
               << "\"iterations\":" << iterations << ','
               << "\"warmup_iterations\":32,"
               << "\"input_codepoints\":" << codepoints.size() << ','
               << "\"output_clusters\":" << expected_clusters << ','
+              << "\"output_boundaries\":" << boundaries.size() << ','
               << "\"suppressed_breaks\":"
               << final_stats.suppressed_breaks << ','
               << "\"maximum_cluster_codepoints\":"
