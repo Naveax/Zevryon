@@ -43,10 +43,12 @@ endforeach()
 add_library(zevryon-massivedoc-core STATIC
   "${ZEVRYON_MASSIVEDOC_SOURCE}"
   src/compact_document.cpp
+  src/grapheme_segmenter.cpp
   src/layout_checkpoint.cpp
   src/layout_window.cpp
   src/ledger_memory_resource.cpp
   src/resource_ledger.cpp
+  src/unicode_grapheme_data.cpp
   src/unicode_stream.cpp
   src/zenith_layout_window.cpp
   src/zenith_hot_scroll.cpp
@@ -111,4 +113,9 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-unicode-stream-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-unicode-stream-tests)
   add_test(NAME unicode-stream-tests COMMAND zevryon-unicode-stream-tests)
+
+  add_executable(zevryon-grapheme-segmenter-tests tests/grapheme_segmenter_tests.cpp)
+  target_link_libraries(zevryon-grapheme-segmenter-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-grapheme-segmenter-tests)
+  add_test(NAME grapheme-segmenter-tests COMMAND zevryon-grapheme-segmenter-tests)
 endif()
