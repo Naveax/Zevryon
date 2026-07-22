@@ -26,6 +26,31 @@ jobs:
       - run: ctest --test-dir build -C Release --output-on-failure
       - run: python -m pytest -q tests
 
+  giant-record-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - run: cmake --build build --parallel 2
+      - name: Run 128 MB corpus with a real 64 MiB record
+        run: >-
+          python scripts/massivedoc_benchmark.py
+          --logical-bytes 134217728
+          --records 131072
+          --segment-mib 16
+          --largest-record-limit-bytes 67108864
+          --giant-record-bytes 67108864
+          --work-dir "${{ runner.temp }}/zevryon-giant"
+          --output evidence/ci/m1-giant-record.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m1-giant-record-${{ github.sha }}
+          path: evidence/ci/m1-giant-record.json
+
   sanitizer:
     runs-on: ubuntu-latest
     steps:
