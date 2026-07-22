@@ -152,12 +152,10 @@ BidiClass strong_for_bracket(const Unit& unit) noexcept {
 bool match_isolates(
     const std::pmr::vector<Unit>& units,
     std::pmr::vector<std::int32_t>* matching_pdi,
-    std::pmr::vector<std::int32_t>* matching_initiator,
     std::pmr::memory_resource* memory,
     BidiError* error) noexcept {
     try {
         matching_pdi->assign(units.size(), kNoMatch);
-        matching_initiator->assign(units.size(), kNoMatch);
         std::pmr::vector<std::uint32_t> stack(memory);
         stack.reserve(units.size());
         for (std::size_t index = 0U; index < units.size(); ++index) {
@@ -168,8 +166,6 @@ bool match_isolates(
                 const std::uint32_t initiator = stack.back();
                 stack.pop_back();
                 (*matching_pdi)[initiator] = static_cast<std::int32_t>(index);
-                (*matching_initiator)[index] =
-                    static_cast<std::int32_t>(initiator);
             }
         }
         return true;
@@ -790,7 +786,7 @@ bool process_isolating_sequences(
         std::pmr::vector<std::uint8_t> assigned(memory);
         assigned.assign(runs->size(), 0U);
         std::pmr::vector<std::uint32_t> sequence(memory);
-        sequence.reserve(visible.size());
+        sequence.reserve(std::min<std::size_t>(visible.size(), 256U));
         std::pmr::vector<BracketPair> pairs(memory);
         pairs.reserve(std::min<std::size_t>(visible.size() / 2U, 128U));
 
@@ -1053,11 +1049,9 @@ bool resolve_impl(
         }
 
         std::pmr::vector<std::int32_t> matching_pdi(memory);
-        std::pmr::vector<std::int32_t> matching_initiator(memory);
         if (!match_isolates(
                 units,
                 &matching_pdi,
-                &matching_initiator,
                 memory,
                 error)) {
             return false;
