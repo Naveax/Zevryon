@@ -12,6 +12,7 @@ constexpr std::array<const char*, resource_class_count> kResourceNames{
     "unicode_buffer",
     "grapheme_cluster",
     "script_run",
+    "bidi_buffer",
     "glyph_run",
     "computed_style",
     "layout_fragment",
