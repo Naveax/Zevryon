@@ -23,18 +23,26 @@ jobs:
 
           path = Path('src/bidi_resolver.cpp')
           text = path.read_text(encoding='utf-8')
-          target = '''        } else if (unit.current == BidiClass::EN && last_strong == BidiClass::L) {
-              unit.current = BidiClass::L;
-          }
-          '''
-          replacement = '''        } else if (unit.current == BidiClass::EN && last_strong == BidiClass::L) {
-              unit.current = BidiClass::L;
-              set_flag(&unit, kFlagNumeric, false);
-          }
-          '''
-          if text.count(target) != 1:
-              raise RuntimeError(f'expected one W7 block, found {text.count(target)}')
-          path.write_text(text.replace(target, replacement, 1), encoding='utf-8', newline='\n')
+          needle = (
+              '        } else if (unit.current == BidiClass::EN && last_strong == BidiClass::L) {\n'
+              '            unit.current = BidiClass::L;\n'
+              '        }\n'
+              '    }\n'
+              '}\n\n'
+              'bool brackets_match'
+          )
+          replacement = (
+              '        } else if (unit.current == BidiClass::EN && last_strong == BidiClass::L) {\n'
+              '            unit.current = BidiClass::L;\n'
+              '            set_flag(&unit, kFlagNumeric, false);\n'
+              '        }\n'
+              '    }\n'
+              '}\n\n'
+              'bool brackets_match'
+          )
+          if text.count(needle) != 1:
+              raise RuntimeError(f'expected one W7 block, found {text.count(needle)}')
+          path.write_text(text.replace(needle, replacement, 1), encoding='utf-8', newline='\n')
           PY
       - name: Commit exact W7 fix
         run: |
