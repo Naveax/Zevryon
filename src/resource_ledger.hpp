@@ -13,6 +13,7 @@ enum class ResourceClass : std::uint8_t {
     CheckpointIndex,
     UnicodeBuffer,
     GraphemeCluster,
+    ScriptRun,
     GlyphRun,
     ComputedStyle,
     LayoutFragment,
