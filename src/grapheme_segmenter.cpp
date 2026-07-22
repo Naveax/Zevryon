@@ -152,11 +152,44 @@ bool should_break(
     return true;
 }
 
-bool emit_cluster(
+bool emit_boundary(
+    std::uint64_t source_offset,
+    std::size_t codepoint_index,
+    std::pmr::vector<GraphemeBoundary>* boundaries,
+    GraphemeError* error) noexcept {
+    if (codepoint_index > static_cast<std::size_t>(
+                              std::numeric_limits<std::uint32_t>::max())) {
+        return fail(
+            GraphemeErrorKind::SourceRangeOverflow,
+            codepoint_index,
+            "grapheme boundary exceeds 32-bit codepoint indexing",
+            error);
+    }
+    try {
+        boundaries->push_back({
+            source_offset,
+            static_cast<std::uint32_t>(codepoint_index),
+        });
+    } catch (const std::bad_alloc&) {
+        return fail(
+            GraphemeErrorKind::OutputBudgetExceeded,
+            codepoint_index,
+            "grapheme boundary output exceeded its resource budget",
+            error);
+    } catch (...) {
+        return fail(
+            GraphemeErrorKind::OutputBudgetExceeded,
+            codepoint_index,
+            "grapheme boundary output allocation failed",
+            error);
+    }
+    return true;
+}
+
+bool record_cluster_stats(
     std::span<const DecodedCodePoint> codepoints,
     std::size_t first,
     std::size_t end,
-    std::pmr::vector<GraphemeCluster>* clusters,
     GraphemeSegmentStats* stats,
     GraphemeError* error) noexcept {
     if (first >= end || end > codepoints.size()) {
@@ -166,62 +199,21 @@ bool emit_cluster(
             "invalid grapheme cluster index range",
             error);
     }
-    if (first > static_cast<std::size_t>(
-                    std::numeric_limits<std::uint32_t>::max()) ||
-        end - first > static_cast<std::size_t>(
-                          std::numeric_limits<std::uint32_t>::max())) {
-        return fail(
-            GraphemeErrorKind::SourceRangeOverflow,
-            first,
-            "grapheme codepoint range exceeds 32-bit storage",
-            error);
-    }
-
     const std::uint64_t source_start = codepoints[first].source_start;
     const std::uint64_t source_end = codepoints[end - 1U].source_end();
-    if (source_end < source_start ||
-        source_end - source_start >
-            static_cast<std::uint64_t>(
-                std::numeric_limits<std::uint32_t>::max())) {
+    if (source_end < source_start) {
         return fail(
             GraphemeErrorKind::SourceRangeOverflow,
             first,
-            "grapheme source range exceeds 32-bit storage",
+            "grapheme source range overflowed",
             error);
     }
-
-    const std::uint32_t codepoint_count =
-        static_cast<std::uint32_t>(end - first);
-    const std::uint32_t source_length =
-        static_cast<std::uint32_t>(source_end - source_start);
-    try {
-        clusters->push_back({
-            source_start,
-            source_length,
-            static_cast<std::uint32_t>(first),
-            codepoint_count,
-        });
-    } catch (const std::bad_alloc&) {
-        return fail(
-            GraphemeErrorKind::OutputBudgetExceeded,
-            first,
-            "grapheme output exceeded its resource budget",
-            error);
-    } catch (...) {
-        return fail(
-            GraphemeErrorKind::OutputBudgetExceeded,
-            first,
-            "grapheme output allocation failed",
-            error);
-    }
-
-    ++stats->output_clusters;
     stats->maximum_cluster_codepoints = std::max(
         stats->maximum_cluster_codepoints,
-        static_cast<std::uint64_t>(codepoint_count));
+        static_cast<std::uint64_t>(end - first));
     stats->maximum_cluster_source_bytes = std::max(
         stats->maximum_cluster_source_bytes,
-        static_cast<std::uint64_t>(source_length));
+        source_end - source_start);
     return true;
 }
 
@@ -243,14 +235,14 @@ const char* grapheme_error_kind_name(GraphemeErrorKind kind) noexcept {
 
 bool segment_graphemes(
     std::span<const DecodedCodePoint> codepoints,
-    std::pmr::vector<GraphemeCluster>* clusters,
+    std::pmr::vector<GraphemeBoundary>* boundaries,
     GraphemeSegmentStats* stats,
     GraphemeError* error) noexcept {
-    if (clusters == nullptr || stats == nullptr || error == nullptr) {
+    if (boundaries == nullptr || stats == nullptr || error == nullptr) {
         return false;
     }
     clear_error(error);
-    clusters->clear();
+    boundaries->clear();
     *stats = {};
     stats->input_codepoints = static_cast<std::uint64_t>(codepoints.size());
     if (codepoints.empty()) {
@@ -282,6 +274,13 @@ bool segment_graphemes(
                 "decoded codepoint is not a Unicode scalar value",
                 error);
         }
+        if (codepoint.source_end() < codepoint.source_start) {
+            return fail(
+                GraphemeErrorKind::SourceRangeOverflow,
+                index,
+                "decoded codepoint source range overflowed",
+                error);
+        }
         if (index != 0U &&
             codepoint.source_start != codepoints[index - 1U].source_end()) {
             return fail(
@@ -290,6 +289,14 @@ bool segment_graphemes(
                 "decoded codepoint source ranges are not contiguous",
                 error);
         }
+    }
+
+    if (!emit_boundary(
+            codepoints.front().source_start,
+            0U,
+            boundaries,
+            error)) {
+        return false;
     }
 
     std::size_t cluster_start = 0U;
@@ -301,15 +308,20 @@ bool segment_graphemes(
         const GraphemeProperties right =
             grapheme_properties(codepoints[index].value);
         if (should_break(left, right, state)) {
-            if (!emit_cluster(
+            if (!record_cluster_stats(
                     codepoints,
                     cluster_start,
                     index,
-                    clusters,
                     stats,
+                    error) ||
+                !emit_boundary(
+                    codepoints[index].source_start,
+                    index,
+                    boundaries,
                     error)) {
                 return false;
             }
+            ++stats->output_clusters;
             cluster_start = index;
         } else {
             ++stats->suppressed_breaks;
@@ -318,13 +330,21 @@ bool segment_graphemes(
         left = right;
     }
 
-    return emit_cluster(
-        codepoints,
-        cluster_start,
-        codepoints.size(),
-        clusters,
-        stats,
-        error);
+    if (!record_cluster_stats(
+            codepoints,
+            cluster_start,
+            codepoints.size(),
+            stats,
+            error) ||
+        !emit_boundary(
+            codepoints.back().source_end(),
+            codepoints.size(),
+            boundaries,
+            error)) {
+        return false;
+    }
+    ++stats->output_clusters;
+    return true;
 }
 
 } // namespace zevryon::text
