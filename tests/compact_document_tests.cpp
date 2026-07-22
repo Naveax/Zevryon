@@ -12,7 +12,7 @@
 
 namespace {
 
-bool require(bool condition, const char* message) {
+bool require(bool condition, const std::string& message) {
     if (!condition) {
         std::cerr << "FAILED: " << message << '\n';
         return false;
@@ -39,7 +39,7 @@ int main() {
         const std::size_t size = static_cast<std::size_t>(32U + (index % 17U) * 113U);
         auto bytes = payload(size, static_cast<char>('a' + static_cast<char>(index % 26U)));
         payload_bytes += bytes.size();
-        if (!require(writer.append(index + 1000U, bytes, &error), error.c_str())) {
+        if (!require(writer.append(index + 1000U, bytes, &error), error)) {
             return 1;
         }
     }
@@ -51,7 +51,7 @@ int main() {
     metadata.resource_references = kRecords / 8U;
     metadata.largest_record_bytes = 32U + 16U * 113U;
     zevryon::massivedoc::StoreStats store_stats;
-    if (!require(writer.finalize(metadata, &store_stats, &error), error.c_str())) {
+    if (!require(writer.finalize(metadata, &store_stats, &error), error)) {
         return 1;
     }
 
@@ -61,7 +61,7 @@ int main() {
     config.line_height_q8 = 16U * 256U;
     config.vertical_padding_q8 = 8U * 256U;
     zevryon::massivedoc::ArenaStats arena_stats;
-    if (!require(zevryon::massivedoc::build_compact_arena(root, config, &arena_stats, &error), error.c_str())) {
+    if (!require(zevryon::massivedoc::build_compact_arena(root, config, &arena_stats, &error), error)) {
         return 1;
     }
     if (!require(arena_stats.logical_records == kRecords, "arena record count") ||
@@ -72,11 +72,11 @@ int main() {
     }
 
     zevryon::massivedoc::CompactArenaReader arena(root);
-    if (!require(arena.open(&error), error.c_str())) {
+    if (!require(arena.open(&error), error)) {
         return 1;
     }
     zevryon::massivedoc::ViewportResult top;
-    if (!require(arena.materialize(0U, 720U * 256U, 360U * 256U, 128U, &top, &error), error.c_str()) ||
+    if (!require(arena.materialize(0U, 720U * 256U, 360U * 256U, 128U, &top, &error), error) ||
         !require(!top.records.empty(), "top viewport is non-empty") ||
         !require(top.records.front().record_index == 0U, "top begins at first record") ||
         !require(top.records.size() <= 128U, "top respects materialization cap")) {
@@ -85,7 +85,7 @@ int main() {
 
     zevryon::massivedoc::ViewportResult middle;
     const std::uint64_t middle_y = arena.stats().total_height_q8 / 2U;
-    if (!require(arena.materialize(middle_y, 720U * 256U, 360U * 256U, 64U, &middle, &error), error.c_str()) ||
+    if (!require(arena.materialize(middle_y, 720U * 256U, 360U * 256U, 64U, &middle, &error), error) ||
         !require(!middle.records.empty(), "middle viewport is non-empty") ||
         !require(middle.records.front().record_index > 0U, "middle does not scan from first record") ||
         !require(middle.records.size() <= 64U, "middle respects materialization cap")) {
@@ -104,7 +104,7 @@ int main() {
     const std::uint64_t end_y = arena.stats().total_height_q8 > 720U * 256U
                                     ? arena.stats().total_height_q8 - 720U * 256U
                                     : 0U;
-    if (!require(arena.materialize(end_y, 720U * 256U, 0U, 256U, &end, &error), error.c_str()) ||
+    if (!require(arena.materialize(end_y, 720U * 256U, 0U, 256U, &end, &error), error) ||
         !require(!end.records.empty(), "end viewport is non-empty") ||
         !require(end.records.back().record_index == kRecords - 1U, "end reaches final record") ||
         !require(end.records.back().logical_id == kRecords - 1U + 1000U, "logical id retained")) {
@@ -116,7 +116,7 @@ int main() {
         const std::uint64_t record = (iteration * 7919U) % kRecords;
         const std::uint32_t new_height = static_cast<std::uint32_t>((24U + iteration % 97U) * 256U);
         zevryon::massivedoc::HeightUpdateResult update;
-        if (!require(arena.update_height(record, new_height, &update, &error), error.c_str()) ||
+        if (!require(arena.update_height(record, new_height, &update, &error), error) ||
             !require(update.record_index == record, "height update record identity") ||
             !require(update.new_height_q8 == new_height, "height update value")) {
             return 1;
@@ -135,23 +135,27 @@ int main() {
     }
 
     zevryon::massivedoc::CompactArenaReader reopened(root);
-    if (!require(reopened.open(&error), error.c_str()) ||
+    if (!require(reopened.open(&error), error) ||
         !require(reopened.stats().total_height_q8 == expected_total, "height updates persist after reopen")) {
         return 1;
     }
     zevryon::massivedoc::HeightUpdateResult first_update;
     constexpr std::uint32_t kFirstHeight = 400U * 256U;
-    if (!require(reopened.update_height(0U, kFirstHeight, &first_update, &error), error.c_str())) {
+    if (!require(reopened.update_height(0U, kFirstHeight, &first_update, &error), error)) {
         return 1;
     }
     zevryon::massivedoc::ViewportResult updated_top;
-    if (!require(reopened.materialize(0U, 720U * 256U, 0U, 32U, &updated_top, &error), error.c_str()) ||
+    if (!require(reopened.materialize(0U, 720U * 256U, 0U, 32U, &updated_top, &error), error) ||
         !require(!updated_top.records.empty(), "updated top viewport is non-empty") ||
         !require(updated_top.records.front().height_q8 == kFirstHeight, "viewport uses persisted height update")) {
         return 1;
     }
 
+    error_code.clear();
     std::filesystem::remove_all(root, error_code);
+    if (!require(!error_code, "compact test cleanup failed: " + error_code.message())) {
+        return 1;
+    }
     std::cout << "compact document tests passed\n";
     return 0;
 }
