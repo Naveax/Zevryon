@@ -8,6 +8,15 @@
         return false;
     }
     header.flush();
+    if (!header) {
+        *error = "cannot flush arena header";
+        return false;
+    }
+    header.close();
+    if (header.fail()) {
+        *error = "cannot close arena header";
+        return false;
+    }
     const std::uint64_t measured_size = directory_size(arena_root);
     if (measured_size != output.physical_bytes) {
         *error = "arena physical size mismatch";
