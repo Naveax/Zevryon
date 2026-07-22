@@ -16,7 +16,7 @@ namespace zevryon::massivedoc {
 constexpr std::uint64_t kDefaultSegmentBytes = 64ULL * 1024ULL * 1024ULL;
 constexpr std::uint32_t kDefaultRecordsPerSearchBlock = 8192U;
 constexpr std::size_t kBigramSignatureBytes = 8192U;
-constexpr std::size_t kIoWindowBytes = 1024U * 1024U;
+constexpr std::size_t kIoWindowBytes = 64U * 1024U;
 
 struct CorpusMetadata {
     std::uint64_t logical_utf8_bytes{0};
