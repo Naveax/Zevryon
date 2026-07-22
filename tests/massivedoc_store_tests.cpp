@@ -21,11 +21,17 @@ void require(bool condition, const std::string& message) {
     }
 }
 
+void cleanup(const std::filesystem::path& root) {
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    require(!error, "cleanup failed: " + error.message());
+}
+
 std::filesystem::path temp_root(std::string_view name) {
     std::mt19937_64 random(0x5a455652594f4eULL);
     const auto root = std::filesystem::temp_directory_path() /
                       (std::string("zevryon-") + std::string(name) + "-" + std::to_string(random()));
-    std::filesystem::remove_all(root);
+    cleanup(root);
     return root;
 }
 
@@ -78,7 +84,8 @@ void test_roundtrip_search_and_integrity() {
     std::ifstream stream(output, std::ios::binary);
     const std::string actual((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
     require(actual == expected, "export differs from source payload");
-    std::filesystem::remove_all(root);
+    stream.close();
+    cleanup(root);
 }
 
 void test_giant_record_is_segmented_without_loss() {
@@ -102,7 +109,7 @@ void test_giant_record_is_segmented_without_loss() {
     require(reader.verify(&error), error);
     const auto hits = reader.find("GIANT_RECORD_MARKER!!", 1U, &error);
     require(error.empty() && hits.size() == 1U, "giant record marker search failed");
-    std::filesystem::remove_all(root);
+    cleanup(root);
 }
 
 void test_corruption_is_detected() {
@@ -130,7 +137,7 @@ void test_corruption_is_detected() {
     require(!reader.verify(&error), "corrupted store was accepted");
     require(error.find("integrity") != std::string::npos || error.find("SHA") != std::string::npos,
             "corruption error was not diagnostic");
-    std::filesystem::remove_all(root);
+    cleanup(root);
 }
 
 } // namespace
