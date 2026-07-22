@@ -1,0 +1,114 @@
+name: z1-unicode
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-unicode.yml'
+      - 'CMakeLists.txt'
+      - 'config/zenith_program.json'
+      - 'src/ledger_memory_resource.*'
+      - 'src/unicode_*'
+      - 'tests/unicode_*'
+      - 'tests/test_zenith_program_contract.py'
+  workflow_dispatch:
+
+concurrency:
+  group: z1-unicode-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  unicode-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - run: cmake --build build --parallel 2 --target zevryon-unicode-benchmark zevryon-unicode-stream-tests
+      - run: ctest --test-dir build -R unicode-stream-tests --output-on-failure
+      - name: Run 64 KiB streaming UTF-8 benchmark
+        run: |
+          mkdir -p evidence/ci
+          build/zevryon-unicode-benchmark 1024 4096 4194304 > evidence/ci/z1-unicode-benchmark.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('evidence/ci/z1-unicode-benchmark.json').read_text())
+          assert report['schema'] == 'zevryon.unicode-benchmark.v1'
+          assert report['fixture_bytes'] == 65536
+          assert report['iterations'] == 1024
+          assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
+          assert report['p95_ms'] <= 2.0
+          assert report['unicode_current_bytes'] <= report['unicode_peak_bytes']
+          assert report['unicode_peak_bytes'] <= report['unicode_hard_limit_bytes']
+          assert report['rejected_reservations'] == 0
+          assert report['accounting_errors'] == 0
+          assert report['within_hard_limits'] is True
+          assert report['accounting_clean'] is True
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: z1-unicode-${{ github.sha }}
+          path: evidence/ci/z1-unicode-benchmark.json
+
+  windows-unicode-asan:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure MSVC AddressSanitizer
+        run: cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build Unicode test with MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          cmake --build build-asan --config RelWithDebInfo --target zevryon-unicode-stream-tests --parallel 2 2>&1 | Tee-Object -FilePath windows-unicode-asan-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Stage MSVC AddressSanitizer runtime
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw 'vswhere.exe not found' }
+          $installation = (& $vswhere -latest -products * -property installationPath).Trim()
+          if (-not $installation) { throw 'Visual Studio installation not found' }
+          $patterns = @(
+            "$installation\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan*dynamic-x86_64.dll",
+            "$installation\VC\Tools\Llvm\x64\bin\clang_rt.asan*dynamic-x86_64.dll"
+          )
+          $runtimes = @($patterns | ForEach-Object {
+            Get-ChildItem -Path $_ -File -ErrorAction SilentlyContinue
+          })
+          if (-not $runtimes) { throw 'MSVC AddressSanitizer runtime DLL not found' }
+          $output = Resolve-Path '.\build-asan\RelWithDebInfo'
+          $runtimes | Group-Object Name | ForEach-Object {
+            $runtime = $_.Group | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            Copy-Item $runtime.FullName -Destination $output -Force
+          }
+      - name: Run Unicode tests under MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          $env:ASAN_OPTIONS = 'halt_on_error=1:abort_on_error=1:symbolize=1'
+          $env:ASAN_SAVE_DUMPS = 'windows-unicode-asan.dmp'
+          $process = Start-Process `
+            -FilePath '.\build-asan\RelWithDebInfo\zevryon-unicode-stream-tests.exe' `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput 'windows-unicode-asan.stdout.log' `
+            -RedirectStandardError 'windows-unicode-asan.stderr.log'
+          "exit_code=$($process.ExitCode)" | Set-Content 'windows-unicode-asan.exit.log'
+          Get-Content 'windows-unicode-asan.stdout.log' -ErrorAction SilentlyContinue
+          Get-Content 'windows-unicode-asan.stderr.log' -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-unicode-asan-${{ github.sha }}
+          path: |
+            windows-unicode-asan-build.log
+            windows-unicode-asan.*.log
+            windows-unicode-asan.dmp
+          if-no-files-found: warn
