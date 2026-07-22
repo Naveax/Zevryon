@@ -3,6 +3,7 @@
 #include "resource_ledger.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
