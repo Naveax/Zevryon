@@ -89,7 +89,7 @@ double percentile(std::vector<double> values, double percentage) {
 int main(int argc, char** argv) {
     std::size_t iterations = 1024U;
     std::size_t chunk_bytes = 4096U;
-    std::size_t unicode_budget_bytes = 2U * 1024U * 1024U;
+    std::size_t unicode_budget_bytes = 4U * 1024U * 1024U;
     if ((argc > 1 && !parse_size(argv[1], &iterations)) ||
         (argc > 2 && !parse_size(argv[2], &chunk_bytes)) ||
         (argc > 3 && !parse_size(argv[3], &unicode_budget_bytes)) ||
