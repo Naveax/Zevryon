@@ -62,6 +62,16 @@ struct ScanResult {
     std::vector<LayoutFragment> visible_fragments;
 };
 
+struct ScrollAnchor {
+    bool present{false};
+    std::uint64_t record_index{0};
+    std::uint64_t old_y_q8{0};
+    std::uint64_t old_height_q8{0};
+    std::uint64_t local_q8{0};
+    std::uint64_t new_y_q8{0};
+    std::uint64_t new_height_q8{0};
+};
+
 constexpr std::size_t kCacheContainerPointerSlots = 12U;
 constexpr std::size_t kCacheFixedCharge =
     sizeof(CacheEntry) + sizeof(CacheKey) + kCacheContainerPointerSlots * sizeof(void*);
@@ -107,6 +117,72 @@ bool intersects(
     std::uint64_t query_end) noexcept {
     const std::uint64_t end = saturating_add(start, height);
     return end > query_start && start < query_end;
+}
+
+ScrollAnchor select_scroll_anchor(const ViewportResult& viewport, std::uint64_t scroll_y_q8) noexcept {
+    ScrollAnchor anchor;
+    for (const MaterializedRecord& record : viewport.records) {
+        const std::uint64_t end_q8 = saturating_add(record.y_q8, record.height_q8);
+        if (scroll_y_q8 >= record.y_q8 && scroll_y_q8 < end_q8) {
+            anchor.present = true;
+            anchor.record_index = record.record_index;
+            anchor.old_y_q8 = record.y_q8;
+            anchor.old_height_q8 = record.height_q8;
+            anchor.local_q8 = scroll_y_q8 - record.y_q8;
+            anchor.new_y_q8 = record.y_q8;
+            anchor.new_height_q8 = record.height_q8;
+            return anchor;
+        }
+    }
+    if (viewport.records.empty()) {
+        return anchor;
+    }
+
+    const MaterializedRecord& fallback = scroll_y_q8 < viewport.records.front().y_q8
+                                             ? viewport.records.front()
+                                             : viewport.records.back();
+    anchor.present = true;
+    anchor.record_index = fallback.record_index;
+    anchor.old_y_q8 = fallback.y_q8;
+    anchor.old_height_q8 = fallback.height_q8;
+    anchor.local_q8 = scroll_y_q8 > fallback.y_q8 ? scroll_y_q8 - fallback.y_q8 : 0U;
+    if (anchor.old_height_q8 != 0U && anchor.local_q8 >= anchor.old_height_q8) {
+        anchor.local_q8 = anchor.old_height_q8 - 1U;
+    }
+    anchor.new_y_q8 = fallback.y_q8;
+    anchor.new_height_q8 = fallback.height_q8;
+    return anchor;
+}
+
+void apply_height_to_anchor(
+    ScrollAnchor* anchor,
+    const MaterializedRecord& record,
+    std::uint32_t measured_height_q8) noexcept {
+    if (anchor == nullptr || !anchor->present) {
+        return;
+    }
+    const std::uint64_t old_height_q8 = record.height_q8;
+    const std::uint64_t new_height_q8 = measured_height_q8;
+    if (record.record_index < anchor->record_index) {
+        if (new_height_q8 >= old_height_q8) {
+            anchor->new_y_q8 = saturating_add(anchor->new_y_q8, new_height_q8 - old_height_q8);
+        } else {
+            const std::uint64_t delta = old_height_q8 - new_height_q8;
+            anchor->new_y_q8 = anchor->new_y_q8 >= delta ? anchor->new_y_q8 - delta : 0U;
+        }
+    } else if (record.record_index == anchor->record_index) {
+        anchor->new_height_q8 = new_height_q8;
+    }
+}
+
+std::uint64_t anchored_scroll(const ScrollAnchor& anchor, std::uint64_t original_scroll_q8) noexcept {
+    if (!anchor.present || anchor.old_height_q8 == 0U || anchor.new_height_q8 == 0U) {
+        return original_scroll_q8;
+    }
+    const std::uint64_t scaled_local_q8 =
+        (anchor.local_q8 * anchor.new_height_q8) / anchor.old_height_q8;
+    const std::uint64_t bounded_local_q8 = std::min(scaled_local_q8, anchor.new_height_q8 - 1U);
+    return saturating_add(anchor.new_y_q8, bounded_local_q8);
 }
 
 } // namespace
@@ -402,6 +478,7 @@ bool LayoutWindowEngine::layout(
     result->query_start_q8 = initial.query_start_q8;
     result->query_end_q8 = initial.query_end_q8;
     result->truncated = initial.truncated;
+    ScrollAnchor anchor = select_scroll_anchor(initial, scroll_y_q8);
 
     for (const MaterializedRecord& record : initial.records) {
         const CacheKey key = impl_->key_for(record.record_index, viewport_width_q8);
@@ -433,6 +510,7 @@ bool LayoutWindowEngine::layout(
         }
         ++result->measured_records;
         result->height_saturated = result->height_saturated || saturated;
+        apply_height_to_anchor(&anchor, record, measured_height);
         if (record.height_q8 != measured_height) {
             HeightUpdateResult update;
             if (!impl_->arena.update_height(record.record_index, measured_height, &update, error)) {
@@ -441,12 +519,14 @@ bool LayoutWindowEngine::layout(
         }
     }
 
+    const std::uint64_t anchor_corrected_scroll = anchored_scroll(anchor, scroll_y_q8);
+    result->scroll_anchor_adjusted = anchor_corrected_scroll != scroll_y_q8;
     const std::uint64_t corrected_total_height = impl_->arena.stats().total_height_q8;
     const std::uint64_t max_corrected_scroll = corrected_total_height > viewport_height_q8
                                                    ? corrected_total_height - viewport_height_q8
                                                    : 0U;
-    const std::uint64_t corrected_scroll_y = std::min(scroll_y_q8, max_corrected_scroll);
-    result->scroll_clamped = corrected_scroll_y != scroll_y_q8;
+    const std::uint64_t corrected_scroll_y = std::min(anchor_corrected_scroll, max_corrected_scroll);
+    result->scroll_clamped = corrected_scroll_y != anchor_corrected_scroll;
 
     ViewportResult corrected;
     if (!impl_->arena.materialize(
@@ -519,7 +599,8 @@ std::string layout_window_json(const LayoutWindowResult& result) {
            << result.measured_records << ",\"cache_hits\":" << result.cache_hits << ",\"cache_misses\":"
            << result.cache_misses << ",\"cache_bytes\":" << result.cache_bytes << ",\"truncated\":"
            << (result.truncated ? "true" : "false") << ",\"height_saturated\":"
-           << (result.height_saturated ? "true" : "false") << ",\"scroll_clamped\":"
+           << (result.height_saturated ? "true" : "false") << ",\"scroll_anchor_adjusted\":"
+           << (result.scroll_anchor_adjusted ? "true" : "false") << ",\"scroll_clamped\":"
            << (result.scroll_clamped ? "true" : "false") << ",\"fragment_count\":"
            << result.fragments.size() << ",\"fragments\":[";
     bool first = true;
