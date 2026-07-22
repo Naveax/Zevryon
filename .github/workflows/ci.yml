@@ -88,3 +88,29 @@ jobs:
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON
       - run: cmake --build build --parallel 2
       - run: ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 ctest --test-dir build --output-on-failure
+
+  windows-sanitizer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure MSVC AddressSanitizer
+        run: cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          cmake --build build-asan --config RelWithDebInfo --parallel 2 2>&1 | Tee-Object -FilePath windows-asan-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run tests under MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          ctest --test-dir build-asan -C RelWithDebInfo --output-on-failure 2>&1 | Tee-Object -FilePath windows-asan-ctest.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload Windows AddressSanitizer logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-asan-${{ github.sha }}
+          path: |
+            windows-asan-build.log
+            windows-asan-ctest.log
+          if-no-files-found: warn
