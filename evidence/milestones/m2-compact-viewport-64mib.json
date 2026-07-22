@@ -1,0 +1,53 @@
+{
+  "arena_build": {
+    "arena": {
+      "block_count": 16,
+      "estimated_bytes_per_line": 96,
+      "line_height_q8": 4608,
+      "logical_nodes": 1048576,
+      "logical_records": 131072,
+      "physical_bytes": 524488,
+      "records_per_block": 8192,
+      "total_height_q8": 4026531840,
+      "vertical_padding_q8": 3072
+    },
+    "engine_seconds": 0.00174863,
+    "peak_pss_mb": 1.104896,
+    "wall_seconds": 0.005066690999910861
+  },
+  "bounded_viewport_materialization": true,
+  "logical_bytes": 67108864,
+  "logical_records": 131072,
+  "payload_sha256": "c6915cb2471d1753e8103352fedca5b248197465391e1fd2426444a024ec39df",
+  "schema": "zevryon.massivedoc.m2.evidence.v1",
+  "viewports": {
+    "end": {
+      "count": 12,
+      "engine_seconds": 0.000285293,
+      "first_record": 131060,
+      "last_record": 131071,
+      "peak_pss_mb": 0.13824,
+      "truncated": false,
+      "wall_seconds": 0.0026534109999829525
+    },
+    "middle": {
+      "count": 18,
+      "engine_seconds": 0.000569165,
+      "first_record": 65530,
+      "last_record": 65547,
+      "peak_pss_mb": 0.04096,
+      "truncated": false,
+      "wall_seconds": 0.002528755999946952
+    },
+    "top": {
+      "count": 12,
+      "engine_seconds": 0.000304232,
+      "first_record": 0,
+      "last_record": 11,
+      "peak_pss_mb": 0.268288,
+      "truncated": false,
+      "wall_seconds": 0.00293048200001067
+    }
+  },
+  "zero_data_loss": true
+}
