@@ -3,14 +3,18 @@
 #include "resource_ledger.hpp"
 #include "unicode_bidi.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <memory_resource>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -202,8 +206,9 @@ int main(int argc, char** argv) {
         }
         ++data_lines;
         maximum_input_units = std::max(maximum_input_units, classes.size());
-        const std::array<std::pair<unsigned long, zevryon::text::ParagraphDirection>, 3U>
-            modes{{
+        const std::array<
+            std::pair<unsigned long, zevryon::text::ParagraphDirection>,
+            3U> modes{{
                 {1UL, zevryon::text::ParagraphDirection::Auto},
                 {2UL, zevryon::text::ParagraphDirection::LeftToRight},
                 {4UL, zevryon::text::ParagraphDirection::RightToLeft},
