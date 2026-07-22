@@ -21,8 +21,7 @@ bool require(bool condition, const char* message) {
 }
 
 std::vector<std::byte> payload(std::size_t size, char fill) {
-    std::vector<std::byte> bytes(size, static_cast<std::byte>(static_cast<unsigned char>(fill)));
-    return bytes;
+    return std::vector<std::byte>(size, static_cast<std::byte>(static_cast<unsigned char>(fill)));
 }
 
 } // namespace
@@ -109,6 +108,46 @@ int main() {
         !require(!end.records.empty(), "end viewport is non-empty") ||
         !require(end.records.back().record_index == kRecords - 1U, "end reaches final record") ||
         !require(end.records.back().logical_id == kRecords - 1U + 1000U, "logical id retained")) {
+        return 1;
+    }
+
+    std::uint64_t expected_total = arena.stats().total_height_q8;
+    for (std::uint64_t iteration = 0U; iteration < 128U; ++iteration) {
+        const std::uint64_t record = (iteration * 7919U) % kRecords;
+        const std::uint32_t new_height = static_cast<std::uint32_t>((24U + iteration % 97U) * 256U);
+        zevryon::massivedoc::HeightUpdateResult update;
+        if (!require(arena.update_height(record, new_height, &update, &error), error.c_str()) ||
+            !require(update.record_index == record, "height update record identity") ||
+            !require(update.new_height_q8 == new_height, "height update value")) {
+            return 1;
+        }
+        expected_total = expected_total - update.old_height_q8 + update.new_height_q8;
+        if (!require(update.total_height_q8 == expected_total, "height update total invariant") ||
+            !require(arena.stats().total_height_q8 == expected_total, "reader total follows update")) {
+            return 1;
+        }
+    }
+
+    zevryon::massivedoc::HeightUpdateResult invalid_update;
+    if (!require(!arena.update_height(kRecords, 256U, &invalid_update, &error), "out-of-range update rejected") ||
+        !require(!arena.update_height(0U, 0U, &invalid_update, &error), "zero-height update rejected")) {
+        return 1;
+    }
+
+    zevryon::massivedoc::CompactArenaReader reopened(root);
+    if (!require(reopened.open(&error), error.c_str()) ||
+        !require(reopened.stats().total_height_q8 == expected_total, "height updates persist after reopen")) {
+        return 1;
+    }
+    zevryon::massivedoc::HeightUpdateResult first_update;
+    constexpr std::uint32_t kFirstHeight = 400U * 256U;
+    if (!require(reopened.update_height(0U, kFirstHeight, &first_update, &error), error.c_str())) {
+        return 1;
+    }
+    zevryon::massivedoc::ViewportResult updated_top;
+    if (!require(reopened.materialize(0U, 720U * 256U, 0U, 32U, &updated_top, &error), error.c_str()) ||
+        !require(!updated_top.records.empty(), "updated top viewport is non-empty") ||
+        !require(updated_top.records.front().height_q8 == kFirstHeight, "viewport uses persisted height update")) {
         return 1;
     }
 
