@@ -85,8 +85,8 @@ jobs:
               'unicode_version': '17.0.0',
               'data_fingerprint': 'fde26abeb242fbe7c5a3d5ced5d4666286a08baaf15822f71e7a0af9f9ff5a91',
               'tests': 766,
-              'codepoints': 1906,
-              'clusters': 1271,
+              'codepoints': 1990,
+              'clusters': 1391,
               'passed': True,
           }
 
