@@ -148,6 +148,14 @@ bool StoreWriter::finalize(CorpusMetadata metadata, StoreStats* stats, std::stri
         *error = "failed to flush store files";
         return false;
     }
+    impl_->records.close();
+    impl_->chunks.close();
+    impl_->search.close();
+    impl_->segment.close();
+    if (impl_->records.fail() || impl_->chunks.fail() || impl_->search.fail() || impl_->segment.fail()) {
+        *error = "failed to close store files";
+        return false;
+    }
     metadata.logical_utf8_bytes = impl_->logical_bytes;
     metadata.logical_records = impl_->record_count;
     metadata.largest_record_bytes = std::max(metadata.largest_record_bytes, impl_->largest_record);
