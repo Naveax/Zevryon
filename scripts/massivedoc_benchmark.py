@@ -97,6 +97,20 @@ def run_measured(command: list[str]) -> dict:
     }
 
 
+def run_captured(command: list[str]) -> subprocess.CompletedProcess[str]:
+    completed = subprocess.run(command, capture_output=True, text=True)
+    if completed.returncode != 0:
+        stdout = completed.stdout.strip() or "<empty>"
+        stderr = completed.stderr.strip() or "<empty>"
+        raise RuntimeError(
+            "nested command failed "
+            f"({completed.returncode}): {' '.join(command)}\n"
+            f"--- stdout ---\n{stdout}\n"
+            f"--- stderr ---\n{stderr}"
+        )
+    return completed
+
+
 def sha256_file(path: Path, chunk_bytes: int = 4 * 1024 * 1024) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -152,7 +166,7 @@ def main() -> int:
     ]
     if args.giant_record_bytes:
         generator_command.extend(["--giant-record-bytes", str(args.giant_record_bytes)])
-    generated = subprocess.run(generator_command, check=True, capture_output=True, text=True)
+    generated = run_captured(generator_command)
     corpus_summary = json.loads(generated.stdout)
 
     imported = run_measured([str(args.binary), "import", str(corpus), str(store), str(args.segment_mib)])
@@ -180,7 +194,7 @@ def main() -> int:
     if args.giant_record_bytes:
         layout_script = Path(__file__).with_name("layout_window_benchmark.py")
         layout_output = args.work_dir / "layout-window-report.json"
-        layout_process = subprocess.run(
+        layout_process = run_captured(
             [
                 sys.executable,
                 str(layout_script),
@@ -204,10 +218,7 @@ def main() -> int:
                 str(args.giant_record_bytes),
                 "--output",
                 str(layout_output),
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
+            ]
         )
         layout_window = json.loads(layout_process.stdout)
 
