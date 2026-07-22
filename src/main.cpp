@@ -1,4 +1,5 @@
 #include "compact_document.hpp"
+#include "layout_window.hpp"
 #include "massivedoc_store.hpp"
 
 #include <charconv>
@@ -41,7 +42,9 @@ void usage() {
         << "  zevryon-massivedoc arena-build <store-dir> [bytes-per-line] [line-height-px]\n"
         << "  zevryon-massivedoc arena-stats <store-dir>\n"
         << "  zevryon-massivedoc height-update <store-dir> <record-index> <height-px>\n"
-        << "  zevryon-massivedoc viewport <store-dir> <scroll-y-px> <height-px> [overscan-px] [max-records]\n";
+        << "  zevryon-massivedoc viewport <store-dir> <scroll-y-px> <height-px> [overscan-px] [max-records]\n"
+        << "  zevryon-massivedoc layout-window <store-dir> <scroll-y-px> <width-px> <height-px>"
+           " [overscan-px] [max-fragments] [cache-mb]\n";
 }
 
 } // namespace
@@ -180,6 +183,49 @@ int main(int argc, char** argv) {
         const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
         std::cout << "{\"operation\":\"viewport\",\"seconds\":" << elapsed
                   << ",\"viewport\":" << zevryon::massivedoc::viewport_json(result) << "}\n";
+        return 0;
+    }
+
+    if (command == "layout-window") {
+        if (argc < 6 || argc > 9) {
+            usage();
+            return 2;
+        }
+        const auto scroll_y = pixels_to_q8(argv[3]);
+        const auto width = pixels_to_q8(argv[4]);
+        const auto height = pixels_to_q8(argv[5]);
+        const auto overscan = argc >= 7 ? pixels_to_q8(argv[6]) : std::optional<std::uint64_t>{720U * 256U};
+        const auto max_fragments = argc >= 8 ? parse_number<std::size_t>(argv[7])
+                                              : std::optional<std::size_t>{512U};
+        const auto cache_mb = argc == 9 ? parse_number<std::size_t>(argv[8]) : std::optional<std::size_t>{8U};
+        if (!scroll_y || !width || *width == 0U || *width > std::numeric_limits<std::uint32_t>::max() ||
+            !height || *height == 0U || !overscan || !max_fragments || *max_fragments == 0U || !cache_mb ||
+            *cache_mb == 0U || *cache_mb > std::numeric_limits<std::size_t>::max() / 1000000U) {
+            std::cerr << "invalid layout window arguments\n";
+            return 2;
+        }
+        zevryon::massivedoc::LayoutConfig config;
+        config.max_cache_bytes = *cache_mb * 1000000U;
+        zevryon::massivedoc::LayoutWindowEngine engine(argv[2], config);
+        if (!engine.open(&error)) {
+            std::cerr << "layout open failed: " << error << '\n';
+            return 1;
+        }
+        zevryon::massivedoc::LayoutWindowResult result;
+        if (!engine.layout(
+                *scroll_y,
+                static_cast<std::uint32_t>(*width),
+                *height,
+                *overscan,
+                *max_fragments,
+                &result,
+                &error)) {
+            std::cerr << "layout window failed: " << error << '\n';
+            return 1;
+        }
+        const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+        std::cout << "{\"operation\":\"layout-window\",\"seconds\":" << elapsed
+                  << ",\"layout\":" << zevryon::massivedoc::layout_window_json(result) << "}\n";
         return 0;
     }
 

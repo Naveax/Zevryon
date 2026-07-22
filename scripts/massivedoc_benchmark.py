@@ -97,6 +97,20 @@ def run_measured(command: list[str]) -> dict:
     }
 
 
+def run_captured(command: list[str]) -> subprocess.CompletedProcess[str]:
+    completed = subprocess.run(command, capture_output=True, text=True)
+    if completed.returncode != 0:
+        stdout = completed.stdout.strip() or "<empty>"
+        stderr = completed.stderr.strip() or "<empty>"
+        raise RuntimeError(
+            "nested command failed "
+            f"({completed.returncode}): {' '.join(command)}\n"
+            f"--- stdout ---\n{stdout}\n"
+            f"--- stderr ---\n{stderr}"
+        )
+    return completed
+
+
 def sha256_file(path: Path, chunk_bytes: int = 4 * 1024 * 1024) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -152,7 +166,7 @@ def main() -> int:
     ]
     if args.giant_record_bytes:
         generator_command.extend(["--giant-record-bytes", str(args.giant_record_bytes)])
-    generated = subprocess.run(generator_command, check=True, capture_output=True, text=True)
+    generated = run_captured(generator_command)
     corpus_summary = json.loads(generated.stdout)
 
     imported = run_measured([str(args.binary), "import", str(corpus), str(store), str(args.segment_mib)])
@@ -175,6 +189,38 @@ def main() -> int:
         name: run_measured(viewport_command(args.binary, store, position, args.viewport_height, args.overscan))
         for name, position in positions.items()
     }
+
+    layout_window = None
+    if args.giant_record_bytes:
+        layout_script = Path(__file__).with_name("layout_window_benchmark.py")
+        layout_output = args.work_dir / "layout-window-report.json"
+        layout_process = run_captured(
+            [
+                sys.executable,
+                str(layout_script),
+                "--binary",
+                str(args.binary),
+                "--store",
+                str(store),
+                "--viewport-width",
+                "800",
+                "--viewport-height",
+                str(args.viewport_height),
+                "--overscan",
+                str(args.overscan),
+                "--max-fragments",
+                "512",
+                "--cache-mb",
+                "8",
+                "--expected-record",
+                str(corpus_summary["giant_record_index"]),
+                "--minimum-source-bytes",
+                str(args.giant_record_bytes),
+                "--output",
+                str(layout_output),
+            ]
+        )
+        layout_window = json.loads(layout_process.stdout)
 
     store_summary = imported["result"]["store"]
     store_sha = store_summary["payload_sha256"]
@@ -200,7 +246,7 @@ def main() -> int:
     physical_store_bytes = int(store_summary["physical_bytes"])
     metadata_overhead_bytes = physical_store_bytes - args.logical_bytes
     report = {
-        "schema": "zevryon.massivedoc.benchmark.v3",
+        "schema": "zevryon.massivedoc.benchmark.v4",
         "logical_bytes": args.logical_bytes,
         "logical_records": args.records,
         "logical_nodes": corpus_summary["logical_nodes"],
@@ -221,12 +267,14 @@ def main() -> int:
         "export": exported_run,
         "arena_build": arena,
         "viewports": viewports,
+        "layout_window": layout_window,
         "throughput_mb_s_decimal": {
             "import": throughput_mb_s(args.logical_bytes, float(imported["seconds"])),
             "verify": throughput_mb_s(args.logical_bytes, float(verified["seconds"])),
             "export": throughput_mb_s(args.logical_bytes, float(exported_run["seconds"])),
         },
         "bounded_viewport_materialization": True,
+        "bounded_layout_fragment_materialization": layout_window is not None,
         "zero_data_loss": True,
         "tail_marker_in_final_record": True,
     }
