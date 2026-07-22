@@ -15,7 +15,10 @@ struct LayoutConfig {
     std::uint32_t horizontal_padding_q8{12U * 256U};
     std::uint32_t vertical_padding_q8{12U * 256U};
     std::uint32_t width_bucket_q8{8U * 256U};
+    std::uint32_t checkpoint_stride_bytes{64U * 1024U};
+    std::uint64_t checkpoint_min_record_bytes{1024U * 1024U};
     std::size_t max_cache_bytes{8U * 1000U * 1000U};
+    bool enable_persistent_checkpoints{true};
 };
 
 struct LayoutFragment {
@@ -38,11 +41,14 @@ struct LayoutWindowResult {
     std::uint64_t measured_records{0};
     std::uint64_t cache_hits{0};
     std::uint64_t cache_misses{0};
+    std::uint64_t checkpoint_hits{0};
+    std::uint64_t checkpoint_index_bytes{0};
     std::size_t cache_bytes{0};
     bool truncated{false};
     bool height_saturated{false};
     bool scroll_anchor_adjusted{false};
     bool scroll_clamped{false};
+    bool checkpoint_accelerated{false};
     std::vector<LayoutFragment> fragments;
 };
 
