@@ -53,6 +53,11 @@ public:
     bool open(
         const std::filesystem::path& store_root,
         std::uint64_t record_index,
+        LayoutCheckpointConfig config,
+        std::string* error);
+    bool open(
+        const std::filesystem::path& store_root,
+        std::uint64_t record_index,
         std::uint64_t logical_id,
         std::uint64_t source_bytes,
         LayoutCheckpointConfig config,
