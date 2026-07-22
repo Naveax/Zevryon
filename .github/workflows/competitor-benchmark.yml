@@ -1,6 +1,8 @@
 name: competitor-benchmark
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
@@ -8,6 +10,7 @@ permissions:
 
 jobs:
   giant-document-competitors:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 3
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
