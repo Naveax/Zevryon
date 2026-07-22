@@ -1,0 +1,61 @@
+name: z1-bidi-character-diagnostic
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-bidi-character-diagnostic.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: z1-bidi-character-diagnostic-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pinned BidiCharacterTest
+        run: |
+          python - <<'PY'
+          import hashlib
+          import urllib.request
+          from pathlib import Path
+
+          data = urllib.request.urlopen(
+              'https://www.unicode.org/Public/17.0.0/ucd/BidiCharacterTest.txt',
+              timeout=120,
+          ).read()
+          expected = 'a3e6e905ab5afbe318a96df5401d0372a04cd73ef139ab5e3cf0ae241c255488'
+          actual = hashlib.sha256(data).hexdigest()
+          if actual != expected:
+              raise RuntimeError(f'BidiCharacterTest hash mismatch: {actual}')
+          Path('BidiCharacterTest.txt').write_bytes(data)
+          PY
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - run: cmake --build build --parallel 2 --target zevryon-bidi-character-conformance
+      - name: Capture first mismatch
+        shell: bash
+        run: |
+          set +e
+          build/zevryon-bidi-character-conformance BidiCharacterTest.txt \
+            > bidi-character.stdout.log \
+            2> bidi-character.stderr.log
+          code=$?
+          echo "exit_code=$code" > bidi-character.exit.log
+          cat bidi-character.stderr.log
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bidi-character-diagnostic-${{ github.sha }}
+          path: |
+            bidi-character.stdout.log
+            bidi-character.stderr.log
+            bidi-character.exit.log
+            BidiCharacterTest.txt
+          if-no-files-found: error
