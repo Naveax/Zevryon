@@ -16,7 +16,7 @@
     {
       "id": "Z0",
       "name": "Resource ledger and benchmark contract",
-      "status": "active",
+      "status": "implemented",
       "dependencies": [],
       "required_gates": [
         "cross_platform_strict_build",
@@ -26,13 +26,20 @@
         "benchmark_contract_validation",
         "z0_z15_dependency_validation"
       ],
-      "evidence": []
+      "evidence": [
+        "github-actions-run:29945628854",
+        "artifact-sha256:cfd6745c53e65692af0c8562872255c37b7ac5cbf464d0260d20ae0b4ab9ad25",
+        "workload-sha256:abc72316d5186985e52c8a335402bf03606b7163ce4a6325d9b2791f890f6ef5",
+        "merge-commit:0bfc870dedd01be9ca94ccab51feda4d98b9a850"
+      ]
     },
     {
       "id": "Z1",
       "name": "Unicode text substrate",
-      "status": "planned",
-      "dependencies": ["Z0"],
+      "status": "active",
+      "dependencies": [
+        "Z0"
+      ],
       "required_gates": [
         "streaming_utf8_chunk_equivalence",
         "grapheme_segmentation_conformance",
@@ -46,7 +53,9 @@
       "id": "Z2",
       "name": "Font discovery and shaping",
       "status": "planned",
-      "dependencies": ["Z1"],
+      "dependencies": [
+        "Z1"
+      ],
       "required_gates": [
         "font_fallback_correctness",
         "glyph_cluster_roundtrip",
@@ -60,7 +69,10 @@
       "id": "Z3",
       "name": "CSS parser cascade and style sharing",
       "status": "planned",
-      "dependencies": ["Z0", "Z8"],
+      "dependencies": [
+        "Z0",
+        "Z8"
+      ],
       "required_gates": [
         "css_parser_conformance",
         "cascade_conformance",
@@ -74,7 +86,10 @@
       "id": "Z4",
       "name": "Incremental layout",
       "status": "planned",
-      "dependencies": ["Z2", "Z3"],
+      "dependencies": [
+        "Z2",
+        "Z3"
+      ],
       "required_gates": [
         "inline_layout_reference_tests",
         "block_layout_reference_tests",
@@ -88,7 +103,9 @@
       "id": "Z5",
       "name": "Retained paint",
       "status": "planned",
-      "dependencies": ["Z4"],
+      "dependencies": [
+        "Z4"
+      ],
       "required_gates": [
         "retained_display_list",
         "paint_invalidation_bounds",
@@ -102,7 +119,10 @@
       "id": "Z6",
       "name": "Tile compositor and GPU",
       "status": "planned",
-      "dependencies": ["Z5", "Z13"],
+      "dependencies": [
+        "Z5",
+        "Z13"
+      ],
       "required_gates": [
         "async_scroll",
         "frame_deadline_p99",
@@ -116,7 +136,9 @@
       "id": "Z7",
       "name": "Streaming HTML parser",
       "status": "planned",
-      "dependencies": ["Z0"],
+      "dependencies": [
+        "Z0"
+      ],
       "required_gates": [
         "html_tokenizer_conformance",
         "tree_builder_conformance",
@@ -130,7 +152,9 @@
       "id": "Z8",
       "name": "Logical DOM and hot projection",
       "status": "planned",
-      "dependencies": ["Z7"],
+      "dependencies": [
+        "Z7"
+      ],
       "required_gates": [
         "stable_node_identity",
         "cold_node_byte_budget",
@@ -144,7 +168,11 @@
       "id": "Z9",
       "name": "JavaScript runtime and Web IDL",
       "status": "planned",
-      "dependencies": ["Z8", "Z12", "Z13"],
+      "dependencies": [
+        "Z8",
+        "Z12",
+        "Z13"
+      ],
       "required_gates": [
         "test262_target",
         "event_loop_conformance",
@@ -158,7 +186,10 @@
       "id": "Z10",
       "name": "Mutation tree WAL and recovery",
       "status": "planned",
-      "dependencies": ["Z0", "Z8"],
+      "dependencies": [
+        "Z0",
+        "Z8"
+      ],
       "required_gates": [
         "order_statistics_mutation",
         "copy_on_write_commit",
@@ -172,7 +203,12 @@
       "id": "Z11",
       "name": "One hundred continuously live pages",
       "status": "planned",
-      "dependencies": ["Z6", "Z9", "Z10", "Z12"],
+      "dependencies": [
+        "Z6",
+        "Z9",
+        "Z10",
+        "Z12"
+      ],
       "required_gates": [
         "zero_automatic_reload",
         "zero_network_message_loss",
@@ -186,7 +222,10 @@
       "id": "Z12",
       "name": "Network and web platform services",
       "status": "planned",
-      "dependencies": ["Z0", "Z13"],
+      "dependencies": [
+        "Z0",
+        "Z13"
+      ],
       "required_gates": [
         "http_protocol_conformance",
         "tls_validation",
@@ -200,7 +239,9 @@
       "id": "Z13",
       "name": "Process isolation and sandbox",
       "status": "planned",
-      "dependencies": ["Z0"],
+      "dependencies": [
+        "Z0"
+      ],
       "required_gates": [
         "typed_ipc_validation",
         "renderer_no_filesystem_access",
@@ -214,7 +255,12 @@
       "id": "Z14",
       "name": "Accessibility and input",
       "status": "planned",
-      "dependencies": ["Z2", "Z4", "Z8", "Z9"],
+      "dependencies": [
+        "Z2",
+        "Z4",
+        "Z8",
+        "Z9"
+      ],
       "required_gates": [
         "source_to_visual_range_roundtrip",
         "screen_reader_event_delivery",
@@ -228,7 +274,14 @@
       "id": "Z15",
       "name": "Compatibility adaptive control and product shell",
       "status": "planned",
-      "dependencies": ["Z6", "Z9", "Z11", "Z12", "Z13", "Z14"],
+      "dependencies": [
+        "Z6",
+        "Z9",
+        "Z11",
+        "Z12",
+        "Z13",
+        "Z14"
+      ],
       "required_gates": [
         "wpt_target",
         "test262_target",
