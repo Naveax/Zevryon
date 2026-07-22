@@ -81,10 +81,20 @@ jobs:
           --giant-record-bytes 67108864
           --work-dir "${{ runner.temp }}/zevryon-giant"
           --output evidence/ci/m1-giant-record.json
+      - name: Certify global checkpoint-aware layout
+        run: >-
+          python scripts/zenith_global_benchmark.py
+          --binary build/zevryon-zenith-layout
+          --store "${{ runner.temp }}/zevryon-giant/store"
+          --layout-report "${{ runner.temp }}/zevryon-giant/layout-window-report.json"
+          --expected-record 65536
+          --output evidence/ci/zenith-global-layout.json
       - uses: actions/upload-artifact@v4
         with:
           name: m1-giant-record-${{ github.sha }}
-          path: evidence/ci/m1-giant-record.json
+          path: |
+            evidence/ci/m1-giant-record.json
+            evidence/ci/zenith-global-layout.json
 
   sanitizer:
     runs-on: ubuntu-latest
@@ -97,7 +107,7 @@ jobs:
 
   windows-sanitizer:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - name: Configure MSVC AddressSanitizer
@@ -200,6 +210,24 @@ jobs:
           Get-Content "windows-asan-checkpoint.stdout.log" -ErrorAction SilentlyContinue
           Get-Content "windows-asan-checkpoint.stderr.log" -ErrorAction SilentlyContinue
           if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - name: Run ZENITH global layout tests under MSVC AddressSanitizer
+        id: asan_zenith
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          $env:ASAN_OPTIONS = "halt_on_error=1:abort_on_error=1:symbolize=1"
+          $env:ASAN_SAVE_DUMPS = "windows-asan-zenith.dmp"
+          $process = Start-Process `
+            -FilePath ".\build-asan\RelWithDebInfo\zevryon-zenith-layout-tests.exe" `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput "windows-asan-zenith.stdout.log" `
+            -RedirectStandardError "windows-asan-zenith.stderr.log"
+          "exit_code=$($process.ExitCode)" | Set-Content "windows-asan-zenith.exit.log"
+          Get-Content "windows-asan-zenith.stdout.log" -ErrorAction SilentlyContinue
+          Get-Content "windows-asan-zenith.stderr.log" -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
       - name: Enforce MSVC AddressSanitizer results
         if: always()
         shell: pwsh
@@ -209,7 +237,8 @@ jobs:
             "windows-asan-store.exit.log",
             "windows-asan-compact.exit.log",
             "windows-asan-layout.exit.log",
-            "windows-asan-checkpoint.exit.log"
+            "windows-asan-checkpoint.exit.log",
+            "windows-asan-zenith.exit.log"
           )) {
             if (-not (Test-Path $path)) {
               Write-Error "missing sanitizer exit record: $path"
@@ -236,4 +265,6 @@ jobs:
             windows-asan-layout.dmp
             windows-asan-checkpoint.*.log
             windows-asan-checkpoint.dmp
+            windows-asan-zenith.*.log
+            windows-asan-zenith.dmp
           if-no-files-found: warn
