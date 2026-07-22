@@ -43,6 +43,7 @@ endforeach()
 add_library(zevryon-massivedoc-core STATIC
   "${ZEVRYON_MASSIVEDOC_SOURCE}"
   src/compact_document.cpp
+  src/layout_checkpoint.cpp
   src/layout_window.cpp
 )
 target_include_directories(zevryon-massivedoc-core PUBLIC src)
@@ -68,4 +69,9 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-layout-window-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-layout-window-tests)
   add_test(NAME layout-window-tests COMMAND zevryon-layout-window-tests)
+
+  add_executable(zevryon-layout-checkpoint-tests tests/layout_checkpoint_tests.cpp)
+  target_link_libraries(zevryon-layout-checkpoint-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-layout-checkpoint-tests)
+  add_test(NAME layout-checkpoint-tests COMMAND zevryon-layout-checkpoint-tests)
 endif()
