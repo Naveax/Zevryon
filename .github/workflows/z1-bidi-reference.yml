@@ -1,0 +1,69 @@
+name: z1-bidi-reference
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-bidi-reference.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: z1-bidi-reference-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch Unicode 17 reference implementation
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import urllib.request
+          from pathlib import Path
+
+          base = 'https://www.unicode.org/Public/PROGRAMS/BidiReferenceC/17.0.0/'
+          files = [
+              'ReadMe.txt',
+              'include/bidiref.h',
+              'source/bidiref.c',
+              'source/bidiref1.c',
+              'source/bidirefp.h',
+              'source/brinput.c',
+              'source/brrule.c',
+              'source/brtable.c',
+              'source/brtest.c',
+              'source/brutils.c',
+          ]
+          root = Path('evidence/ci/BidiReferenceC-17.0.0')
+          hashes = {}
+          for relative in files:
+              data = urllib.request.urlopen(base + relative, timeout=120).read()
+              target = root / relative
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(data)
+              hashes[relative] = hashlib.sha256(data).hexdigest()
+              print(relative, len(data), hashes[relative])
+          Path('evidence/ci/bidi_reference_sources.json').write_text(
+              json.dumps(hashes, indent=2, sort_keys=True) + '\n'
+          )
+          PY
+      - name: Validate reference identity
+        run: |
+          grep -F 'Version 17.0.0' evidence/ci/BidiReferenceC-17.0.0/ReadMe.txt
+          grep -F 'br_QueryOneTestCase' evidence/ci/BidiReferenceC-17.0.0/include/bidiref.h
+          grep -F 'br_ResolveOnePair' evidence/ci/BidiReferenceC-17.0.0/source/brrule.c
+      - uses: actions/upload-artifact@v4
+        with:
+          name: z1-bidi-reference-${{ github.sha }}
+          path: |
+            evidence/ci/BidiReferenceC-17.0.0
+            evidence/ci/bidi_reference_sources.json
