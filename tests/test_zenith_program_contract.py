@@ -42,6 +42,7 @@ def test_active_milestone_cannot_skip_dependency() -> None:
 
 def test_dependency_cycle_is_rejected() -> None:
     program = load_manifest()
+    program["milestones"][0]["status"] = "planned"
     program["milestones"][0]["dependencies"] = ["Z15"]
     with pytest.raises(ContractError, match="cycle"):
         validate_program(program)
