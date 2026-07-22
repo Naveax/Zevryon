@@ -83,6 +83,7 @@ jobs:
 
   sanitizer:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON
@@ -91,6 +92,7 @@ jobs:
 
   windows-sanitizer:
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Configure MSVC AddressSanitizer
@@ -100,10 +102,19 @@ jobs:
         run: |
           cmake --build build-asan --config RelWithDebInfo --parallel 2 2>&1 | Tee-Object -FilePath windows-asan-build.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Run tests under MSVC AddressSanitizer
+      - name: Run store tests under MSVC AddressSanitizer
+        timeout-minutes: 8
         shell: pwsh
         run: |
-          ctest --test-dir build-asan -C RelWithDebInfo --output-on-failure 2>&1 | Tee-Object -FilePath windows-asan-ctest.log
+          $env:ASAN_OPTIONS = "halt_on_error=1:abort_on_error=1:symbolize=1"
+          & .\build-asan\RelWithDebInfo\zevryon-massivedoc-tests.exe 2>&1 | Tee-Object -FilePath windows-asan-store.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run compact document tests under MSVC AddressSanitizer
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          $env:ASAN_OPTIONS = "halt_on_error=1:abort_on_error=1:symbolize=1"
+          & .\build-asan\RelWithDebInfo\zevryon-compact-document-tests.exe 2>&1 | Tee-Object -FilePath windows-asan-compact.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload Windows AddressSanitizer logs
         if: always()
@@ -112,5 +123,6 @@ jobs:
           name: windows-asan-${{ github.sha }}
           path: |
             windows-asan-build.log
-            windows-asan-ctest.log
+            windows-asan-store.log
+            windows-asan-compact.log
           if-no-files-found: warn
