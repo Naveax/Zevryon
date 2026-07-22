@@ -127,6 +127,7 @@ def main() -> int:
     parser.add_argument("--giant-record-bytes", type=int, default=0)
     parser.add_argument("--viewport-height", type=int, default=720)
     parser.add_argument("--overscan", type=int, default=720)
+    parser.add_argument("--cleanup-large-files", action="store_true")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
@@ -134,6 +135,7 @@ def main() -> int:
         shutil.rmtree(args.work_dir)
     args.work_dir.mkdir(parents=True)
     corpus = args.work_dir / "corpus.zmdoc"
+    corpus_sidecar = corpus.with_suffix(corpus.suffix + ".json")
     store = args.work_dir / "store"
     exported = args.work_dir / "exported-payload.bin"
     generator = Path(__file__).with_name("generate_massivedoc_corpus.py")
@@ -154,6 +156,9 @@ def main() -> int:
     corpus_summary = json.loads(generated.stdout)
 
     imported = run_measured([str(args.binary), "import", str(corpus), str(store), str(args.segment_mib)])
+    if args.cleanup_large_files:
+        corpus.unlink(missing_ok=True)
+        corpus_sidecar.unlink(missing_ok=True)
     searched = run_measured([str(args.binary), "search", str(store), corpus_summary["tail_marker"], "2"])
     verified = run_measured([str(args.binary), "verify", str(store)])
     exported_run = run_measured([str(args.binary), "export", str(store), str(exported)])
@@ -178,6 +183,8 @@ def main() -> int:
     export_sha = sha256_file(exported)
     if export_sha != corpus_summary["payload_sha256"]:
         raise RuntimeError("exported payload hash differs from generated corpus")
+    if args.cleanup_large_files:
+        exported.unlink(missing_ok=True)
     hits = searched["result"]["hits"]
     if len(hits) != 1 or hits[0]["record_index"] != args.records - 1:
         raise RuntimeError("tail marker was not found in final record")
