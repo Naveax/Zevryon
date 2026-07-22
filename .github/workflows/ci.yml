@@ -109,11 +109,13 @@ jobs:
           if (-not (Test-Path $vswhere)) { throw "vswhere.exe not found" }
           $installation = (& $vswhere -latest -products * -property installationPath).Trim()
           if (-not $installation) { throw "Visual Studio installation not found" }
-          $runtimes = Get-ChildItem `
-            -Path $installation `
-            -Recurse -File `
-            -Filter "clang_rt.asan*dynamic-x86_64.dll" `
-            -ErrorAction SilentlyContinue
+          $patterns = @(
+            "$installation\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan*dynamic-x86_64.dll",
+            "$installation\VC\Tools\Llvm\x64\bin\clang_rt.asan*dynamic-x86_64.dll"
+          )
+          $runtimes = @($patterns | ForEach-Object {
+            Get-ChildItem -Path $_ -File -ErrorAction SilentlyContinue
+          })
           if (-not $runtimes) { throw "MSVC AddressSanitizer runtime DLL not found" }
           $output = Resolve-Path ".\build-asan\RelWithDebInfo"
           $runtimes | Group-Object Name | ForEach-Object {
