@@ -1,0 +1,242 @@
+{
+  "schema": "zevryon.zenith-program.v1",
+  "policy": {
+    "forbid_skipped_dependencies": true,
+    "require_evidence_for_implemented": true,
+    "require_hard_budget_for_resident_cache": true,
+    "core_random_p95_ms_max": 0.5,
+    "core_adjacent_p95_ms_max": 0.3,
+    "core_random_p99_ms_max": 0.75,
+    "core_source_read_bytes_max": 65536,
+    "checkpoint_overhead_ratio_max": 0.002,
+    "silent_corruption_max": 0,
+    "payload_data_loss_bytes_max": 0
+  },
+  "milestones": [
+    {
+      "id": "Z0",
+      "name": "Resource ledger and benchmark contract",
+      "status": "active",
+      "dependencies": [],
+      "required_gates": [
+        "cross_platform_strict_build",
+        "linux_asan_ubsan",
+        "resource_hard_cap_rejection",
+        "overflow_safe_io_counters",
+        "benchmark_contract_validation",
+        "z0_z15_dependency_validation"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "Z1",
+      "name": "Unicode text substrate",
+      "status": "planned",
+      "dependencies": ["Z0"],
+      "required_gates": [
+        "streaming_utf8_chunk_equivalence",
+        "grapheme_segmentation_conformance",
+        "bidi_run_conformance",
+        "line_break_conformance",
+        "core_seek_regression_gate"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "Z2",
+      "name": "Font discovery and shaping",
+      "status": "planned",
+      "dependencies": ["Z1"],
+      "required_gates": [
+        "font_fallback_correctness",
+        "glyph_cluster_roundtrip",
+        "bounded_glyph_cache",
+        "visible_shaping_p95",
+        "pixel_reference_tests"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "Z3",
+      "name": "CSS parser cascade and style sharing",
+      "status": "planned",
+      "dependencies": ["Z0", "Z8"],
+      "required_gates": [
+        "css_parser_conformance",
+        "cascade_conformance",
+        "selector_dependency_invalidation",
+        "bounded_style_dag",
+        "offscreen_materialization_bound"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "Z4",
+      "name": "Incremental layout",
+      "status": "planned",
+      "dependencies": ["Z2", "Z3"],
+      "required_gates": [
+        "inline_layout_reference_tests",
+        "block_layout_reference_tests",
+        "incremental_invalidation",
+        "scroll_anchor_error_bound",
+        "warm_scroll_zero_allocation"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "Z5",
+      "name": "Retained paint",
+      "status": "planned",
+      "dependencies": ["Z4"],
+      "required_gates": [
+        "retained_display_list",
+        "paint_invalidation_bounds",
+        "hidden_page_zero_paint",
+        "text_pixel_reference_tests",
+        "bounded_paint_cache"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "Z6",
+      "name": "Tile compositor and GPU",
+      "status": "planned",
+      "dependencies": ["Z5", "Z13"],
+      "required_gates": [
+        "async_scroll",
+        "frame_deadline_p99",
+        "blank_frame_ratio",
+        "hidden_page_zero_gpu_tiles",
+        "gpu_resource_ledger"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "Z7",
+      "name": "Streaming HTML parser",
+      "status": "planned",
+      "dependencies": ["Z0"],
+      "required_gates": [
+        "html_tokenizer_conformance",
+        "tree_builder_conformance",
+        "chunk_size_equivalence",
+        "parser_fuzzing",
+        "bounded_large_document_parse"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "Z8",
+      "name": "Logical DOM and hot projection",
+      "status": "planned",
+      "dependencies": ["Z7"],
+      "required_gates": [
+        "stable_node_identity",
+        "cold_node_byte_budget",
+        "lazy_wrapper_projection",
+        "dom_traversal_conformance",
+        "bounded_million_node_open"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "Z9",
+      "name": "JavaScript runtime and Web IDL",
+      "status": "planned",
+      "dependencies": ["Z8", "Z12", "Z13"],
+      "required_gates": [
+        "test262_target",
+        "event_loop_conformance",
+        "webidl_generated_bindings",
+        "per_page_heap_budget",
+        "renderer_crash_isolation"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "Z10",
+      "name": "Mutation tree WAL and recovery",
+      "status": "planned",
+      "dependencies": ["Z0", "Z8"],
+      "required_gates": [
+        "order_statistics_mutation",
+        "copy_on_write_commit",
+        "crash_injection_matrix",
+        "zero_silent_corruption",
+        "bounded_recovery_time"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "Z11",
+      "name": "One hundred continuously live pages",
+      "status": "planned",
+      "dependencies": ["Z6", "Z9", "Z10", "Z12"],
+      "required_gates": [
+        "zero_automatic_reload",
+        "zero_network_message_loss",
+        "timer_order_preservation",
+        "hidden_page_zero_raster",
+        "live100_process_group_budget"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "Z12",
+      "name": "Network and web platform services",
+      "status": "planned",
+      "dependencies": ["Z0", "Z13"],
+      "required_gates": [
+        "http_protocol_conformance",
+        "tls_validation",
+        "fetch_cors_csp",
+        "partitioned_cookie_cache",
+        "bounded_streaming_buffers"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "Z13",
+      "name": "Process isolation and sandbox",
+      "status": "planned",
+      "dependencies": ["Z0"],
+      "required_gates": [
+        "typed_ipc_validation",
+        "renderer_no_filesystem_access",
+        "renderer_no_raw_socket_access",
+        "site_memory_isolation",
+        "ipc_fuzzing"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "Z14",
+      "name": "Accessibility and input",
+      "status": "planned",
+      "dependencies": ["Z2", "Z4", "Z8", "Z9"],
+      "required_gates": [
+        "source_to_visual_range_roundtrip",
+        "screen_reader_event_delivery",
+        "focus_pinning",
+        "ime_selection_correctness",
+        "bounded_accessibility_projection"
+      ],
+      "evidence": []
+    },
+    {
+      "id": "Z15",
+      "name": "Compatibility adaptive control and product shell",
+      "status": "planned",
+      "dependencies": ["Z6", "Z9", "Z11", "Z12", "Z13", "Z14"],
+      "required_gates": [
+        "wpt_target",
+        "test262_target",
+        "adaptive_hard_cap_compliance",
+        "daily_use_security_review",
+        "cross_device_competitor_benchmark"
+      ],
+      "evidence": []
+    }
+  ]
+}

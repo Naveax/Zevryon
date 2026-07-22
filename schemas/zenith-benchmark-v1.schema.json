@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zevryon.dev/schemas/zenith-benchmark-v1.schema.json",
+  "title": "Zevryon Unified Benchmark Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "benchmark",
+    "workload",
+    "build",
+    "environment",
+    "stages",
+    "resources",
+    "correctness",
+    "gates"
+  ],
+  "properties": {
+    "schema": {"const": "zevryon.benchmark.v1"},
+    "benchmark": {"type": "string", "minLength": 1},
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "logical_bytes",
+        "logical_records",
+        "giant_record_bytes",
+        "payload_sha256"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "logical_bytes": {"type": "integer", "minimum": 1},
+        "logical_records": {"type": "integer", "minimum": 1},
+        "giant_record_bytes": {"type": "integer", "minimum": 1},
+        "payload_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$"
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit_sha", "compiler", "build_type"],
+      "properties": {
+        "commit_sha": {"type": "string", "minLength": 1},
+        "compiler": {"type": "string", "minLength": 1},
+        "build_type": {"type": "string", "minLength": 1}
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runner_os", "platform", "machine", "python"],
+      "properties": {
+        "runner_os": {"type": "string", "minLength": 1},
+        "platform": {"type": "string", "minLength": 1},
+        "machine": {"type": "string", "minLength": 1},
+        "python": {"type": "string", "minLength": 1}
+      }
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/stage"}
+    },
+    "resources": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "#/$defs/resource"}
+    },
+    "correctness": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"const": true}
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "random_p95_ms_max",
+        "adjacent_p95_ms_max",
+        "maximum_source_read_bytes",
+        "checkpoint_overhead_ratio_max",
+        "payload_data_loss_bytes_max"
+      ],
+      "properties": {
+        "random_p95_ms_max": {"type": "number", "exclusiveMinimum": 0},
+        "adjacent_p95_ms_max": {"type": "number", "exclusiveMinimum": 0},
+        "maximum_source_read_bytes": {"type": "integer", "minimum": 0},
+        "checkpoint_overhead_ratio_max": {"type": "number", "minimum": 0},
+        "payload_data_loss_bytes_max": {"const": 0}
+      }
+    }
+  },
+  "$defs": {
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "mode",
+        "samples",
+        "latency_ms",
+        "physical_read_bytes",
+        "peak_pss_bytes"
+      ],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "mode": {"enum": ["cold", "warm", "hot"]},
+        "samples": {"type": "integer", "minimum": 1},
+        "latency_ms": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["p50", "p95", "p99", "maximum"],
+          "properties": {
+            "p50": {"type": "number", "minimum": 0},
+            "p95": {"type": "number", "minimum": 0},
+            "p99": {"type": "number", "minimum": 0},
+            "maximum": {"type": "number", "minimum": 0}
+          }
+        },
+        "physical_read_bytes": {"type": "integer", "minimum": 0},
+        "peak_pss_bytes": {
+          "anyOf": [
+            {"type": "integer", "minimum": 0},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hard_limit_bytes",
+        "current_bytes",
+        "peak_bytes",
+        "cache_hits",
+        "cache_misses",
+        "evictions"
+      ],
+      "properties": {
+        "hard_limit_bytes": {"type": "integer", "minimum": 0},
+        "current_bytes": {"type": "integer", "minimum": 0},
+        "peak_bytes": {"type": "integer", "minimum": 0},
+        "cache_hits": {"type": "integer", "minimum": 0},
+        "cache_misses": {"type": "integer", "minimum": 0},
+        "evictions": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

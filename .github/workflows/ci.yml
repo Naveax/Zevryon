@@ -60,6 +60,8 @@ jobs:
           path: windows-ctest.log
           if-no-files-found: warn
       - run: python -m pytest -q tests
+      - name: Validate Z0-Z15 dependency contract
+        run: python scripts/zenith_program_contract.py
 
   giant-record-benchmark:
     runs-on: ubuntu-latest
@@ -103,6 +105,21 @@ jobs:
           --adjacent-p95-ms 0.5
           --max-source-bytes 65536
           --output evidence/ci/zenith-hot-scroll.json
+      - name: Validate Z0-Z15 program contract
+        run: >-
+          python scripts/zenith_program_contract.py
+          --output evidence/ci/zenith-program-validation.json
+      - name: Build unified Z0 benchmark report
+        run: >-
+          python scripts/zenith_benchmark_contract.py
+          --massivedoc evidence/ci/m1-giant-record.json
+          --global-layout evidence/ci/zenith-global-layout.json
+          --hot-scroll evidence/ci/zenith-hot-scroll.json
+          --commit-sha "${{ github.sha }}"
+          --compiler "runner-default-cxx"
+          --build-type Release
+          --runner-os "${{ runner.os }}"
+          --output evidence/ci/zenith-benchmark-v1.json
       - uses: actions/upload-artifact@v4
         with:
           name: m1-giant-record-${{ github.sha }}
@@ -110,6 +127,8 @@ jobs:
             evidence/ci/m1-giant-record.json
             evidence/ci/zenith-global-layout.json
             evidence/ci/zenith-hot-scroll.json
+            evidence/ci/zenith-program-validation.json
+            evidence/ci/zenith-benchmark-v1.json
 
   sanitizer:
     runs-on: ubuntu-latest
@@ -261,6 +280,24 @@ jobs:
           Get-Content "windows-asan-hot.stdout.log" -ErrorAction SilentlyContinue
           Get-Content "windows-asan-hot.stderr.log" -ErrorAction SilentlyContinue
           if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - name: Run resource ledger tests under MSVC AddressSanitizer
+        id: asan_resource_ledger
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          $env:ASAN_OPTIONS = "halt_on_error=1:abort_on_error=1:symbolize=1"
+          $env:ASAN_SAVE_DUMPS = "windows-asan-resource-ledger.dmp"
+          $process = Start-Process `
+            -FilePath ".\build-asan\RelWithDebInfo\zevryon-resource-ledger-tests.exe" `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput "windows-asan-resource-ledger.stdout.log" `
+            -RedirectStandardError "windows-asan-resource-ledger.stderr.log"
+          "exit_code=$($process.ExitCode)" | Set-Content "windows-asan-resource-ledger.exit.log"
+          Get-Content "windows-asan-resource-ledger.stdout.log" -ErrorAction SilentlyContinue
+          Get-Content "windows-asan-resource-ledger.stderr.log" -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
       - name: Enforce MSVC AddressSanitizer results
         if: always()
         shell: pwsh
@@ -272,7 +309,8 @@ jobs:
             "windows-asan-layout.exit.log",
             "windows-asan-checkpoint.exit.log",
             "windows-asan-zenith.exit.log",
-            "windows-asan-hot.exit.log"
+            "windows-asan-hot.exit.log",
+            "windows-asan-resource-ledger.exit.log"
           )) {
             if (-not (Test-Path $path)) {
               Write-Error "missing sanitizer exit record: $path"
@@ -303,4 +341,6 @@ jobs:
             windows-asan-zenith.dmp
             windows-asan-hot.*.log
             windows-asan-hot.dmp
+            windows-asan-resource-ledger.*.log
+            windows-asan-resource-ledger.dmp
           if-no-files-found: warn
