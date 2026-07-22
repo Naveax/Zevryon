@@ -72,6 +72,10 @@ add_executable(zevryon-unicode-benchmark src/unicode_benchmark_main.cpp)
 target_link_libraries(zevryon-unicode-benchmark PRIVATE zevryon-massivedoc-core)
 zevryon_options(zevryon-unicode-benchmark)
 
+add_executable(zevryon-grapheme-conformance src/grapheme_conformance_main.cpp)
+target_link_libraries(zevryon-grapheme-conformance PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-grapheme-conformance)
+
 include(CTest)
 if(BUILD_TESTING)
   add_executable(zevryon-massivedoc-tests tests/massivedoc_store_tests.cpp)
