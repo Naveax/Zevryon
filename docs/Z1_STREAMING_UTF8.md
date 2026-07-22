@@ -91,17 +91,31 @@ Hard gates:
 | Rejected reservations | 0 |
 | Accounting errors | 0 |
 
-The benchmark reports P50/P95/P99/maximum latency, decoded codepoint count, throughput, current and peak allocator bytes, rejected reservations, accounting errors, and hard-limit status.
+Final 16-byte CI result:
 
-Historical packing progression on the same benchmark shape:
+| Metric | Result |
+|---|---:|
+| P50 | 0.283081 ms |
+| P95 | 0.305053 ms |
+| P99 | 0.314585 ms |
+| Maximum | 0.434102 ms |
+| P50 throughput | 220.785 MiB/s |
+| Decoded codepoints | 44,336 |
+| Unicode allocator current | 1,048,576 bytes |
+| Unicode allocator peak | 1,572,864 bytes |
+| Hard limit | 2,097,152 bytes |
+| Rejected reservations | 0 |
+| Accounting errors | 0 |
+
+Packing progression on the same benchmark shape:
 
 | Record layout | Current bytes | Peak bytes | P95 |
 |---|---:|---:|---:|
 | 32-byte record | 2.0 MiB | 3.0 MiB | 0.321 ms |
 | 24-byte record | 1.5 MiB | 2.25 MiB | 0.305 ms |
-| 16-byte record | Final artifact required | Final artifact required | Final artifact required |
+| 16-byte record | 1.0 MiB | 1.5 MiB | 0.305 ms |
 
-Only the final post-16-byte workflow artifact is certification evidence.
+The certified artifact was produced by GitHub Actions run `29948120480` for head `c5e7141d2984f50a27f6a3c640ebb4e821d6f92b`. Its artifact digest is `sha256:44ccb49b4679f0571c5675f0d6add0ce85fe1859bad110b2870d1c099e820dec`.
 
 ## Boundary
 
