@@ -71,7 +71,7 @@ jobs:
       - name: Run 64 KiB grapheme benchmark
         run: >-
           build/zevryon-grapheme-benchmark
-          1024 2097152
+          1024 1048576
           > evidence/ci/z1-grapheme-benchmark.json
       - name: Enforce grapheme evidence
         run: |
@@ -84,7 +84,9 @@ jobs:
           )
           assert conformance['schema'] == 'zevryon.grapheme-conformance.v1'
           assert conformance['unicode_version'] == '17.0.0'
-          assert conformance['tests'] >= 500
+          assert conformance['tests'] == 766
+          assert conformance['codepoints'] == 1906
+          assert conformance['clusters'] == 1271
           assert conformance['passed'] is True
 
           benchmark = json.loads(
@@ -92,12 +94,14 @@ jobs:
           )
           assert benchmark['schema'] == 'zevryon.grapheme-benchmark.v1'
           assert benchmark['unicode_version'] == '17.0.0'
+          assert benchmark['boundary_record_bytes'] <= 16
           assert benchmark['fixture_bytes'] == 65536
           assert benchmark['iterations'] == 1024
           assert benchmark['p50_ms'] <= benchmark['p95_ms'] <= benchmark['p99_ms'] <= benchmark['maximum_ms']
-          assert benchmark['p95_ms'] <= 5.0
-          assert benchmark['p99_ms'] <= 7.5
-          assert benchmark['cluster_hard_limit_bytes'] == 2097152
+          assert benchmark['p95_ms'] <= 1.50
+          assert benchmark['p99_ms'] <= 2.00
+          assert benchmark['maximum_ms'] <= 3.00
+          assert benchmark['cluster_hard_limit_bytes'] == 1048576
           assert benchmark['cluster_current_bytes'] <= benchmark['cluster_peak_bytes']
           assert benchmark['cluster_peak_bytes'] <= benchmark['cluster_hard_limit_bytes']
           assert benchmark['rejected_reservations'] == 0
