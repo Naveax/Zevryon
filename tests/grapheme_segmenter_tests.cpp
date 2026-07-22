@@ -6,15 +6,14 @@
 #include <cstdint>
 #include <iostream>
 #include <memory_resource>
-#include <span>
 #include <string>
 #include <vector>
 
 namespace {
 
 using zevryon::text::DecodedCodePoint;
+using zevryon::text::GraphemeBoundary;
 using zevryon::text::GraphemeBreakClass;
-using zevryon::text::GraphemeCluster;
 using zevryon::text::GraphemeError;
 using zevryon::text::GraphemeErrorKind;
 using zevryon::text::GraphemeSegmentStats;
@@ -28,7 +27,7 @@ bool require(bool condition, const std::string& message) {
     return true;
 }
 
-std::uint8_t utf8_length(std::uint32_t value) {
+std::uint8_t utf8_length(std::uint32_t value) noexcept {
     return value <= 0x7fU ? 1U
          : value <= 0x7ffU ? 2U
          : value <= 0xffffU ? 3U
@@ -51,7 +50,7 @@ std::vector<DecodedCodePoint> make_codepoints(
 
 bool segment(
     const std::vector<DecodedCodePoint>& input,
-    std::vector<GraphemeCluster>* result,
+    std::vector<GraphemeBoundary>* result,
     GraphemeSegmentStats* stats,
     GraphemeError* error,
     std::size_t budget = 1U << 20U) {
@@ -62,11 +61,15 @@ bool segment(
     zevryon::core::LedgerMemoryResource memory(
         ledger,
         zevryon::core::ResourceClass::GraphemeCluster);
-    std::pmr::vector<GraphemeCluster> clusters(&memory);
-    if (!zevryon::text::segment_graphemes(input, &clusters, stats, error)) {
+    std::pmr::vector<GraphemeBoundary> boundaries(&memory);
+    if (!zevryon::text::segment_graphemes(
+            input,
+            &boundaries,
+            stats,
+            error)) {
         return false;
     }
-    result->assign(clusters.begin(), clusters.end());
+    result->assign(boundaries.begin(), boundaries.end());
     return true;
 }
 
@@ -74,29 +77,41 @@ bool expect_cluster_counts(
     const std::vector<DecodedCodePoint>& input,
     std::initializer_list<std::uint32_t> expected_counts,
     const std::string& label) {
-    std::vector<GraphemeCluster> clusters;
+    std::vector<GraphemeBoundary> boundaries;
     GraphemeSegmentStats stats;
     GraphemeError error;
-    if (!require(segment(input, &clusters, &stats, &error), label + " segments") ||
-        !require(clusters.size() == expected_counts.size(), label + " cluster count")) {
+    if (!require(segment(input, &boundaries, &stats, &error), label + " segments") ||
+        !require(
+            boundaries.size() == expected_counts.size() + 1U,
+            label + " boundary count") ||
+        !require(
+            stats.output_clusters == expected_counts.size(),
+            label + " stats cluster count")) {
         return false;
     }
+
     std::size_t index = 0U;
     for (const std::uint32_t expected : expected_counts) {
-        if (!require(
-                clusters[index].codepoint_count == expected,
-                label + " codepoint count")) {
+        const std::uint32_t actual =
+            boundaries[index + 1U].codepoint_index -
+            boundaries[index].codepoint_index;
+        if (!require(actual == expected, label + " codepoint count")) {
             return false;
         }
         ++index;
     }
     if (!input.empty()) {
-        if (!require(clusters.front().source_start == input.front().source_start, label + " source start") ||
-            !require(clusters.back().source_end() == input.back().source_end(), label + " source end")) {
-            return false;
-        }
+        return require(
+                   boundaries.front().source_offset == input.front().source_start,
+                   label + " source start") &&
+               require(
+                   boundaries.back().source_offset == input.back().source_end(),
+                   label + " final sentinel source") &&
+               require(
+                   boundaries.back().codepoint_index == input.size(),
+                   label + " final sentinel index");
     }
-    return true;
+    return boundaries.empty();
 }
 
 bool test_property_samples() {
@@ -117,7 +132,8 @@ bool test_property_samples() {
     const auto consonant = zevryon::text::grapheme_properties(0x0915U);
     const auto linker = zevryon::text::grapheme_properties(0x094dU);
 
-    return require(cr.break_class == GraphemeBreakClass::CR, "CR property") &&
+    return require(sizeof(GraphemeBoundary) <= 16U, "boundary record stays within 16 bytes") &&
+           require(cr.break_class == GraphemeBreakClass::CR, "CR property") &&
            require(lf.break_class == GraphemeBreakClass::LF, "LF property") &&
            require(control.break_class == GraphemeBreakClass::Control, "Control property") &&
            require(extend.break_class == GraphemeBreakClass::Extend, "Extend property") &&
@@ -145,7 +161,7 @@ bool test_property_samples() {
                "Unicode data version");
 }
 
-bool test_core_rules() {
+bool test_rules() {
     return expect_cluster_counts(
                make_codepoints({'a', 0x0301U}),
                {2U},
@@ -169,11 +185,8 @@ bool test_core_rules() {
            expect_cluster_counts(
                make_codepoints({'a', 'b'}),
                {1U, 1U},
-               "GB999 ordinary break");
-}
-
-bool test_emoji_and_flags() {
-    return expect_cluster_counts(
+               "GB999 ordinary break") &&
+           expect_cluster_counts(
                make_codepoints({0x1f469U, 0x200dU, 0x1f680U}),
                {3U},
                "GB11 emoji ZWJ") &&
@@ -188,11 +201,8 @@ bool test_emoji_and_flags() {
            expect_cluster_counts(
                make_codepoints({0x1f1e6U, 0x1f1e7U, 0x1f1e8U}),
                {2U, 1U},
-               "GB12-GB13 odd RI tail");
-}
-
-bool test_indic_conjunct() {
-    return expect_cluster_counts(
+               "GB12-GB13 odd RI tail") &&
+           expect_cluster_counts(
                make_codepoints({0x0915U, 0x094dU, 0x0915U}),
                {3U},
                "GB9c Devanagari conjunct") &&
@@ -206,41 +216,48 @@ bool test_indic_conjunct() {
                "GB9c requires linker");
 }
 
-bool test_ranges_and_stats() {
-    const auto input = make_codepoints({0x1f469U, 0x200dU, 0x1f680U, 'x'}, 1000U);
-    std::vector<GraphemeCluster> clusters;
+bool test_boundaries_and_stats() {
+    const auto input =
+        make_codepoints({0x1f469U, 0x200dU, 0x1f680U, 'x'}, 1000U);
+    std::vector<GraphemeBoundary> boundaries;
     GraphemeSegmentStats stats;
     GraphemeError error;
-    if (!require(segment(input, &clusters, &stats, &error), "range fixture segments") ||
-        !require(clusters.size() == 2U, "range fixture cluster count") ||
-        !require(clusters[0].source_start == 1000U, "first cluster source start") ||
-        !require(clusters[0].source_end() == input[2].source_end(), "first cluster source end") ||
-        !require(clusters[0].first_codepoint == 0U, "first cluster index") ||
-        !require(clusters[0].codepoint_count == 3U, "first cluster count") ||
-        !require(clusters[1].first_codepoint == 3U, "second cluster index") ||
+    if (!require(segment(input, &boundaries, &stats, &error), "range fixture segments") ||
+        !require(boundaries.size() == 3U, "two clusters plus sentinel") ||
+        !require(boundaries[0].source_offset == 1000U, "first boundary source") ||
+        !require(boundaries[0].codepoint_index == 0U, "first boundary index") ||
+        !require(boundaries[1].source_offset == input[3].source_start, "second boundary source") ||
+        !require(boundaries[1].codepoint_index == 3U, "second boundary index") ||
+        !require(boundaries[2].source_offset == input.back().source_end(), "sentinel source") ||
+        !require(boundaries[2].codepoint_index == 4U, "sentinel index") ||
         !require(stats.input_codepoints == 4U, "stats input count") ||
         !require(stats.output_clusters == 2U, "stats output count") ||
         !require(stats.suppressed_breaks == 2U, "stats suppressed breaks") ||
         !require(stats.maximum_cluster_codepoints == 3U, "stats maximum codepoints") ||
-        !require(stats.maximum_cluster_source_bytes == clusters[0].source_length, "stats maximum bytes")) {
+        !require(
+            stats.maximum_cluster_source_bytes ==
+                boundaries[1].source_offset - boundaries[0].source_offset,
+            "stats maximum bytes")) {
         return false;
     }
 
-    clusters.clear();
+    boundaries.clear();
     stats = {};
     error = {};
     const std::vector<DecodedCodePoint> empty;
-    return require(segment(empty, &clusters, &stats, &error), "empty input succeeds") &&
-           require(clusters.empty(), "empty input emits no clusters");
+    return require(segment(empty, &boundaries, &stats, &error), "empty input succeeds") &&
+           require(boundaries.empty(), "empty input emits no boundaries");
 }
 
 bool test_invalid_input() {
     zevryon::core::ResourceLedger ledger;
-    ledger.set_hard_limit(zevryon::core::ResourceClass::GraphemeCluster, 4096U);
+    ledger.set_hard_limit(
+        zevryon::core::ResourceClass::GraphemeCluster,
+        4096U);
     zevryon::core::LedgerMemoryResource memory(
         ledger,
         zevryon::core::ResourceClass::GraphemeCluster);
-    std::pmr::vector<GraphemeCluster> clusters(&memory);
+    std::pmr::vector<GraphemeBoundary> boundaries(&memory);
     GraphemeSegmentStats stats;
     GraphemeError error;
 
@@ -249,7 +266,7 @@ bool test_invalid_input() {
     if (!require(
             !zevryon::text::segment_graphemes(
                 discontinuous,
-                &clusters,
+                &boundaries,
                 &stats,
                 &error),
             "discontinuous ranges rejected") ||
@@ -263,7 +280,7 @@ bool test_invalid_input() {
     return require(
                !zevryon::text::segment_graphemes(
                    invalid_length,
-                   &clusters,
+                   &boundaries,
                    &stats,
                    &error),
                "zero source length rejected") &&
@@ -272,19 +289,21 @@ bool test_invalid_input() {
 
 bool test_budget() {
     const auto input = make_codepoints({'a', 'b', 'c'});
-    zevryon::core::ResourceLedger ledger;
-    ledger.set_hard_limit(zevryon::core::ResourceClass::GraphemeCluster, 1U);
+    zevryon::core::ResourceLedger rejected;
+    rejected.set_hard_limit(
+        zevryon::core::ResourceClass::GraphemeCluster,
+        1U);
     GraphemeError error;
     GraphemeSegmentStats stats;
     {
         zevryon::core::LedgerMemoryResource memory(
-            ledger,
+            rejected,
             zevryon::core::ResourceClass::GraphemeCluster);
-        std::pmr::vector<GraphemeCluster> clusters(&memory);
+        std::pmr::vector<GraphemeBoundary> boundaries(&memory);
         if (!require(
                 !zevryon::text::segment_graphemes(
                     input,
-                    &clusters,
+                    &boundaries,
                     &stats,
                     &error),
                 "grapheme hard cap rejects output") ||
@@ -292,13 +311,13 @@ bool test_budget() {
                 error.kind == GraphemeErrorKind::OutputBudgetExceeded,
                 "grapheme budget error kind") ||
             !require(
-                ledger.snapshot(zevryon::core::ResourceClass::GraphemeCluster)
+                rejected.snapshot(zevryon::core::ResourceClass::GraphemeCluster)
                         .rejected_reservations >= 1U,
                 "grapheme rejected allocation recorded") ||
             !require(
-                ledger.snapshot(zevryon::core::ResourceClass::GraphemeCluster)
+                rejected.snapshot(zevryon::core::ResourceClass::GraphemeCluster)
                         .current_bytes == 0U,
-                "rejected grapheme allocation consumes no budget")) {
+                "rejected allocation consumes no budget")) {
             return false;
         }
     }
@@ -311,11 +330,11 @@ bool test_budget() {
         zevryon::core::LedgerMemoryResource memory(
             released,
             zevryon::core::ResourceClass::GraphemeCluster);
-        std::pmr::vector<GraphemeCluster> clusters(&memory);
+        std::pmr::vector<GraphemeBoundary> boundaries(&memory);
         if (!require(
                 zevryon::text::segment_graphemes(
                     input,
-                    &clusters,
+                    &boundaries,
                     &stats,
                     &error),
                 "budgeted grapheme output succeeds") ||
@@ -337,10 +356,8 @@ bool test_budget() {
 
 int main() {
     if (!test_property_samples() ||
-        !test_core_rules() ||
-        !test_emoji_and_flags() ||
-        !test_indic_conjunct() ||
-        !test_ranges_and_stats() ||
+        !test_rules() ||
+        !test_boundaries_and_stats() ||
         !test_invalid_input() ||
         !test_budget()) {
         return 1;
