@@ -68,7 +68,7 @@ bool StoreWriter::append_stream(
     std::uint64_t remaining = length;
     std::uint32_t chunk_count = 0U;
     std::uint32_t crc = 0U;
-    std::array<std::byte, kIoWindowBytes> buffer{};
+    std::vector<std::byte> buffer(kIoWindowBytes);
     bool have_previous = false;
     unsigned char previous = 0U;
     while (remaining != 0U) {
@@ -146,6 +146,14 @@ bool StoreWriter::finalize(CorpusMetadata metadata, StoreStats* stats, std::stri
     impl_->segment.flush();
     if (!impl_->records || !impl_->chunks || !impl_->search || !impl_->segment) {
         *error = "failed to flush store files";
+        return false;
+    }
+    impl_->records.close();
+    impl_->chunks.close();
+    impl_->search.close();
+    impl_->segment.close();
+    if (impl_->records.fail() || impl_->chunks.fail() || impl_->search.fail() || impl_->segment.fail()) {
+        *error = "failed to close store files";
         return false;
     }
     metadata.logical_utf8_bytes = impl_->logical_bytes;

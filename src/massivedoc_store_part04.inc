@@ -50,7 +50,7 @@ bool StoreReader::read_record_slice(
     output->reserve(wanted);
     std::uint64_t logical_position = 0U;
     std::size_t remaining_output = wanted;
-    std::array<std::byte, kIoWindowBytes> buffer{};
+    std::vector<std::byte> buffer(kIoWindowBytes);
     for (std::uint32_t relative = 0U; relative < record.chunk_count && remaining_output != 0U; ++relative) {
         ChunkDescriptor chunk;
         if (!impl_->read_chunk_descriptor(record.first_chunk + relative, &chunk, error)) {
@@ -161,7 +161,7 @@ std::vector<SearchHit> StoreReader::find(std::string_view query, std::size_t max
     }
     std::array<std::byte, kBigramSignatureBytes> signature{};
     const auto query_bytes = std::span<const std::byte>(reinterpret_cast<const std::byte*>(query.data()), query.size());
-    std::array<std::byte, kIoWindowBytes> io_buffer{};
+    std::vector<std::byte> io_buffer(kIoWindowBytes);
     std::ifstream segment_stream;
     std::uint32_t open_segment = std::numeric_limits<std::uint32_t>::max();
 

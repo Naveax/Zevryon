@@ -9,6 +9,10 @@ option(ZEVRYON_ENABLE_SANITIZERS "Enable ASan and UBSan" OFF)
 function(zevryon_options target)
   if(MSVC)
     target_compile_options(${target} PRIVATE /W4 /WX /permissive- /EHsc)
+    if(ZEVRYON_ENABLE_SANITIZERS)
+      target_compile_options(${target} PRIVATE /fsanitize=address /Zi)
+      target_link_options(${target} PRIVATE /INCREMENTAL:NO)
+    endif()
   else()
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror)
     if(ZEVRYON_ENABLE_SANITIZERS)
@@ -20,6 +24,7 @@ endfunction()
 
 set(ZEVRYON_MASSIVEDOC_PARTS
   src/massivedoc_store_part00.inc
+  src/massivedoc_store_part00_tail.inc
   src/massivedoc_store_part01.inc
   src/massivedoc_store_part02.inc
   src/massivedoc_store_part03.inc

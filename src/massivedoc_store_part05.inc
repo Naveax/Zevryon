@@ -135,7 +135,6 @@ bool import_zmdoc_corpus(
     }
     StoreWriter writer(store_root, config);
     std::array<std::byte, 12> record_header{};
-    std::array<std::byte, kIoWindowBytes> buffer{};
     for (std::uint64_t index = 0U; index < *records; ++index) {
         if (!read_exact(corpus, record_header)) {
             *error = "truncated ZMDOC record header";
@@ -148,8 +147,9 @@ bool import_zmdoc_corpus(
             return false;
         }
         std::uint64_t remaining = *length32;
-        if (!writer.append_stream(*logical_id, remaining, [&corpus, &buffer, &remaining](std::span<std::byte> destination) -> std::size_t {
-                const std::size_t amount = static_cast<std::size_t>(std::min<std::uint64_t>(remaining, std::min<std::size_t>(destination.size(), buffer.size())));
+        if (!writer.append_stream(*logical_id, remaining, [&corpus, &remaining](std::span<std::byte> destination) -> std::size_t {
+                const std::size_t amount = static_cast<std::size_t>(
+                    std::min<std::uint64_t>(remaining, static_cast<std::uint64_t>(destination.size())));
                 if (amount == 0U) {
                     return 0U;
                 }
