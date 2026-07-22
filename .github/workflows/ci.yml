@@ -1,10 +1,17 @@
 name: ci
-on: [push, pull_request]
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
 permissions:
   contents: read
+
 jobs:
   native:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -13,14 +20,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - run: python -m pip install --upgrade pip pytest
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-      - run: cmake --build build --config Release
+      - run: cmake --build build --config Release --parallel 2
       - run: ctest --test-dir build -C Release --output-on-failure
       - run: python -m pytest -q tests
+
   sanitizer:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON
-      - run: cmake --build build -j2
-      - run: ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ctest --test-dir build --output-on-failure
+      - run: cmake --build build --parallel 2
+      - run: ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 ctest --test-dir build --output-on-failure
