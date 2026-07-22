@@ -15,6 +15,9 @@
 
 namespace {
 
+constexpr std::string_view kBreakMarker{"\xc3\xb7"};
+constexpr std::string_view kNoBreakMarker{"\xc3\x97"};
+
 std::uint8_t utf8_length(std::uint32_t value) noexcept {
     return value <= 0x7fU ? 1U
          : value <= 0x7ffU ? 2U
@@ -47,7 +50,7 @@ bool parse_case(const std::string& input, TestCase* test_case) {
     const std::size_t comment = input.find('#');
     std::istringstream stream(input.substr(0U, comment));
     std::string marker;
-    if (!(stream >> marker) || marker != "÷") {
+    if (!(stream >> marker) || marker != kBreakMarker) {
         return false;
     }
     while (true) {
@@ -59,16 +62,17 @@ bool parse_case(const std::string& input, TestCase* test_case) {
         if (!parse_hex(token, &value)) {
             return false;
         }
-        if (marker == "÷") {
+        if (marker == kBreakMarker) {
             test_case->expected_cluster_starts.push_back(
                 static_cast<std::uint32_t>(test_case->values.size()));
         }
         test_case->values.push_back(value);
-        if (!(stream >> marker) || (marker != "÷" && marker != "×")) {
+        if (!(stream >> marker) ||
+            (marker != kBreakMarker && marker != kNoBreakMarker)) {
             return false;
         }
     }
-    return !test_case->values.empty() && marker == "÷";
+    return !test_case->values.empty() && marker == kBreakMarker;
 }
 
 bool run_case(
