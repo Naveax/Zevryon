@@ -102,6 +102,26 @@ jobs:
         run: |
           cmake --build build-asan --config RelWithDebInfo --parallel 2 2>&1 | Tee-Object -FilePath windows-asan-build.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Stage MSVC AddressSanitizer runtime
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere.exe not found" }
+          $installation = (& $vswhere -latest -products * -property installationPath).Trim()
+          if (-not $installation) { throw "Visual Studio installation not found" }
+          $runtimes = Get-ChildItem `
+            -Path $installation `
+            -Recurse -File `
+            -Filter "clang_rt.asan*dynamic-x86_64.dll" `
+            -ErrorAction SilentlyContinue
+          if (-not $runtimes) { throw "MSVC AddressSanitizer runtime DLL not found" }
+          $output = Resolve-Path ".\build-asan\RelWithDebInfo"
+          $runtimes | Group-Object Name | ForEach-Object {
+            $runtime = $_.Group | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            Copy-Item $runtime.FullName -Destination $output -Force
+            Write-Host "staged $($runtime.Name) from $($runtime.DirectoryName)"
+          }
+          Get-ChildItem $output -Filter "clang_rt.asan*.dll" | Format-Table Name, Length
       - name: Run store tests under MSVC AddressSanitizer
         id: asan_store
         continue-on-error: true
