@@ -45,7 +45,9 @@ add_library(zevryon-massivedoc-core STATIC
   src/compact_document.cpp
   src/layout_checkpoint.cpp
   src/layout_window.cpp
+  src/ledger_memory_resource.cpp
   src/resource_ledger.cpp
+  src/unicode_stream.cpp
   src/zenith_layout_window.cpp
   src/zenith_hot_scroll.cpp
 )
@@ -63,6 +65,10 @@ zevryon_options(zevryon-zenith-layout)
 add_executable(zevryon-zenith-hot src/zenith_hot_main.cpp)
 target_link_libraries(zevryon-zenith-hot PRIVATE zevryon-massivedoc-core)
 zevryon_options(zevryon-zenith-hot)
+
+add_executable(zevryon-unicode-benchmark src/unicode_benchmark_main.cpp)
+target_link_libraries(zevryon-unicode-benchmark PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-unicode-benchmark)
 
 include(CTest)
 if(BUILD_TESTING)
@@ -100,4 +106,9 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-resource-ledger-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-resource-ledger-tests)
   add_test(NAME resource-ledger-tests COMMAND zevryon-resource-ledger-tests)
+
+  add_executable(zevryon-unicode-stream-tests tests/unicode_stream_tests.cpp)
+  target_link_libraries(zevryon-unicode-stream-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-unicode-stream-tests)
+  add_test(NAME unicode-stream-tests COMMAND zevryon-unicode-stream-tests)
 endif()
