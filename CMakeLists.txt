@@ -20,6 +20,7 @@ endfunction()
 
 set(ZEVRYON_MASSIVEDOC_PARTS
   src/massivedoc_store_part00.inc
+  src/massivedoc_store_part00_tail.inc
   src/massivedoc_store_part01.inc
   src/massivedoc_store_part02.inc
   src/massivedoc_store_part03.inc
