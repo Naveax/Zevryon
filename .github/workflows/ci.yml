@@ -38,7 +38,22 @@ jobs:
           name: windows-build-${{ github.sha }}
           path: windows-build.log
           if-no-files-found: warn
-      - run: ctest --test-dir build -C Release --output-on-failure
+      - name: Run CTest on Unix
+        if: runner.os != 'Windows'
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Run CTest on Windows with diagnostic log
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ctest --test-dir build -C Release --output-on-failure 2>&1 | Tee-Object -FilePath windows-ctest.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload Windows CTest log
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-ctest-${{ github.sha }}
+          path: windows-ctest.log
+          if-no-files-found: warn
       - run: python -m pytest -q tests
 
   giant-record-benchmark:
