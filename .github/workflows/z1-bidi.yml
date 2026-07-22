@@ -88,10 +88,10 @@ jobs:
           > evidence/ci/z1-bidi-character-conformance.json
       - name: Run three independent 64 KiB distributions
         run: |
-          build/zevryon-bidi-benchmark 1024 8388608 > evidence/ci/z1-bidi-benchmark-1.json
-          build/zevryon-bidi-benchmark 1024 8388608 > evidence/ci/z1-bidi-benchmark-2.json
-          build/zevryon-bidi-benchmark 1024 8388608 > evidence/ci/z1-bidi-benchmark-3.json
-      - name: Enforce conformance, memory, and provisional latency gates
+          build/zevryon-bidi-benchmark 1024 2097152 > evidence/ci/z1-bidi-benchmark-1.json
+          build/zevryon-bidi-benchmark 1024 2097152 > evidence/ci/z1-bidi-benchmark-2.json
+          build/zevryon-bidi-benchmark 1024 2097152 > evidence/ci/z1-bidi-benchmark-3.json
+      - name: Enforce conformance, memory, and latency gates
         run: |
           python - <<'PY'
           import json
@@ -109,11 +109,30 @@ jobs:
               assert report['data_fingerprint'] == 'db4c3660e8e846eb5805bcdbedca8c96f84967ad136b3305b6bf0d33409a8e91'
               assert report['bidi_peak_bytes'] <= 262144
               assert report['passed'] is True
-          assert bidi_test['schema'] == 'zevryon.bidi-test-conformance.v1'
-          assert bidi_test['data_lines'] == 490846
-          assert bidi_test['resolved_cases'] == 770241
-          assert character_test['schema'] == 'zevryon.bidi-character-conformance.v1'
-          assert character_test['tests'] == 91707
+          assert bidi_test == {
+              'schema': 'zevryon.bidi-test-conformance.v1',
+              'unicode_version': '17.0.0',
+              'data_fingerprint': 'db4c3660e8e846eb5805bcdbedca8c96f84967ad136b3305b6bf0d33409a8e91',
+              'data_lines': 490846,
+              'resolved_cases': 770241,
+              'maximum_input_units': 76,
+              'maximum_resolved_level': 125,
+              'bidi_current_bytes': bidi_test['bidi_current_bytes'],
+              'bidi_peak_bytes': bidi_test['bidi_peak_bytes'],
+              'passed': True,
+          }
+          assert character_test == {
+              'schema': 'zevryon.bidi-character-conformance.v1',
+              'unicode_version': '17.0.0',
+              'data_fingerprint': 'db4c3660e8e846eb5805bcdbedca8c96f84967ad136b3305b6bf0d33409a8e91',
+              'tests': 91707,
+              'total_codepoints': 717503,
+              'maximum_input_units': 130,
+              'maximum_resolved_level': 6,
+              'bidi_current_bytes': character_test['bidi_current_bytes'],
+              'bidi_peak_bytes': character_test['bidi_peak_bytes'],
+              'passed': True,
+          }
 
           reports = [
               json.loads(Path(f'evidence/ci/z1-bidi-benchmark-{index}.json').read_text())
@@ -122,11 +141,21 @@ jobs:
           for report in reports:
               assert report['schema'] == 'zevryon.bidi-benchmark.v1'
               assert report['unicode_version'] == '17.0.0'
+              assert report['data_fingerprint'] == 'db4c3660e8e846eb5805bcdbedca8c96f84967ad136b3305b6bf0d33409a8e91'
               assert report['fixture_bytes'] == 65536
               assert report['iterations'] == 1024
+              assert report['warmup_iterations'] == 32
+              assert report['input_units'] == 42135
+              assert report['visual_units'] == 39795
+              assert report['removed_units'] == 2340
+              assert report['level_runs'] == 4681
+              assert report['isolating_run_sequences'] == 3121
+              assert report['bracket_pairs'] == 1560
+              assert report['maximum_sequence_units'] == 38
+              assert report['maximum_resolved_level'] == 2
               assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
-              assert report['bidi_hard_limit_bytes'] == 8388608
-              assert report['bidi_current_bytes'] <= report['bidi_peak_bytes'] <= 8388608
+              assert report['bidi_hard_limit_bytes'] == 2097152
+              assert report['bidi_current_bytes'] <= report['bidi_peak_bytes'] <= 2097152
               assert report['rejected_reservations'] == 0
               assert report['accounting_errors'] == 0
               assert report['within_hard_limits'] is True
@@ -144,9 +173,10 @@ jobs:
               'bidi_character_tests': character_test['tests'],
               'passed': True,
           }
-          assert aggregate['median_p95_ms'] <= 20.0
-          assert aggregate['median_p99_ms'] <= 30.0
-          assert aggregate['worst_peak_bytes'] <= 8388608
+          assert aggregate['median_p95_ms'] <= 2.25
+          assert aggregate['median_p99_ms'] <= 2.75
+          assert aggregate['worst_maximum_ms'] <= 4.00
+          assert aggregate['worst_peak_bytes'] <= 2097152
           Path('evidence/ci/z1-bidi-certification.json').write_text(
               json.dumps(aggregate, indent=2, sort_keys=True) + '\n'
           )
