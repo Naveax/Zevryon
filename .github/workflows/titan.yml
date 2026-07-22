@@ -1,0 +1,58 @@
+name: MassiveDoc Titan
+
+on:
+  workflow_dispatch:
+    inputs:
+      logical_bytes:
+        description: Logical payload bytes
+        required: true
+        default: '4294967296'
+      records:
+        description: Logical record count
+        required: true
+        default: '8388608'
+
+permissions:
+  contents: read
+
+jobs:
+  titan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Reclaim runner disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          df -h
+      - name: Build release engine
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          cmake --build build --parallel 2
+          ctest --test-dir build --output-on-failure
+      - name: Run 4 GiB Titan envelope
+        shell: bash
+        run: |
+          mkdir -p evidence/titan
+          set -o pipefail
+          python scripts/massivedoc_benchmark.py \
+            --logical-bytes "${{ inputs.logical_bytes }}" \
+            --records "${{ inputs.records }}" \
+            --segment-mib 64 \
+            --largest-record-limit-bytes 67108864 \
+            --giant-record-bytes 67108864 \
+            --work-dir "${{ runner.temp }}/zevryon-titan" \
+            --output "evidence/titan/titan-${GITHUB_SHA}.json" \
+            2>&1 | tee "evidence/titan/titan-${GITHUB_SHA}.log"
+      - name: Report disk state
+        if: always()
+        run: df -h
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: massive-titan-${{ github.sha }}
+          path: evidence/titan/
+          if-no-files-found: warn
