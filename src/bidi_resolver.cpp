@@ -97,10 +97,6 @@ bool fail(
     return false;
 }
 
-std::uint8_t direction_level(BidiClass direction) noexcept {
-    return direction == BidiClass::R ? 1U : 0U;
-}
-
 BidiClass direction_from_level(std::uint8_t level) noexcept {
     return (level % 2U) == 0U ? BidiClass::L : BidiClass::R;
 }
