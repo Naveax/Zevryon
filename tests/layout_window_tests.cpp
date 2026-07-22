@@ -61,7 +61,7 @@ int main() {
                              target.begin(),
                              target.end(),
                              static_cast<std::byte>(static_cast<unsigned char>('x')));
-                         generated += target.size();
+                         generated += static_cast<std::uint64_t>(target.size());
                          return target.size();
                      },
                      &error),
@@ -71,7 +71,8 @@ int main() {
     }
 
     zevryon::massivedoc::CorpusMetadata metadata;
-    metadata.logical_utf8_bytes = first.size() + second.size() + kGiantBytes;
+    metadata.logical_utf8_bytes = static_cast<std::uint64_t>(first.size()) +
+                                  static_cast<std::uint64_t>(second.size()) + kGiantBytes;
     metadata.logical_records = 3U;
     metadata.logical_nodes = 24U;
     metadata.style_runs = 12U;
@@ -104,6 +105,7 @@ int main() {
         !require(!top.fragments.empty(), "top layout has fragments") ||
         !require(top.cache_misses != 0U, "first layout records cache misses") ||
         !require(top.source_bytes_read != 0U, "first layout reads bounded source") ||
+        !require(top.cache_bytes != 0U, "cache reports conservative resident charge") ||
         !require(top.cache_bytes <= layout_config.max_cache_bytes, "cache respects byte budget")) {
         return 1;
     }
@@ -119,10 +121,13 @@ int main() {
         return 1;
     }
 
+    const std::size_t cache_after_top = top.cache_bytes;
     zevryon::massivedoc::LayoutWindowResult cached_top;
     if (!require(engine.layout(0U, 800U * 256U, 720U * 256U, 360U * 256U, 256U, &cached_top, &error), error) ||
         !require(cached_top.cache_hits != 0U, "second layout reuses cache") ||
-        !require(cached_top.cache_bytes <= layout_config.max_cache_bytes, "reused cache stays bounded")) {
+        !require(cached_top.cache_bytes == engine.cache_bytes(), "reported cache charge matches engine") ||
+        !require(cached_top.cache_bytes <= layout_config.max_cache_bytes, "reused cache stays bounded") ||
+        !require(cached_top.cache_bytes >= cache_after_top, "cache reuse does not lose resident accounting")) {
         return 1;
     }
 
@@ -171,6 +176,35 @@ int main() {
             !require(fragment.source_end > fragment.source_start, "giant fragment has source progress")) {
             return 1;
         }
+    }
+
+    zevryon::massivedoc::CompactArenaReader corrected_arena(root);
+    if (!require(corrected_arena.open(&error), error)) {
+        return 1;
+    }
+    const std::uint64_t corrected_end_scroll = corrected_arena.stats().total_height_q8 > 720U * 256U
+                                                   ? corrected_arena.stats().total_height_q8 - 720U * 256U
+                                                   : 0U;
+    const std::size_t cache_before_giant_reuse = engine.cache_bytes();
+    zevryon::massivedoc::LayoutWindowResult giant_reused;
+    if (!require(engine.layout(
+                     corrected_end_scroll,
+                     800U * 256U,
+                     720U * 256U,
+                     360U * 256U,
+                     128U,
+                     &giant_reused,
+                     &error),
+                 error) ||
+        !require(giant_reused.cache_hits != 0U, "giant record reuses measured-height metadata") ||
+        !require(!giant_reused.fragments.empty(), "reused giant viewport remains materialized") ||
+        !require(giant_reused.fragments.size() <= 128U, "reused giant viewport respects fragment cap") ||
+        !require(giant_reused.source_bytes_read >= kGiantBytes, "reused giant record streams visible fragments") ||
+        !require(giant_reused.cache_bytes == cache_before_giant_reuse,
+                 "metadata-only giant cache entry has stable resident charge") ||
+        !require(giant_reused.cache_bytes <= layout_config.max_cache_bytes,
+                 "metadata-only giant cache remains bounded")) {
+        return 1;
     }
 
     zevryon::massivedoc::CompactArenaReader reopened(root);
