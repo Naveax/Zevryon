@@ -23,108 +23,38 @@ jobs:
 
           path = Path('src/bidi_resolver.cpp')
           text = path.read_text(encoding='utf-8')
-          old = '''        std::pmr::vector<std::int32_t> matching_pdi(memory);
-          if (!match_isolates(
-                  units,
-                  &matching_pdi,
-                  memory,
-                  error)) {
-              return false;
-          }
-          const std::uint8_t paragraph_level = direction == ParagraphDirection::Auto
-              ? decide_paragraph_level(units, 0U, units.size(), matching_pdi)
-              : static_cast<std::uint8_t>(direction);
-          stats->paragraph_level = paragraph_level;
-          apply_explicit_levels(
-              &units,
-              paragraph_level,
-              matching_pdi,
-              stats);
-
-          std::pmr::vector<std::uint32_t> visible(memory);
-          std::pmr::vector<LevelRun> runs(memory);
-          std::pmr::vector<std::int32_t> index_to_run(memory);
-          if (!build_level_runs(
-                  units,
-                  paragraph_level,
-                  matching_pdi,
-                  &visible,
-                  &runs,
-                  &index_to_run,
-                  stats,
-                  error)) {
-              return false;
-          }
-          if (!runs.empty() &&
-              !process_isolating_sequences(
-                  &units,
-                  paragraph_level,
-                  matching_pdi,
-                  visible,
-                  &runs,
-                  memory,
-                  stats,
-                  error)) {
-              return false;
-          }
-          resolve_implicit_levels(&units, stats);
-          reset_whitespace_levels(&units, paragraph_level);
-          return write_outputs(units, resolved_levels, visual_order, error);
-          '''
-          new = '''        std::uint8_t paragraph_level = 0U;
-          {
-              std::pmr::vector<std::int32_t> matching_pdi(memory);
-              if (!match_isolates(
-                      units,
-                      &matching_pdi,
-                      memory,
-                      error)) {
-                  return false;
-              }
-              paragraph_level = direction == ParagraphDirection::Auto
-                  ? decide_paragraph_level(units, 0U, units.size(), matching_pdi)
-                  : static_cast<std::uint8_t>(direction);
-              stats->paragraph_level = paragraph_level;
-              apply_explicit_levels(
-                  &units,
-                  paragraph_level,
-                  matching_pdi,
-                  stats);
-
-              std::pmr::vector<std::uint32_t> visible(memory);
-              std::pmr::vector<LevelRun> runs(memory);
-              std::pmr::vector<std::int32_t> index_to_run(memory);
-              if (!build_level_runs(
-                      units,
-                      paragraph_level,
-                      matching_pdi,
-                      &visible,
-                      &runs,
-                      &index_to_run,
-                      stats,
-                      error)) {
-                  return false;
-              }
-              if (!runs.empty() &&
-                  !process_isolating_sequences(
-                      &units,
-                      paragraph_level,
-                      matching_pdi,
-                      visible,
-                      &runs,
-                      memory,
-                      stats,
-                      error)) {
-                  return false;
-              }
-          }
-          resolve_implicit_levels(&units, stats);
-          reset_whitespace_levels(&units, paragraph_level);
-          return write_outputs(units, resolved_levels, visual_order, error);
-          '''
-          if text.count(old) != 1:
-              raise RuntimeError(f'expected one resolver lifetime block, found {text.count(old)}')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8', newline='\n')
+          start_marker = '        std::pmr::vector<std::int32_t> matching_pdi(memory);\n'
+          end_marker = '        resolve_implicit_levels(&units, stats);\n'
+          declaration = (
+              '        const std::uint8_t paragraph_level = direction == ParagraphDirection::Auto\n'
+              '            ? decide_paragraph_level(units, 0U, units.size(), matching_pdi)\n'
+              '            : static_cast<std::uint8_t>(direction);\n'
+          )
+          assignment = (
+              '        paragraph_level = direction == ParagraphDirection::Auto\n'
+              '            ? decide_paragraph_level(units, 0U, units.size(), matching_pdi)\n'
+              '            : static_cast<std::uint8_t>(direction);\n'
+          )
+          if text.count(start_marker) != 1 or text.count(end_marker) != 1:
+              raise RuntimeError('resolver lifetime markers are not unique')
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          block = text[start:end]
+          if block.count(declaration) != 1:
+              raise RuntimeError('paragraph-level declaration not found exactly once')
+          block = block.replace(declaration, assignment, 1)
+          indented = ''.join('    ' + line for line in block.splitlines(keepends=True))
+          replacement = (
+              '        std::uint8_t paragraph_level = 0U;\n'
+              '        {\n'
+              + indented +
+              '        }\n'
+          )
+          path.write_text(
+              text[:start] + replacement + text[end:],
+              encoding='utf-8',
+              newline='\n',
+          )
           PY
       - name: Commit exact lifetime reduction
         run: |
