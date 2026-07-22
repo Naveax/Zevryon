@@ -109,8 +109,29 @@ int main() {
     const std::uint64_t viewport_height_q8 = 720U * 256U;
     const std::uint64_t overscan_q8 = 720U * 256U;
     const std::uint64_t scroll_y_q8 = arena_stats.total_height_q8 / 2U;
-    zevryon::massivedoc::LayoutWindowResult first;
+
+    zevryon::massivedoc::LayoutWindowResult calibration;
     bool used_checkpoint = false;
+    if (!require(
+            session.layout(
+                scroll_y_q8,
+                800U * 256U,
+                viewport_height_q8,
+                overscan_q8,
+                256U,
+                &calibration,
+                &used_checkpoint,
+                &error),
+            error) ||
+        !require(used_checkpoint, "calibration query uses checkpoints") ||
+        !require(calibration.checkpoint_accelerated, "calibration corrects arena geometry") ||
+        !require(!calibration.fragments.empty(), "calibration returns fragments")) {
+        return 1;
+    }
+    session.clear_source_window_cache();
+
+    zevryon::massivedoc::LayoutWindowResult first;
+    used_checkpoint = false;
     if (!require(
             session.layout(
                 scroll_y_q8,
@@ -122,13 +143,13 @@ int main() {
                 &used_checkpoint,
                 &error),
             error) ||
-        !require(used_checkpoint, "first hot-scroll query uses checkpoints") ||
-        !require(first.checkpoint_accelerated, "first hot-scroll result is accelerated") ||
-        !require(!first.fragments.empty(), "first hot-scroll query returns fragments") ||
+        !require(used_checkpoint, "stable cold query uses checkpoints") ||
+        !require(first.checkpoint_accelerated, "stable cold result is accelerated") ||
+        !require(!first.fragments.empty(), "stable cold query returns fragments") ||
         !require(first.source_bytes_read <= 64U * 1024U, "16 KiB checkpoint needs one I/O window") ||
-        !require(first.checkpoint_cache_misses >= 1U, "first query records checkpoint cache miss") ||
-        !require(first.checkpoint_cache_hits >= 1U, "second pass reuses checkpoint cache") ||
-        !require(first.source_window_cache_misses >= 1U, "first query loads source window") ||
+        !require(first.checkpoint_cache_misses == 0U, "stable cold query reuses parsed checkpoint") ||
+        !require(first.checkpoint_cache_hits >= 2U, "stable cold query hits checkpoint in both passes") ||
+        !require(first.source_window_cache_misses >= 1U, "stable cold query loads source window") ||
         !require(
             first.checkpoint_cache_bytes <= layout_config.max_checkpoint_cache_bytes,
             "checkpoint cache respects byte budget") ||
@@ -152,7 +173,7 @@ int main() {
                 &error),
             error) ||
         !require(used_checkpoint, "repeated hot-scroll query uses checkpoints") ||
-        !require(repeated.source_bytes_read == 0U, "identical query performs zero source I/O") ||
+        !require(repeated.source_bytes_read == 0U, "identical stable query performs zero source I/O") ||
         !require(repeated.checkpoint_cache_hits >= 2U, "repeated query reuses checkpoint in both passes") ||
         !require(repeated.checkpoint_cache_misses == 0U, "repeated query has no checkpoint miss") ||
         !require(repeated.source_window_cache_hits >= 1U, "repeated query reuses source window") ||
@@ -183,7 +204,7 @@ int main() {
     }
 
     const auto cumulative = session.stats();
-    if (!require(cumulative.layout_calls == 3U, "session records layout calls") ||
+    if (!require(cumulative.layout_calls == 4U, "session records calibration and measured calls") ||
         !require(
             cumulative.checkpoint_cache_peak_bytes <= layout_config.max_checkpoint_cache_bytes,
             "checkpoint peak charge stays bounded") ||
