@@ -1,0 +1,75 @@
+{
+  "import": {
+    "command": [
+      "build/zevryon-massivedoc",
+      "import",
+      "/mnt/data/zevryon-bench64/corpus.zmdoc",
+      "/mnt/data/zevryon-bench64/store",
+      "16"
+    ],
+    "peak_pss_mb": 3.049472,
+    "result": {
+      "operation": "import",
+      "seconds": 5.79728,
+      "store": {
+        "chunk_count": 131072,
+        "largest_record_bytes": 67108864,
+        "logical_nodes": 1048576,
+        "logical_records": 131072,
+        "logical_utf8_bytes": 67108864,
+        "payload_sha256": "c6915cb2471d1753e8103352fedca5b248197465391e1fd2426444a024ec39df",
+        "physical_bytes": 74580128,
+        "resource_references": 16384,
+        "search_block_count": 16,
+        "segment_count": 4,
+        "style_runs": 524288
+      }
+    },
+    "seconds": 5.808437985999944,
+    "stderr": ""
+  },
+  "logical_bytes": 67108864,
+  "logical_records": 131072,
+  "payload_sha256": "c6915cb2471d1753e8103352fedca5b248197465391e1fd2426444a024ec39df",
+  "schema": "zevryon.massivedoc.benchmark.v1",
+  "search": {
+    "command": [
+      "build/zevryon-massivedoc",
+      "search",
+      "/mnt/data/zevryon-bench64/store",
+      "ZEVRYON_WORST_CASE_TAIL_MARKER",
+      "2"
+    ],
+    "peak_pss_mb": 2.929664,
+    "result": {
+      "count": 1,
+      "hits": [
+        {
+          "byte_offset": 482,
+          "logical_id": 131071,
+          "record_index": 131071
+        }
+      ],
+      "operation": "search",
+      "seconds": 0.0197416
+    },
+    "seconds": 0.028141622000021016,
+    "stderr": ""
+  },
+  "verify": {
+    "command": [
+      "build/zevryon-massivedoc",
+      "verify",
+      "/mnt/data/zevryon-bench64/store"
+    ],
+    "peak_pss_mb": 1.967104,
+    "result": {
+      "ok": true,
+      "operation": "verify",
+      "seconds": 7.12275
+    },
+    "seconds": 7.132594300000051,
+    "stderr": ""
+  },
+  "zero_data_loss": true
+}

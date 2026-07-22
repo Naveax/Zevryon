@@ -1,0 +1,6 @@
+build/
+*.zmdoc
+*.zmds/
+*.bin
+__pycache__/
+.pytest_cache/
