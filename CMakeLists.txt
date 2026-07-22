@@ -66,6 +66,10 @@ add_executable(zevryon-zenith-hot src/zenith_hot_main.cpp)
 target_link_libraries(zevryon-zenith-hot PRIVATE zevryon-massivedoc-core)
 zevryon_options(zevryon-zenith-hot)
 
+add_executable(zevryon-unicode-benchmark src/unicode_benchmark_main.cpp)
+target_link_libraries(zevryon-unicode-benchmark PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-unicode-benchmark)
+
 include(CTest)
 if(BUILD_TESTING)
   add_executable(zevryon-massivedoc-tests tests/massivedoc_store_tests.cpp)
