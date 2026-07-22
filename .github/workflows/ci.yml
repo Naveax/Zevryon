@@ -103,19 +103,56 @@ jobs:
           cmake --build build-asan --config RelWithDebInfo --parallel 2 2>&1 | Tee-Object -FilePath windows-asan-build.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run store tests under MSVC AddressSanitizer
+        id: asan_store
+        continue-on-error: true
         timeout-minutes: 8
         shell: pwsh
         run: |
           $env:ASAN_OPTIONS = "halt_on_error=1:abort_on_error=1:symbolize=1"
-          & .\build-asan\RelWithDebInfo\zevryon-massivedoc-tests.exe 2>&1 | Tee-Object -FilePath windows-asan-store.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:ASAN_SAVE_DUMPS = "windows-asan-store.dmp"
+          $process = Start-Process `
+            -FilePath ".\build-asan\RelWithDebInfo\zevryon-massivedoc-tests.exe" `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput "windows-asan-store.stdout.log" `
+            -RedirectStandardError "windows-asan-store.stderr.log"
+          "exit_code=$($process.ExitCode)" | Set-Content "windows-asan-store.exit.log"
+          Get-Content "windows-asan-store.stdout.log" -ErrorAction SilentlyContinue
+          Get-Content "windows-asan-store.stderr.log" -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
       - name: Run compact document tests under MSVC AddressSanitizer
+        id: asan_compact
+        if: always()
+        continue-on-error: true
         timeout-minutes: 8
         shell: pwsh
         run: |
           $env:ASAN_OPTIONS = "halt_on_error=1:abort_on_error=1:symbolize=1"
-          & .\build-asan\RelWithDebInfo\zevryon-compact-document-tests.exe 2>&1 | Tee-Object -FilePath windows-asan-compact.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:ASAN_SAVE_DUMPS = "windows-asan-compact.dmp"
+          $process = Start-Process `
+            -FilePath ".\build-asan\RelWithDebInfo\zevryon-compact-document-tests.exe" `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput "windows-asan-compact.stdout.log" `
+            -RedirectStandardError "windows-asan-compact.stderr.log"
+          "exit_code=$($process.ExitCode)" | Set-Content "windows-asan-compact.exit.log"
+          Get-Content "windows-asan-compact.stdout.log" -ErrorAction SilentlyContinue
+          Get-Content "windows-asan-compact.stderr.log" -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - name: Enforce MSVC AddressSanitizer results
+        if: always()
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($path in @("windows-asan-store.exit.log", "windows-asan-compact.exit.log")) {
+            if (-not (Test-Path $path)) {
+              Write-Error "missing sanitizer exit record: $path"
+              $failed = $true
+              continue
+            }
+            $line = Get-Content $path -Raw
+            Write-Host "$path $line"
+            if ($line -notmatch '^exit_code=0\s*$') { $failed = $true }
+          }
+          if ($failed) { exit 1 }
       - name: Upload Windows AddressSanitizer logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -123,6 +160,8 @@ jobs:
           name: windows-asan-${{ github.sha }}
           path: |
             windows-asan-build.log
-            windows-asan-store.log
-            windows-asan-compact.log
+            windows-asan-store.*.log
+            windows-asan-store.dmp
+            windows-asan-compact.*.log
+            windows-asan-compact.dmp
           if-no-files-found: warn
