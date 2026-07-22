@@ -1,0 +1,41 @@
+name: z1-bidi-source-fix
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-bidi-source-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+      - name: Remove unused direction helper exactly once
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/bidi_resolver.cpp')
+          text = path.read_text(encoding='utf-8')
+          target = '''std::uint8_t direction_level(BidiClass direction) noexcept {
+              return direction == BidiClass::R ? 1U : 0U;
+          }
+
+          '''
+          if text.count(target) != 1:
+              raise RuntimeError(f'expected one dead helper, found {text.count(target)}')
+          path.write_text(text.replace(target, '', 1), encoding='utf-8', newline='\n')
+          PY
+      - name: Commit exact cleanup
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/bidi_resolver.cpp
+          git commit -m 'Remove unused bidi direction helper'
+          git push origin HEAD:${{ github.head_ref }}
