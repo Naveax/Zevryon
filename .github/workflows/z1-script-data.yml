@@ -1,0 +1,117 @@
+name: z1-script-data
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-script-data.yml'
+      - 'scripts/generate_unicode_script_data.py'
+      - 'src/unicode_script_data.generated.hpp'
+      - 'evidence/unicode_script_data.manifest.json'
+  workflow_dispatch:
+
+concurrency:
+  group: z1-script-data-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download and pin Unicode 17 sources
+        run: |
+          python - <<'PY'
+          import hashlib
+          import urllib.request
+          from pathlib import Path
+
+          base = 'https://www.unicode.org/Public/17.0.0/ucd/'
+          expected = {
+              'Scripts.txt': '9f5e50d3abaee7d6ce09480f325c706f485ae3240912527e651954d2d6b035bf',
+              'ScriptExtensions.txt': 'ec2107e58825a1586acee8e0911ce18260394ac8b87e535ca325f1ccbeb06bc6',
+              'PropertyValueAliases.txt': '64e9a5f76f7a1e8b5a47d6a1f9a26522a251208f5276bdfa1559dac7cf2e827a',
+          }
+          root = Path('evidence/ci/ucd-17.0.0')
+          root.mkdir(parents=True, exist_ok=True)
+          for name, expected_sha in expected.items():
+              data = urllib.request.urlopen(base + name, timeout=60).read()
+              actual = hashlib.sha256(data).hexdigest()
+              if actual != expected_sha:
+                  raise RuntimeError(f'{name} SHA-256 mismatch: {actual} != {expected_sha}')
+              if b'17.0.0' not in data[:4096]:
+                  raise RuntimeError(f'unexpected Unicode version in {name}')
+              (root / name).write_bytes(data)
+              print(name, len(data), actual)
+          PY
+      - name: Generate deterministic script tables
+        run: |
+          python scripts/generate_unicode_script_data.py \
+            --scripts evidence/ci/ucd-17.0.0/Scripts.txt \
+            --script-extensions evidence/ci/ucd-17.0.0/ScriptExtensions.txt \
+            --aliases evidence/ci/ucd-17.0.0/PropertyValueAliases.txt \
+            --output evidence/generated/unicode_script_data.generated.hpp \
+            --manifest evidence/generated/unicode_script_data.manifest.json
+          python scripts/generate_unicode_script_data.py \
+            --scripts evidence/ci/ucd-17.0.0/Scripts.txt \
+            --script-extensions evidence/ci/ucd-17.0.0/ScriptExtensions.txt \
+            --aliases evidence/ci/ucd-17.0.0/PropertyValueAliases.txt \
+            --output evidence/generated/unicode_script_data.generated.second.hpp \
+            --manifest evidence/generated/unicode_script_data.manifest.second.json
+          cmp evidence/generated/unicode_script_data.generated.hpp evidence/generated/unicode_script_data.generated.second.hpp
+          cmp evidence/generated/unicode_script_data.manifest.json evidence/generated/unicode_script_data.manifest.second.json
+      - name: Validate generated data contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path('evidence/generated/unicode_script_data.manifest.json').read_text())
+          assert manifest == {
+              'fingerprint': '8f402bcab66ac57762f8078956a562f3e702aed37c5d32f290821dceeb573c18',
+              'generated_header_bytes': 82922,
+              'schema': 'zevryon.unicode-script-data.v1',
+              'script_count': 176,
+              'script_extension_pool_count': 536,
+              'script_extension_range_count': 176,
+              'script_extension_set_count': 118,
+              'script_range_count': 984,
+              'source_sha256': {
+                  'PropertyValueAliases.txt': '64e9a5f76f7a1e8b5a47d6a1f9a26522a251208f5276bdfa1559dac7cf2e827a',
+                  'ScriptExtensions.txt': 'ec2107e58825a1586acee8e0911ce18260394ac8b87e535ca325f1ccbeb06bc6',
+                  'Scripts.txt': '9f5e50d3abaee7d6ce09480f325c706f485ae3240912527e651954d2d6b035bf',
+              },
+              'unicode_version': '17.0.0',
+          }
+          print(json.dumps(manifest, indent=2, sort_keys=True))
+          PY
+      - name: Vendor generated tables on the PR branch
+        if: github.event_name == 'pull_request'
+        run: |
+          mkdir -p src evidence
+          cp evidence/generated/unicode_script_data.generated.hpp src/unicode_script_data.generated.hpp
+          cp evidence/generated/unicode_script_data.manifest.json evidence/unicode_script_data.manifest.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/unicode_script_data.generated.hpp evidence/unicode_script_data.manifest.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Vendor Unicode 17 script data [skip script-data]'
+            git push origin HEAD:${{ github.head_ref }}
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: z1-script-data-${{ github.sha }}
+          path: |
+            evidence/generated/unicode_script_data.generated.hpp
+            evidence/generated/unicode_script_data.manifest.json
+            evidence/ci/ucd-17.0.0/Scripts.txt
+            evidence/ci/ucd-17.0.0/ScriptExtensions.txt
+            evidence/ci/ucd-17.0.0/PropertyValueAliases.txt
