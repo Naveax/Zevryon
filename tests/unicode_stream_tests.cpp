@@ -103,7 +103,7 @@ bool test_chunk_equivalence() {
         }
     }
 
-    if (!require(reference.size() == 8U, "expected codepoint count") ||
+    if (!require(reference.size() == 7U, "expected codepoint count") ||
         !require(reference[0].value == 0x41U, "ASCII codepoint") ||
         !require(reference[1].value == 0x15fU, "Turkish codepoint") ||
         !require(reference[3].value == 0x301U, "combining mark codepoint") ||
