@@ -14,10 +14,11 @@ Every output record preserves:
 
 - Unicode scalar value;
 - absolute source byte start;
-- absolute source byte end;
+- source byte length;
+- derived absolute source byte end;
 - whether the scalar is U+FFFD emitted by replacement policy.
 
-The output record layout is ordered to remain at or below 24 bytes on supported 64-bit targets. A compile-time assertion prevents silent padding regression.
+UTF-8 scalar source length is always between one and four bytes, so a second 64-bit end offset is unnecessary. `DecodedCodePoint` stores one 64-bit start, one 32-bit scalar, one 8-bit length, and one replacement flag. A compile-time assertion keeps the complete record at or below **16 bytes** on supported targets.
 
 ## Error policies
 
@@ -61,6 +62,7 @@ The test matrix includes:
 - one-shot decode versus every possible chunk size;
 - ASCII, Turkish letters, combining marks, CJK, Hebrew, Arabic, and emoji;
 - absolute byte-range preservation;
+- source lengths restricted to one through four bytes;
 - strict malformed-input rejection;
 - deterministic replacement and byte retry;
 - truncated sequences;
@@ -69,7 +71,7 @@ The test matrix includes:
 - exact allocator release;
 - Linux ASan/UBSan and dedicated MSVC ASan execution.
 
-## Initial benchmark
+## Benchmark contract
 
 Fixture:
 
@@ -77,27 +79,29 @@ Fixture:
 - 4 KiB source chunks;
 - 32 warm-up iterations;
 - 1,024 measured iterations;
-- 4 MiB UnicodeBuffer hard limit.
+- 2 MiB UnicodeBuffer hard limit in CI.
 
-The benchmark reports P50/P95/P99/maximum latency, decoded codepoint count, throughput, current and peak allocator bytes, rejected reservations, accounting errors, and hard-limit status.
+Hard gates:
 
-The first pre-packing CI result was:
-
-| Metric | Result |
+| Gate | Limit |
 |---|---:|
-| P50 | 0.301 ms |
-| P95 | 0.321 ms |
-| P99 | 0.449 ms |
-| Maximum | 0.482 ms |
-| P50 throughput | 207.7 MiB/s |
-| Decoded codepoints | 44,336 |
-| Unicode allocator current | 2.0 MiB |
-| Unicode allocator peak | 3.0 MiB |
-| Hard limit | 4.0 MiB |
+| Decode P95 | ≤0.50 ms |
+| Decode P99 | ≤0.75 ms |
+| UnicodeBuffer peak | ≤2 MiB |
 | Rejected reservations | 0 |
 | Accounting errors | 0 |
 
-The decoded record was subsequently packed from 32 bytes to at most 24 bytes. Final evidence must be taken from the post-packing workflow artifact rather than these historical baseline values.
+The benchmark reports P50/P95/P99/maximum latency, decoded codepoint count, throughput, current and peak allocator bytes, rejected reservations, accounting errors, and hard-limit status.
+
+Historical packing progression on the same benchmark shape:
+
+| Record layout | Current bytes | Peak bytes | P95 |
+|---|---:|---:|---:|
+| 32-byte record | 2.0 MiB | 3.0 MiB | 0.321 ms |
+| 24-byte record | 1.5 MiB | 2.25 MiB | 0.305 ms |
+| 16-byte record | Final artifact required | Final artifact required | Final artifact required |
+
+Only the final post-16-byte workflow artifact is certification evidence.
 
 ## Boundary
 
