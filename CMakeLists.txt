@@ -46,6 +46,7 @@ add_library(zevryon-massivedoc-core STATIC
   src/bidi_implicit.cpp
   src/bidi_neutral.cpp
   src/bidi_sequence.cpp
+  src/bidi_visual.cpp
   src/bidi_weak.cpp
   src/compact_document.cpp
   src/grapheme_segmenter.cpp
@@ -213,4 +214,9 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-bidi-implicit-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-bidi-implicit-tests)
   add_test(NAME bidi-implicit-tests COMMAND zevryon-bidi-implicit-tests)
+
+  add_executable(zevryon-bidi-visual-tests tests/bidi_visual_tests.cpp)
+  target_link_libraries(zevryon-bidi-visual-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-bidi-visual-tests)
+  add_test(NAME bidi-visual-tests COMMAND zevryon-bidi-visual-tests)
 endif()
