@@ -67,7 +67,6 @@ struct BracketStackEntry {
     std::uint32_t expected_closing{0};
     std::uint32_t open_active{0};
     std::uint32_t open_ordinal{0};
-    BidiClass preceding_strong{BidiClass::L};
     std::uint8_t strong_flags{0};
 };
 
@@ -75,12 +74,14 @@ struct BracketPair {
     std::uint32_t open_active{0};
     std::uint32_t close_active{0};
     std::uint32_t open_ordinal{0};
-    BidiClass preceding_strong{BidiClass::L};
     std::uint8_t strong_flags{0};
-    std::uint16_t reserved{0};
+    std::uint8_t reserved0{0};
+    std::uint16_t reserved1{0};
 };
 
-static_assert(sizeof(BracketPair) <= 16U);
+static_assert(
+    sizeof(BracketPair) <= 16U,
+    "bidi bracket pairs must remain within the Z1 memory contract");
 
 void clear_error(BidiNeutralError* error) noexcept {
     if (error != nullptr) {
@@ -116,6 +117,21 @@ void release_vector(std::pmr::vector<T>* values) noexcept {
 bool valid_bidi_class(BidiClass value) noexcept {
     return static_cast<std::size_t>(value) <
            static_cast<std::size_t>(BidiClass::Count);
+}
+
+bool valid_neutral_input_class(BidiClass value) noexcept {
+    return value == BidiClass::L ||
+           value == BidiClass::R ||
+           value == BidiClass::EN ||
+           value == BidiClass::AN ||
+           value == BidiClass::B ||
+           value == BidiClass::S ||
+           value == BidiClass::WS ||
+           value == BidiClass::ON ||
+           value == BidiClass::LRI ||
+           value == BidiClass::RLI ||
+           value == BidiClass::FSI ||
+           value == BidiClass::PDI;
 }
 
 BidiClass strong_direction(BidiClass value) noexcept {
@@ -166,11 +182,12 @@ bool validate_topology(
              topology.active_unit_indices[active - 1U] >= unit_index) ||
             (units[unit_index].flags & kBidiUnitRemovedByX9) != 0U ||
             units[unit_index].codepoint_index >= codepoints.size() ||
-            !valid_bidi_class(weak_types[active])) {
+            !valid_bidi_class(units[unit_index].original_class) ||
+            !valid_neutral_input_class(weak_types[active])) {
             return fail(
                 BidiNeutralErrorKind::InvalidInput,
                 active,
-                "active indices, codepoints, or weak types are invalid",
+                "active indices, codepoints, or weak-stage types are invalid",
                 error);
         }
     }
@@ -306,33 +323,23 @@ void note_strong(
     }
 }
 
-bool apply_n0(
+bool collect_bracket_pairs(
     std::span<const DecodedCodePoint> codepoints,
     std::span<const BidiExplicitUnit> units,
     const BidiSequenceTopology& topology,
     const BidiIsolatingRunSequence& sequence,
-    std::pmr::vector<BidiClass>* working,
-    std::pmr::vector<BidiClass>* endpoint_directions,
+    std::span<const BidiClass> working,
+    std::pmr::vector<BracketPair>* pairs,
     BidiNeutralStats* stats) {
-    const BidiClass embedding =
-        (sequence.level & 1U) == 0U ? BidiClass::L : BidiClass::R;
-    const BidiClass opposite =
-        embedding == BidiClass::L ? BidiClass::R : BidiClass::L;
     std::array<BracketStackEntry, kMaximumBracketStack> stack{};
     std::size_t depth = 0U;
     std::uint32_t ordinal = 0U;
-    BidiClass previous_strong = sequence.sos;
-    std::pmr::vector<BracketPair> pairs(working->get_allocator().resource());
 
     for (SequenceCursor cursor(topology, sequence); cursor.valid(); cursor.advance()) {
         const std::uint32_t active = cursor.active_index();
-        const BidiClass strong = strong_direction((*working)[active]);
-        note_strong(strong, &stack, depth);
-        if (strong != BidiClass::Count) {
-            previous_strong = strong;
-        }
+        note_strong(strong_direction(working[active]), &stack, depth);
 
-        if ((*working)[active] != BidiClass::ON) {
+        if (working[active] != BidiClass::ON) {
             ++ordinal;
             continue;
         }
@@ -343,10 +350,11 @@ bool apply_n0(
             ++ordinal;
             continue;
         }
+
         ++stats->bracket_candidates;
         if (bracket.type == BidiBracketType::Open) {
             if (depth == stack.size()) {
-                pairs.clear();
+                pairs->clear();
                 ++stats->bracket_overflow_sequences;
                 return true;
             }
@@ -354,7 +362,6 @@ bool apply_n0(
                 bracket.paired_codepoint,
                 active,
                 ordinal,
-                previous_strong,
                 0U};
             ++depth;
             ++ordinal;
@@ -371,37 +378,70 @@ bool apply_n0(
         }
         if (match != depth) {
             const BracketStackEntry& opening = stack[match];
-            pairs.push_back(BracketPair{
+            pairs->push_back(BracketPair{
                 opening.open_active,
                 active,
                 opening.open_ordinal,
-                opening.preceding_strong,
                 opening.strong_flags,
+                0U,
                 0U});
             depth = match;
         }
         ++ordinal;
     }
+    return true;
+}
 
-    stats->bracket_pairs += pairs.size();
+bool resolve_bracket_pairs(
+    const BidiSequenceTopology& topology,
+    const BidiIsolatingRunSequence& sequence,
+    std::pmr::vector<BracketPair>* pairs,
+    std::pmr::vector<BidiClass>* working,
+    BidiNeutralStats* stats,
+    BidiNeutralError* error) {
+    const BidiClass embedding =
+        (sequence.level & 1U) == 0U ? BidiClass::L : BidiClass::R;
+    const BidiClass opposite =
+        embedding == BidiClass::L ? BidiClass::R : BidiClass::L;
+    const std::uint8_t embedding_flag =
+        embedding == BidiClass::L ? kContainsLeft : kContainsRight;
+    const std::uint8_t opposite_flag =
+        opposite == BidiClass::L ? kContainsLeft : kContainsRight;
+
     std::sort(
-        pairs.begin(),
-        pairs.end(),
+        pairs->begin(),
+        pairs->end(),
         [](const BracketPair& left, const BracketPair& right) {
             return left.open_ordinal < right.open_ordinal;
         });
 
-    for (const BracketPair& pair : pairs) {
+    SequenceCursor context(topology, sequence);
+    std::uint32_t context_ordinal = 0U;
+    BidiClass preceding_strong = sequence.sos;
+    for (const BracketPair& pair : *pairs) {
+        while (context.valid() && context_ordinal < pair.open_ordinal) {
+            const BidiClass direction =
+                strong_direction((*working)[context.active_index()]);
+            if (direction != BidiClass::Count) {
+                preceding_strong = direction;
+            }
+            context.advance();
+            ++context_ordinal;
+        }
+        if (!context.valid() || context.active_index() != pair.open_active) {
+            return fail(
+                BidiNeutralErrorKind::TopologyViolation,
+                pair.open_active,
+                "bracket pair ordinal does not match its sequence position",
+                error);
+        }
+
         BidiClass resolved = BidiClass::Count;
-        const std::uint8_t embedding_flag =
-            embedding == BidiClass::L ? kContainsLeft : kContainsRight;
-        const std::uint8_t opposite_flag =
-            opposite == BidiClass::L ? kContainsLeft : kContainsRight;
         if ((pair.strong_flags & embedding_flag) != 0U) {
             resolved = embedding;
             ++stats->n0_embedding_pairs;
         } else if ((pair.strong_flags & opposite_flag) != 0U) {
-            if (pair.preceding_strong == opposite) {
+            if (preceding_strong == opposite) {
                 resolved = opposite;
                 ++stats->n0_opposite_pairs;
             } else {
@@ -410,31 +450,85 @@ bool apply_n0(
             }
         }
         if (resolved != BidiClass::Count) {
-            (*endpoint_directions)[pair.open_active] = resolved;
-            (*endpoint_directions)[pair.close_active] = resolved;
+            (*working)[pair.open_active] = resolved;
+            (*working)[pair.close_active] = resolved;
         }
     }
+    return true;
+}
 
-    BidiClass following_nsm_direction = BidiClass::Count;
+void propagate_bracket_nsms(
+    std::span<const DecodedCodePoint> codepoints,
+    std::span<const BidiExplicitUnit> units,
+    const BidiSequenceTopology& topology,
+    const BidiIsolatingRunSequence& sequence,
+    std::span<const BidiClass> weak_types,
+    std::pmr::vector<BidiClass>* working,
+    BidiNeutralStats* stats) noexcept {
+    BidiClass following_direction = BidiClass::Count;
     for (SequenceCursor cursor(topology, sequence); cursor.valid(); cursor.advance()) {
         const std::uint32_t active = cursor.active_index();
-        const BidiClass endpoint = (*endpoint_directions)[active];
-        if (endpoint != BidiClass::Count) {
-            (*working)[active] = endpoint;
-            following_nsm_direction = endpoint;
+        const BidiExplicitUnit& unit = units[topology.active_unit_indices[active]];
+        const BidiClass current = (*working)[active];
+        const bool resolved_endpoint =
+            weak_types[active] == BidiClass::ON &&
+            (current == BidiClass::L || current == BidiClass::R) &&
+            bidi_bracket_info(codepoints[unit.codepoint_index].value).type !=
+                BidiBracketType::None;
+        if (resolved_endpoint) {
+            following_direction = current;
             continue;
         }
-        const BidiExplicitUnit& unit = units[topology.active_unit_indices[active]];
         if (unit.original_class == BidiClass::NSM &&
-            following_nsm_direction != BidiClass::Count) {
-            if ((*working)[active] != following_nsm_direction) {
-                (*working)[active] = following_nsm_direction;
+            following_direction != BidiClass::Count) {
+            if (current != following_direction) {
+                (*working)[active] = following_direction;
                 ++stats->n0_following_nsm_changes;
             }
         } else {
-            following_nsm_direction = BidiClass::Count;
+            following_direction = BidiClass::Count;
         }
     }
+}
+
+bool apply_n0(
+    std::span<const DecodedCodePoint> codepoints,
+    std::span<const BidiExplicitUnit> units,
+    const BidiSequenceTopology& topology,
+    const BidiIsolatingRunSequence& sequence,
+    std::span<const BidiClass> weak_types,
+    std::pmr::vector<BidiClass>* working,
+    BidiNeutralStats* stats,
+    BidiNeutralError* error) {
+    std::pmr::vector<BracketPair> pairs(working->get_allocator().resource());
+    if (!collect_bracket_pairs(
+            codepoints,
+            units,
+            topology,
+            sequence,
+            *working,
+            &pairs,
+            stats)) {
+        return false;
+    }
+    stats->bracket_pairs += static_cast<std::uint64_t>(pairs.size());
+    if (!resolve_bracket_pairs(
+            topology,
+            sequence,
+            &pairs,
+            working,
+            stats,
+            error)) {
+        return false;
+    }
+    propagate_bracket_nsms(
+        codepoints,
+        units,
+        topology,
+        sequence,
+        weak_types,
+        working,
+        stats);
     return true;
 }
 
@@ -557,9 +651,6 @@ bool resolve_bidi_neutral_types(
         std::pmr::vector<BidiClass> working(
             resolved_types->get_allocator().resource());
         working.assign(weak_types.begin(), weak_types.end());
-        std::pmr::vector<BidiClass> endpoint_directions(
-            resolved_types->get_allocator().resource());
-        endpoint_directions.assign(weak_types.size(), BidiClass::Count);
 
         stats->active_units = static_cast<std::uint64_t>(working.size());
         stats->isolating_sequences =
@@ -570,9 +661,10 @@ bool resolve_bidi_neutral_types(
                     units,
                     topology,
                     sequence,
+                    weak_types,
                     &working,
-                    &endpoint_directions,
-                    stats) ||
+                    stats,
+                    error) ||
                 !apply_n1_n2(
                     units,
                     topology,
