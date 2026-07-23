@@ -3,8 +3,9 @@
 #include <algorithm>
 
 namespace zevryon::text {
+namespace {
 
-BidiMirroringInfo bidi_mirroring_info(std::uint32_t codepoint) noexcept {
+const BidiMirroredRange* find_mirrored_range(std::uint32_t codepoint) noexcept {
     const auto range = std::lower_bound(
         kUnicodeBidiMirroredRanges.begin(),
         kUnicodeBidiMirroredRanges.end(),
@@ -12,8 +13,20 @@ BidiMirroringInfo bidi_mirroring_info(std::uint32_t codepoint) noexcept {
         [](const BidiMirroredRange& candidate, std::uint32_t value) {
             return candidate.last < value;
         });
-    if (range == kUnicodeBidiMirroredRanges.end() ||
-        codepoint < range->first || codepoint > range->last) {
+    return range != kUnicodeBidiMirroredRanges.end() &&
+                   codepoint >= range->first && codepoint <= range->last
+        ? &*range
+        : nullptr;
+}
+
+} // namespace
+
+bool bidi_mirrored_property(std::uint32_t codepoint) noexcept {
+    return find_mirrored_range(codepoint) != nullptr;
+}
+
+BidiMirroringInfo bidi_mirroring_info(std::uint32_t codepoint) noexcept {
+    if (!bidi_mirrored_property(codepoint)) {
         return {};
     }
 
