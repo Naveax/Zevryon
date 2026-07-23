@@ -12,6 +12,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace zevryon::text {
@@ -153,6 +154,33 @@ enum class FontGenerationPublishResult : std::uint8_t {
 const char* font_generation_publish_result_name(
     FontGenerationPublishResult result) noexcept;
 
+class AtomicFontGenerationPointer final {
+public:
+    explicit AtomicFontGenerationPointer(std::nullptr_t) noexcept
+        : value_(nullptr) {}
+
+    std::shared_ptr<const FontCatalogGeneration> load(
+        std::memory_order order) const noexcept {
+        return std::atomic_load_explicit(&value_, order);
+    }
+
+    bool compare_exchange_weak(
+        std::shared_ptr<const FontCatalogGeneration>& expected,
+        std::shared_ptr<const FontCatalogGeneration> desired,
+        std::memory_order success,
+        std::memory_order failure) noexcept {
+        return std::atomic_compare_exchange_weak_explicit(
+            &value_,
+            &expected,
+            std::move(desired),
+            success,
+            failure);
+    }
+
+private:
+    mutable std::shared_ptr<const FontCatalogGeneration> value_;
+};
+
 class FontCatalogGenerationStore final {
 public:
     FontCatalogGenerationStore() noexcept;
@@ -163,7 +191,7 @@ public:
     std::shared_ptr<const FontCatalogGeneration> snapshot() const noexcept;
 
 private:
-    std::atomic<std::shared_ptr<const FontCatalogGeneration>> current_;
+    AtomicFontGenerationPointer current_;
 };
 
 } // namespace zevryon::text
