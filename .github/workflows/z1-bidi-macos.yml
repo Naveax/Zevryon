@@ -1,0 +1,45 @@
+name: z1-bidi-macos
+
+# Focused Apple Clang diagnostics and permanent strict gate for Z1D.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-bidi-macos.yml'
+      - 'CMakeLists.txt'
+      - 'src/bidi_*'
+      - 'src/unicode_bidi*'
+      - 'src/resource_ledger.*'
+      - 'tests/bidi_*'
+  workflow_dispatch:
+
+concurrency:
+  group: z1-bidi-macos-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  macos-bidi-strict:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure strict Release build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build focused bidi targets
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target \
+            zevryon-bidi-explicit-tests \
+            zevryon-bidi-conformance \
+            zevryon-bidi-benchmark \
+            2>&1 | tee macos-bidi-build.log
+      - name: Run focused bidi test
+        run: ctest --test-dir build -R bidi-explicit-tests --output-on-failure
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-bidi-strict-${{ github.sha }}
+          path: macos-bidi-build.log
+          if-no-files-found: warn

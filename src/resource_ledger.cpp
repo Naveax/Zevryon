@@ -12,6 +12,7 @@ constexpr std::array<const char*, resource_class_count> kResourceNames{
     "unicode_buffer",
     "grapheme_cluster",
     "script_run",
+    "bidi_run",
     "glyph_run",
     "computed_style",
     "layout_fragment",
@@ -138,7 +139,7 @@ bool ResourceLedger::accounting_clean() const noexcept {
 
 std::string ResourceLedger::json() const {
     std::ostringstream output;
-    output << "{\"schema\":\"zevryon.resource-ledger.v1\","
+    output << "{\"schema\":\"zevryon.resource-ledger.v1\"," 
            << "\"total_current_bytes\":" << total_current_bytes_ << ','
            << "\"total_peak_bytes\":" << total_peak_bytes_ << ','
            << "\"within_hard_limits\":"
