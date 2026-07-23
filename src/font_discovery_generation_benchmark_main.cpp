@@ -20,8 +20,8 @@ using namespace zevryon::text;
 constexpr std::size_t kFaceCount = 1024U;
 constexpr std::size_t kFamilyCount = 128U;
 constexpr std::size_t kWarmupIterations = 8U;
-constexpr std::size_t kDiscoveryHardLimit = 256U * 1024U;
-constexpr std::size_t kCatalogHardLimit = 256U * 1024U;
+constexpr std::size_t kDiscoveryHardLimit = 108U * 1024U;
+constexpr std::size_t kCatalogHardLimit = 64U * 1024U;
 
 struct OwnedFace {
     std::string identity;
