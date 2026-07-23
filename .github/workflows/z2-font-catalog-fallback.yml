@@ -41,7 +41,7 @@ jobs:
             build/libzevryon-massivedoc-core.a \
             -o build/zevryon-font-fallback-bucket-equivalence-tests
           ./build/zevryon-font-fallback-bucket-equivalence-tests
-      - name: Build diagnostic benchmark with strict flags
+      - name: Build certification benchmark with strict flags
         run: |
           c++ -std=c++20 -O3 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror \
             -Isrc src/font_fallback_benchmark_main.cpp \
@@ -50,14 +50,14 @@ jobs:
       - name: Run three independent 64 KiB / 256-face distributions
         run: |
           mkdir -p evidence
-          ./build/zevryon-font-fallback-benchmark 128 524288 \
+          ./build/zevryon-font-fallback-benchmark 128 278528 \
             > evidence/z2-font-fallback-benchmark-1.json
-          ./build/zevryon-font-fallback-benchmark 128 524288 \
+          ./build/zevryon-font-fallback-benchmark 128 278528 \
             > evidence/z2-font-fallback-benchmark-2.json
-          ./build/zevryon-font-fallback-benchmark 128 524288 \
+          ./build/zevryon-font-fallback-benchmark 128 278528 \
             > evidence/z2-font-fallback-benchmark-3.json
           cat evidence/z2-font-fallback-benchmark-1.json
-      - name: Enforce diagnostic correctness and memory gates
+      - name: Enforce final correctness, memory, and latency gates
         run: |
           python - <<'PY'
           import json, pathlib, statistics
@@ -72,25 +72,32 @@ jobs:
               assert report['iterations'] == 128
               assert report['warmup_iterations'] == 8
               assert report['catalog_faces'] == 256
+              assert report['catalog_coverage_ranges'] == 257
+              assert report['input_codepoints'] == 27119
+              assert report['input_clusters'] == 22599
+              assert report['script_runs'] == 20339
+              assert report['output_runs'] == 22599
+              assert report['output_boundaries'] == 22600
               assert report['boundary_record_bytes'] == 12
-              assert report['input_codepoints'] > 0
-              assert report['input_clusters'] > 0
-              assert report['script_runs'] > 0
-              assert report['output_boundaries'] == report['output_runs'] + 1
-              assert report['primary_clusters'] > 0
-              assert report['preferred_family_clusters'] > 0
-              assert report['script_match_clusters'] > 0
-              assert report['neutral_script_clusters'] > 0
-              assert report['missing_clusters'] > 0
-              assert report['coverage_checks'] > report['input_clusters']
-              assert report['fallback_hard_limit_bytes'] == 524288
+              assert report['primary_clusters'] == 2260
+              assert report['preferred_family_clusters'] == 2260
+              assert report['script_match_clusters'] == 13560
+              assert report['neutral_script_clusters'] == 2260
+              assert report['cross_script_clusters'] == 0
+              assert report['missing_clusters'] == 2259
+              assert report['coverage_checks'] == 49720
+              assert report['catalog_current_bytes'] == 12680
+              assert report['catalog_peak_bytes'] <= 16384
+              assert report['fallback_hard_limit_bytes'] == 278528
+              assert report['fallback_current_bytes'] == 271200
+              assert report['fallback_peak_bytes'] == 271200
               assert report['fallback_current_bytes'] == (
                   report['output_boundaries'] * report['boundary_record_bytes']
               )
-              assert report['fallback_peak_bytes'] == report['fallback_current_bytes']
-              assert report['fallback_peak_bytes'] <= 524288
               assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
-              assert report['p95_ms'] <= 200.0
+              assert report['p95_ms'] <= 7.0
+              assert report['p99_ms'] <= 8.0
+              assert report['maximum_ms'] <= 12.0
               assert report['rejected_reservations'] == 0
               assert report['accounting_errors'] == 0
               assert report['within_hard_limits'] is True
@@ -107,6 +114,7 @@ jobs:
               'worst_fallback_peak_bytes': max(r['fallback_peak_bytes'] for r in reports),
               'coverage_checks': reports[0]['coverage_checks'],
               'output_runs': reports[0]['output_runs'],
+              'hard_limit_bytes': reports[0]['fallback_hard_limit_bytes'],
               'passed': True,
           }
           (root / 'z2-font-fallback-certification.json').write_text(
