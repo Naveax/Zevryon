@@ -30,6 +30,8 @@ constexpr std::array<const char*, resource_class_count> kResourceNames{
     "bidi_implicit_level",
     "bidi_visual_order",
     "bidi_mirror_request",
+    "font_catalog",
+    "font_fallback_plan",
 };
 
 } // namespace

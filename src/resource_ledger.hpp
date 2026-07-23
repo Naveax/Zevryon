@@ -32,6 +32,8 @@ enum class ResourceClass : std::uint8_t {
     BidiImplicitLevel,
     BidiVisualOrder,
     BidiMirrorRequest,
+    FontCatalog,
+    FontFallbackPlan,
     Count
 };
 

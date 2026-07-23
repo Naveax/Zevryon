@@ -50,6 +50,8 @@ add_library(zevryon-massivedoc-core STATIC
   src/bidi_visual.cpp
   src/bidi_weak.cpp
   src/compact_document.cpp
+  src/font_catalog.cpp
+  src/font_fallback.cpp
   src/grapheme_segmenter.cpp
   src/layout_checkpoint.cpp
   src/layout_window.cpp
@@ -247,4 +249,9 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-bidi-mirroring-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-bidi-mirroring-tests)
   add_test(NAME bidi-mirroring-tests COMMAND zevryon-bidi-mirroring-tests)
+
+  add_executable(zevryon-font-catalog-fallback-tests tests/font_catalog_fallback_tests.cpp)
+  target_link_libraries(zevryon-font-catalog-fallback-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-font-catalog-fallback-tests)
+  add_test(NAME font-catalog-fallback-tests COMMAND zevryon-font-catalog-fallback-tests)
 endif()
