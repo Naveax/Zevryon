@@ -1,0 +1,12 @@
+{
+  "schema": "zevryon.unicode-bidi-data.v1",
+  "unicode_version": "17.0.0",
+  "fingerprint": "bootstrap-placeholder",
+  "source_sha256": {
+    "DerivedBidiClass.txt": "bootstrap-placeholder",
+    "PropertyValueAliases.txt": "bootstrap-placeholder"
+  },
+  "bidi_class_count": 23,
+  "bidi_range_count": 1,
+  "generated_header_bytes": 0
+}
