@@ -20,14 +20,97 @@ permissions:
   contents: read
 
 jobs:
-  ubuntu-strict:
+  ubuntu-certification:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-      - run: cmake --build build --parallel 2 --target zevryon-font-catalog-fallback-tests
+      - name: Build focused core and tests
+        run: cmake --build build --parallel 2 --target zevryon-massivedoc-core zevryon-font-catalog-fallback-tests
       - run: ctest --test-dir build -R font-catalog-fallback-tests --output-on-failure
+      - name: Build diagnostic benchmark with strict flags
+        run: |
+          c++ -std=c++20 -O3 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror \
+            -include cstdlib -Isrc src/font_fallback_benchmark_main.cpp \
+            build/libzevryon-massivedoc-core.a \
+            -o build/zevryon-font-fallback-benchmark
+      - name: Run three independent 64 KiB / 256-face distributions
+        run: |
+          mkdir -p evidence
+          ./build/zevryon-font-fallback-benchmark 128 524288 \
+            > evidence/z2-font-fallback-benchmark-1.json
+          ./build/zevryon-font-fallback-benchmark 128 524288 \
+            > evidence/z2-font-fallback-benchmark-2.json
+          ./build/zevryon-font-fallback-benchmark 128 524288 \
+            > evidence/z2-font-fallback-benchmark-3.json
+          cat evidence/z2-font-fallback-benchmark-1.json
+      - name: Enforce diagnostic correctness and memory gates
+        run: |
+          python - <<'PY'
+          import json, pathlib, statistics
+          root = pathlib.Path('evidence')
+          reports = [
+              json.loads((root / f'z2-font-fallback-benchmark-{index}.json').read_text())
+              for index in range(1, 4)
+          ]
+          for report in reports:
+              assert report['schema'] == 'zevryon.font-fallback-benchmark.v1'
+              assert report['fixture_bytes'] == 65536
+              assert report['iterations'] == 128
+              assert report['warmup_iterations'] == 8
+              assert report['catalog_faces'] == 256
+              assert report['boundary_record_bytes'] == 12
+              assert report['input_codepoints'] > 0
+              assert report['input_clusters'] > 0
+              assert report['script_runs'] > 0
+              assert report['output_boundaries'] == report['output_runs'] + 1
+              assert report['primary_clusters'] > 0
+              assert report['preferred_family_clusters'] > 0
+              assert report['script_match_clusters'] > 0
+              assert report['neutral_script_clusters'] > 0
+              assert report['missing_clusters'] > 0
+              assert report['coverage_checks'] > report['input_clusters']
+              assert report['fallback_hard_limit_bytes'] == 524288
+              assert report['fallback_current_bytes'] == (
+                  report['output_boundaries'] * report['boundary_record_bytes']
+              )
+              assert report['fallback_peak_bytes'] == report['fallback_current_bytes']
+              assert report['fallback_peak_bytes'] <= 524288
+              assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
+              assert report['p95_ms'] <= 200.0
+              assert report['rejected_reservations'] == 0
+              assert report['accounting_errors'] == 0
+              assert report['within_hard_limits'] is True
+              assert report['accounting_clean'] is True
+
+          certification = {
+              'schema': 'zevryon.font-fallback-certification.v1',
+              'runs': len(reports),
+              'median_p50_ms': statistics.median(r['p50_ms'] for r in reports),
+              'median_p95_ms': statistics.median(r['p95_ms'] for r in reports),
+              'median_p99_ms': statistics.median(r['p99_ms'] for r in reports),
+              'worst_maximum_ms': max(r['maximum_ms'] for r in reports),
+              'worst_catalog_peak_bytes': max(r['catalog_peak_bytes'] for r in reports),
+              'worst_fallback_peak_bytes': max(r['fallback_peak_bytes'] for r in reports),
+              'coverage_checks': reports[0]['coverage_checks'],
+              'output_runs': reports[0]['output_runs'],
+              'passed': True,
+          }
+          (root / 'z2-font-fallback-certification.json').write_text(
+              json.dumps(certification, indent=2, sort_keys=True) + '\n'
+          )
+          print(json.dumps(certification, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-font-catalog-fallback-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: warn
 
   macos-strict:
     runs-on: macos-latest
