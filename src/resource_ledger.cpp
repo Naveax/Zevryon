@@ -29,6 +29,7 @@ constexpr std::array<const char*, resource_class_count> kResourceNames{
     "compositor_surface",
     "bidi_implicit_level",
     "bidi_visual_order",
+    "bidi_mirror_request",
 };
 
 } // namespace
