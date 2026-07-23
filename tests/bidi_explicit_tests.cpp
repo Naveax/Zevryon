@@ -131,15 +131,28 @@ bool test_embeddings_and_overrides() {
         !require(units[0].level == 0U, "LRE control level") ||
         !require((units[0].flags & zevryon::text::kBidiUnitRemovedByX9) != 0U, "LRE X9 flag") ||
         !require(units[1].level == 2U, "LRE content level") ||
+        !require(units[2].level == 0U, "PDF receives post-pop level") ||
+        !require(units[2].resolved_class == BidiClass::PDF, "PDF retains explicit class") ||
         !require(units[3].level == 0U, "PDF restores level")) {
         return false;
     }
 
     const auto override = make_codepoints({0x202eU, '1', 0x202cU});
-    return require(resolve(override, BidiParagraphDirection::Left, &units, &stats, &error), "RLO resolves") &&
-           require(units[1].level == 1U, "RLO level") &&
-           require(units[1].original_class == BidiClass::EN, "RLO original class") &&
-           require(units[1].resolved_class == BidiClass::R, "RLO override class");
+    if (!require(resolve(override, BidiParagraphDirection::Left, &units, &stats, &error), "RLO resolves") ||
+        !require(units[1].level == 1U, "RLO level") ||
+        !require(units[1].original_class == BidiClass::EN, "RLO original class") ||
+        !require(units[1].resolved_class == BidiClass::R, "RLO override class") ||
+        !require(units[2].level == 0U, "RLO PDF post-pop level")) {
+        return false;
+    }
+
+    const auto boundary_neutral = make_codepoints({0x202eU, 0x00adU, 0x202cU});
+    return require(
+               resolve(boundary_neutral, BidiParagraphDirection::Left, &units, &stats, &error),
+               "BN under override resolves") &&
+           require(units[1].original_class == BidiClass::BN, "BN original class") &&
+           require(units[1].resolved_class == BidiClass::BN, "BN is not overridden") &&
+           require(units[1].level == 1U, "BN keeps current explicit level");
 }
 
 bool test_isolates_and_fsi() {
@@ -151,6 +164,7 @@ bool test_isolates_and_fsi() {
     if (!require(resolve(rli, BidiParagraphDirection::Auto, &units, &stats, &error), "RLI resolves") ||
         !require(stats.paragraph_level == 0U, "RLI outer paragraph") ||
         !require(units[1].level == 1U, "RLI content level") ||
+        !require(units[2].level == 0U, "PDI receives outer post-pop level") ||
         !require(units[3].level == 0U, "PDI restores outer level") ||
         !require(stats.valid_isolates == 1U, "valid isolate counted")) {
         return false;
@@ -167,6 +181,45 @@ bool test_isolates_and_fsi() {
     return require(resolve(fsi_left, BidiParagraphDirection::Auto, &units, &stats, &error), "FSI left resolves") &&
            require(stats.paragraph_level == 1U, "FSI left outer right paragraph") &&
            require(units[1].level == 2U, "FSI detects left inside right paragraph");
+}
+
+bool test_outer_override_after_pdi() {
+    std::vector<BidiExplicitUnit> units;
+    BidiExplicitStats stats;
+    BidiExplicitError error;
+    const auto nested = make_codepoints({0x202eU, 0x2066U, 'a', 0x2069U, 0x202cU});
+    return require(
+               resolve(nested, BidiParagraphDirection::Left, &units, &stats, &error),
+               "override with isolate resolves") &&
+           require(units[1].level == 1U, "isolate initiator uses outer level") &&
+           require(units[2].level == 2U, "isolate content level") &&
+           require(units[3].level == 1U, "PDI returns to outer override level") &&
+           require(units[3].resolved_class == BidiClass::R, "PDI uses outer override") &&
+           require(units[4].level == 0U, "outer PDF returns to paragraph level");
+}
+
+bool test_paragraph_separator_contract() {
+    std::vector<BidiExplicitUnit> units;
+    BidiExplicitStats stats;
+    BidiExplicitError error;
+
+    const auto final_separator = make_codepoints({0x202bU, 0x05d0U, 0x2029U});
+    if (!require(
+            resolve(final_separator, BidiParagraphDirection::Left, &units, &stats, &error),
+            "final paragraph separator resolves") ||
+        !require(units[1].level == 1U, "paragraph content embedded level") ||
+        !require(units[2].original_class == BidiClass::B, "paragraph separator class") ||
+        !require(units[2].resolved_class == BidiClass::B, "paragraph separator not overridden") ||
+        !require(units[2].level == 0U, "paragraph separator uses paragraph level")) {
+        return false;
+    }
+
+    const auto multiple_paragraphs = make_codepoints({'a', 0x2029U, 0x05d0U});
+    return require(
+               !resolve(multiple_paragraphs, BidiParagraphDirection::Auto, &units, &stats, &error),
+               "multiple paragraphs rejected") &&
+           require(error.kind == BidiExplicitErrorKind::InvalidInput, "paragraph contract error kind") &&
+           require(error.codepoint_index == 1U, "paragraph contract error index");
 }
 
 bool test_overflow_and_unmatched_controls() {
@@ -192,6 +245,8 @@ bool test_overflow_and_unmatched_controls() {
 
     const auto unmatched = make_codepoints({0x202cU, 0x2069U, 'a'});
     return require(resolve(unmatched, BidiParagraphDirection::Left, &units, &stats, &error), "unmatched controls resolve") &&
+           require(units[0].level == 0U, "unmatched PDF stays at paragraph level") &&
+           require(units[1].level == 0U, "unmatched PDI stays at paragraph level") &&
            require(stats.unmatched_pdf == 1U, "unmatched PDF counted") &&
            require(stats.unmatched_pdi == 1U, "unmatched PDI counted");
 }
@@ -233,6 +288,8 @@ int main() {
         !test_paragraph_direction() ||
         !test_embeddings_and_overrides() ||
         !test_isolates_and_fsi() ||
+        !test_outer_override_after_pdi() ||
+        !test_paragraph_separator_contract() ||
         !test_overflow_and_unmatched_controls() ||
         !test_invalid_input_and_budget()) {
         return 1;
