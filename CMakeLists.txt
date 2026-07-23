@@ -44,6 +44,7 @@ add_library(zevryon-massivedoc-core STATIC
   "${ZEVRYON_MASSIVEDOC_SOURCE}"
   src/bidi_explicit.cpp
   src/bidi_implicit.cpp
+  src/bidi_mirroring.cpp
   src/bidi_neutral.cpp
   src/bidi_sequence.cpp
   src/bidi_visual.cpp
@@ -57,6 +58,7 @@ add_library(zevryon-massivedoc-core STATIC
   src/script_run.cpp
   src/unicode_bidi.cpp
   src/unicode_bidi_brackets.cpp
+  src/unicode_bidi_mirroring.cpp
   src/unicode_grapheme_data.cpp
   src/unicode_script.cpp
   src/unicode_stream.cpp
@@ -232,4 +234,9 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-bidi-visual-level126-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-bidi-visual-level126-tests)
   add_test(NAME bidi-visual-level126-tests COMMAND zevryon-bidi-visual-level126-tests)
+
+  add_executable(zevryon-bidi-mirroring-tests tests/bidi_mirroring_tests.cpp)
+  target_link_libraries(zevryon-bidi-mirroring-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-bidi-mirroring-tests)
+  add_test(NAME bidi-mirroring-tests COMMAND zevryon-bidi-mirroring-tests)
 endif()
