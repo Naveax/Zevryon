@@ -1,5 +1,6 @@
 name: z1-bidi-macos
 
+# Focused Apple Clang diagnostics and permanent strict gate for Z1D.
 on:
   pull_request:
     paths:
