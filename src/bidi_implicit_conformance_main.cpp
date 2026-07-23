@@ -1,4 +1,6 @@
 #include "bidi_implicit.hpp"
+#include "bidi_neutral.hpp"
+#include "bidi_weak.hpp"
 #include "ledger_memory_resource.hpp"
 #include "resource_ledger.hpp"
 
@@ -22,7 +24,12 @@ using zevryon::text::BidiImplicitError;
 using zevryon::text::BidiImplicitStats;
 using zevryon::text::BidiIsolatingRunSequence;
 using zevryon::text::BidiLevelRun;
+using zevryon::text::BidiNeutralError;
+using zevryon::text::BidiNeutralStats;
 using zevryon::text::BidiSequenceTopology;
+using zevryon::text::BidiWeakError;
+using zevryon::text::BidiWeakStats;
+using zevryon::text::DecodedCodePoint;
 
 std::string trim(std::string value) {
     while (!value.empty() &&
@@ -44,10 +51,22 @@ bool parse_type(std::string_view token, BidiClass* value) noexcept {
         *value = BidiClass::L;
     } else if (token == "R") {
         *value = BidiClass::R;
+    } else if (token == "AL") {
+        *value = BidiClass::AL;
     } else if (token == "EN") {
         *value = BidiClass::EN;
+    } else if (token == "ES") {
+        *value = BidiClass::ES;
+    } else if (token == "ET") {
+        *value = BidiClass::ET;
     } else if (token == "AN") {
         *value = BidiClass::AN;
+    } else if (token == "CS") {
+        *value = BidiClass::CS;
+    } else if (token == "NSM") {
+        *value = BidiClass::NSM;
+    } else if (token == "ON") {
+        *value = BidiClass::ON;
     } else {
         return false;
     }
@@ -67,7 +86,7 @@ std::uint8_t paragraph_level(
         if (type == BidiClass::L) {
             return 0U;
         }
-        if (type == BidiClass::R) {
+        if (type == BidiClass::R || type == BidiClass::AL) {
             return 1U;
         }
     }
@@ -75,29 +94,36 @@ std::uint8_t paragraph_level(
 }
 
 bool run_case(
-    const std::vector<BidiClass>& types,
+    const std::vector<BidiClass>& original_types,
     std::uint8_t base_level,
     const std::vector<int>& expected,
     std::size_t line_number,
     unsigned mode) {
+    std::vector<DecodedCodePoint> codepoints;
     std::vector<BidiExplicitUnit> units;
-    units.reserve(types.size());
+    codepoints.reserve(original_types.size());
+    units.reserve(original_types.size());
     BidiSequenceTopology topology(std::pmr::get_default_resource());
-    for (std::size_t index = 0U; index < types.size(); ++index) {
+    for (std::size_t index = 0U; index < original_types.size(); ++index) {
+        codepoints.emplace_back(
+            static_cast<std::uint32_t>('x'),
+            static_cast<std::uint64_t>(index),
+            static_cast<std::uint64_t>(index + 1U),
+            false);
         units.push_back(BidiExplicitUnit{
             static_cast<std::uint64_t>(index),
             static_cast<std::uint32_t>(index),
-            types[index],
-            types[index],
+            original_types[index],
+            original_types[index],
             base_level,
             0U});
         topology.active_unit_indices.push_back(
             static_cast<std::uint32_t>(index));
     }
-    if (!types.empty()) {
+    if (!original_types.empty()) {
         topology.level_runs.push_back(BidiLevelRun{
             0U,
-            static_cast<std::uint32_t>(types.size()),
+            static_cast<std::uint32_t>(original_types.size()),
             base_level,
             0U,
             0U});
@@ -112,25 +138,69 @@ bool run_case(
             0U});
     }
 
-    zevryon::core::ResourceLedger ledger;
-    ledger.set_hard_limit(
+    zevryon::core::ResourceLedger weak_ledger;
+    weak_ledger.set_hard_limit(
+        zevryon::core::ResourceClass::BidiTypeResolution,
+        4096U);
+    zevryon::core::LedgerMemoryResource weak_memory(
+        weak_ledger,
+        zevryon::core::ResourceClass::BidiTypeResolution);
+    std::pmr::vector<BidiClass> weak_types(&weak_memory);
+    BidiWeakStats weak_stats;
+    BidiWeakError weak_error;
+    if (!zevryon::text::resolve_bidi_weak_types(
+            units,
+            topology,
+            &weak_types,
+            &weak_stats,
+            &weak_error)) {
+        std::cerr << "weak resolver rejected BidiTest line " << line_number
+                  << " mode " << mode << ": " << weak_error.message << '\n';
+        return false;
+    }
+
+    zevryon::core::ResourceLedger neutral_ledger;
+    neutral_ledger.set_hard_limit(
+        zevryon::core::ResourceClass::BidiNeutralResolution,
+        4096U);
+    zevryon::core::LedgerMemoryResource neutral_memory(
+        neutral_ledger,
+        zevryon::core::ResourceClass::BidiNeutralResolution);
+    std::pmr::vector<BidiClass> neutral_types(&neutral_memory);
+    BidiNeutralStats neutral_stats;
+    BidiNeutralError neutral_error;
+    if (!zevryon::text::resolve_bidi_neutral_types(
+            codepoints,
+            units,
+            topology,
+            weak_types,
+            &neutral_types,
+            &neutral_stats,
+            &neutral_error)) {
+        std::cerr << "neutral resolver rejected BidiTest line " << line_number
+                  << " mode " << mode << ": " << neutral_error.message << '\n';
+        return false;
+    }
+
+    zevryon::core::ResourceLedger implicit_ledger;
+    implicit_ledger.set_hard_limit(
         zevryon::core::ResourceClass::BidiImplicitLevel,
         4096U);
-    zevryon::core::LedgerMemoryResource memory(
-        ledger,
+    zevryon::core::LedgerMemoryResource implicit_memory(
+        implicit_ledger,
         zevryon::core::ResourceClass::BidiImplicitLevel);
-    std::pmr::vector<std::uint8_t> output(&memory);
-    BidiImplicitStats stats;
-    BidiImplicitError error;
+    std::pmr::vector<std::uint8_t> output(&implicit_memory);
+    BidiImplicitStats implicit_stats;
+    BidiImplicitError implicit_error;
     if (!zevryon::text::resolve_bidi_implicit_levels(
             units,
             topology,
-            types,
+            neutral_types,
             &output,
-            &stats,
-            &error)) {
+            &implicit_stats,
+            &implicit_error)) {
         std::cerr << "implicit resolver rejected BidiTest line " << line_number
-                  << " mode " << mode << ": " << error.message << '\n';
+                  << " mode " << mode << ": " << implicit_error.message << '\n';
         return false;
     }
     if (output.size() != expected.size()) {
@@ -246,7 +316,7 @@ int main(int argc, char** argv) {
     }
 
     if (filtered_lines == 0U || cases == 0U) {
-        std::cerr << "BidiTest contained no I1-I2 isolation cases\n";
+        std::cerr << "BidiTest contained no bounded W-N-I subset cases\n";
         return 1;
     }
     std::cout << '{'
