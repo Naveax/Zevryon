@@ -1,6 +1,7 @@
 #include "font_catalog.hpp"
 
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <new>
 
@@ -10,6 +11,7 @@ namespace {
 constexpr std::uint32_t kMaximumUnicodeCodePoint = 0x10ffffU;
 constexpr std::uint16_t kKnownFontFaceFlags =
     kFontFaceVariable | kFontFaceColor | kFontFaceMonospace | kFontFaceSystem;
+constexpr std::size_t kScriptCount = static_cast<std::size_t>(ScriptId::Count);
 
 template <typename T>
 void release_vector(std::pmr::vector<T>* values) noexcept {
@@ -48,12 +50,17 @@ bool valid_slant(FontSlant slant) noexcept {
            slant == FontSlant::Oblique;
 }
 
+bool valid_script(ScriptId script) noexcept {
+    return static_cast<std::size_t>(script) < kScriptCount;
+}
+
 bool validate_seed(
     const FontFaceSeed& seed,
     std::size_t face_index,
     FontCatalogError* error) noexcept {
     if (seed.stable_key == 0U || seed.weight == 0U || seed.weight > 1000U ||
         seed.width == 0U || seed.width > 9U || !valid_slant(seed.slant) ||
+        !valid_script(seed.preferred_script) ||
         (seed.flags & static_cast<std::uint16_t>(~kKnownFontFaceFlags)) != 0U ||
         seed.coverage.empty()) {
         return fail(
@@ -80,7 +87,8 @@ bool validate_seed(
     return true;
 }
 
-std::size_t canonical_range_count(std::span<const FontCoverageRange> ranges) noexcept {
+std::size_t canonical_range_count(
+    std::span<const FontCoverageRange> ranges) noexcept {
     std::size_t count = 0U;
     std::uint32_t previous_last = 0U;
     bool have_previous = false;
@@ -100,7 +108,10 @@ std::size_t canonical_range_count(std::span<const FontCoverageRange> ranges) noe
 } // namespace
 
 FontCatalog::FontCatalog(std::pmr::memory_resource* resource)
-    : faces(resource), coverage_ranges(resource) {}
+    : faces(resource),
+      coverage_ranges(resource),
+      script_buckets(resource),
+      script_face_ids(resource) {}
 
 std::pmr::memory_resource* FontCatalog::resource() const noexcept {
     return faces.get_allocator().resource();
@@ -109,6 +120,8 @@ std::pmr::memory_resource* FontCatalog::resource() const noexcept {
 void FontCatalog::release() noexcept {
     release_vector(&faces);
     release_vector(&coverage_ranges);
+    release_vector(&script_buckets);
+    release_vector(&script_face_ids);
 }
 
 const char* font_catalog_error_kind_name(FontCatalogErrorKind kind) noexcept {
@@ -178,7 +191,8 @@ bool build_font_catalog(
             }
             input_ranges += static_cast<std::uint64_t>(seed.coverage.size());
             const std::size_t face_ranges = canonical_range_count(seed.coverage);
-            if (face_ranges > std::numeric_limits<std::size_t>::max() - canonical_ranges) {
+            if (face_ranges >
+                std::numeric_limits<std::size_t>::max() - canonical_ranges) {
                 return fail(
                     FontCatalogErrorKind::IndexOverflow,
                     order[position],
@@ -199,6 +213,8 @@ bool build_font_catalog(
         FontCatalog working(output->resource());
         working.faces.reserve(seeds.size());
         working.coverage_ranges.reserve(canonical_ranges);
+        working.script_buckets.resize(kScriptCount);
+        working.script_face_ids.resize(seeds.size());
 
         FontCatalogStats working_stats;
         working_stats.input_faces = static_cast<std::uint64_t>(seeds.size());
@@ -239,12 +255,51 @@ bool build_font_catalog(
             }
         }
 
+        for (const FontFaceRecord& face : working.faces) {
+            FontScriptBucket& bucket = working.script_buckets[
+                static_cast<std::size_t>(face.preferred_script)];
+            ++bucket.count;
+        }
+
+        std::uint32_t next_offset = 0U;
+        for (FontScriptBucket& bucket : working.script_buckets) {
+            bucket.offset = next_offset;
+            next_offset += bucket.count;
+        }
+        if (next_offset != working.faces.size()) {
+            return fail(
+                FontCatalogErrorKind::IndexOverflow,
+                0U,
+                "font script bucket accounting diverged",
+                error);
+        }
+
+        std::array<std::uint32_t, kScriptCount> cursors{};
+        for (std::size_t face_index = 0U;
+             face_index < working.faces.size();
+             ++face_index) {
+            const std::size_t script_index = static_cast<std::size_t>(
+                working.faces[face_index].preferred_script);
+            const FontScriptBucket bucket = working.script_buckets[script_index];
+            const std::size_t target = static_cast<std::size_t>(bucket.offset) +
+                                       static_cast<std::size_t>(cursors[script_index]);
+            working.script_face_ids[target] = static_cast<FontFaceId>(face_index);
+            ++cursors[script_index];
+        }
+
         working_stats.output_faces =
             static_cast<std::uint64_t>(working.faces.size());
         working_stats.output_coverage_ranges =
             static_cast<std::uint64_t>(working.coverage_ranges.size());
+        working_stats.script_buckets =
+            static_cast<std::uint64_t>(working.script_buckets.size());
+        working_stats.script_face_ids =
+            static_cast<std::uint64_t>(working.script_face_ids.size());
+
         output->faces.swap(working.faces);
         output->coverage_ranges.swap(working.coverage_ranges);
+        output->script_buckets.swap(working.script_buckets);
+        output->script_face_ids.swap(working.script_face_ids);
         *stats = working_stats;
         return true;
     } catch (const std::bad_alloc&) {
@@ -303,6 +358,25 @@ bool font_face_covers(
             return range.last < value;
         });
     return iterator != end && codepoint >= iterator->first;
+}
+
+std::span<const FontFaceId> font_faces_for_script(
+    const FontCatalog& catalog,
+    ScriptId script) noexcept {
+    const std::size_t script_index = static_cast<std::size_t>(script);
+    if (script_index >= catalog.script_buckets.size()) {
+        return {};
+    }
+    const FontScriptBucket bucket = catalog.script_buckets[script_index];
+    const std::size_t first = bucket.offset;
+    const std::size_t count = bucket.count;
+    if (first > catalog.script_face_ids.size() ||
+        count > catalog.script_face_ids.size() - first) {
+        return {};
+    }
+    return std::span<const FontFaceId>(
+        catalog.script_face_ids.data() + static_cast<std::ptrdiff_t>(first),
+        count);
 }
 
 } // namespace zevryon::text
