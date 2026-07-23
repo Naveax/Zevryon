@@ -18,6 +18,7 @@ enum class ResourceClass : std::uint8_t {
     BidiSequence,
     BidiTypeResolution,
     BidiNeutralResolution,
+    BidiImplicitLevel,
     GlyphRun,
     ComputedStyle,
     LayoutFragment,
