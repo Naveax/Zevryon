@@ -1,0 +1,227 @@
+name: z1-bidi-visual
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-bidi-visual.yml'
+      - 'CMakeLists.txt'
+      - 'src/bidi_visual.*'
+      - 'src/bidi_visual_*'
+      - 'src/bidi_sequence.*'
+      - 'src/resource_ledger.*'
+      - 'tests/bidi_visual_tests.cpp'
+      - 'tests/bidi_visual_level126_tests.cpp'
+      - 'docs/Z1D_BIDI_VISUAL_ORDER.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z1-bidi-visual-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  visual-certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch pinned Unicode 17 BidiTest data
+        run: |
+          mkdir -p ucd-17.0.0 evidence
+          curl --fail --location --retry 3 \
+            https://www.unicode.org/Public/17.0.0/ucd/BidiTest.txt \
+            --output ucd-17.0.0/BidiTest.txt
+          echo '888bdfc8090652272d1f859cdb00ae659e2dc6c26740be61ef1d03998a687620  ucd-17.0.0/BidiTest.txt' | sha256sum --check --strict
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build focused visual targets
+        run: |
+          cmake --build build --parallel 2 --target \
+            zevryon-bidi-visual-tests \
+            zevryon-bidi-visual-level126-tests \
+            zevryon-bidi-visual-conformance \
+            zevryon-bidi-visual-benchmark
+      - run: ctest --test-dir build -R 'bidi-visual-(tests|level126-tests)' --output-on-failure
+      - name: Run normative BidiTest W-N-I-L1-L2 subset
+        run: |
+          ./build/zevryon-bidi-visual-conformance \
+            ucd-17.0.0/BidiTest.txt \
+            > evidence/z1-bidi-visual-conformance.json
+          cat evidence/z1-bidi-visual-conformance.json
+      - name: Run three independent 64 KiB distributions under 180 KiB
+        run: |
+          ./build/zevryon-bidi-visual-benchmark 1024 184320 \
+            > evidence/z1-bidi-visual-benchmark-1.json
+          ./build/zevryon-bidi-visual-benchmark 1024 184320 \
+            > evidence/z1-bidi-visual-benchmark-2.json
+          ./build/zevryon-bidi-visual-benchmark 1024 184320 \
+            > evidence/z1-bidi-visual-benchmark-3.json
+      - name: Enforce exact correctness, memory, and latency gates
+        run: |
+          python - <<'PY'
+          import json, pathlib, statistics
+          root = pathlib.Path('evidence')
+          conformance = json.loads(
+              (root / 'z1-bidi-visual-conformance.json').read_text()
+          )
+          assert conformance['schema'] == 'zevryon.bidi-visual-conformance.v1'
+          assert conformance['unicode_version'] == '17.0.0'
+          assert conformance['uax_revision'] == 51
+          assert conformance['data_lines'] == 490846
+          assert conformance['filtered_lines'] == 34183
+          assert conformance['cases'] == 52782
+          assert conformance['auto_ltr_cases'] == 17594
+          assert conformance['ltr_cases'] == 17594
+          assert conformance['rtl_cases'] == 17594
+          assert conformance['passed'] is True
+
+          reports = [
+              json.loads(
+                  (root / f'z1-bidi-visual-benchmark-{index}.json').read_text()
+              )
+              for index in range(1, 4)
+          ]
+          for report in reports:
+              assert report['schema'] == 'zevryon.bidi-visual-benchmark.v1'
+              assert report['uax_version'] == 'Unicode 17.0.0 / UAX #9 revision 51'
+              assert report['fixture_bytes'] == 65536
+              assert report['iterations'] == 1024
+              assert report['warmup_iterations'] == 32
+              assert report['input_codepoints'] == 40512
+              assert report['active_units'] == 35746
+              assert report['lines'] == 1192
+              assert report['output_levels'] == 35746
+              assert report['output_visual_indices'] == 35746
+              assert report['level_record_bytes'] == 1
+              assert report['visual_index_record_bytes'] == 4
+              assert report['l1_separator_resets'] == 1191
+              assert report['l1_whitespace_resets'] == 1191
+              assert report['l1_isolate_resets'] == 0
+              assert report['l2_reversal_spans'] == 4766
+              assert report['l2_reversed_units'] == 29790
+              assert report['l3_combining_sequences'] == 1192
+              assert report['l3_repaired_units'] == 2384
+              assert report['maximum_input_level'] == 2
+              assert report['maximum_line_level'] == 2
+              assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
+              assert report['visual_hard_limit_bytes'] == 184320
+              assert report['visual_current_bytes'] == 178730
+              assert report['visual_peak_bytes'] == 178730
+              assert report['rejected_reservations'] == 0
+              assert report['accounting_errors'] == 0
+              assert report['within_hard_limits'] is True
+              assert report['accounting_clean'] is True
+
+          certification = {
+              'schema': 'zevryon.bidi-visual-certification.v1',
+              'unicode_version': '17.0.0',
+              'uax_revision': 51,
+              'bidi_test_sha256': '888bdfc8090652272d1f859cdb00ae659e2dc6c26740be61ef1d03998a687620',
+              'normative_cases': conformance['cases'],
+              'runs': len(reports),
+              'median_p50_ms': statistics.median(r['p50_ms'] for r in reports),
+              'median_p95_ms': statistics.median(r['p95_ms'] for r in reports),
+              'median_p99_ms': statistics.median(r['p99_ms'] for r in reports),
+              'worst_maximum_ms': max(r['maximum_ms'] for r in reports),
+              'worst_peak_bytes': max(r['visual_peak_bytes'] for r in reports),
+              'active_units': reports[0]['active_units'],
+              'lines': reports[0]['lines'],
+              'passed': True,
+          }
+          assert certification['median_p95_ms'] <= 0.40
+          assert certification['median_p99_ms'] <= 0.50
+          assert certification['worst_maximum_ms'] <= 1.00
+          assert certification['worst_peak_bytes'] <= 184320
+          (root / 'z1-bidi-visual-certification.json').write_text(
+              json.dumps(certification, indent=2, sort_keys=True) + '\n'
+          )
+          print(json.dumps(certification, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z1-bidi-visual-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: warn
+
+  macos-visual-strict:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build focused visual targets
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target \
+            zevryon-bidi-visual-tests \
+            zevryon-bidi-visual-level126-tests \
+            zevryon-bidi-visual-conformance \
+            zevryon-bidi-visual-benchmark \
+            2>&1 | tee macos-bidi-visual-build.log
+      - run: ctest --test-dir build -R 'bidi-visual-(tests|level126-tests)' --output-on-failure
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-bidi-visual-${{ github.sha }}
+          path: macos-bidi-visual-build.log
+          if-no-files-found: warn
+
+  windows-visual-asan:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure MSVC AddressSanitizer
+        run: cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build visual tests with MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          cmake --build build-asan --config RelWithDebInfo --target zevryon-bidi-visual-tests zevryon-bidi-visual-level126-tests --parallel 2 2>&1 | Tee-Object -FilePath windows-bidi-visual-asan-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Stage MSVC AddressSanitizer runtime
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw 'vswhere.exe not found' }
+          $installation = (& $vswhere -latest -products * -property installationPath).Trim()
+          if (-not $installation) { throw 'Visual Studio installation not found' }
+          $patterns = @(
+            "$installation\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan*dynamic-x86_64.dll",
+            "$installation\VC\Tools\Llvm\x64\bin\clang_rt.asan*dynamic-x86_64.dll"
+          )
+          $runtimes = @($patterns | ForEach-Object {
+            Get-ChildItem -Path $_ -File -ErrorAction SilentlyContinue
+          })
+          if (-not $runtimes) { throw 'MSVC AddressSanitizer runtime DLL not found' }
+          $output = Resolve-Path '.\build-asan\RelWithDebInfo'
+          $runtimes | Group-Object Name | ForEach-Object {
+            $runtime = $_.Group | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            Copy-Item $runtime.FullName -Destination $output -Force
+          }
+      - name: Run visual tests under MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          $env:ASAN_OPTIONS = 'halt_on_error=1:abort_on_error=1:symbolize=1'
+          $env:ASAN_SAVE_DUMPS = 'windows-bidi-visual-asan.dmp'
+          $tests = @(
+            '.\build-asan\RelWithDebInfo\zevryon-bidi-visual-tests.exe',
+            '.\build-asan\RelWithDebInfo\zevryon-bidi-visual-level126-tests.exe'
+          )
+          foreach ($test in $tests) {
+            & $test
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-bidi-visual-asan-${{ github.sha }}
+          path: |
+            windows-bidi-visual-asan-build.log
+            windows-bidi-visual-asan.*.log
+            windows-bidi-visual-asan.dmp
+          if-no-files-found: warn

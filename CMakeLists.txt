@@ -46,6 +46,7 @@ add_library(zevryon-massivedoc-core STATIC
   src/bidi_implicit.cpp
   src/bidi_neutral.cpp
   src/bidi_sequence.cpp
+  src/bidi_visual.cpp
   src/bidi_weak.cpp
   src/compact_document.cpp
   src/grapheme_segmenter.cpp
@@ -137,6 +138,14 @@ add_executable(zevryon-bidi-implicit-benchmark src/bidi_implicit_benchmark_main.
 target_link_libraries(zevryon-bidi-implicit-benchmark PRIVATE zevryon-massivedoc-core)
 zevryon_options(zevryon-bidi-implicit-benchmark)
 
+add_executable(zevryon-bidi-visual-conformance src/bidi_visual_conformance_main.cpp)
+target_link_libraries(zevryon-bidi-visual-conformance PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-bidi-visual-conformance)
+
+add_executable(zevryon-bidi-visual-benchmark src/bidi_visual_benchmark_main.cpp)
+target_link_libraries(zevryon-bidi-visual-benchmark PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-bidi-visual-benchmark)
+
 include(CTest)
 if(BUILD_TESTING)
   add_executable(zevryon-massivedoc-tests tests/massivedoc_store_tests.cpp)
@@ -213,4 +222,14 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-bidi-implicit-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-bidi-implicit-tests)
   add_test(NAME bidi-implicit-tests COMMAND zevryon-bidi-implicit-tests)
+
+  add_executable(zevryon-bidi-visual-tests tests/bidi_visual_tests.cpp)
+  target_link_libraries(zevryon-bidi-visual-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-bidi-visual-tests)
+  add_test(NAME bidi-visual-tests COMMAND zevryon-bidi-visual-tests)
+
+  add_executable(zevryon-bidi-visual-level126-tests tests/bidi_visual_level126_tests.cpp)
+  target_link_libraries(zevryon-bidi-visual-level126-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-bidi-visual-level126-tests)
+  add_test(NAME bidi-visual-level126-tests COMMAND zevryon-bidi-visual-level126-tests)
 endif()

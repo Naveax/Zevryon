@@ -30,6 +30,7 @@ enum class ResourceClass : std::uint8_t {
     DomProjection,
     CompositorSurface,
     BidiImplicitLevel,
+    BidiVisualOrder,
     Count
 };
 
