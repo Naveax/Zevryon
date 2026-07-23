@@ -51,6 +51,63 @@ bool valid_slant(FontSlant slant) noexcept {
            slant == FontSlant::Oblique;
 }
 
+std::uint32_t range_plane_mask(FontCoverageRange range) noexcept {
+    const std::uint32_t first_plane = range.first >> 16U;
+    const std::uint32_t last_plane = range.last >> 16U;
+    std::uint32_t mask = 0U;
+    for (std::uint32_t plane = first_plane; plane <= last_plane; ++plane) {
+        mask |= 1U << plane;
+    }
+    return mask;
+}
+
+std::uint32_t catalog_plane_mask(const FontCatalog& catalog) noexcept {
+    std::uint32_t mask = 0U;
+    for (const FontCoverageRange range : catalog.coverage_ranges) {
+        mask |= range_plane_mask(range);
+    }
+    return mask;
+}
+
+std::uint32_t cluster_plane_mask(
+    std::span<const DecodedCodePoint> codepoints,
+    std::size_t first,
+    std::size_t last) noexcept {
+    std::uint32_t mask = 0U;
+    for (std::size_t index = first; index < last; ++index) {
+        const std::uint32_t value = codepoints[index].value;
+        if (value > kMaximumUnicodeCodePoint) {
+            return std::numeric_limits<std::uint32_t>::max();
+        }
+        mask |= 1U << (value >> 16U);
+    }
+    return mask;
+}
+
+bool face_may_cover_planes(
+    const FontCatalog& catalog,
+    FontFaceId face_id,
+    std::uint32_t required_planes) noexcept {
+    if (face_id >= catalog.faces.size()) {
+        return false;
+    }
+    const FontFaceRecord& face = catalog.faces[face_id];
+    const std::size_t first = face.coverage_offset;
+    const std::size_t count = face.coverage_count;
+    if (first > catalog.coverage_ranges.size() ||
+        count > catalog.coverage_ranges.size() - first) {
+        return false;
+    }
+    std::uint32_t mask = 0U;
+    for (std::size_t offset = 0U; offset < count; ++offset) {
+        mask |= range_plane_mask(catalog.coverage_ranges[first + offset]);
+        if ((mask & required_planes) == required_planes) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool validate_catalog(
     const FontCatalog& catalog,
     FontFallbackError* error) noexcept {
@@ -278,6 +335,24 @@ FontFallbackSource general_source(
     return FontFallbackSource::CrossScript;
 }
 
+bool candidate_covers(
+    const FontCatalog& catalog,
+    FontFaceId face_id,
+    std::uint32_t required_planes,
+    std::span<const DecodedCodePoint> codepoints,
+    std::size_t first,
+    std::size_t last,
+    std::uint64_t* coverage_checks) noexcept {
+    return face_may_cover_planes(catalog, face_id, required_planes) &&
+           covers_cluster(
+               catalog,
+               face_id,
+               codepoints,
+               first,
+               last,
+               coverage_checks);
+}
+
 Selection select_face(
     std::span<const DecodedCodePoint> codepoints,
     std::size_t first,
@@ -285,11 +360,18 @@ Selection select_face(
     ScriptId script,
     const FontCatalog& catalog,
     const FontFallbackRequest& request,
+    std::uint32_t all_catalog_planes,
     std::uint64_t* coverage_checks) noexcept {
+    const std::uint32_t required_planes = cluster_plane_mask(codepoints, first, last);
+    if ((all_catalog_planes & required_planes) != required_planes) {
+        return {};
+    }
+
     if (request.primary_face != kInvalidFontFaceId &&
-        covers_cluster(
+        candidate_covers(
             catalog,
             request.primary_face,
+            required_planes,
             codepoints,
             first,
             last,
@@ -298,9 +380,10 @@ Selection select_face(
     }
 
     for (const FontFaceId face_id : request.preferred_faces) {
-        if (covers_cluster(
+        if (candidate_covers(
                 catalog,
                 face_id,
+                required_planes,
                 codepoints,
                 first,
                 last,
@@ -315,24 +398,26 @@ Selection select_face(
     for (std::size_t face_index = 0U;
          face_index < catalog.faces.size();
          ++face_index) {
+        const FontFaceRecord& face = catalog.faces[face_index];
+        const std::uint64_t score = style_score(face, script, request.style);
+        if (score > best_score ||
+            (score == best_score && face.stable_key >= best_key)) {
+            continue;
+        }
         const FontFaceId face_id = static_cast<FontFaceId>(face_index);
-        if (!covers_cluster(
+        if (!candidate_covers(
                 catalog,
                 face_id,
+                required_planes,
                 codepoints,
                 first,
                 last,
                 coverage_checks)) {
             continue;
         }
-        const FontFaceRecord& face = catalog.faces[face_index];
-        const std::uint64_t score = style_score(face, script, request.style);
-        if (score < best_score ||
-            (score == best_score && face.stable_key < best_key)) {
-            best_face = face_id;
-            best_score = score;
-            best_key = face.stable_key;
-        }
+        best_face = face_id;
+        best_score = score;
+        best_key = face.stable_key;
     }
     if (best_face == kInvalidFontFaceId) {
         return {};
@@ -449,6 +534,7 @@ bool build_font_fallback_plan(
     }
 
     const std::size_t cluster_count = grapheme_boundaries.size() - 1U;
+    const std::uint32_t all_catalog_planes = catalog_plane_mask(catalog);
     FontFallbackStats working_stats;
     working_stats.input_codepoints = static_cast<std::uint64_t>(codepoints.size());
     working_stats.input_clusters = static_cast<std::uint64_t>(cluster_count);
@@ -475,6 +561,7 @@ bool build_font_fallback_plan(
             script,
             catalog,
             request,
+            all_catalog_planes,
             &working_stats.coverage_checks);
         record_source(selection.source, &working_stats);
         if (!have_previous || selection.face_id != previous.face_id ||
@@ -514,6 +601,7 @@ bool build_font_fallback_plan(
                 script,
                 catalog,
                 request,
+                all_catalog_planes,
                 nullptr);
             if (!have_previous || selection.face_id != previous.face_id ||
                 selection.source != previous.source) {
@@ -543,13 +631,13 @@ bool build_font_fallback_plan(
         return fail(
             FontFallbackErrorKind::OutputBudgetExceeded,
             0U,
-            "font fallback plan exceeded its resource budget",
+            "font fallback output exceeded its resource budget",
             error);
     } catch (...) {
         return fail(
             FontFallbackErrorKind::OutputBudgetExceeded,
             0U,
-            "font fallback plan allocation failed",
+            "font fallback allocation failed",
             error);
     }
 }
