@@ -54,15 +54,15 @@ jobs:
             ucd-17.0.0/BidiMirroring.txt \
             > evidence/z1-bidi-mirroring-conformance.json
           cat evidence/z1-bidi-mirroring-conformance.json
-      - name: Run three independent 64 KiB distributions
+      - name: Run three independent 64 KiB distributions under 108 KiB
         run: |
-          ./build/zevryon-bidi-mirroring-benchmark 1024 131072 \
+          ./build/zevryon-bidi-mirroring-benchmark 1024 110592 \
             > evidence/z1-bidi-mirroring-benchmark-1.json
-          ./build/zevryon-bidi-mirroring-benchmark 1024 131072 \
+          ./build/zevryon-bidi-mirroring-benchmark 1024 110592 \
             > evidence/z1-bidi-mirroring-benchmark-2.json
-          ./build/zevryon-bidi-mirroring-benchmark 1024 131072 \
+          ./build/zevryon-bidi-mirroring-benchmark 1024 110592 \
             > evidence/z1-bidi-mirroring-benchmark-3.json
-      - name: Enforce diagnostic correctness and memory gates
+      - name: Enforce final correctness, memory, and latency gates
         run: |
           python - <<'PY'
           import json, pathlib, statistics
@@ -91,21 +91,20 @@ jobs:
               assert report['fixture_bytes'] == 65536
               assert report['iterations'] == 1024
               assert report['warmup_iterations'] == 32
+              assert report['input_codepoints'] == 47662
+              assert report['odd_level_units'] == 29789
+              assert report['mirrored_property_hits'] == 8937
+              assert report['exact_character_requests'] == 2979
+              assert report['best_fit_character_requests'] == 2979
+              assert report['glyph_only_requests'] == 2979
+              assert report['output_requests'] == 8937
               assert report['request_record_bytes'] == 12
-              assert report['exact_character_requests'] > 0
-              assert report['best_fit_character_requests'] > 0
-              assert report['glyph_only_requests'] > 0
-              assert report['output_requests'] == (
-                  report['exact_character_requests'] +
-                  report['best_fit_character_requests'] +
-                  report['glyph_only_requests']
-              )
-              assert report['request_hard_limit_bytes'] == 131072
+              assert report['request_hard_limit_bytes'] == 110592
+              assert report['request_current_bytes'] == 107244
+              assert report['request_peak_bytes'] == 107244
               assert report['request_current_bytes'] == (
                   report['output_requests'] * report['request_record_bytes']
               )
-              assert report['request_peak_bytes'] == report['request_current_bytes']
-              assert report['request_peak_bytes'] <= 131072
               assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
               assert report['rejected_reservations'] == 0
               assert report['accounting_errors'] == 0
@@ -124,9 +123,10 @@ jobs:
               'output_requests': reports[0]['output_requests'],
               'passed': True,
           }
-          assert certification['median_p95_ms'] <= 5.0
-          assert certification['median_p99_ms'] <= 8.0
-          assert certification['worst_maximum_ms'] <= 16.0
+          assert certification['median_p95_ms'] <= 1.10
+          assert certification['median_p99_ms'] <= 1.50
+          assert certification['worst_maximum_ms'] <= 3.00
+          assert certification['worst_peak_bytes'] <= 110592
           (root / 'z1-bidi-mirroring-certification.json').write_text(
               json.dumps(certification, indent=2, sort_keys=True) + '\n'
           )
