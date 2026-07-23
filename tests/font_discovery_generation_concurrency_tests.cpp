@@ -41,6 +41,19 @@ bool build_generation(
         &error);
 }
 
+bool valid_snapshot(
+    const std::shared_ptr<const FontCatalogGeneration>& snapshot) {
+    if (snapshot == nullptr || snapshot->catalog().faces.size() != 1U ||
+        snapshot->identity(0U) != "adapter/concurrency-font#0" ||
+        snapshot->family_name(0U) != "Concurrency Sans") {
+        return false;
+    }
+    return (snapshot->generation_id() == 1U &&
+            snapshot->catalog().faces[0].weight == 400U) ||
+           (snapshot->generation_id() == 3U &&
+            snapshot->catalog().faces[0].weight == 700U);
+}
+
 } // namespace
 
 int main() {
@@ -59,11 +72,12 @@ int main() {
     }
 
     constexpr std::size_t kReaderCount = 8U;
-    constexpr std::size_t kReadsPerThread = 50000U;
+    constexpr std::size_t kPhaseReads = 10000U;
     std::atomic<bool> begin{false};
+    std::atomic<bool> published{false};
     std::atomic<bool> failed{false};
-    std::atomic<std::uint64_t> first_reads{0U};
-    std::atomic<std::uint64_t> second_reads{0U};
+    std::atomic<std::size_t> ready_readers{0U};
+    std::atomic<std::uint64_t> transition_reads{0U};
     std::vector<std::thread> readers;
     readers.reserve(kReaderCount);
 
@@ -72,23 +86,28 @@ int main() {
             while (!begin.load(std::memory_order_acquire)) {
                 std::this_thread::yield();
             }
-            for (std::size_t iteration = 0U;
-                 iteration < kReadsPerThread;
-                 ++iteration) {
+
+            for (std::size_t iteration = 0U; iteration < kPhaseReads; ++iteration) {
                 const auto snapshot = store.snapshot();
-                if (snapshot == nullptr || snapshot->catalog().faces.size() != 1U ||
-                    snapshot->identity(0U) != "adapter/concurrency-font#0" ||
-                    snapshot->family_name(0U) != "Concurrency Sans") {
+                if (!valid_snapshot(snapshot) || snapshot->generation_id() != 1U) {
                     failed.store(true, std::memory_order_release);
                     return;
                 }
-                if (snapshot->generation_id() == 1U &&
-                    snapshot->catalog().faces[0].weight == 400U) {
-                    first_reads.fetch_add(1U, std::memory_order_relaxed);
-                } else if (snapshot->generation_id() == 3U &&
-                           snapshot->catalog().faces[0].weight == 700U) {
-                    second_reads.fetch_add(1U, std::memory_order_relaxed);
-                } else {
+            }
+            ready_readers.fetch_add(1U, std::memory_order_release);
+
+            while (!published.load(std::memory_order_acquire)) {
+                if (!valid_snapshot(store.snapshot())) {
+                    failed.store(true, std::memory_order_release);
+                    return;
+                }
+                transition_reads.fetch_add(1U, std::memory_order_relaxed);
+                std::this_thread::yield();
+            }
+
+            for (std::size_t iteration = 0U; iteration < kPhaseReads; ++iteration) {
+                const auto snapshot = store.snapshot();
+                if (!valid_snapshot(snapshot) || snapshot->generation_id() != 3U) {
                     failed.store(true, std::memory_order_release);
                     return;
                 }
@@ -97,24 +116,27 @@ int main() {
     }
 
     begin.store(true, std::memory_order_release);
-    for (std::size_t iteration = 0U; iteration < 1000U; ++iteration) {
-        if (iteration == 250U) {
-            const FontGenerationPublishResult result = store.publish(second);
-            if (result != FontGenerationPublishResult::Published) {
-                std::cerr << "failed to publish replacement generation\n";
-                failed.store(true, std::memory_order_release);
-                break;
-            }
-        }
+    while (ready_readers.load(std::memory_order_acquire) != kReaderCount &&
+           !failed.load(std::memory_order_acquire)) {
         std::this_thread::yield();
     }
+
+    if (!failed.load(std::memory_order_acquire)) {
+        const FontGenerationPublishResult result = store.publish(second);
+        if (result != FontGenerationPublishResult::Published) {
+            std::cerr << "failed to publish replacement generation\n";
+            failed.store(true, std::memory_order_release);
+        }
+    }
+    published.store(true, std::memory_order_release);
 
     for (std::thread& reader : readers) {
         reader.join();
     }
 
-    if (failed.load(std::memory_order_acquire) || first_reads.load() == 0U ||
-        second_reads.load() == 0U || store.snapshot()->generation_id() != 3U) {
+    if (failed.load(std::memory_order_acquire) ||
+        transition_reads.load(std::memory_order_acquire) == 0U ||
+        store.snapshot() == nullptr || store.snapshot()->generation_id() != 3U) {
         std::cerr << "atomic generation reader stress failed\n";
         return 1;
     }
