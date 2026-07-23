@@ -31,6 +31,7 @@ enum class ResourceClass : std::uint8_t {
     CompositorSurface,
     BidiImplicitLevel,
     BidiVisualOrder,
+    BidiMirrorRequest,
     Count
 };
 
