@@ -9,9 +9,9 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <iomanip>
 #include <iostream>
-#include <limits>
 #include <span>
 #include <string>
 #include <vector>
@@ -26,6 +26,13 @@ using namespace zevryon::text;
 constexpr std::size_t kFixtureBytes = 64U * 1024U;
 constexpr std::size_t kFaceCount = 256U;
 constexpr std::size_t kWarmupIterations = 8U;
+
+struct Fixture {
+    std::vector<DecodedCodePoint> codepoints;
+    std::vector<GraphemeBoundary> graphemes;
+    std::vector<ScriptRunBoundary> script_runs;
+    std::uint64_t source_bytes{0};
+};
 
 ScriptId require_script(const char* name) {
     ScriptId script = ScriptId::Zzzz;
@@ -49,28 +56,20 @@ std::uint64_t utf8_length(std::uint32_t codepoint) noexcept {
     return 4U;
 }
 
-struct Fixture {
-    std::vector<DecodedCodePoint> codepoints;
-    std::vector<GraphemeBoundary> graphemes;
-    std::vector<ScriptRunBoundary> script_runs;
-    std::size_t source_bytes{0};
-};
-
-bool add_cluster(
+bool append_cluster(
     Fixture* fixture,
     std::span<const std::uint32_t> values,
-    ScriptId script,
-    bool permit_overflow = false) {
-    std::size_t cluster_bytes = 0U;
+    ScriptId script) {
+    std::uint64_t source_bytes = 0U;
     for (const std::uint32_t value : values) {
-        cluster_bytes += static_cast<std::size_t>(utf8_length(value));
+        source_bytes += utf8_length(value);
     }
-    if (!permit_overflow && fixture->source_bytes + cluster_bytes > kFixtureBytes) {
+    if (fixture->source_bytes + source_bytes > kFixtureBytes) {
         return false;
     }
 
-    const std::uint32_t cluster_index =
-        static_cast<std::uint32_t>(fixture->graphemes.size() - 1U);
+    const std::uint32_t cluster_index = static_cast<std::uint32_t>(
+        fixture->graphemes.size() - 1U);
     if (fixture->script_runs.empty() ||
         fixture->script_runs.back().script != script) {
         fixture->script_runs.push_back(ScriptRunBoundary{
@@ -87,7 +86,7 @@ bool add_cluster(
             fixture->source_bytes,
             fixture->source_bytes + length,
             false);
-        fixture->source_bytes += static_cast<std::size_t>(length);
+        fixture->source_bytes += length;
     }
     fixture->graphemes.push_back(GraphemeBoundary{
         fixture->source_bytes,
@@ -114,32 +113,31 @@ Fixture make_fixture(const std::array<ScriptId, 8>& scripts) {
     const std::array<std::uint32_t, 1> missing{{0x10ffffU}};
 
     while (true) {
-        bool added = true;
-        added &= add_cluster(&fixture, latin, scripts[0]);
-        added &= add_cluster(&fixture, latin_mark, scripts[0]);
-        added &= add_cluster(&fixture, greek, scripts[1]);
-        added &= add_cluster(&fixture, cyrillic, scripts[2]);
-        added &= add_cluster(&fixture, arabic, scripts[3]);
-        added &= add_cluster(&fixture, hebrew, scripts[4]);
-        added &= add_cluster(&fixture, devanagari, scripts[5]);
-        added &= add_cluster(&fixture, han, scripts[6]);
-        added &= add_cluster(&fixture, emoji, scripts[7]);
-        added &= add_cluster(&fixture, missing, ScriptId::Zzzz);
-        if (!added) {
+        bool complete = true;
+        complete = append_cluster(&fixture, latin, scripts[0]) && complete;
+        complete = append_cluster(&fixture, latin_mark, scripts[0]) && complete;
+        complete = append_cluster(&fixture, greek, scripts[1]) && complete;
+        complete = append_cluster(&fixture, cyrillic, scripts[2]) && complete;
+        complete = append_cluster(&fixture, arabic, scripts[3]) && complete;
+        complete = append_cluster(&fixture, hebrew, scripts[4]) && complete;
+        complete = append_cluster(&fixture, devanagari, scripts[5]) && complete;
+        complete = append_cluster(&fixture, han, scripts[6]) && complete;
+        complete = append_cluster(&fixture, emoji, scripts[7]) && complete;
+        complete = append_cluster(&fixture, missing, ScriptId::Zzzz) && complete;
+        if (!complete) {
             break;
         }
     }
 
     while (fixture.source_bytes < kFixtureBytes) {
-        if (!add_cluster(&fixture, latin, scripts[0])) {
+        if (!append_cluster(&fixture, latin, scripts[0])) {
             break;
         }
     }
-    if (fixture.source_bytes != kFixtureBytes) {
+    if (fixture.source_bytes != kFixtureBytes || fixture.script_runs.empty()) {
         std::cerr << "failed to construct exact 64 KiB fixture\n";
         std::exit(3);
     }
-
     fixture.script_runs.push_back(ScriptRunBoundary{
         fixture.source_bytes,
         static_cast<std::uint32_t>(fixture.graphemes.size() - 1U),
@@ -148,16 +146,16 @@ Fixture make_fixture(const std::array<ScriptId, 8>& scripts) {
     return fixture;
 }
 
-std::vector<FontCoverageRange> coverage_for_script(
-    ScriptId script,
-    const std::array<ScriptId, 8>& scripts,
-    bool primary_latin) {
-    if (script == scripts[0]) {
-        if (primary_latin) {
-            return {{0x0020U, 0x024fU}};
-        }
+std::vector<FontCoverageRange> coverage_for_face(
+    std::size_t index,
+    const std::array<ScriptId, 8>& scripts) {
+    if (index == 0U) {
+        return {{0x0020U, 0x007eU}};
+    }
+    if (index == 1U) {
         return {{0x0020U, 0x024fU}, {0x0300U, 0x036fU}};
     }
+    const ScriptId script = scripts[(index - 2U) % scripts.size()];
     if (script == scripts[1]) {
         return {{0x0370U, 0x03ffU}};
     }
@@ -176,13 +174,13 @@ std::vector<FontCoverageRange> coverage_for_script(
     if (script == scripts[6]) {
         return {{0x4e00U, 0x9fffU}};
     }
-    return {{0x1f300U, 0x1faffU}};
+    if (script == scripts[7]) {
+        return {{0x1f300U, 0x1faffU}};
+    }
+    return {{0xe000U, 0xe0ffU}};
 }
 
 double percentile(const std::vector<double>& sorted, double fraction) {
-    if (sorted.empty()) {
-        return 0.0;
-    }
     const double position = fraction * static_cast<double>(sorted.size() - 1U);
     const std::size_t lower = static_cast<std::size_t>(position);
     const std::size_t upper = std::min(lower + 1U, sorted.size() - 1U);
@@ -215,30 +213,23 @@ int main(int argc, char** argv) {
         ScriptId::Zyyy,
     }};
 
-    std::vector<std::vector<FontCoverageRange>> coverage_storage;
-    coverage_storage.reserve(kFaceCount);
-    for (std::size_t index = 0U; index < kFaceCount; ++index) {
-        const ScriptId script = scripts[index % scripts.size()];
-        coverage_storage.push_back(coverage_for_script(script, scripts, index == 0U));
-    }
-
+    std::vector<std::vector<FontCoverageRange>> coverage_storage(kFaceCount);
     std::vector<FontFaceSeed> seeds;
     seeds.reserve(kFaceCount);
     for (std::size_t index = 0U; index < kFaceCount; ++index) {
-        const std::uint16_t weight = static_cast<std::uint16_t>(
-            100U + static_cast<unsigned>(index % 10U) * 100U);
-        const std::uint8_t width = static_cast<std::uint8_t>(1U + index % 9U);
-        const FontSlant slant = static_cast<FontSlant>(index % 3U);
-        const std::uint16_t flags = index % 7U == 0U ? kFontFaceVariable : 0U;
+        coverage_storage[index] = coverage_for_face(index, scripts);
+        const ScriptId preferred_script = index == 0U || index == 1U
+            ? scripts[0]
+            : scripts[(index - 2U) % scripts.size()];
         seeds.push_back(FontFaceSeed{
             static_cast<std::uint64_t>(index + 1U),
-            static_cast<std::uint32_t>(index / 4U + 1U),
-            weight,
-            width,
-            slant,
-            scripts[index % scripts.size()],
-            flags,
-            coverage_storage[index]});
+            static_cast<std::uint32_t>(index + 1U),
+            static_cast<std::uint16_t>(400U),
+            static_cast<std::uint8_t>(5U),
+            FontSlant::Upright,
+            preferred_script,
+            static_cast<std::uint16_t>(0U),
+            std::span<const FontCoverageRange>(coverage_storage[index])});
     }
 
     ResourceLedger ledger;
@@ -246,6 +237,7 @@ int main(int argc, char** argv) {
     ledger.set_hard_limit(ResourceClass::FontFallbackPlan, fallback_hard_limit);
     LedgerMemoryResource catalog_resource(ledger, ResourceClass::FontCatalog);
     LedgerMemoryResource fallback_resource(ledger, ResourceClass::FontFallbackPlan);
+
     FontCatalog catalog(&catalog_resource);
     FontCatalogStats catalog_stats;
     FontCatalogError catalog_error;
@@ -256,19 +248,19 @@ int main(int argc, char** argv) {
 
     const Fixture fixture = make_fixture(scripts);
     const FontFaceId primary = font_face_id_by_stable_key(catalog, 1U);
-    const FontFaceId complete_latin = font_face_id_by_stable_key(catalog, 9U);
+    const FontFaceId complete_latin = font_face_id_by_stable_key(catalog, 2U);
     const std::array<FontFaceId, 1> preferred{{complete_latin}};
     const FontFallbackRequest request{
         primary,
-        preferred,
-        {400U, 5U, FontSlant::Upright},
-    };
+        std::span<const FontFaceId>(preferred),
+        {400U, 5U, FontSlant::Upright}};
+
     FontFallbackPlan plan(&fallback_resource);
     FontFallbackStats stats;
     FontFallbackError error;
-
     std::vector<double> durations_ms;
     durations_ms.reserve(iterations);
+
     for (std::size_t iteration = 0U;
          iteration < kWarmupIterations + iterations;
          ++iteration) {
@@ -300,8 +292,7 @@ int main(int argc, char** argv) {
     const double maximum = durations_ms.back();
     const double throughput = p50 == 0.0
         ? 0.0
-        : (static_cast<double>(kFixtureBytes) / (1024.0 * 1024.0)) /
-              (p50 / 1000.0);
+        : 0.0625 / (p50 / 1000.0);
     const auto catalog_snapshot = ledger.snapshot(ResourceClass::FontCatalog);
     const auto fallback_snapshot = ledger.snapshot(ResourceClass::FontFallbackPlan);
 
