@@ -74,16 +74,6 @@ bool validate_stage_contract(
                 error);
         }
     }
-
-    for (std::size_t visual_index = 0U; visual_index < active_count; ++visual_index) {
-        if (visual.visual_to_active[visual_index] >= active_count) {
-            return fail(
-                BidiMirrorErrorKind::InvalidInput,
-                visual_index,
-                "visual order contains an out-of-range active index",
-                error);
-        }
-    }
     return true;
 }
 
@@ -161,11 +151,19 @@ bool build_bidi_mirror_requests(
     working_stats.visual_units =
         static_cast<std::uint64_t>(visual.visual_to_active.size());
 
+    const std::size_t active_count = topology.active_unit_indices.size();
     std::size_t request_count = 0U;
     for (std::size_t visual_index = 0U;
          visual_index < visual.visual_to_active.size();
          ++visual_index) {
         const std::uint32_t active = visual.visual_to_active[visual_index];
+        if (active >= active_count) {
+            return fail(
+                BidiMirrorErrorKind::InvalidInput,
+                visual_index,
+                "visual order contains an out-of-range active index",
+                error);
+        }
         if ((visual.line_levels[active] & 1U) == 0U) {
             continue;
         }
@@ -173,7 +171,7 @@ bool build_bidi_mirror_requests(
         const std::uint32_t unit_index = topology.active_unit_indices[active];
         const std::uint32_t codepoint =
             codepoints[units[unit_index].codepoint_index].value;
-        if (!bidi_mirroring_info(codepoint).mirrored) {
+        if (!bidi_mirrored_property(codepoint)) {
             continue;
         }
         ++working_stats.mirrored_property_hits;
