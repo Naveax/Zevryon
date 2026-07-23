@@ -1,0 +1,200 @@
+name: z1-bidi-sequence
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-bidi-sequence.yml'
+      - 'CMakeLists.txt'
+      - 'src/bidi_*'
+      - 'src/resource_ledger.*'
+      - 'tests/bidi_*'
+      - 'docs/Z1D_BIDI_SEQUENCES.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z1-bidi-sequence-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sequence-certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build focused sequence targets
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-bidi-sequence-tests
+          zevryon-bidi-sequence-conformance
+          zevryon-bidi-sequence-benchmark
+      - run: ctest --test-dir build -R bidi-sequence-tests --output-on-failure
+      - name: Run official Unicode 17 BD13 examples
+        run: |
+          mkdir -p evidence/ci
+          build/zevryon-bidi-sequence-conformance \
+            > evidence/ci/z1-bidi-sequence-conformance.json
+      - name: Run three independent 64 KiB distributions
+        run: |
+          mkdir -p evidence/ci
+          build/zevryon-bidi-sequence-benchmark 1024 1048576 > evidence/ci/z1-bidi-sequence-benchmark-1.json
+          build/zevryon-bidi-sequence-benchmark 1024 1048576 > evidence/ci/z1-bidi-sequence-benchmark-2.json
+          build/zevryon-bidi-sequence-benchmark 1024 1048576 > evidence/ci/z1-bidi-sequence-benchmark-3.json
+      - name: Enforce correctness, memory, and robust latency gates
+        run: |
+          python - <<'PY'
+          import json
+          import statistics
+          from pathlib import Path
+
+          conformance = json.loads(
+              Path('evidence/ci/z1-bidi-sequence-conformance.json').read_text()
+          )
+          assert conformance == {
+              'schema': 'zevryon.bidi-sequence-conformance.v1',
+              'uax_version': 'Unicode 17.0.0 / UAX #9 revision 51',
+              'examples': 3,
+              'sequences': 11,
+              'passed': True,
+          }
+
+          reports = [
+              json.loads(
+                  Path(f'evidence/ci/z1-bidi-sequence-benchmark-{index}.json').read_text()
+              )
+              for index in range(1, 4)
+          ]
+          for report in reports:
+              assert report['schema'] == 'zevryon.bidi-sequence-benchmark.v1'
+              assert report['fixture_bytes'] == 65536
+              assert report['iterations'] == 1024
+              assert report['input_units'] == report['input_codepoints']
+              assert report['active_units'] + report['removed_units'] == report['input_units']
+              assert report['sequence_run_links'] == report['level_runs']
+              assert report['isolating_sequences'] > 0
+              assert report['level_run_record_bytes'] <= 12
+              assert report['sequence_record_bytes'] <= 16
+              assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
+              assert report['sequence_hard_limit_bytes'] == 1048576
+              assert report['sequence_current_bytes'] <= report['sequence_peak_bytes'] <= 1048576
+              assert report['rejected_reservations'] == 0
+              assert report['accounting_errors'] == 0
+              assert report['within_hard_limits'] is True
+              assert report['accounting_clean'] is True
+
+          aggregate = {
+              'schema': 'zevryon.bidi-sequence-certification.v1',
+              'runs': len(reports),
+              'median_p50_ms': statistics.median(item['p50_ms'] for item in reports),
+              'median_p95_ms': statistics.median(item['p95_ms'] for item in reports),
+              'median_p99_ms': statistics.median(item['p99_ms'] for item in reports),
+              'worst_maximum_ms': max(item['maximum_ms'] for item in reports),
+              'worst_peak_bytes': max(item['sequence_peak_bytes'] for item in reports),
+              'input_codepoints': reports[0]['input_codepoints'],
+              'active_units': reports[0]['active_units'],
+              'level_runs': reports[0]['level_runs'],
+              'isolating_sequences': reports[0]['isolating_sequences'],
+              'passed': True,
+          }
+          assert aggregate['median_p95_ms'] <= 1.00
+          assert aggregate['median_p99_ms'] <= 1.25
+          assert aggregate['worst_maximum_ms'] <= 2.00
+          assert aggregate['worst_peak_bytes'] <= 1048576
+          Path('evidence/ci/z1-bidi-sequence-certification.json').write_text(
+              json.dumps(aggregate, indent=2, sort_keys=True) + '\n'
+          )
+          print(json.dumps({'conformance': conformance, 'aggregate': aggregate}, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z1-bidi-sequence-${{ github.sha }}
+          path: |
+            evidence/ci/z1-bidi-sequence-conformance.json
+            evidence/ci/z1-bidi-sequence-benchmark-*.json
+            evidence/ci/z1-bidi-sequence-certification.json
+          if-no-files-found: warn
+
+  macos-sequence-strict:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build focused sequence targets
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target \
+            zevryon-bidi-sequence-tests \
+            zevryon-bidi-sequence-conformance \
+            zevryon-bidi-sequence-benchmark \
+            2>&1 | tee macos-bidi-sequence-build.log
+      - run: ctest --test-dir build -R bidi-sequence-tests --output-on-failure
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-bidi-sequence-${{ github.sha }}
+          path: macos-bidi-sequence-build.log
+          if-no-files-found: warn
+
+  windows-sequence-asan:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure MSVC AddressSanitizer
+        run: cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build sequence test with MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          cmake --build build-asan --config RelWithDebInfo --target zevryon-bidi-sequence-tests --parallel 2 2>&1 | Tee-Object -FilePath windows-bidi-sequence-asan-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Stage MSVC AddressSanitizer runtime
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw 'vswhere.exe not found' }
+          $installation = (& $vswhere -latest -products * -property installationPath).Trim()
+          if (-not $installation) { throw 'Visual Studio installation not found' }
+          $patterns = @(
+            "$installation\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan*dynamic-x86_64.dll",
+            "$installation\VC\Tools\Llvm\x64\bin\clang_rt.asan*dynamic-x86_64.dll"
+          )
+          $runtimes = @($patterns | ForEach-Object {
+            Get-ChildItem -Path $_ -File -ErrorAction SilentlyContinue
+          })
+          if (-not $runtimes) { throw 'MSVC AddressSanitizer runtime DLL not found' }
+          $output = Resolve-Path '.\build-asan\RelWithDebInfo'
+          $runtimes | Group-Object Name | ForEach-Object {
+            $runtime = $_.Group | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            Copy-Item $runtime.FullName -Destination $output -Force
+          }
+      - name: Run sequence tests under MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          $env:ASAN_OPTIONS = 'halt_on_error=1:abort_on_error=1:symbolize=1'
+          $env:ASAN_SAVE_DUMPS = 'windows-bidi-sequence-asan.dmp'
+          $process = Start-Process `
+            -FilePath '.\build-asan\RelWithDebInfo\zevryon-bidi-sequence-tests.exe' `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput 'windows-bidi-sequence-asan.stdout.log' `
+            -RedirectStandardError 'windows-bidi-sequence-asan.stderr.log'
+          "exit_code=$($process.ExitCode)" | Set-Content 'windows-bidi-sequence-asan.exit.log'
+          Get-Content 'windows-bidi-sequence-asan.stdout.log' -ErrorAction SilentlyContinue
+          Get-Content 'windows-bidi-sequence-asan.stderr.log' -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-bidi-sequence-asan-${{ github.sha }}
+          path: |
+            windows-bidi-sequence-asan-build.log
+            windows-bidi-sequence-asan.*.log
+            windows-bidi-sequence-asan.dmp
+          if-no-files-found: warn

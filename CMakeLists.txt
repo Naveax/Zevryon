@@ -43,6 +43,7 @@ endforeach()
 add_library(zevryon-massivedoc-core STATIC
   "${ZEVRYON_MASSIVEDOC_SOURCE}"
   src/bidi_explicit.cpp
+  src/bidi_sequence.cpp
   src/compact_document.cpp
   src/grapheme_segmenter.cpp
   src/layout_checkpoint.cpp
@@ -100,6 +101,14 @@ add_executable(zevryon-bidi-benchmark src/bidi_benchmark_main.cpp)
 target_link_libraries(zevryon-bidi-benchmark PRIVATE zevryon-massivedoc-core)
 zevryon_options(zevryon-bidi-benchmark)
 
+add_executable(zevryon-bidi-sequence-conformance src/bidi_sequence_conformance_main.cpp)
+target_link_libraries(zevryon-bidi-sequence-conformance PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-bidi-sequence-conformance)
+
+add_executable(zevryon-bidi-sequence-benchmark src/bidi_sequence_benchmark_main.cpp)
+target_link_libraries(zevryon-bidi-sequence-benchmark PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-bidi-sequence-benchmark)
+
 include(CTest)
 if(BUILD_TESTING)
   add_executable(zevryon-massivedoc-tests tests/massivedoc_store_tests.cpp)
@@ -156,4 +165,9 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-bidi-explicit-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-bidi-explicit-tests)
   add_test(NAME bidi-explicit-tests COMMAND zevryon-bidi-explicit-tests)
+
+  add_executable(zevryon-bidi-sequence-tests tests/bidi_sequence_tests.cpp)
+  target_link_libraries(zevryon-bidi-sequence-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-bidi-sequence-tests)
+  add_test(NAME bidi-sequence-tests COMMAND zevryon-bidi-sequence-tests)
 endif()
