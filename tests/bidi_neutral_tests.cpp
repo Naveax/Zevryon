@@ -136,8 +136,10 @@ bool test_n0_embedding_direction() {
                resolve_case(data, 4096U, &output, &stats, &error, &ledger),
                "N0 embedding case resolves") &&
            require(
-               output == std::pmr::vector<BidiClass>{
-                   BidiClass::L, BidiClass::L, BidiClass::L},
+               output.size() == 3U &&
+                   output[0] == BidiClass::L &&
+                   output[1] == BidiClass::L &&
+                   output[2] == BidiClass::L,
                "N0 bracket pair takes embedding direction") &&
            require(stats.n0_embedding_pairs == 1U, "N0 embedding counter");
 }
@@ -166,11 +168,69 @@ bool test_n0_opposite_context() {
            require(stats.n0_opposite_pairs == 1U, "N0 opposite counter");
 }
 
+bool test_n0_sequential_context() {
+    CaseData data = make_case(
+        {'a', '(', '[', 'b', ']', 0x05D0U, ')'},
+        {
+            BidiClass::L,
+            BidiClass::ON,
+            BidiClass::ON,
+            BidiClass::L,
+            BidiClass::ON,
+            BidiClass::R,
+            BidiClass::ON,
+        },
+        {
+            BidiClass::L,
+            BidiClass::ON,
+            BidiClass::ON,
+            BidiClass::L,
+            BidiClass::ON,
+            BidiClass::R,
+            BidiClass::ON,
+        },
+        1U,
+        BidiClass::R,
+        BidiClass::R);
+    zevryon::core::ResourceLedger ledger;
+    zevryon::core::LedgerMemoryResource memory(
+        ledger,
+        zevryon::core::ResourceClass::BidiNeutralResolution);
+    std::pmr::vector<BidiClass> output(&memory);
+    BidiNeutralStats stats;
+    BidiNeutralError error;
+    return require(
+               resolve_case(data, 4096U, &output, &stats, &error, &ledger),
+               "sequential N0 context resolves") &&
+           require(
+               output[1] == BidiClass::R &&
+                   output[2] == BidiClass::R &&
+                   output[4] == BidiClass::R &&
+                   output[6] == BidiClass::R,
+               "later pair sees earlier resolved opening as strong context") &&
+           require(
+               stats.n0_embedding_pairs == 2U &&
+                   stats.n0_opposite_pairs == 0U,
+               "sequential N0 counters");
+}
+
 bool test_n0_nsm_following() {
     CaseData data = make_case(
         {'(', 0x0301U, 'a', ')', 0x0301U},
-        {BidiClass::ON, BidiClass::NSM, BidiClass::L, BidiClass::ON, BidiClass::NSM},
-        {BidiClass::ON, BidiClass::R, BidiClass::L, BidiClass::ON, BidiClass::R},
+        {
+            BidiClass::ON,
+            BidiClass::NSM,
+            BidiClass::L,
+            BidiClass::ON,
+            BidiClass::NSM,
+        },
+        {
+            BidiClass::ON,
+            BidiClass::R,
+            BidiClass::L,
+            BidiClass::ON,
+            BidiClass::R,
+        },
         0U,
         BidiClass::L,
         BidiClass::L);
@@ -185,8 +245,10 @@ bool test_n0_nsm_following() {
                resolve_case(data, 4096U, &output, &stats, &error, &ledger),
                "N0 NSM case resolves") &&
            require(
-               output[0] == BidiClass::L && output[1] == BidiClass::L &&
-                   output[3] == BidiClass::L && output[4] == BidiClass::L,
+               output[0] == BidiClass::L &&
+                   output[1] == BidiClass::L &&
+                   output[3] == BidiClass::L &&
+                   output[4] == BidiClass::L,
                "NSMs immediately following changed brackets inherit direction") &&
            require(stats.n0_following_nsm_changes == 2U, "N0 NSM counter");
 }
@@ -264,7 +326,7 @@ bool test_bracket_overflow() {
            require(stats.bracket_pairs == 0U, "BD16 overflow publishes no pairs");
 }
 
-bool test_fail_closed_budget_and_topology() {
+bool test_fail_closed_budget_topology_and_stage() {
     CaseData data = make_case(
         {'a', ' ', 'b'},
         {BidiClass::L, BidiClass::WS, BidiClass::L},
@@ -305,19 +367,49 @@ bool test_fail_closed_budget_and_topology() {
     std::pmr::vector<BidiClass> broken_output(&broken_memory);
     BidiNeutralStats broken_stats;
     BidiNeutralError broken_error;
+    if (!require(
+            !resolve_case(
+                broken,
+                4096U,
+                &broken_output,
+                &broken_stats,
+                &broken_error,
+                &broken_ledger),
+            "broken topology rejected") ||
+        !require(
+            broken_error.kind == BidiNeutralErrorKind::TopologyViolation,
+            "topology failure kind") ||
+        !require(broken_output.empty(), "topology failure publishes no output")) {
+        return false;
+    }
+
+    CaseData invalid_stage = make_case(
+        {0x0627U},
+        {BidiClass::AL},
+        {BidiClass::AL},
+        1U,
+        BidiClass::R,
+        BidiClass::R);
+    zevryon::core::ResourceLedger stage_ledger;
+    zevryon::core::LedgerMemoryResource stage_memory(
+        stage_ledger,
+        zevryon::core::ResourceClass::BidiNeutralResolution);
+    std::pmr::vector<BidiClass> stage_output(&stage_memory);
+    BidiNeutralStats stage_stats;
+    BidiNeutralError stage_error;
     return require(
                !resolve_case(
-                   broken,
+                   invalid_stage,
                    4096U,
-                   &broken_output,
-                   &broken_stats,
-                   &broken_error,
-                   &broken_ledger),
-               "broken topology rejected") &&
+                   &stage_output,
+                   &stage_stats,
+                   &stage_error,
+                   &stage_ledger),
+               "pre-W3 Arabic letter rejected") &&
            require(
-               broken_error.kind == BidiNeutralErrorKind::TopologyViolation,
-               "topology failure kind") &&
-           require(broken_output.empty(), "topology failure publishes no output");
+               stage_error.kind == BidiNeutralErrorKind::InvalidInput,
+               "invalid stage failure kind") &&
+           require(stage_output.empty(), "invalid stage publishes no output");
 }
 
 } // namespace
@@ -326,10 +418,11 @@ int main() {
     if (!test_bracket_data() ||
         !test_n0_embedding_direction() ||
         !test_n0_opposite_context() ||
+        !test_n0_sequential_context() ||
         !test_n0_nsm_following() ||
         !test_n1_and_n2() ||
         !test_bracket_overflow() ||
-        !test_fail_closed_budget_and_topology()) {
+        !test_fail_closed_budget_topology_and_stage()) {
         return 1;
     }
     std::cout << "Bidi neutral tests passed\n";
