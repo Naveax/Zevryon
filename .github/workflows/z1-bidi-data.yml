@@ -1,0 +1,107 @@
+name: z1-bidi-data
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-bidi-data.yml'
+      - 'scripts/generate_unicode_bidi_data.py'
+      - 'src/unicode_bidi_data.generated.hpp'
+      - 'evidence/unicode_bidi_data.manifest.json'
+  workflow_dispatch:
+
+concurrency:
+  group: z1-bidi-data-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download versioned Unicode 17 sources
+        run: |
+          python - <<'PY'
+          import urllib.request
+          from pathlib import Path
+
+          sources = {
+              'DerivedBidiClass.txt': (
+                  'https://www.unicode.org/Public/17.0.0/ucd/extracted/DerivedBidiClass.txt'
+              ),
+              'PropertyValueAliases.txt': (
+                  'https://www.unicode.org/Public/17.0.0/ucd/PropertyValueAliases.txt'
+              ),
+          }
+          root = Path('evidence/ci/ucd-17.0.0')
+          root.mkdir(parents=True, exist_ok=True)
+          for name, url in sources.items():
+              data = urllib.request.urlopen(url, timeout=60).read()
+              if b'17.0.0' not in data[:8192]:
+                  raise RuntimeError(f'unexpected Unicode version in {name}')
+              (root / name).write_bytes(data)
+              print(name, len(data))
+          PY
+      - name: Generate deterministic bidi tables twice
+        run: |
+          python scripts/generate_unicode_bidi_data.py \
+            --derived-bidi-class evidence/ci/ucd-17.0.0/DerivedBidiClass.txt \
+            --aliases evidence/ci/ucd-17.0.0/PropertyValueAliases.txt \
+            --output evidence/generated/unicode_bidi_data.generated.hpp \
+            --manifest evidence/generated/unicode_bidi_data.manifest.json
+          python scripts/generate_unicode_bidi_data.py \
+            --derived-bidi-class evidence/ci/ucd-17.0.0/DerivedBidiClass.txt \
+            --aliases evidence/ci/ucd-17.0.0/PropertyValueAliases.txt \
+            --output evidence/generated/unicode_bidi_data.generated.second.hpp \
+            --manifest evidence/generated/unicode_bidi_data.manifest.second.json
+          cmp evidence/generated/unicode_bidi_data.generated.hpp evidence/generated/unicode_bidi_data.generated.second.hpp
+          cmp evidence/generated/unicode_bidi_data.manifest.json evidence/generated/unicode_bidi_data.manifest.second.json
+      - name: Validate generated contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(
+              Path('evidence/generated/unicode_bidi_data.manifest.json').read_text()
+          )
+          assert manifest['schema'] == 'zevryon.unicode-bidi-data.v1'
+          assert manifest['unicode_version'] == '17.0.0'
+          assert manifest['bidi_class_count'] == 23
+          assert 100 < manifest['bidi_range_count'] < 10000
+          assert 1000 < manifest['generated_header_bytes'] < 200000
+          assert len(manifest['fingerprint']) == 64
+          assert all(len(value) == 64 for value in manifest['source_sha256'].values())
+          print(json.dumps(manifest, indent=2, sort_keys=True))
+          PY
+      - name: Vendor generated tables on the PR branch
+        if: github.event_name == 'pull_request'
+        run: |
+          mkdir -p src evidence
+          cp evidence/generated/unicode_bidi_data.generated.hpp src/unicode_bidi_data.generated.hpp
+          cp evidence/generated/unicode_bidi_data.manifest.json evidence/unicode_bidi_data.manifest.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/unicode_bidi_data.generated.hpp evidence/unicode_bidi_data.manifest.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Vendor Unicode 17 bidi data [skip bidi-data]'
+            git push origin HEAD:${{ github.head_ref }}
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z1-bidi-data-${{ github.sha }}
+          path: |
+            evidence/generated/unicode_bidi_data.generated.hpp
+            evidence/generated/unicode_bidi_data.manifest.json
+            evidence/ci/ucd-17.0.0/DerivedBidiClass.txt
+            evidence/ci/ucd-17.0.0/PropertyValueAliases.txt
+          if-no-files-found: warn
