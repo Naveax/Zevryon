@@ -6,6 +6,7 @@ on:
       - '.github/workflows/z1-bidi-visual.yml'
       - 'CMakeLists.txt'
       - 'src/bidi_visual.*'
+      - 'src/bidi_visual_*'
       - 'src/bidi_sequence.*'
       - 'src/resource_ledger.*'
       - 'tests/bidi_visual_tests.cpp'
@@ -20,14 +21,125 @@ permissions:
   contents: read
 
 jobs:
-  ubuntu-visual-strict:
+  visual-certification:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch pinned Unicode 17 BidiTest data
+        run: |
+          mkdir -p ucd-17.0.0 evidence
+          curl --fail --location --retry 3 \
+            https://www.unicode.org/Public/17.0.0/ucd/BidiTest.txt \
+            --output ucd-17.0.0/BidiTest.txt
+          echo '888bdfc8090652272d1f859cdb00ae659e2dc6c26740be61ef1d03998a687620  ucd-17.0.0/BidiTest.txt' | sha256sum --check --strict
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-      - run: cmake --build build --parallel 2 --target zevryon-bidi-visual-tests
+      - name: Build focused visual targets
+        run: |
+          cmake --build build --parallel 2 --target \
+            zevryon-bidi-visual-tests \
+            zevryon-bidi-visual-conformance \
+            zevryon-bidi-visual-benchmark
       - run: ctest --test-dir build -R bidi-visual-tests --output-on-failure
+      - name: Run normative BidiTest W-N-I-L1-L2 subset
+        run: |
+          ./build/zevryon-bidi-visual-conformance \
+            ucd-17.0.0/BidiTest.txt \
+            > evidence/z1-bidi-visual-conformance.json
+          cat evidence/z1-bidi-visual-conformance.json
+      - name: Run three independent 64 KiB distributions
+        run: |
+          ./build/zevryon-bidi-visual-benchmark 1024 262144 \
+            > evidence/z1-bidi-visual-benchmark-1.json
+          ./build/zevryon-bidi-visual-benchmark 1024 262144 \
+            > evidence/z1-bidi-visual-benchmark-2.json
+          ./build/zevryon-bidi-visual-benchmark 1024 262144 \
+            > evidence/z1-bidi-visual-benchmark-3.json
+      - name: Enforce diagnostic correctness, memory, and latency gates
+        run: |
+          python - <<'PY'
+          import json, pathlib, statistics
+          root = pathlib.Path('evidence')
+          conformance = json.loads(
+              (root / 'z1-bidi-visual-conformance.json').read_text()
+          )
+          assert conformance['schema'] == 'zevryon.bidi-visual-conformance.v1'
+          assert conformance['unicode_version'] == '17.0.0'
+          assert conformance['uax_revision'] == 51
+          assert conformance['data_lines'] == 490846
+          assert conformance['filtered_lines'] > 0
+          assert conformance['cases'] > 0
+          assert conformance['auto_ltr_cases'] > 0
+          assert conformance['ltr_cases'] > 0
+          assert conformance['rtl_cases'] > 0
+          assert conformance['passed'] is True
+
+          reports = [
+              json.loads(
+                  (root / f'z1-bidi-visual-benchmark-{index}.json').read_text()
+              )
+              for index in range(1, 4)
+          ]
+          for report in reports:
+              assert report['schema'] == 'zevryon.bidi-visual-benchmark.v1'
+              assert report['uax_version'] == 'Unicode 17.0.0 / UAX #9 revision 51'
+              assert report['fixture_bytes'] == 65536
+              assert report['iterations'] == 1024
+              assert report['warmup_iterations'] == 32
+              assert report['output_levels'] == report['active_units']
+              assert report['output_visual_indices'] == report['active_units']
+              assert report['level_record_bytes'] == 1
+              assert report['visual_index_record_bytes'] == 4
+              assert report['lines'] > 1
+              assert report['l1_separator_resets'] > 0
+              assert report['l1_whitespace_resets'] > 0
+              assert report['l2_reversal_spans'] > 0
+              assert report['l2_reversed_units'] > 0
+              assert report['l3_combining_sequences'] > 0
+              assert report['l3_repaired_units'] > 0
+              assert report['maximum_input_level'] <= 126
+              assert report['maximum_line_level'] <= 126
+              assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
+              assert report['visual_hard_limit_bytes'] == 262144
+              assert report['visual_current_bytes'] <= report['visual_peak_bytes'] <= 262144
+              assert report['rejected_reservations'] == 0
+              assert report['accounting_errors'] == 0
+              assert report['within_hard_limits'] is True
+              assert report['accounting_clean'] is True
+
+          certification = {
+              'schema': 'zevryon.bidi-visual-certification.v1',
+              'unicode_version': '17.0.0',
+              'uax_revision': 51,
+              'normative_cases': conformance['cases'],
+              'runs': len(reports),
+              'median_p50_ms': statistics.median(r['p50_ms'] for r in reports),
+              'median_p95_ms': statistics.median(r['p95_ms'] for r in reports),
+              'median_p99_ms': statistics.median(r['p99_ms'] for r in reports),
+              'worst_maximum_ms': max(r['maximum_ms'] for r in reports),
+              'worst_peak_bytes': max(r['visual_peak_bytes'] for r in reports),
+              'active_units': reports[0]['active_units'],
+              'lines': reports[0]['lines'],
+              'passed': True,
+          }
+          assert certification['median_p95_ms'] <= 5.00
+          assert certification['median_p99_ms'] <= 8.00
+          assert certification['worst_maximum_ms'] <= 16.00
+          assert certification['worst_peak_bytes'] <= 262144
+          (root / 'z1-bidi-visual-certification.json').write_text(
+              json.dumps(certification, indent=2, sort_keys=True) + '\n'
+          )
+          print(json.dumps(certification, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z1-bidi-visual-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: warn
 
   macos-visual-strict:
     runs-on: macos-latest
@@ -35,10 +147,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-      - name: Build focused visual target
+      - name: Build focused visual targets
         run: |
           set -o pipefail
-          cmake --build build --parallel 2 --target zevryon-bidi-visual-tests \
+          cmake --build build --parallel 2 --target \
+            zevryon-bidi-visual-tests \
+            zevryon-bidi-visual-conformance \
+            zevryon-bidi-visual-benchmark \
             2>&1 | tee macos-bidi-visual-build.log
       - run: ctest --test-dir build -R bidi-visual-tests --output-on-failure
       - uses: actions/upload-artifact@v4
