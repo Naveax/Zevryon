@@ -65,6 +65,17 @@ static_assert(
     sizeof(FontFaceRecord) <= 32U,
     "font face records must remain within the Z2 catalog memory contract");
 
+struct FontScriptBucket {
+    std::uint32_t offset{0};
+    std::uint32_t count{0};
+
+    bool operator==(const FontScriptBucket&) const noexcept = default;
+};
+
+static_assert(
+    sizeof(FontScriptBucket) == 8U,
+    "font script buckets must remain compact");
+
 enum class FontCatalogErrorKind : std::uint8_t {
     None = 0,
     InvalidInput,
@@ -87,6 +98,8 @@ struct FontCatalogStats {
     std::uint64_t adjacent_ranges_merged{0};
     std::uint64_t variable_faces{0};
     std::uint64_t color_faces{0};
+    std::uint64_t script_buckets{0};
+    std::uint64_t script_face_ids{0};
 };
 
 struct FontCatalog {
@@ -94,6 +107,8 @@ struct FontCatalog {
 
     std::pmr::vector<FontFaceRecord> faces;
     std::pmr::vector<FontCoverageRange> coverage_ranges;
+    std::pmr::vector<FontScriptBucket> script_buckets;
+    std::pmr::vector<FontFaceId> script_face_ids;
 
     std::pmr::memory_resource* resource() const noexcept;
     void release() noexcept;
@@ -115,5 +130,9 @@ bool font_face_covers(
     const FontCatalog& catalog,
     FontFaceId face_id,
     std::uint32_t codepoint) noexcept;
+
+std::span<const FontFaceId> font_faces_for_script(
+    const FontCatalog& catalog,
+    ScriptId script) noexcept;
 
 } // namespace zevryon::text
