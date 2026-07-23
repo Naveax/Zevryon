@@ -45,7 +45,7 @@ std::vector<zevryon::text::DecodedCodePoint> make_fixture(
         'a', '(', 'b', ')', 0x0301U, ' ',
         0x05D0U, '[', 0x05D1U, ']', ' ',
         'a', ' ', 0x05D0U, ' ', 'b',
-        0x2067U, 0x05D0U, '(', 'a', ')', ' ', 0x2069U,
+        0x2067U, 'a', '(', '[', 'b', ']', 0x05D0U, ')', 0x2069U,
         0x0627U, '1', ',', '2', '$', ' ',
         0x202EU, 'x', 0x202CU, ' ',
         'a', '{', 0x05D0U, '}', 'b', ' ',
@@ -82,7 +82,7 @@ double percentile(std::vector<double> values, double percentage) {
 
 int main(int argc, char** argv) {
     std::size_t iterations = 1024U;
-    std::size_t neutral_budget_bytes = 512U * 1024U;
+    std::size_t neutral_budget_bytes = 64U * 1024U;
     if ((argc > 1 && !parse_size(argv[1], &iterations)) ||
         (argc > 2 && !parse_size(argv[2], &neutral_budget_bytes)) ||
         argc > 3 || iterations < 10U || neutral_budget_bytes == 0U) {
