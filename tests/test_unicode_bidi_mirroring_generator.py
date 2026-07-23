@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ MODULE_PATH = (
 SPEC = importlib.util.spec_from_file_location("bidi_mirroring_generator", MODULE_PATH)
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
 
@@ -101,7 +103,7 @@ def test_ranges_and_best_fit_are_deterministic(tmp_path: Path) -> None:
     )
 
 
-def test_mapping_source_without_normative_property_is_rejected(tmp_path: Path) -> None:
+def test_mapping_source_without_normative_property_is_detectable(tmp_path: Path) -> None:
     unicode_data = tmp_path / "UnicodeData.txt"
     unicode_data.write_text(
         unicode_data_line("0028", "LEFT PARENTHESIS", "N") + "\n",
