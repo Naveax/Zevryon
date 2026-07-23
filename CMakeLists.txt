@@ -43,6 +43,7 @@ endforeach()
 add_library(zevryon-massivedoc-core STATIC
   "${ZEVRYON_MASSIVEDOC_SOURCE}"
   src/bidi_explicit.cpp
+  src/bidi_neutral.cpp
   src/bidi_sequence.cpp
   src/bidi_weak.cpp
   src/compact_document.cpp
@@ -53,6 +54,7 @@ add_library(zevryon-massivedoc-core STATIC
   src/resource_ledger.cpp
   src/script_run.cpp
   src/unicode_bidi.cpp
+  src/unicode_bidi_brackets.cpp
   src/unicode_grapheme_data.cpp
   src/unicode_script.cpp
   src/unicode_stream.cpp
@@ -184,4 +186,9 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-bidi-weak-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-bidi-weak-tests)
   add_test(NAME bidi-weak-tests COMMAND zevryon-bidi-weak-tests)
+
+  add_executable(zevryon-bidi-neutral-tests tests/bidi_neutral_tests.cpp)
+  target_link_libraries(zevryon-bidi-neutral-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-bidi-neutral-tests)
+  add_test(NAME bidi-neutral-tests COMMAND zevryon-bidi-neutral-tests)
 endif()
