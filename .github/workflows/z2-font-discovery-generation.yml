@@ -9,6 +9,7 @@ on:
       - 'src/font_catalog.*'
       - 'src/resource_ledger.*'
       - 'tests/font_discovery_generation_tests.cpp'
+      - 'tests/font_discovery_generation_concurrency_tests.cpp'
       - 'docs/Z2A2_FONT_DISCOVERY_GENERATION.md'
   workflow_dispatch:
 
@@ -29,6 +30,13 @@ jobs:
       - name: Build focused target
         run: cmake --build build --parallel 2 --target zevryon-font-discovery-generation-tests
       - run: ctest --test-dir build -R font-discovery-generation-tests --output-on-failure
+      - name: Build and run concurrent reader stress
+        run: |
+          c++ -std=c++20 -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror \
+            -pthread -Isrc tests/font_discovery_generation_concurrency_tests.cpp \
+            build/libzevryon-massivedoc-core.a \
+            -o build/zevryon-font-discovery-generation-concurrency-tests
+          ./build/zevryon-font-discovery-generation-concurrency-tests
 
   macos-strict:
     runs-on: macos-latest
@@ -42,6 +50,13 @@ jobs:
           cmake --build build --parallel 2 --target zevryon-font-discovery-generation-tests \
             2>&1 | tee macos-font-discovery-generation-build.log
       - run: ctest --test-dir build -R font-discovery-generation-tests --output-on-failure
+      - name: Build and run concurrent reader stress
+        run: |
+          c++ -std=c++20 -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror \
+            -pthread -Isrc tests/font_discovery_generation_concurrency_tests.cpp \
+            build/libzevryon-massivedoc-core.a \
+            -o build/zevryon-font-discovery-generation-concurrency-tests
+          ./build/zevryon-font-discovery-generation-concurrency-tests
       - uses: actions/upload-artifact@v4
         if: always()
         with:
