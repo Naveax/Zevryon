@@ -54,7 +54,7 @@ jobs:
           ./build/zevryon-font-discovery-generation-benchmark 64 \
             > evidence/z2-font-generation-benchmark-3.json
           cat evidence/z2-font-generation-benchmark-1.json
-      - name: Enforce diagnostic determinism, memory, and latency gates
+      - name: Enforce final determinism, memory, and latency gates
         run: |
           python - <<'PY'
           import json, pathlib, statistics
@@ -73,15 +73,19 @@ jobs:
               assert report['warmup_iterations'] == 8
               assert report['identity_bytes'] == 21504
               assert report['family_bytes'] == 1408
+              assert report['snapshot_bytes'] == 40832
               assert report['catalog_faces'] == 1024
               assert report['catalog_ranges'] == 2048
-              assert report['snapshot_bytes'] > 0
-              assert report['discovery_hard_limit_bytes'] == 262144
-              assert report['catalog_hard_limit_bytes'] == 262144
-              assert report['discovery_current_bytes'] <= report['discovery_peak_bytes'] <= 262144
-              assert report['catalog_current_bytes'] <= report['catalog_peak_bytes'] <= 262144
+              assert report['discovery_hard_limit_bytes'] == 110592
+              assert report['catalog_hard_limit_bytes'] == 65536
+              assert report['discovery_current_bytes'] == 40832
+              assert report['discovery_peak_bytes'] == 106368
+              assert report['catalog_current_bytes'] == 54656
+              assert report['catalog_peak_bytes'] == 62848
               assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
-              assert report['p95_ms'] <= 100.0
+              assert report['p95_ms'] <= 0.75
+              assert report['p99_ms'] <= 1.0
+              assert report['maximum_ms'] <= 2.0
               assert report['discovery_rejections'] == 0
               assert report['catalog_rejections'] == 0
               assert report['accounting_clean'] is True
@@ -97,6 +101,8 @@ jobs:
               'worst_discovery_peak_bytes': max(r['discovery_peak_bytes'] for r in reports),
               'worst_catalog_peak_bytes': max(r['catalog_peak_bytes'] for r in reports),
               'snapshot_bytes': reports[0]['snapshot_bytes'],
+              'discovery_hard_limit_bytes': reports[0]['discovery_hard_limit_bytes'],
+              'catalog_hard_limit_bytes': reports[0]['catalog_hard_limit_bytes'],
               'fingerprint_high': reports[0]['fingerprint_high'],
               'fingerprint_low': reports[0]['fingerprint_low'],
               'passed': True,
