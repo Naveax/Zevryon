@@ -13,6 +13,7 @@ struct BidiMirroringInfo {
     std::uint32_t mirror_codepoint{0};
 };
 
+bool bidi_mirrored_property(std::uint32_t codepoint) noexcept;
 BidiMirroringInfo bidi_mirroring_info(std::uint32_t codepoint) noexcept;
 
 } // namespace zevryon::text
