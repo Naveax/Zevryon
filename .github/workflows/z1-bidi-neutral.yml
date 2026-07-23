@@ -61,30 +61,48 @@ jobs:
           cat evidence/z1-bidi-bracket-conformance.json
       - name: Run three independent 64 KiB distributions
         run: |
-          ./build/zevryon-bidi-neutral-benchmark 1024 524288 \
+          ./build/zevryon-bidi-neutral-benchmark 1024 65536 \
             > evidence/z1-bidi-neutral-benchmark-1.json
-          ./build/zevryon-bidi-neutral-benchmark 1024 524288 \
+          ./build/zevryon-bidi-neutral-benchmark 1024 65536 \
             > evidence/z1-bidi-neutral-benchmark-2.json
-          ./build/zevryon-bidi-neutral-benchmark 1024 524288 \
+          ./build/zevryon-bidi-neutral-benchmark 1024 65536 \
             > evidence/z1-bidi-neutral-benchmark-3.json
-      - name: Enforce correctness, memory, and initial robust latency gates
+      - name: Enforce correctness, memory, and final robust latency gates
         run: |
           python - <<'PY'
           import json, pathlib, statistics
           root = pathlib.Path('evidence')
+          generator = json.loads((root / 'bidi-bracket-generator.json').read_text())
+          assert generator == {
+              'schema': 'zevryon.unicode-bidi-brackets.v1',
+              'unicode_version': '17.0.0',
+              'source_sha256': 'dadbaf38a0d0246e5b805bf8725cb81b7c621f93d030595635f5ba2c2f179428',
+              'fingerprint': '429b90895269f7307e4aa63f05827996296ad3369d1af444f94cc12938cbce43',
+              'records': 128,
+              'open': 64,
+              'close': 64,
+          }
           conformance = json.loads((root / 'z1-bidi-bracket-conformance.json').read_text())
-          assert conformance['passed'] is True
-          assert conformance['unicode_version'] == '17.0.0'
-          assert conformance['codepoints'] == 1114112
-          assert conformance['records'] == 128
-          assert conformance['open'] == 64
-          assert conformance['close'] == 64
+          assert conformance == {
+              'schema': 'zevryon.bidi-bracket-conformance.v1',
+              'unicode_version': '17.0.0',
+              'data_fingerprint': '429b90895269f7307e4aa63f05827996296ad3369d1af444f94cc12938cbce43',
+              'source_sha256': 'dadbaf38a0d0246e5b805bf8725cb81b7c621f93d030595635f5ba2c2f179428',
+              'codepoints': 1114112,
+              'records': 128,
+              'open': 64,
+              'close': 64,
+              'passed': True,
+          }
           reports = [
               json.loads((root / f'z1-bidi-neutral-benchmark-{index}.json').read_text())
               for index in range(1, 4)
           ]
           for report in reports:
+              assert report['schema'] == 'zevryon.bidi-neutral-benchmark.v1'
+              assert report['uax_version'] == 'Unicode 17.0.0 / UAX #9 revision 51'
               assert report['fixture_bytes'] == 65536
+              assert report['iterations'] == 1024
               assert report['type_record_bytes'] == 1
               assert report['output_types'] == report['active_units']
               assert report['bracket_candidates'] > 0
@@ -95,8 +113,9 @@ jobs:
               assert report['n1_changes'] > 0
               assert report['n2_changes'] > 0
               assert report['bracket_overflow_sequences'] == 0
-              assert report['neutral_hard_limit_bytes'] == 524288
-              assert report['neutral_peak_bytes'] <= 524288
+              assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
+              assert report['neutral_hard_limit_bytes'] == 65536
+              assert report['neutral_current_bytes'] <= report['neutral_peak_bytes'] <= 65536
               assert report['rejected_reservations'] == 0
               assert report['accounting_errors'] == 0
               assert report['within_hard_limits'] is True
@@ -113,8 +132,10 @@ jobs:
               'bracket_pairs': reports[0]['bracket_pairs'],
               'passed': True,
           }
-          assert certification['median_p95_ms'] <= 5.0
-          assert certification['median_p99_ms'] <= 7.0
+          assert certification['median_p95_ms'] <= 1.50
+          assert certification['median_p99_ms'] <= 2.00
+          assert certification['worst_maximum_ms'] <= 4.00
+          assert certification['worst_peak_bytes'] <= 65536
           (root / 'z1-bidi-neutral-certification.json').write_text(
               json.dumps(certification, indent=2, sort_keys=True) + '\n'
           )
