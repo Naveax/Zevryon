@@ -161,7 +161,12 @@ public:
 
     std::shared_ptr<const FontCatalogGeneration> load(
         std::memory_order order) const noexcept {
+#if defined(__cpp_lib_atomic_shared_ptr) && \
+    __cpp_lib_atomic_shared_ptr >= 201711L
+        return value_.load(order);
+#else
         return std::atomic_load_explicit(&value_, order);
+#endif
     }
 
     bool compare_exchange_weak(
@@ -169,16 +174,30 @@ public:
         std::shared_ptr<const FontCatalogGeneration> desired,
         std::memory_order success,
         std::memory_order failure) noexcept {
+#if defined(__cpp_lib_atomic_shared_ptr) && \
+    __cpp_lib_atomic_shared_ptr >= 201711L
+        return value_.compare_exchange_weak(
+            expected,
+            std::move(desired),
+            success,
+            failure);
+#else
         return std::atomic_compare_exchange_weak_explicit(
             &value_,
             &expected,
             std::move(desired),
             success,
             failure);
+#endif
     }
 
 private:
+#if defined(__cpp_lib_atomic_shared_ptr) && \
+    __cpp_lib_atomic_shared_ptr >= 201711L
+    mutable std::atomic<std::shared_ptr<const FontCatalogGeneration>> value_;
+#else
     mutable std::shared_ptr<const FontCatalogGeneration> value_;
+#endif
 };
 
 class FontCatalogGenerationStore final {
