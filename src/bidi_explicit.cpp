@@ -65,6 +65,14 @@ bool validate_input(
                 "decoded input is not a contiguous Unicode scalar stream",
                 error);
         }
+        if (bidi_class_of(codepoint.value) == BidiClass::B &&
+            index + 1U != codepoints.size()) {
+            return fail(
+                BidiExplicitErrorKind::InvalidInput,
+                index,
+                "bidi explicit input must contain exactly one paragraph",
+                error);
+        }
     }
     return true;
 }
@@ -313,19 +321,23 @@ bool resolve_bidi_explicit(
 
     for (std::size_t index = 0U; index < codepoints.size(); ++index) {
         const BidiClass original = bidi_class_of(codepoints[index].value);
-        const StatusEntry current = stack[stack_size - 1U];
+        const StatusEntry before = stack[stack_size - 1U];
         std::uint8_t flags = 0U;
-        BidiClass resolved = apply_override(original, current.override_status);
+        std::uint8_t assigned_level = before.level;
+        BidiClass resolved = original == BidiClass::BN
+            ? BidiClass::BN
+            : apply_override(original, before.override_status);
 
         if (original == BidiClass::LRE || original == BidiClass::RLE ||
             original == BidiClass::LRO || original == BidiClass::RLO) {
             flags |= kBidiUnitRemovedByX9;
+            resolved = original;
             ++stats->explicit_controls;
             const bool right = original == BidiClass::RLE ||
                                original == BidiClass::RLO;
             const std::uint8_t new_level = right
-                ? next_odd_level(current.level)
-                : next_even_level(current.level);
+                ? next_odd_level(before.level)
+                : next_even_level(before.level);
             if (overflow_isolate_count == 0U &&
                 overflow_embedding_count == 0U &&
                 new_level != kUnknownDirection &&
@@ -355,8 +367,8 @@ bool resolve_bidi_explicit(
                     : detected == 1U;
             }
             const std::uint8_t new_level = right
-                ? next_odd_level(current.level)
-                : next_even_level(current.level);
+                ? next_odd_level(before.level)
+                : next_even_level(before.level);
             if (overflow_isolate_count == 0U &&
                 overflow_embedding_count == 0U &&
                 new_level != kUnknownDirection &&
@@ -372,9 +384,10 @@ bool resolve_bidi_explicit(
             }
         } else if (original == BidiClass::PDF) {
             flags |= kBidiUnitRemovedByX9;
+            resolved = BidiClass::PDF;
             ++stats->explicit_controls;
             if (overflow_isolate_count != 0U) {
-                ++stats->unmatched_pdf;
+                // X7 ignores PDF while an isolate overflow is active.
             } else if (overflow_embedding_count != 0U) {
                 --overflow_embedding_count;
             } else if (stack_size > 1U && !stack[stack_size - 1U].isolate) {
@@ -382,6 +395,7 @@ bool resolve_bidi_explicit(
             } else {
                 ++stats->unmatched_pdf;
             }
+            assigned_level = stack[stack_size - 1U].level;
         } else if (original == BidiClass::PDI) {
             flags |= kBidiUnitPopDirectionalIsolate;
             if (overflow_isolate_count != 0U) {
@@ -398,8 +412,20 @@ bool resolve_bidi_explicit(
                     --valid_isolate_count;
                 }
             }
+            const StatusEntry after = stack[stack_size - 1U];
+            assigned_level = after.level;
+            resolved = apply_override(BidiClass::PDI, after.override_status);
+        } else if (original == BidiClass::B) {
+            assigned_level = base_level;
+            resolved = BidiClass::B;
+            stack_size = 1U;
+            stack[0] = StatusEntry{base_level, BidiOverrideStatus::Neutral, false};
+            overflow_isolate_count = 0U;
+            overflow_embedding_count = 0U;
+            valid_isolate_count = 0U;
         } else if (original == BidiClass::BN) {
             flags |= kBidiUnitRemovedByX9;
+            resolved = BidiClass::BN;
             ++stats->explicit_controls;
         }
 
@@ -408,7 +434,7 @@ bool resolve_bidi_explicit(
                 index,
                 original,
                 resolved,
-                current.level,
+                assigned_level,
                 flags,
                 units,
                 error)) {
