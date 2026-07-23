@@ -1,6 +1,7 @@
 #include "bidi_sequence.hpp"
 
 #include <algorithm>
+#include <iterator>
 #include <limits>
 #include <new>
 
@@ -202,7 +203,6 @@ bool build_bidi_isolating_run_sequences(
         std::pmr::vector<std::uint32_t> matching(topology->resource());
         std::pmr::vector<std::uint32_t> isolate_stack(topology->resource());
         matching.assign(active_count, kNoIndex);
-        isolate_stack.reserve(active_count);
 
         for (std::size_t active = 0U; active < active_count; ++active) {
             const std::uint32_t unit_index = working.active_unit_indices[active];
@@ -224,8 +224,6 @@ bool build_bidi_isolating_run_sequences(
         stats->unmatched_isolate_initiators =
             static_cast<std::uint64_t>(isolate_stack.size());
 
-        std::pmr::vector<std::uint32_t> active_to_run(topology->resource());
-        active_to_run.assign(active_count, kNoIndex);
         working.level_runs.reserve(active_count);
         std::size_t run_start = 0U;
         while (run_start < active_count) {
@@ -245,8 +243,6 @@ bool build_bidi_isolating_run_sequences(
                     "level-run range exceeds 32-bit storage",
                     error);
             }
-            const std::uint32_t run_id = static_cast<std::uint32_t>(
-                working.level_runs.size());
             working.level_runs.push_back({
                 static_cast<std::uint32_t>(run_start),
                 static_cast<std::uint32_t>(run_count),
@@ -254,20 +250,17 @@ bool build_bidi_isolating_run_sequences(
                 0U,
                 0U,
             });
-            for (std::size_t active = run_start; active < run_end; ++active) {
-                active_to_run[active] = run_id;
-            }
             run_start = run_end;
         }
         stats->level_runs = static_cast<std::uint64_t>(working.level_runs.size());
 
         const std::size_t level_run_count = working.level_runs.size();
         std::pmr::vector<std::uint32_t> next_run(topology->resource());
-        std::pmr::vector<std::uint32_t> incoming(topology->resource());
+        std::pmr::vector<std::uint8_t> incoming(topology->resource());
         std::pmr::vector<std::uint8_t> visited(topology->resource());
         next_run.assign(level_run_count, kNoIndex);
-        incoming.assign(level_run_count, 0U);
-        visited.assign(level_run_count, 0U);
+        incoming.assign(level_run_count, std::uint8_t{0U});
+        visited.assign(level_run_count, std::uint8_t{0U});
 
         for (std::size_t run_id = 0U; run_id < level_run_count; ++run_id) {
             const BidiLevelRun& run = working.level_runs[run_id];
@@ -283,12 +276,35 @@ bool build_bidi_isolating_run_sequences(
             }
 
             const std::uint32_t target_active = matching[last_active];
-            const std::uint32_t target_run = active_to_run[target_active];
-            if (target_run == kNoIndex || target_run == run_id ||
-                target_run >= working.level_runs.size() ||
-                working.level_runs[target_run].first_active_index != target_active ||
-                working.level_runs[target_run].level != run.level ||
-                incoming[target_run] != 0U) {
+            const auto target_iterator = std::lower_bound(
+                working.level_runs.begin(),
+                working.level_runs.end(),
+                target_active,
+                [](const BidiLevelRun& candidate, std::uint32_t active_index) {
+                    return candidate.first_active_index < active_index;
+                });
+            if (target_iterator == working.level_runs.end() ||
+                target_iterator->first_active_index != target_active) {
+                return fail(
+                    BidiSequenceErrorKind::TopologyViolation,
+                    last_unit_index,
+                    "matching PDI does not begin a level run",
+                    error);
+            }
+            const std::size_t target_run_index = static_cast<std::size_t>(
+                std::distance(working.level_runs.begin(), target_iterator));
+            if (target_run_index > static_cast<std::size_t>(kNoIndex)) {
+                return fail(
+                    BidiSequenceErrorKind::IndexOverflow,
+                    last_unit_index,
+                    "matching PDI level-run index exceeds 32-bit storage",
+                    error);
+            }
+            const std::uint32_t target_run = static_cast<std::uint32_t>(
+                target_run_index);
+            if (target_run_index == run_id ||
+                target_iterator->level != run.level ||
+                incoming[target_run_index] != 0U) {
                 return fail(
                     BidiSequenceErrorKind::TopologyViolation,
                     last_unit_index,
@@ -296,7 +312,7 @@ bool build_bidi_isolating_run_sequences(
                     error);
             }
             next_run[run_id] = target_run;
-            incoming[target_run] = 1U;
+            incoming[target_run_index] = std::uint8_t{1U};
         }
 
         working.sequence_run_indices.reserve(level_run_count);
@@ -323,24 +339,27 @@ bool build_bidi_isolating_run_sequences(
             const std::uint8_t sequence_level = working.level_runs[root].level;
 
             while (current != kNoIndex) {
-                if (current >= level_run_count || visited[current] != 0U ||
-                    working.level_runs[current].level != sequence_level) {
+                const std::size_t current_index = static_cast<std::size_t>(current);
+                if (current_index >= level_run_count ||
+                    visited[current_index] != 0U ||
+                    working.level_runs[current_index].level != sequence_level) {
                     return fail(
                         BidiSequenceErrorKind::TopologyViolation,
                         0U,
                         "isolating-run-sequence graph is cyclic or inconsistent",
                         error);
                 }
-                visited[current] = 1U;
+                visited[current_index] = std::uint8_t{1U};
                 working.sequence_run_indices.push_back(current);
                 ++sequence_runs;
-                sequence_units += working.level_runs[current].active_count;
+                sequence_units += working.level_runs[current_index].active_count;
                 last_run = current;
-                current = next_run[current];
+                current = next_run[current_index];
             }
 
             const BidiLevelRun& first_run = working.level_runs[root];
-            const BidiLevelRun& final_run = working.level_runs[last_run];
+            const BidiLevelRun& final_run =
+                working.level_runs[static_cast<std::size_t>(last_run)];
             const std::size_t first_active = first_run.first_active_index;
             const std::size_t last_active =
                 static_cast<std::size_t>(final_run.first_active_index) +
