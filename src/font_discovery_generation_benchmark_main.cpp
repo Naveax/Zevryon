@@ -5,9 +5,11 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -33,6 +35,19 @@ struct Fixture {
     std::vector<FontDiscoveryFace> reverse;
 };
 
+std::uint16_t flags_for_index(std::size_t index) noexcept {
+    std::uint16_t flags = 0U;
+    if (index % 5U == 0U) {
+        flags = static_cast<std::uint16_t>(
+            flags | static_cast<std::uint16_t>(kFontFaceVariable));
+    }
+    if (index % 7U == 0U) {
+        flags = static_cast<std::uint16_t>(
+            flags | static_cast<std::uint16_t>(kFontFaceColor));
+    }
+    return flags;
+}
+
 Fixture make_fixture() {
     constexpr std::array<ScriptId, 8> scripts{{
         ScriptId::Latn,
@@ -50,9 +65,13 @@ Fixture make_fixture() {
     for (std::size_t index = 0U; index < kFaceCount; ++index) {
         const std::uint32_t range_base =
             0x1000U + static_cast<std::uint32_t>(index % 4096U) * 0x10U;
+        const std::string identity =
+            "adapter/font-" + std::to_string(100000ULL + index) + "#0";
+        const std::string family =
+            "Family-" + std::to_string(1000ULL + (index % kFamilyCount));
         fixture.storage.push_back(OwnedFace{
-            "adapter/font-" + std::to_string(100000U + index) + "#0",
-            "Family-" + std::to_string(1000U + (index % kFamilyCount)),
+            identity,
+            family,
             {{{0x0020U, 0x007eU}, {range_base, range_base + 7U}}},
         });
     }
@@ -67,9 +86,7 @@ Fixture make_fixture() {
             static_cast<std::uint8_t>(1U + (index % 9U)),
             static_cast<FontSlant>(index % 3U),
             scripts[index % scripts.size()],
-            static_cast<std::uint16_t>(
-                (index % 5U == 0U ? kFontFaceVariable : 0U) |
-                (index % 7U == 0U ? kFontFaceColor : 0U)),
+            flags_for_index(index),
             owned.coverage,
         });
     }
