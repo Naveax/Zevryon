@@ -43,6 +43,7 @@ endforeach()
 add_library(zevryon-massivedoc-core STATIC
   "${ZEVRYON_MASSIVEDOC_SOURCE}"
   src/bidi_explicit.cpp
+  src/bidi_implicit.cpp
   src/bidi_neutral.cpp
   src/bidi_sequence.cpp
   src/bidi_weak.cpp
@@ -128,6 +129,14 @@ add_executable(zevryon-bidi-neutral-benchmark src/bidi_neutral_benchmark_main.cp
 target_link_libraries(zevryon-bidi-neutral-benchmark PRIVATE zevryon-massivedoc-core)
 zevryon_options(zevryon-bidi-neutral-benchmark)
 
+add_executable(zevryon-bidi-implicit-conformance src/bidi_implicit_conformance_main.cpp)
+target_link_libraries(zevryon-bidi-implicit-conformance PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-bidi-implicit-conformance)
+
+add_executable(zevryon-bidi-implicit-benchmark src/bidi_implicit_benchmark_main.cpp)
+target_link_libraries(zevryon-bidi-implicit-benchmark PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-bidi-implicit-benchmark)
+
 include(CTest)
 if(BUILD_TESTING)
   add_executable(zevryon-massivedoc-tests tests/massivedoc_store_tests.cpp)
@@ -199,4 +208,9 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-bidi-neutral-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-bidi-neutral-tests)
   add_test(NAME bidi-neutral-tests COMMAND zevryon-bidi-neutral-tests)
+
+  add_executable(zevryon-bidi-implicit-tests tests/bidi_implicit_tests.cpp)
+  target_link_libraries(zevryon-bidi-implicit-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-bidi-implicit-tests)
+  add_test(NAME bidi-implicit-tests COMMAND zevryon-bidi-implicit-tests)
 endif()

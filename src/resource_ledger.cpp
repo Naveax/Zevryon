@@ -27,6 +27,7 @@ constexpr std::array<const char*, resource_class_count> kResourceNames{
     "network_buffer",
     "dom_projection",
     "compositor_surface",
+    "bidi_implicit_level",
 };
 
 } // namespace

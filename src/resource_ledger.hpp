@@ -29,6 +29,7 @@ enum class ResourceClass : std::uint8_t {
     NetworkBuffer,
     DomProjection,
     CompositorSurface,
+    BidiImplicitLevel,
     Count
 };
 
