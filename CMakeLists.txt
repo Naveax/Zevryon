@@ -51,6 +51,7 @@ add_library(zevryon-massivedoc-core STATIC
   src/bidi_weak.cpp
   src/compact_document.cpp
   src/font_catalog.cpp
+  src/font_discovery_generation.cpp
   src/font_fallback.cpp
   src/grapheme_segmenter.cpp
   src/layout_checkpoint.cpp
@@ -254,4 +255,9 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-font-catalog-fallback-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-font-catalog-fallback-tests)
   add_test(NAME font-catalog-fallback-tests COMMAND zevryon-font-catalog-fallback-tests)
+
+  add_executable(zevryon-font-discovery-generation-tests tests/font_discovery_generation_tests.cpp)
+  target_link_libraries(zevryon-font-discovery-generation-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-font-discovery-generation-tests)
+  add_test(NAME font-discovery-generation-tests COMMAND zevryon-font-discovery-generation-tests)
 endif()
