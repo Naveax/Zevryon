@@ -43,6 +43,7 @@ endforeach()
 add_library(zevryon-massivedoc-core STATIC
   "${ZEVRYON_MASSIVEDOC_SOURCE}"
   src/bidi_explicit.cpp
+  src/bidi_neutral.cpp
   src/bidi_sequence.cpp
   src/bidi_weak.cpp
   src/compact_document.cpp
@@ -53,6 +54,7 @@ add_library(zevryon-massivedoc-core STATIC
   src/resource_ledger.cpp
   src/script_run.cpp
   src/unicode_bidi.cpp
+  src/unicode_bidi_brackets.cpp
   src/unicode_grapheme_data.cpp
   src/unicode_script.cpp
   src/unicode_stream.cpp
@@ -117,6 +119,14 @@ zevryon_options(zevryon-bidi-weak-conformance)
 add_executable(zevryon-bidi-weak-benchmark src/bidi_weak_benchmark_main.cpp)
 target_link_libraries(zevryon-bidi-weak-benchmark PRIVATE zevryon-massivedoc-core)
 zevryon_options(zevryon-bidi-weak-benchmark)
+
+add_executable(zevryon-bidi-bracket-conformance src/bidi_bracket_conformance_main.cpp)
+target_link_libraries(zevryon-bidi-bracket-conformance PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-bidi-bracket-conformance)
+
+add_executable(zevryon-bidi-neutral-benchmark src/bidi_neutral_benchmark_main.cpp)
+target_link_libraries(zevryon-bidi-neutral-benchmark PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-bidi-neutral-benchmark)
 
 include(CTest)
 if(BUILD_TESTING)
@@ -184,4 +194,9 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-bidi-weak-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-bidi-weak-tests)
   add_test(NAME bidi-weak-tests COMMAND zevryon-bidi-weak-tests)
+
+  add_executable(zevryon-bidi-neutral-tests tests/bidi_neutral_tests.cpp)
+  target_link_libraries(zevryon-bidi-neutral-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-bidi-neutral-tests)
+  add_test(NAME bidi-neutral-tests COMMAND zevryon-bidi-neutral-tests)
 endif()

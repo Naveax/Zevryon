@@ -1,0 +1,229 @@
+name: z1-bidi-neutral
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-bidi-neutral.yml'
+      - 'CMakeLists.txt'
+      - 'scripts/generate_unicode_bidi_brackets.py'
+      - 'src/bidi_neutral.*'
+      - 'src/bidi_bracket_conformance_main.cpp'
+      - 'src/unicode_bidi_brackets*'
+      - 'src/resource_ledger.*'
+      - 'tests/bidi_neutral_tests.cpp'
+      - 'docs/Z1D_BIDI_NEUTRALS.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z1-bidi-neutral-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  neutral-certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch pinned Unicode 17 bracket data
+        run: |
+          mkdir -p ucd-17.0.0 evidence
+          curl --fail --location --retry 3 \
+            https://www.unicode.org/Public/17.0.0/ucd/BidiBrackets.txt \
+            --output ucd-17.0.0/BidiBrackets.txt
+          echo 'dadbaf38a0d0246e5b805bf8725cb81b7c621f93d030595635f5ba2c2f179428  ucd-17.0.0/BidiBrackets.txt' | sha256sum --check --strict
+      - name: Verify deterministic generated header
+        run: |
+          python scripts/generate_unicode_bidi_brackets.py \
+            ucd-17.0.0/BidiBrackets.txt \
+            evidence/unicode_bidi_brackets.generated.hpp \
+            --metadata evidence/bidi-bracket-generator.json
+          cmp src/unicode_bidi_brackets.generated.hpp \
+            evidence/unicode_bidi_brackets.generated.hpp
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build focused neutral targets
+        run: |
+          cmake --build build --parallel 2 --target \
+            zevryon-bidi-neutral-tests \
+            zevryon-bidi-bracket-conformance \
+            zevryon-bidi-neutral-benchmark
+      - run: ctest --test-dir build -R bidi-neutral-tests --output-on-failure
+      - name: Run full bracket property conformance
+        run: |
+          ./build/zevryon-bidi-bracket-conformance \
+            ucd-17.0.0/BidiBrackets.txt \
+            > evidence/z1-bidi-bracket-conformance.json
+          cat evidence/z1-bidi-bracket-conformance.json
+      - name: Run three independent 64 KiB distributions
+        run: |
+          ./build/zevryon-bidi-neutral-benchmark 1024 65536 \
+            > evidence/z1-bidi-neutral-benchmark-1.json
+          ./build/zevryon-bidi-neutral-benchmark 1024 65536 \
+            > evidence/z1-bidi-neutral-benchmark-2.json
+          ./build/zevryon-bidi-neutral-benchmark 1024 65536 \
+            > evidence/z1-bidi-neutral-benchmark-3.json
+      - name: Enforce correctness, memory, and final robust latency gates
+        run: |
+          python - <<'PY'
+          import json, pathlib, statistics
+          root = pathlib.Path('evidence')
+          generator = json.loads((root / 'bidi-bracket-generator.json').read_text())
+          assert generator == {
+              'schema': 'zevryon.unicode-bidi-brackets.v1',
+              'unicode_version': '17.0.0',
+              'source_sha256': 'dadbaf38a0d0246e5b805bf8725cb81b7c621f93d030595635f5ba2c2f179428',
+              'fingerprint': '429b90895269f7307e4aa63f05827996296ad3369d1af444f94cc12938cbce43',
+              'records': 128,
+              'open': 64,
+              'close': 64,
+          }
+          conformance = json.loads((root / 'z1-bidi-bracket-conformance.json').read_text())
+          assert conformance == {
+              'schema': 'zevryon.bidi-bracket-conformance.v1',
+              'unicode_version': '17.0.0',
+              'data_fingerprint': '429b90895269f7307e4aa63f05827996296ad3369d1af444f94cc12938cbce43',
+              'source_sha256': 'dadbaf38a0d0246e5b805bf8725cb81b7c621f93d030595635f5ba2c2f179428',
+              'codepoints': 1114112,
+              'records': 128,
+              'open': 64,
+              'close': 64,
+              'passed': True,
+          }
+          reports = [
+              json.loads((root / f'z1-bidi-neutral-benchmark-{index}.json').read_text())
+              for index in range(1, 4)
+          ]
+          for report in reports:
+              assert report['schema'] == 'zevryon.bidi-neutral-benchmark.v1'
+              assert report['uax_version'] == 'Unicode 17.0.0 / UAX #9 revision 51'
+              assert report['fixture_bytes'] == 65536
+              assert report['iterations'] == 1024
+              assert report['type_record_bytes'] == 1
+              assert report['output_types'] == report['active_units']
+              assert report['bracket_candidates'] > 0
+              assert report['bracket_pairs'] > 0
+              assert report['n0_embedding_pairs'] > 0
+              assert report['n0_opposite_pairs'] > 0
+              assert report['n0_following_nsm_changes'] > 0
+              assert report['n1_changes'] > 0
+              assert report['n2_changes'] > 0
+              assert report['bracket_overflow_sequences'] == 0
+              assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
+              assert report['neutral_hard_limit_bytes'] == 65536
+              assert report['neutral_current_bytes'] <= report['neutral_peak_bytes'] <= 65536
+              assert report['rejected_reservations'] == 0
+              assert report['accounting_errors'] == 0
+              assert report['within_hard_limits'] is True
+              assert report['accounting_clean'] is True
+          certification = {
+              'schema': 'zevryon.bidi-neutral-certification.v1',
+              'runs': len(reports),
+              'median_p50_ms': statistics.median(r['p50_ms'] for r in reports),
+              'median_p95_ms': statistics.median(r['p95_ms'] for r in reports),
+              'median_p99_ms': statistics.median(r['p99_ms'] for r in reports),
+              'worst_maximum_ms': max(r['maximum_ms'] for r in reports),
+              'worst_peak_bytes': max(r['neutral_peak_bytes'] for r in reports),
+              'active_units': reports[0]['active_units'],
+              'bracket_pairs': reports[0]['bracket_pairs'],
+              'passed': True,
+          }
+          assert certification['median_p95_ms'] <= 1.50
+          assert certification['median_p99_ms'] <= 2.00
+          assert certification['worst_maximum_ms'] <= 4.00
+          assert certification['worst_peak_bytes'] <= 65536
+          (root / 'z1-bidi-neutral-certification.json').write_text(
+              json.dumps(certification, indent=2, sort_keys=True) + '\n'
+          )
+          print(json.dumps(certification, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z1-bidi-neutral-${{ github.sha }}
+          path: |
+            evidence/
+            ucd-17.0.0/BidiBrackets.txt
+          if-no-files-found: error
+
+  macos-neutral-strict:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build focused neutral targets
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target \
+            zevryon-bidi-neutral-tests \
+            zevryon-bidi-bracket-conformance \
+            zevryon-bidi-neutral-benchmark \
+            2>&1 | tee macos-bidi-neutral-build.log
+      - run: ctest --test-dir build -R bidi-neutral-tests --output-on-failure
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-bidi-neutral-${{ github.sha }}
+          path: macos-bidi-neutral-build.log
+          if-no-files-found: warn
+
+  windows-neutral-asan:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure MSVC AddressSanitizer
+        run: cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build neutral test with MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          cmake --build build-asan --config RelWithDebInfo --target zevryon-bidi-neutral-tests --parallel 2 2>&1 | Tee-Object -FilePath windows-bidi-neutral-asan-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Stage MSVC AddressSanitizer runtime
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw 'vswhere.exe not found' }
+          $installation = (& $vswhere -latest -products * -property installationPath).Trim()
+          if (-not $installation) { throw 'Visual Studio installation not found' }
+          $patterns = @(
+            "$installation\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan*dynamic-x86_64.dll",
+            "$installation\VC\Tools\Llvm\x64\bin\clang_rt.asan*dynamic-x86_64.dll"
+          )
+          $runtimes = @($patterns | ForEach-Object {
+            Get-ChildItem -Path $_ -File -ErrorAction SilentlyContinue
+          })
+          if (-not $runtimes) { throw 'MSVC AddressSanitizer runtime DLL not found' }
+          $output = Resolve-Path '.\build-asan\RelWithDebInfo'
+          $runtimes | Group-Object Name | ForEach-Object {
+            $runtime = $_.Group | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            Copy-Item $runtime.FullName -Destination $output -Force
+          }
+      - name: Run neutral tests under MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          $env:ASAN_OPTIONS = 'halt_on_error=1:abort_on_error=1:symbolize=1'
+          $env:ASAN_SAVE_DUMPS = 'windows-bidi-neutral-asan.dmp'
+          $process = Start-Process `
+            -FilePath '.\build-asan\RelWithDebInfo\zevryon-bidi-neutral-tests.exe' `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput 'windows-bidi-neutral-asan.stdout.log' `
+            -RedirectStandardError 'windows-bidi-neutral-asan.stderr.log'
+          "exit_code=$($process.ExitCode)" | Set-Content 'windows-bidi-neutral-asan.exit.log'
+          Get-Content 'windows-bidi-neutral-asan.stdout.log' -ErrorAction SilentlyContinue
+          Get-Content 'windows-bidi-neutral-asan.stderr.log' -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-bidi-neutral-asan-${{ github.sha }}
+          path: |
+            windows-bidi-neutral-asan-build.log
+            windows-bidi-neutral-asan.*.log
+            windows-bidi-neutral-asan.dmp
+          if-no-files-found: warn

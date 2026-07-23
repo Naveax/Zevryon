@@ -1,0 +1,67 @@
+#pragma once
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <string_view>
+
+namespace zevryon::text {
+
+enum class BidiBracketType : std::uint8_t {
+    None = 0,
+    Open,
+    Close
+};
+
+struct BidiBracketRecord {
+    std::uint32_t codepoint{0};
+    std::uint32_t paired_codepoint{0};
+    BidiBracketType type{BidiBracketType::None};
+};
+
+inline constexpr std::string_view kUnicodeBidiBracketVersion = "17.0.0";
+inline constexpr std::string_view kUnicodeBidiBracketFingerprint = "429b90895269f7307e4aa63f05827996296ad3369d1af444f94cc12938cbce43";
+inline constexpr std::string_view kUnicodeBidiBracketSourceSha256 = "dadbaf38a0d0246e5b805bf8725cb81b7c621f93d030595635f5ba2c2f179428";
+inline constexpr std::string_view kUnicodeBidiBracketHex =
+    "2800000029000000012900000028000000025b0000005d000000015d0000005b000000027b0000007d000000017d0000007b000000023a0f00003b0f0000013b0f00003a0f0000023c0f00003d0f0000013d0f00003c0f0000029b1600009c160000019c1600009b160000024520000046200000014620000045200000027d2000007e200000017e2000007d200000028d2000008e200000018e2000008d200000020823000009230000010923000008230000020a2300000b230000010b2300000a23000002292300002a230000012a23000029230000026827000069270000016927000068270000026a2700006b270000016b2700006a270000026c2700006d270000016d2700006c270000026e2700006f270000016f2700006e27000002702700007127000001712700007027000002722700007327000001732700007227000002742700007527000001752700007427000002c5270000c627000001c6270000c527000002e6270000e727000001e7270000e627000002e8270000e927000001e9270000e827000002ea270000eb27000001eb270000ea27000002ec270000ed27000001ed270000ec27000002ee270000ef27000001ef270000ee27000002832900008429000001842900008329000002852900008629000001862900008529000002872900008829000001882900008729000002892900008a290000018a29000089290000028b2900008c290000018c2900008b290000028d29000090290000018e2900008f290000028f2900008e29000001902900008d29000002912900009229000001922900009129000002932900009429000001942900009329000002952900009629000001962900009529000002972900009829000001982900009729000002d8290000d929000001d9290000d829000002da290000db29000001db290000da29000002fc290000fd29000001fd290000fc29000002222e0000232e000001232e0000222e000002242e0000252e000001252e0000242e000002262e0000272e000001272e0000262e000002282e0000292e000001292e0000282e000002552e0000562e000001562e0000552e000002572e0000582e000001582e0000572e000002592e00005a2e0000015a2e0000592e0000025b2e00005c2e0000015c2e00005b2e0000020830000009300000010930000008300000020a3000000b300000010b3000000a300000020c3000000d300000010d3000000c300000020e3000000f300000010f3000000e300000021030000011300000011130000010300000021430000015300000011530000014300000021630000017300000011730000016300000021830000019300000011930000018300000021a3000001b300000011b3000001a3000000259fe00005afe0000015afe000059fe0000025bfe00005cfe0000015cfe00005bfe0000025dfe00005efe0000015efe00005dfe00000208ff000009ff00000109ff000008ff0000023bff00003dff0000013dff00003bff0000025bff00005dff0000015dff00005bff0000025fff000060ff00000160ff00005fff00000262ff000063ff00000163ff000062ff000002";
+
+constexpr std::uint8_t bidi_bracket_hex_nibble(char value) noexcept {
+    return value >= '0' && value <= '9'
+        ? static_cast<std::uint8_t>(value - '0')
+        : static_cast<std::uint8_t>(value - 'a' + 10);
+}
+
+constexpr std::uint8_t bidi_bracket_hex_byte(std::size_t offset) noexcept {
+    return static_cast<std::uint8_t>(
+        (bidi_bracket_hex_nibble(kUnicodeBidiBracketHex[offset]) << 4U) |
+        bidi_bracket_hex_nibble(kUnicodeBidiBracketHex[offset + 1U]));
+}
+
+constexpr std::uint32_t bidi_bracket_u32(std::size_t byte_offset) noexcept {
+    const std::size_t hex_offset = byte_offset * 2U;
+    return static_cast<std::uint32_t>(bidi_bracket_hex_byte(hex_offset)) |
+           (static_cast<std::uint32_t>(bidi_bracket_hex_byte(hex_offset + 2U)) << 8U) |
+           (static_cast<std::uint32_t>(bidi_bracket_hex_byte(hex_offset + 4U)) << 16U) |
+           (static_cast<std::uint32_t>(bidi_bracket_hex_byte(hex_offset + 6U)) << 24U);
+}
+
+constexpr std::array<BidiBracketRecord, 128> decode_bidi_bracket_records() noexcept {
+    std::array<BidiBracketRecord, 128> output{};
+    for (std::size_t index = 0U; index < output.size(); ++index) {
+        const std::size_t byte_offset = index * 9U;
+        output[index] = BidiBracketRecord{
+            bidi_bracket_u32(byte_offset),
+            bidi_bracket_u32(byte_offset + 4U),
+            static_cast<BidiBracketType>(
+                bidi_bracket_hex_byte((byte_offset + 8U) * 2U))};
+    }
+    return output;
+}
+
+inline constexpr auto kUnicodeBidiBracketRecords = decode_bidi_bracket_records();
+
+static_assert(kUnicodeBidiBracketHex.size() == 128U * 9U * 2U);
+static_assert(kUnicodeBidiBracketRecords.front().codepoint == 0x28U);
+static_assert(kUnicodeBidiBracketRecords.back().codepoint == 0xFF63U);
+
+} // namespace zevryon::text

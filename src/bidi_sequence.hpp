@@ -64,6 +64,8 @@ public:
 
     BidiSequenceTopology(const BidiSequenceTopology&) = delete;
     BidiSequenceTopology& operator=(const BidiSequenceTopology&) = delete;
+    BidiSequenceTopology(BidiSequenceTopology&&) noexcept = default;
+    BidiSequenceTopology& operator=(BidiSequenceTopology&&) = delete;
 
     std::pmr::memory_resource* resource() const noexcept;
     void release() noexcept;
