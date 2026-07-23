@@ -15,6 +15,7 @@ enum class ResourceClass : std::uint8_t {
     GraphemeCluster,
     ScriptRun,
     BidiRun,
+    BidiSequence,
     GlyphRun,
     ComputedStyle,
     LayoutFragment,
