@@ -1,0 +1,165 @@
+name: z1-bidi-mirroring-data
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-bidi-mirroring-data.yml'
+      - 'tools/generate_unicode_bidi_mirroring.py'
+      - 'tests/test_unicode_bidi_mirroring_generator.py'
+      - 'docs/Z1D_BIDI_MIRRORING.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z1-bidi-mirroring-data-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  unicode17-data-certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --upgrade pip pytest
+      - run: python -m pytest -q tests/test_unicode_bidi_mirroring_generator.py
+      - name: Fetch Unicode 17 mirroring sources
+        run: |
+          mkdir -p ucd-17.0.0 generated-a generated-b evidence
+          curl --fail --location --retry 3 \
+            https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt \
+            --output ucd-17.0.0/UnicodeData.txt
+          curl --fail --location --retry 3 \
+            https://www.unicode.org/Public/17.0.0/ucd/BidiMirroring.txt \
+            --output ucd-17.0.0/BidiMirroring.txt
+          sha256sum ucd-17.0.0/UnicodeData.txt ucd-17.0.0/BidiMirroring.txt \
+            | tee evidence/source-sha256.txt
+      - name: Generate twice and prove byte determinism
+        run: |
+          python tools/generate_unicode_bidi_mirroring.py \
+            --unicode-data ucd-17.0.0/UnicodeData.txt \
+            --bidi-mirroring ucd-17.0.0/BidiMirroring.txt \
+            --output-header generated-a/unicode_bidi_mirroring.generated.hpp \
+            --output-report generated-a/report.json
+          python tools/generate_unicode_bidi_mirroring.py \
+            --unicode-data ucd-17.0.0/UnicodeData.txt \
+            --bidi-mirroring ucd-17.0.0/BidiMirroring.txt \
+            --output-header generated-b/unicode_bidi_mirroring.generated.hpp \
+            --output-report generated-b/report.json
+          cmp generated-a/unicode_bidi_mirroring.generated.hpp \
+              generated-b/unicode_bidi_mirroring.generated.hpp
+          cmp generated-a/report.json generated-b/report.json
+          cp generated-a/report.json evidence/z1-bidi-mirroring-data.json
+          cp generated-a/unicode_bidi_mirroring.generated.hpp evidence/
+      - name: Enforce normative/informative separation
+        run: |
+          python - <<'PY'
+          import importlib.util
+          import json
+          import pathlib
+          import sys
+
+          module_path = pathlib.Path('tools/generate_unicode_bidi_mirroring.py')
+          spec = importlib.util.spec_from_file_location('mirror_generator_ci', module_path)
+          assert spec is not None and spec.loader is not None
+          module = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = module
+          spec.loader.exec_module(module)
+
+          mirrored = module.parse_unicode_data(pathlib.Path('ucd-17.0.0/UnicodeData.txt'))
+          mappings = module.parse_bidi_mirroring(pathlib.Path('ucd-17.0.0/BidiMirroring.txt'))
+          report = json.loads(pathlib.Path('evidence/z1-bidi-mirroring-data.json').read_text())
+          mapping_by_source = {mapping.codepoint: mapping for mapping in mappings}
+
+          assert report['schema'] == 'zevryon.unicode-bidi-mirroring-generator.v1'
+          assert report['unicode_version'] == '17.0.0'
+          assert report['passed'] is True
+          assert report['mirrored_codepoints'] == len(mirrored)
+          assert report['mapping_records'] == len(mappings)
+          assert report['mirrored_ranges'] > 0
+          assert report['mapping_records'] > 0
+          assert report['mirrored_without_character_mapping'] > 0
+          assert 0x0028 in mirrored
+          assert mapping_by_source[0x0028].mirror_codepoint == 0x0029
+          assert 0x221B in mirrored
+          assert 0xFD3E not in mirrored
+          assert 0xFD3F not in mirrored
+          assert set(mapping_by_source).issubset(set(mirrored))
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z1-bidi-mirroring-data-${{ github.sha }}
+          path: |
+            evidence/
+            ucd-17.0.0/UnicodeData.txt
+            ucd-17.0.0/BidiMirroring.txt
+          if-no-files-found: error
+
+  macos-generator-strict:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --upgrade pip pytest
+      - run: python -m pytest -q tests/test_unicode_bidi_mirroring_generator.py
+      - name: Generate on macOS
+        run: |
+          mkdir -p ucd generated evidence
+          curl --fail --location --retry 3 \
+            https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt \
+            --output ucd/UnicodeData.txt
+          curl --fail --location --retry 3 \
+            https://www.unicode.org/Public/17.0.0/ucd/BidiMirroring.txt \
+            --output ucd/BidiMirroring.txt
+          python tools/generate_unicode_bidi_mirroring.py \
+            --unicode-data ucd/UnicodeData.txt \
+            --bidi-mirroring ucd/BidiMirroring.txt \
+            --output-header generated/unicode_bidi_mirroring.generated.hpp \
+            --output-report evidence/report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-bidi-mirroring-data-${{ github.sha }}
+          path: evidence/report.json
+          if-no-files-found: warn
+
+  windows-generator-strict:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --upgrade pip pytest
+      - run: python -m pytest -q tests/test_unicode_bidi_mirroring_generator.py
+      - name: Generate on Windows
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force ucd, generated, evidence | Out-Null
+          Invoke-WebRequest `
+            https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt `
+            -OutFile ucd/UnicodeData.txt
+          Invoke-WebRequest `
+            https://www.unicode.org/Public/17.0.0/ucd/BidiMirroring.txt `
+            -OutFile ucd/BidiMirroring.txt
+          python tools/generate_unicode_bidi_mirroring.py `
+            --unicode-data ucd/UnicodeData.txt `
+            --bidi-mirroring ucd/BidiMirroring.txt `
+            --output-header generated/unicode_bidi_mirroring.generated.hpp `
+            --output-report evidence/report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-bidi-mirroring-data-${{ github.sha }}
+          path: evidence/report.json
+          if-no-files-found: warn
