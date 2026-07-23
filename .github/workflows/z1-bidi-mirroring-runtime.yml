@@ -1,0 +1,106 @@
+name: z1-bidi-mirroring-runtime
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-bidi-mirroring-runtime.yml'
+      - 'CMakeLists.txt'
+      - 'src/bidi_mirroring.*'
+      - 'src/unicode_bidi_mirroring.*'
+      - 'src/resource_ledger.*'
+      - 'tests/bidi_mirroring_tests.cpp'
+      - 'docs/Z1D_BIDI_MIRRORING_RUNTIME.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z1-bidi-mirroring-runtime-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu-runtime-strict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build focused runtime target
+        run: cmake --build build --parallel 2 --target zevryon-bidi-mirroring-tests
+      - run: ctest --test-dir build -R bidi-mirroring-tests --output-on-failure
+
+  macos-runtime-strict:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build focused runtime target
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target zevryon-bidi-mirroring-tests \
+            2>&1 | tee macos-bidi-mirroring-runtime-build.log
+      - run: ctest --test-dir build -R bidi-mirroring-tests --output-on-failure
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-bidi-mirroring-runtime-${{ github.sha }}
+          path: macos-bidi-mirroring-runtime-build.log
+          if-no-files-found: warn
+
+  windows-runtime-asan:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure MSVC AddressSanitizer
+        run: cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build focused runtime target
+        shell: pwsh
+        run: |
+          cmake --build build-asan --config RelWithDebInfo --target zevryon-bidi-mirroring-tests --parallel 2 2>&1 | Tee-Object -FilePath windows-bidi-mirroring-runtime-asan-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Stage MSVC AddressSanitizer runtime
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw 'vswhere.exe not found' }
+          $installation = (& $vswhere -latest -products * -property installationPath).Trim()
+          if (-not $installation) { throw 'Visual Studio installation not found' }
+          $patterns = @(
+            "$installation\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan*dynamic-x86_64.dll",
+            "$installation\VC\Tools\Llvm\x64\bin\clang_rt.asan*dynamic-x86_64.dll"
+          )
+          $runtimes = @($patterns | ForEach-Object {
+            Get-ChildItem -Path $_ -File -ErrorAction SilentlyContinue
+          })
+          if (-not $runtimes) { throw 'MSVC AddressSanitizer runtime DLL not found' }
+          $output = Resolve-Path '.\build-asan\RelWithDebInfo'
+          $runtimes | Group-Object Name | ForEach-Object {
+            $runtime = $_.Group | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            Copy-Item $runtime.FullName -Destination $output -Force
+          }
+      - name: Run runtime tests under MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          $env:ASAN_OPTIONS = 'halt_on_error=1:abort_on_error=1:symbolize=1'
+          $env:ASAN_SAVE_DUMPS = 'windows-bidi-mirroring-runtime-asan.dmp'
+          $process = Start-Process `
+            -FilePath '.\build-asan\RelWithDebInfo\zevryon-bidi-mirroring-tests.exe' `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput 'windows-bidi-mirroring-runtime-asan.stdout.log' `
+            -RedirectStandardError 'windows-bidi-mirroring-runtime-asan.stderr.log'
+          "exit_code=$($process.ExitCode)" | Set-Content 'windows-bidi-mirroring-runtime-asan.exit.log'
+          Get-Content 'windows-bidi-mirroring-runtime-asan.stdout.log' -ErrorAction SilentlyContinue
+          Get-Content 'windows-bidi-mirroring-runtime-asan.stderr.log' -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-bidi-mirroring-runtime-asan-${{ github.sha }}
+          path: |
+            windows-bidi-mirroring-runtime-asan-build.log
+            windows-bidi-mirroring-runtime-asan.*.log
+            windows-bidi-mirroring-runtime-asan.dmp
+          if-no-files-found: warn
