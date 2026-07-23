@@ -43,9 +43,9 @@ jobs:
       - name: Run three independent 64 KiB distributions
         run: |
           mkdir -p evidence/ci
-          build/zevryon-bidi-sequence-benchmark 1024 4194304 > evidence/ci/z1-bidi-sequence-benchmark-1.json
-          build/zevryon-bidi-sequence-benchmark 1024 4194304 > evidence/ci/z1-bidi-sequence-benchmark-2.json
-          build/zevryon-bidi-sequence-benchmark 1024 4194304 > evidence/ci/z1-bidi-sequence-benchmark-3.json
+          build/zevryon-bidi-sequence-benchmark 1024 1048576 > evidence/ci/z1-bidi-sequence-benchmark-1.json
+          build/zevryon-bidi-sequence-benchmark 1024 1048576 > evidence/ci/z1-bidi-sequence-benchmark-2.json
+          build/zevryon-bidi-sequence-benchmark 1024 1048576 > evidence/ci/z1-bidi-sequence-benchmark-3.json
       - name: Enforce correctness, memory, and robust latency gates
         run: |
           python - <<'PY'
@@ -81,8 +81,8 @@ jobs:
               assert report['level_run_record_bytes'] <= 12
               assert report['sequence_record_bytes'] <= 16
               assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
-              assert report['sequence_hard_limit_bytes'] == 4194304
-              assert report['sequence_current_bytes'] <= report['sequence_peak_bytes'] <= 4194304
+              assert report['sequence_hard_limit_bytes'] == 1048576
+              assert report['sequence_current_bytes'] <= report['sequence_peak_bytes'] <= 1048576
               assert report['rejected_reservations'] == 0
               assert report['accounting_errors'] == 0
               assert report['within_hard_limits'] is True
@@ -102,10 +102,10 @@ jobs:
               'isolating_sequences': reports[0]['isolating_sequences'],
               'passed': True,
           }
-          assert aggregate['median_p95_ms'] <= 3.00
-          assert aggregate['median_p99_ms'] <= 4.00
-          assert aggregate['worst_maximum_ms'] <= 8.00
-          assert aggregate['worst_peak_bytes'] <= 4194304
+          assert aggregate['median_p95_ms'] <= 1.00
+          assert aggregate['median_p99_ms'] <= 1.25
+          assert aggregate['worst_maximum_ms'] <= 2.00
+          assert aggregate['worst_peak_bytes'] <= 1048576
           Path('evidence/ci/z1-bidi-sequence-certification.json').write_text(
               json.dumps(aggregate, indent=2, sort_keys=True) + '\n'
           )
