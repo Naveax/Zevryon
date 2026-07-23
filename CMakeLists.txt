@@ -42,6 +42,7 @@ endforeach()
 
 add_library(zevryon-massivedoc-core STATIC
   "${ZEVRYON_MASSIVEDOC_SOURCE}"
+  src/bidi_explicit.cpp
   src/compact_document.cpp
   src/grapheme_segmenter.cpp
   src/layout_checkpoint.cpp
@@ -49,6 +50,7 @@ add_library(zevryon-massivedoc-core STATIC
   src/ledger_memory_resource.cpp
   src/resource_ledger.cpp
   src/script_run.cpp
+  src/unicode_bidi.cpp
   src/unicode_grapheme_data.cpp
   src/unicode_script.cpp
   src/unicode_stream.cpp
@@ -89,6 +91,14 @@ zevryon_options(zevryon-script-conformance)
 add_executable(zevryon-script-run-benchmark src/script_run_benchmark_main.cpp)
 target_link_libraries(zevryon-script-run-benchmark PRIVATE zevryon-massivedoc-core)
 zevryon_options(zevryon-script-run-benchmark)
+
+add_executable(zevryon-bidi-conformance src/bidi_conformance_main.cpp)
+target_link_libraries(zevryon-bidi-conformance PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-bidi-conformance)
+
+add_executable(zevryon-bidi-benchmark src/bidi_benchmark_main.cpp)
+target_link_libraries(zevryon-bidi-benchmark PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-bidi-benchmark)
 
 include(CTest)
 if(BUILD_TESTING)
@@ -141,4 +151,9 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-script-run-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-script-run-tests)
   add_test(NAME script-run-tests COMMAND zevryon-script-run-tests)
+
+  add_executable(zevryon-bidi-explicit-tests tests/bidi_explicit_tests.cpp)
+  target_link_libraries(zevryon-bidi-explicit-tests PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-bidi-explicit-tests)
+  add_test(NAME bidi-explicit-tests COMMAND zevryon-bidi-explicit-tests)
 endif()
