@@ -1,12 +1,12 @@
 {
-  "schema": "zevryon.unicode-bidi-data.v1",
-  "unicode_version": "17.0.0",
-  "fingerprint": "bootstrap-placeholder",
-  "source_sha256": {
-    "DerivedBidiClass.txt": "bootstrap-placeholder",
-    "PropertyValueAliases.txt": "bootstrap-placeholder"
-  },
   "bidi_class_count": 23,
-  "bidi_range_count": 1,
-  "generated_header_bytes": 0
+  "bidi_range_count": 1267,
+  "fingerprint": "ef94402f57c2b791cdc879e6b6464c1793550c9784ae0539ce2a36c929c67dfb",
+  "generated_header_bytes": 69540,
+  "schema": "zevryon.unicode-bidi-data.v1",
+  "source_sha256": {
+    "DerivedBidiClass.txt": "4867b4b7f0731ed1bfcd34cc6251211ff1542541fce0734b6fbda139ee80b3a4",
+    "PropertyValueAliases.txt": "64e9a5f76f7a1e8b5a47d6a1f9a26522a251208f5276bdfa1559dac7cf2e827a"
+  },
+  "unicode_version": "17.0.0"
 }
