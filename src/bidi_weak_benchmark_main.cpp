@@ -47,6 +47,7 @@ std::vector<zevryon::text::DecodedCodePoint> make_fixture(
         0x2067U, 0x0628U, '5', 0x2066U, 'b', '6', 0x2069U,
         0x062aU, 0x2069U, 0x0301U, ' ',
         0x202eU, '7', '$', 0x202cU, ' ', '(', ')',
+        ' ', 'a', '+', 'b', ',', 'c', '$', 'd',
     };
     std::vector<zevryon::text::DecodedCodePoint> output;
     output.reserve(target_source_bytes / 2U);
