@@ -66,9 +66,7 @@ std::vector<DecodedCodePoint> make_codepoints(
 bool resolve(
     const std::vector<DecodedCodePoint>& codepoints,
     Result* result,
-    std::size_t weak_budget = 64U * 1024U,
-    BidiSequenceTopology** topology_out = nullptr,
-    std::pmr::memory_resource** topology_resource_out = nullptr) {
+    std::size_t weak_budget = 64U * 1024U) {
     zevryon::core::ResourceLedger explicit_ledger;
     explicit_ledger.set_hard_limit(
         zevryon::core::ResourceClass::BidiRun,
@@ -93,21 +91,19 @@ bool resolve(
     topology_ledger.set_hard_limit(
         zevryon::core::ResourceClass::BidiSequence,
         1U * 1024U * 1024U);
-    auto* topology_memory = new zevryon::core::LedgerMemoryResource(
+    zevryon::core::LedgerMemoryResource topology_memory(
         topology_ledger,
         zevryon::core::ResourceClass::BidiSequence);
-    auto* topology = new BidiSequenceTopology(topology_memory);
+    BidiSequenceTopology topology(&topology_memory);
     BidiSequenceStats topology_stats;
     BidiSequenceError topology_error;
     if (!zevryon::text::build_bidi_isolating_run_sequences(
             units,
             explicit_stats.paragraph_level,
-            topology,
+            &topology,
             &topology_stats,
             &topology_error)) {
         std::cerr << "topology setup failed: " << topology_error.message << '\n';
-        delete topology;
-        delete topology_memory;
         return false;
     }
 
@@ -123,7 +119,7 @@ bool resolve(
     BidiWeakError error;
     const bool success = zevryon::text::resolve_bidi_weak_types(
         units,
-        *topology,
+        topology,
         &types,
         &stats,
         &error);
@@ -133,18 +129,10 @@ bool resolve(
     result->resource = weak_ledger.snapshot(
         zevryon::core::ResourceClass::BidiTypeResolution);
     result->active_unit_indices.assign(
-        topology->active_unit_indices.begin(),
-        topology->active_unit_indices.end());
+        topology.active_unit_indices.begin(),
+        topology.active_unit_indices.end());
     if (success) {
         result->types.assign(types.begin(), types.end());
-    }
-
-    if (topology_out != nullptr && topology_resource_out != nullptr) {
-        *topology_out = topology;
-        *topology_resource_out = topology_memory;
-    } else {
-        delete topology;
-        delete topology_memory;
     }
     return success;
 }
@@ -290,20 +278,11 @@ bool test_hard_budget() {
 
 bool test_topology_validation() {
     const auto codepoints = make_codepoints({'a', 0x2067U, 0x05d0U, 0x2069U});
-    Result baseline;
-    BidiSequenceTopology* topology = nullptr;
-    std::pmr::memory_resource* topology_resource = nullptr;
-    if (!require(
-            resolve(codepoints, &baseline, 64U * 1024U, &topology, &topology_resource),
-            "topology validation baseline")) {
-        return false;
-    }
-
-    topology->sequence_run_indices[0] = static_cast<std::uint32_t>(
-        topology->level_runs.size());
 
     zevryon::core::ResourceLedger explicit_ledger;
-    explicit_ledger.set_hard_limit(zevryon::core::ResourceClass::BidiRun, 1U << 20U);
+    explicit_ledger.set_hard_limit(
+        zevryon::core::ResourceClass::BidiRun,
+        1U << 20U);
     zevryon::core::LedgerMemoryResource explicit_memory(
         explicit_ledger,
         zevryon::core::ResourceClass::BidiRun);
@@ -316,10 +295,29 @@ bool test_topology_validation() {
             &units,
             &explicit_stats,
             &explicit_error)) {
-        delete topology;
-        delete topology_resource;
         return false;
     }
+
+    zevryon::core::ResourceLedger topology_ledger;
+    topology_ledger.set_hard_limit(
+        zevryon::core::ResourceClass::BidiSequence,
+        1U << 20U);
+    zevryon::core::LedgerMemoryResource topology_memory(
+        topology_ledger,
+        zevryon::core::ResourceClass::BidiSequence);
+    BidiSequenceTopology topology(&topology_memory);
+    BidiSequenceStats topology_stats;
+    BidiSequenceError topology_error;
+    if (!zevryon::text::build_bidi_isolating_run_sequences(
+            units,
+            explicit_stats.paragraph_level,
+            &topology,
+            &topology_stats,
+            &topology_error)) {
+        return false;
+    }
+    topology.sequence_run_indices[0] = static_cast<std::uint32_t>(
+        topology.level_runs.size());
 
     zevryon::core::ResourceLedger weak_ledger;
     weak_ledger.set_hard_limit(
@@ -333,12 +331,10 @@ bool test_topology_validation() {
     BidiWeakError error;
     const bool rejected = !zevryon::text::resolve_bidi_weak_types(
         units,
-        *topology,
+        topology,
         &types,
         &stats,
         &error);
-    delete topology;
-    delete topology_resource;
     return require(rejected, "invalid topology rejected") &&
            require(error.kind == BidiWeakErrorKind::TopologyViolation, "topology error kind") &&
            require(types.empty(), "invalid topology publishes no output");
