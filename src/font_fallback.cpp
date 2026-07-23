@@ -380,13 +380,13 @@ std::uint64_t unsigned_difference(
 std::uint64_t script_penalty(
     ScriptId face_script,
     ScriptId text_script) noexcept {
-    if (is_neutral_script(text_script)) {
-        return is_neutral_script(face_script) ? 0U : 1U;
+    if (neutral_script_id(text_script)) {
+        return neutral_script_id(face_script) ? 0U : 1U;
     }
     if (face_script == text_script) {
         return 0U;
     }
-    return is_neutral_script(face_script) ? 1U : 2U;
+    return neutral_script_id(face_script) ? 1U : 2U;
 }
 
 std::uint64_t style_score(
@@ -412,10 +412,11 @@ std::uint64_t style_score(
 FontFallbackSource general_source(
     const FontFaceRecord& face,
     ScriptId script) noexcept {
-    if (!is_neutral_script(script) && face.preferred_script == script) {
+    if (!neutral_script_id(script) && face.preferred_script == script) {
         return FontFallbackSource::ScriptMatch;
     }
-    if (is_neutral_script(script) || is_neutral_script(face.preferred_script)) {
+    if (neutral_script_id(script) ||
+        neutral_script_id(face.preferred_script)) {
         return FontFallbackSource::NeutralScript;
     }
     return FontFallbackSource::CrossScript;
