@@ -189,8 +189,8 @@ bool validate_topology(
     for (const BidiIsolatingRunSequence& sequence : topology.sequences) {
         if (sequence.run_count == 0U ||
             sequence.first_run_link != expected_link ||
-            sequence.sos != BidiClass::L && sequence.sos != BidiClass::R ||
-            sequence.eos != BidiClass::L && sequence.eos != BidiClass::R ||
+            (sequence.sos != BidiClass::L && sequence.sos != BidiClass::R) ||
+            (sequence.eos != BidiClass::L && sequence.eos != BidiClass::R) ||
             static_cast<std::size_t>(sequence.first_run_link) +
                     static_cast<std::size_t>(sequence.run_count) >
                 topology.sequence_run_indices.size()) {
