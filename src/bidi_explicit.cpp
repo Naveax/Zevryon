@@ -174,8 +174,10 @@ bool build_fsi_directions(
 }
 
 std::uint8_t next_even_level(std::uint8_t level) noexcept {
-    const std::uint16_t value =
-        (static_cast<std::uint16_t>(level) + 2U) & ~std::uint16_t{1U};
+    const std::uint16_t incremented = static_cast<std::uint16_t>(
+        static_cast<std::uint16_t>(level) + std::uint16_t{2U});
+    const std::uint16_t value = static_cast<std::uint16_t>(
+        incremented & std::uint16_t{0xfffeU});
     return value <= kMaximumExplicitLevel
         ? static_cast<std::uint8_t>(value)
         : kUnknownDirection;
