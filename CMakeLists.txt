@@ -129,6 +129,14 @@ add_executable(zevryon-bidi-neutral-benchmark src/bidi_neutral_benchmark_main.cp
 target_link_libraries(zevryon-bidi-neutral-benchmark PRIVATE zevryon-massivedoc-core)
 zevryon_options(zevryon-bidi-neutral-benchmark)
 
+add_executable(zevryon-bidi-implicit-conformance src/bidi_implicit_conformance_main.cpp)
+target_link_libraries(zevryon-bidi-implicit-conformance PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-bidi-implicit-conformance)
+
+add_executable(zevryon-bidi-implicit-benchmark src/bidi_implicit_benchmark_main.cpp)
+target_link_libraries(zevryon-bidi-implicit-benchmark PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-bidi-implicit-benchmark)
+
 include(CTest)
 if(BUILD_TESTING)
   add_executable(zevryon-massivedoc-tests tests/massivedoc_store_tests.cpp)
