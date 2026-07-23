@@ -40,8 +40,9 @@ struct BidiExplicitError {
     std::string message;
 };
 
-// Level is the embedding level active immediately before the scalar is
-// processed. Later Z1D stages may discard units flagged RemovedByX9.
+// Level is the explicit embedding level assigned by UAX #9 X1-X8. Retained
+// embedding initiators use the surrounding pre-push level; PDF and PDI use the
+// post-pop level. Units flagged RemovedByX9 are discarded by the next stage.
 struct BidiExplicitUnit {
     std::uint64_t source_offset{0};
     std::uint32_t codepoint_index{0};
@@ -74,6 +75,8 @@ struct BidiExplicitStats {
 
 const char* bidi_explicit_error_kind_name(BidiExplicitErrorKind kind) noexcept;
 
+// The input is exactly one paragraph. A paragraph separator, when present, must
+// be the final scalar and is assigned the paragraph embedding level.
 bool resolve_bidi_explicit(
     std::span<const DecodedCodePoint> codepoints,
     BidiParagraphDirection direction,
