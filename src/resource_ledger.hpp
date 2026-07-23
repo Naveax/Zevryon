@@ -18,7 +18,6 @@ enum class ResourceClass : std::uint8_t {
     BidiSequence,
     BidiTypeResolution,
     BidiNeutralResolution,
-    BidiImplicitLevel,
     GlyphRun,
     ComputedStyle,
     LayoutFragment,
@@ -30,6 +29,7 @@ enum class ResourceClass : std::uint8_t {
     NetworkBuffer,
     DomProjection,
     CompositorSurface,
+    BidiImplicitLevel,
     Count
 };
 
