@@ -1,0 +1,182 @@
+name: z1-bidi-mirroring-data
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z1-bidi-mirroring-data.yml'
+      - 'tools/generate_unicode_bidi_mirroring.py'
+      - 'tests/test_unicode_bidi_mirroring_generator.py'
+      - 'docs/Z1D_BIDI_MIRRORING.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z1-bidi-mirroring-data-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  unicode17-data-certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --upgrade pip pytest
+      - run: python -m pytest -q tests/test_unicode_bidi_mirroring_generator.py
+      - name: Fetch pinned Unicode 17 mirroring sources
+        run: |
+          mkdir -p ucd-17.0.0 generated-a generated-b evidence
+          curl --fail --location --retry 3 \
+            https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt \
+            --output ucd-17.0.0/UnicodeData.txt
+          curl --fail --location --retry 3 \
+            https://www.unicode.org/Public/17.0.0/ucd/BidiMirroring.txt \
+            --output ucd-17.0.0/BidiMirroring.txt
+          echo '2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c  ucd-17.0.0/UnicodeData.txt' | sha256sum --check --strict
+          echo 'a2f16fb873ab4fcdf3221cb1a8a85a134ddd6ed03603181823ff5206af3741ce  ucd-17.0.0/BidiMirroring.txt' | sha256sum --check --strict
+          sha256sum ucd-17.0.0/UnicodeData.txt ucd-17.0.0/BidiMirroring.txt \
+            | tee evidence/source-sha256.txt
+      - name: Generate twice and prove byte determinism
+        run: |
+          python tools/generate_unicode_bidi_mirroring.py \
+            --unicode-data ucd-17.0.0/UnicodeData.txt \
+            --bidi-mirroring ucd-17.0.0/BidiMirroring.txt \
+            --output-header generated-a/unicode_bidi_mirroring.generated.hpp \
+            --output-report generated-a/report.json
+          python tools/generate_unicode_bidi_mirroring.py \
+            --unicode-data ucd-17.0.0/UnicodeData.txt \
+            --bidi-mirroring ucd-17.0.0/BidiMirroring.txt \
+            --output-header generated-b/unicode_bidi_mirroring.generated.hpp \
+            --output-report generated-b/report.json
+          cmp generated-a/unicode_bidi_mirroring.generated.hpp \
+              generated-b/unicode_bidi_mirroring.generated.hpp
+          cmp generated-a/report.json generated-b/report.json
+          cp generated-a/report.json evidence/z1-bidi-mirroring-data.json
+          cp generated-a/unicode_bidi_mirroring.generated.hpp evidence/
+      - name: Enforce exact normative/informative separation
+        run: |
+          python - <<'PY'
+          import importlib.util
+          import json
+          import pathlib
+          import sys
+
+          module_path = pathlib.Path('tools/generate_unicode_bidi_mirroring.py')
+          spec = importlib.util.spec_from_file_location('mirror_generator_ci', module_path)
+          assert spec is not None and spec.loader is not None
+          module = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = module
+          spec.loader.exec_module(module)
+
+          mirrored = module.parse_unicode_data(pathlib.Path('ucd-17.0.0/UnicodeData.txt'))
+          mappings = module.parse_bidi_mirroring(pathlib.Path('ucd-17.0.0/BidiMirroring.txt'))
+          report = json.loads(pathlib.Path('evidence/z1-bidi-mirroring-data.json').read_text())
+          mapping_by_source = {mapping.codepoint: mapping for mapping in mappings}
+
+          assert report == {
+              'schema': 'zevryon.unicode-bidi-mirroring-generator.v1',
+              'unicode_version': '17.0.0',
+              'unicode_data_sha256': '2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c',
+              'bidi_mirroring_sha256': 'a2f16fb873ab4fcdf3221cb1a8a85a134ddd6ed03603181823ff5206af3741ce',
+              'normalized_fingerprint': '12477c826aad16df4fff77df606e37b69a194a3f53b1778337ad5881338fa9b9',
+              'mirrored_codepoints': 554,
+              'mirrored_ranges': 114,
+              'mapping_records': 428,
+              'best_fit_records': 74,
+              'mirrored_without_character_mapping': 126,
+              'minimum_mirrored_codepoint': 40,
+              'maximum_mirrored_codepoint': 120771,
+              'passed': True,
+          }
+          assert len(mirrored) == 554
+          assert len(mappings) == 428
+          assert 0x0028 in mirrored
+          assert mapping_by_source[0x0028].mirror_codepoint == 0x0029
+          assert 0x221B in mirrored
+          assert 0xFD3E not in mirrored
+          assert 0xFD3F not in mirrored
+          assert set(mapping_by_source).issubset(set(mirrored))
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z1-bidi-mirroring-data-${{ github.sha }}
+          path: |
+            evidence/
+            ucd-17.0.0/UnicodeData.txt
+            ucd-17.0.0/BidiMirroring.txt
+          if-no-files-found: error
+
+  macos-generator-strict:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --upgrade pip pytest
+      - run: python -m pytest -q tests/test_unicode_bidi_mirroring_generator.py
+      - name: Generate on macOS
+        run: |
+          mkdir -p ucd generated evidence
+          curl --fail --location --retry 3 \
+            https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt \
+            --output ucd/UnicodeData.txt
+          curl --fail --location --retry 3 \
+            https://www.unicode.org/Public/17.0.0/ucd/BidiMirroring.txt \
+            --output ucd/BidiMirroring.txt
+          echo '2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c  ucd/UnicodeData.txt' | shasum -a 256 --check
+          echo 'a2f16fb873ab4fcdf3221cb1a8a85a134ddd6ed03603181823ff5206af3741ce  ucd/BidiMirroring.txt' | shasum -a 256 --check
+          python tools/generate_unicode_bidi_mirroring.py \
+            --unicode-data ucd/UnicodeData.txt \
+            --bidi-mirroring ucd/BidiMirroring.txt \
+            --output-header generated/unicode_bidi_mirroring.generated.hpp \
+            --output-report evidence/report.json
+          grep -q '12477c826aad16df4fff77df606e37b69a194a3f53b1778337ad5881338fa9b9' evidence/report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-bidi-mirroring-data-${{ github.sha }}
+          path: evidence/report.json
+          if-no-files-found: warn
+
+  windows-generator-strict:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --upgrade pip pytest
+      - run: python -m pytest -q tests/test_unicode_bidi_mirroring_generator.py
+      - name: Generate on Windows
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force ucd, generated, evidence | Out-Null
+          Invoke-WebRequest `
+            https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt `
+            -OutFile ucd/UnicodeData.txt
+          Invoke-WebRequest `
+            https://www.unicode.org/Public/17.0.0/ucd/BidiMirroring.txt `
+            -OutFile ucd/BidiMirroring.txt
+          if ((Get-FileHash ucd/UnicodeData.txt -Algorithm SHA256).Hash.ToLower() -ne '2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c') { throw 'UnicodeData SHA mismatch' }
+          if ((Get-FileHash ucd/BidiMirroring.txt -Algorithm SHA256).Hash.ToLower() -ne 'a2f16fb873ab4fcdf3221cb1a8a85a134ddd6ed03603181823ff5206af3741ce') { throw 'BidiMirroring SHA mismatch' }
+          python tools/generate_unicode_bidi_mirroring.py `
+            --unicode-data ucd/UnicodeData.txt `
+            --bidi-mirroring ucd/BidiMirroring.txt `
+            --output-header generated/unicode_bidi_mirroring.generated.hpp `
+            --output-report evidence/report.json
+          if (-not (Select-String -Quiet -Path evidence/report.json -Pattern '12477c826aad16df4fff77df606e37b69a194a3f53b1778337ad5881338fa9b9')) { throw 'fingerprint mismatch' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-bidi-mirroring-data-${{ github.sha }}
+          path: evidence/report.json
+          if-no-files-found: warn
