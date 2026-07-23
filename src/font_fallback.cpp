@@ -1,6 +1,7 @@
 #include "font_fallback.hpp"
 
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <new>
 
@@ -8,6 +9,8 @@ namespace zevryon::text {
 namespace {
 
 constexpr std::uint32_t kMaximumUnicodeCodePoint = 0x10ffffU;
+constexpr std::size_t kScriptCount = static_cast<std::size_t>(ScriptId::Count);
+constexpr std::uint64_t kScriptPenaltyUnit = 1000000U;
 
 struct Selection {
     FontFaceId face_id{kInvalidFontFaceId};
@@ -49,6 +52,16 @@ bool valid_slant(FontSlant slant) noexcept {
     return slant == FontSlant::Upright ||
            slant == FontSlant::Italic ||
            slant == FontSlant::Oblique;
+}
+
+bool valid_script(ScriptId script) noexcept {
+    return static_cast<std::size_t>(script) < kScriptCount;
+}
+
+bool neutral_script_id(ScriptId script) noexcept {
+    return script == ScriptId::Zzzz ||
+           script == ScriptId::Zinh ||
+           script == ScriptId::Zyyy;
 }
 
 std::uint32_t range_plane_mask(FontCoverageRange range) noexcept {
@@ -108,6 +121,65 @@ bool face_may_cover_planes(
     return false;
 }
 
+bool validate_script_index(
+    const FontCatalog& catalog,
+    FontFallbackError* error) noexcept {
+    if (catalog.script_buckets.size() != kScriptCount ||
+        catalog.script_face_ids.size() != catalog.faces.size()) {
+        return fail(
+            FontFallbackErrorKind::InvalidInput,
+            0U,
+            "font catalog script index dimensions are invalid",
+            error);
+    }
+
+    std::size_t expected_offset = 0U;
+    for (std::size_t script_index = 0U;
+         script_index < catalog.script_buckets.size();
+         ++script_index) {
+        const FontScriptBucket bucket = catalog.script_buckets[script_index];
+        const std::size_t first = bucket.offset;
+        const std::size_t count = bucket.count;
+        if (first != expected_offset ||
+            first > catalog.script_face_ids.size() ||
+            count > catalog.script_face_ids.size() - first) {
+            return fail(
+                FontFallbackErrorKind::InvalidInput,
+                0U,
+                "font catalog script bucket offsets are invalid",
+                error);
+        }
+
+        FontFaceId previous = 0U;
+        bool have_previous = false;
+        for (std::size_t offset = 0U; offset < count; ++offset) {
+            const FontFaceId face_id = catalog.script_face_ids[first + offset];
+            if (face_id >= catalog.faces.size() ||
+                (have_previous && face_id <= previous) ||
+                static_cast<std::size_t>(catalog.faces[face_id].preferred_script) !=
+                    script_index) {
+                return fail(
+                    FontFallbackErrorKind::InvalidInput,
+                    0U,
+                    "font catalog script bucket membership is invalid",
+                    error);
+            }
+            previous = face_id;
+            have_previous = true;
+        }
+        expected_offset += count;
+    }
+
+    if (expected_offset != catalog.script_face_ids.size()) {
+        return fail(
+            FontFallbackErrorKind::InvalidInput,
+            0U,
+            "font catalog script index does not cover every face exactly once",
+            error);
+    }
+    return true;
+}
+
 bool validate_catalog(
     const FontCatalog& catalog,
     FontFallbackError* error) noexcept {
@@ -129,7 +201,8 @@ bool validate_catalog(
         if (face.stable_key == 0U ||
             (have_previous_key && face.stable_key <= previous_key) ||
             face.weight == 0U || face.weight > 1000U ||
-            face.width == 0U || face.width > 9U || !valid_slant(face.slant)) {
+            face.width == 0U || face.width > 9U ||
+            !valid_slant(face.slant) || !valid_script(face.preferred_script)) {
             return fail(
                 FontFallbackErrorKind::InvalidInput,
                 0U,
@@ -165,7 +238,7 @@ bool validate_catalog(
             have_previous_range = true;
         }
     }
-    return true;
+    return validate_script_index(catalog, error);
 }
 
 bool validate_inputs(
@@ -259,13 +332,21 @@ bool validate_inputs(
     for (std::size_t index = 1U; index < script_runs.size(); ++index) {
         if (script_runs[index - 1U].cluster_index >=
                 script_runs[index].cluster_index ||
-            script_runs[index].cluster_index > cluster_count) {
+            script_runs[index].cluster_index > cluster_count ||
+            !valid_script(script_runs[index - 1U].script)) {
             return fail(
                 FontFallbackErrorKind::InvalidInput,
                 script_runs[index - 1U].cluster_index,
-                "script run boundaries must be strictly increasing",
+                "script run boundaries must be strictly increasing and valid",
                 error);
         }
+    }
+    if (!valid_script(script_runs.back().script)) {
+        return fail(
+            FontFallbackErrorKind::InvalidInput,
+            cluster_count,
+            "script run sentinel carries an invalid script",
+            error);
     }
     return true;
 }
@@ -288,36 +369,41 @@ bool covers_cluster(
     return true;
 }
 
-std::uint64_t unsigned_difference(std::uint32_t left, std::uint32_t right) noexcept {
+std::uint64_t unsigned_difference(
+    std::uint32_t left,
+    std::uint32_t right) noexcept {
     return left >= right
         ? static_cast<std::uint64_t>(left - right)
         : static_cast<std::uint64_t>(right - left);
+}
+
+std::uint64_t script_penalty(
+    ScriptId face_script,
+    ScriptId text_script) noexcept {
+    if (is_neutral_script(text_script)) {
+        return is_neutral_script(face_script) ? 0U : 1U;
+    }
+    if (face_script == text_script) {
+        return 0U;
+    }
+    return is_neutral_script(face_script) ? 1U : 2U;
 }
 
 std::uint64_t style_score(
     const FontFaceRecord& face,
     ScriptId script,
     const FontStyleRequest& request) noexcept {
-    std::uint64_t script_penalty = 0U;
-    if (is_neutral_script(script)) {
-        script_penalty = is_neutral_script(face.preferred_script) ? 0U : 1U;
-    } else if (face.preferred_script == script) {
-        script_penalty = 0U;
-    } else if (is_neutral_script(face.preferred_script)) {
-        script_penalty = 1U;
-    } else {
-        script_penalty = 2U;
-    }
-
     std::uint64_t slant_penalty = 0U;
     if (face.slant != request.slant) {
         const bool related_slants =
-            (face.slant == FontSlant::Italic && request.slant == FontSlant::Oblique) ||
-            (face.slant == FontSlant::Oblique && request.slant == FontSlant::Italic);
+            (face.slant == FontSlant::Italic &&
+             request.slant == FontSlant::Oblique) ||
+            (face.slant == FontSlant::Oblique &&
+             request.slant == FontSlant::Italic);
         slant_penalty = related_slants ? 50U : 200U;
     }
 
-    return script_penalty * 1000000U +
+    return script_penalty(face.preferred_script, script) * kScriptPenaltyUnit +
            slant_penalty * 10000U +
            unsigned_difference(face.width, request.width) * 1000U +
            unsigned_difference(face.weight, request.weight);
@@ -353,6 +439,55 @@ bool candidate_covers(
                coverage_checks);
 }
 
+void scan_bucket(
+    ScriptId bucket_script,
+    ScriptId text_script,
+    std::span<const DecodedCodePoint> codepoints,
+    std::size_t first,
+    std::size_t last,
+    const FontCatalog& catalog,
+    const FontStyleRequest& request,
+    std::uint32_t required_planes,
+    std::uint64_t* coverage_checks,
+    std::array<bool, kScriptCount>* visited,
+    FontFaceId* best_face,
+    std::uint64_t* best_score,
+    std::uint64_t* best_key) noexcept {
+    const std::size_t bucket_index = static_cast<std::size_t>(bucket_script);
+    if (bucket_index >= visited->size() || (*visited)[bucket_index]) {
+        return;
+    }
+    (*visited)[bucket_index] = true;
+
+    const std::uint64_t lower_bound =
+        script_penalty(bucket_script, text_script) * kScriptPenaltyUnit;
+    if (*best_score < lower_bound) {
+        return;
+    }
+
+    for (const FontFaceId face_id : font_faces_for_script(catalog, bucket_script)) {
+        const FontFaceRecord& face = catalog.faces[face_id];
+        const std::uint64_t score = style_score(face, text_script, request);
+        if (score > *best_score ||
+            (score == *best_score && face.stable_key >= *best_key)) {
+            continue;
+        }
+        if (!candidate_covers(
+                catalog,
+                face_id,
+                required_planes,
+                codepoints,
+                first,
+                last,
+                coverage_checks)) {
+            continue;
+        }
+        *best_face = face_id;
+        *best_score = score;
+        *best_key = face.stable_key;
+    }
+}
+
 Selection select_face(
     std::span<const DecodedCodePoint> codepoints,
     std::size_t first,
@@ -362,7 +497,8 @@ Selection select_face(
     const FontFallbackRequest& request,
     std::uint32_t all_catalog_planes,
     std::uint64_t* coverage_checks) noexcept {
-    const std::uint32_t required_planes = cluster_plane_mask(codepoints, first, last);
+    const std::uint32_t required_planes =
+        cluster_plane_mask(codepoints, first, last);
     if ((all_catalog_planes & required_planes) != required_planes) {
         return {};
     }
@@ -395,30 +531,62 @@ Selection select_face(
     FontFaceId best_face = kInvalidFontFaceId;
     std::uint64_t best_score = std::numeric_limits<std::uint64_t>::max();
     std::uint64_t best_key = std::numeric_limits<std::uint64_t>::max();
-    for (std::size_t face_index = 0U;
-         face_index < catalog.faces.size();
-         ++face_index) {
-        const FontFaceRecord& face = catalog.faces[face_index];
-        const std::uint64_t score = style_score(face, script, request.style);
-        if (score > best_score ||
-            (score == best_score && face.stable_key >= best_key)) {
-            continue;
-        }
-        const FontFaceId face_id = static_cast<FontFaceId>(face_index);
-        if (!candidate_covers(
-                catalog,
-                face_id,
-                required_planes,
-                codepoints,
-                first,
-                last,
-                coverage_checks)) {
-            continue;
-        }
-        best_face = face_id;
-        best_score = score;
-        best_key = face.stable_key;
+    std::array<bool, kScriptCount> visited{};
+
+    scan_bucket(
+        script,
+        script,
+        codepoints,
+        first,
+        last,
+        catalog,
+        request.style,
+        required_planes,
+        coverage_checks,
+        &visited,
+        &best_face,
+        &best_score,
+        &best_key);
+
+    constexpr std::array<ScriptId, 3> neutral_buckets{{
+        ScriptId::Zzzz,
+        ScriptId::Zinh,
+        ScriptId::Zyyy,
+    }};
+    for (const ScriptId neutral : neutral_buckets) {
+        scan_bucket(
+            neutral,
+            script,
+            codepoints,
+            first,
+            last,
+            catalog,
+            request.style,
+            required_planes,
+            coverage_checks,
+            &visited,
+            &best_face,
+            &best_score,
+            &best_key);
     }
+
+    for (std::size_t bucket = 0U; bucket < kScriptCount; ++bucket) {
+        scan_bucket(
+            static_cast<ScriptId>(bucket),
+            script,
+            codepoints,
+            first,
+            last,
+            catalog,
+            request.style,
+            required_planes,
+            coverage_checks,
+            &visited,
+            &best_face,
+            &best_score,
+            &best_key);
+    }
+
     if (best_face == kInvalidFontFaceId) {
         return {};
     }
