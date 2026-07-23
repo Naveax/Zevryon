@@ -77,6 +77,7 @@ int main() {
     std::atomic<bool> published{false};
     std::atomic<bool> failed{false};
     std::atomic<std::size_t> ready_readers{0U};
+    std::atomic<std::size_t> transition_ready{0U};
     std::atomic<std::uint64_t> transition_reads{0U};
     std::vector<std::thread> readers;
     readers.reserve(kReaderCount);
@@ -95,6 +96,13 @@ int main() {
                 }
             }
             ready_readers.fetch_add(1U, std::memory_order_release);
+
+            if (!valid_snapshot(store.snapshot())) {
+                failed.store(true, std::memory_order_release);
+                return;
+            }
+            transition_reads.fetch_add(1U, std::memory_order_relaxed);
+            transition_ready.fetch_add(1U, std::memory_order_release);
 
             while (!published.load(std::memory_order_acquire)) {
                 if (!valid_snapshot(store.snapshot())) {
@@ -120,6 +128,10 @@ int main() {
            !failed.load(std::memory_order_acquire)) {
         std::this_thread::yield();
     }
+    while (transition_ready.load(std::memory_order_acquire) != kReaderCount &&
+           !failed.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+    }
 
     if (!failed.load(std::memory_order_acquire)) {
         const FontGenerationPublishResult result = store.publish(second);
@@ -135,7 +147,7 @@ int main() {
     }
 
     if (failed.load(std::memory_order_acquire) ||
-        transition_reads.load(std::memory_order_acquire) == 0U ||
+        transition_reads.load(std::memory_order_acquire) < kReaderCount ||
         store.snapshot() == nullptr || store.snapshot()->generation_id() != 3U) {
         std::cerr << "atomic generation reader stress failed\n";
         return 1;
