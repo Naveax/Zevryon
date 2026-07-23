@@ -31,8 +31,9 @@ struct FingerprintBuilder {
 
     void add_string(std::string_view value) noexcept {
         add_u64(static_cast<std::uint64_t>(value.size()));
-        for (const unsigned char byte : value) {
-            add_byte(byte);
+        for (const char raw_byte : value) {
+            add_byte(static_cast<std::uint8_t>(
+                static_cast<unsigned char>(raw_byte)));
         }
     }
 
@@ -69,6 +70,11 @@ bool fail(
     return false;
 }
 
+std::uint8_t byte_at(std::string_view value, std::size_t index) noexcept {
+    return static_cast<std::uint8_t>(
+        static_cast<unsigned char>(value[index]));
+}
+
 bool valid_utf8_scalar_sequence(std::string_view value) noexcept {
     if (value.empty()) {
         return false;
@@ -76,7 +82,7 @@ bool valid_utf8_scalar_sequence(std::string_view value) noexcept {
 
     std::size_t index = 0U;
     while (index < value.size()) {
-        const std::uint8_t first = static_cast<std::uint8_t>(value[index]);
+        const std::uint8_t first = byte_at(value, index);
         if (first == 0U) {
             return false;
         }
@@ -108,8 +114,7 @@ bool valid_utf8_scalar_sequence(std::string_view value) noexcept {
             return false;
         }
         for (std::size_t offset = 1U; offset < length; ++offset) {
-            const std::uint8_t continuation =
-                static_cast<std::uint8_t>(value[index + offset]);
+            const std::uint8_t continuation = byte_at(value, index + offset);
             if ((continuation & 0xc0U) != 0x80U) {
                 return false;
             }
@@ -157,9 +162,7 @@ FontCatalogGeneration::FontCatalogGeneration(
     std::uint64_t generation_id,
     std::size_t discovery_hard_limit,
     std::size_t catalog_hard_limit)
-    : discovery_resource_(
-          ledger_,
-          core::ResourceClass::FontDiscoverySnapshot),
+    : discovery_resource_(ledger_, core::ResourceClass::FontDiscoverySnapshot),
       catalog_resource_(ledger_, core::ResourceClass::FontCatalog),
       string_bytes_(&discovery_resource_),
       discovery_records_(&discovery_resource_),
