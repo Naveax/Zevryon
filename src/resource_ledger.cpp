@@ -32,6 +32,7 @@ constexpr std::array<const char*, resource_class_count> kResourceNames{
     "bidi_mirror_request",
     "font_catalog",
     "font_fallback_plan",
+    "font_discovery_snapshot",
 };
 
 } // namespace
