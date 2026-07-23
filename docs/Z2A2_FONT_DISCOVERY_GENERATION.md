@@ -58,9 +58,14 @@ collision boundary.
 
 ## Publication contract
 
-`FontCatalogGenerationStore` uses the standard atomic shared-pointer free
-operations through a portable wrapper. This works on libstdc++, libc++, and
-MSVC without requiring `atomic<shared_ptr>` class specialization.
+`FontCatalogGenerationStore` uses a feature-selected standard shared-pointer
+atomic wrapper:
+
+- standard `atomic<shared_ptr>` where the implementation advertises it;
+- otherwise the standard free shared-pointer atomic operations.
+
+This supports libstdc++, libc++, and MSVC without a mutex, platform OS checks,
+or global diagnostic suppression.
 
 Publication outcomes are:
 
@@ -71,7 +76,7 @@ Publication outcomes are:
 - `IdenticalSnapshot`: generation ID is newer but the semantic fingerprint is
   identical, so the current snapshot remains installed.
 
-A dedicated multi-reader stress test proves that readers observe either the
+A dedicated eight-reader stress test proves that readers observe either the
 complete old generation or the complete new generation during publication.
 No partial string pool, record array, catalog, or generation metadata is ever
 visible.
@@ -90,6 +95,42 @@ Generation construction is publish-on-success:
 Discovery allocations are charged to `FontDiscoverySnapshot`. Catalog records,
 coverage, and Script buckets remain charged to `FontCatalog`. The fixed
 `shared_ptr` control object is not part of either variable-size data budget.
+
+## Certified 1,024-face generation workload
+
+The benchmark constructs 1,024 faces, 128 unique families, and 2,048 coverage
+ranges. Forward and reverse adapter enumeration orders alternate on every
+build. Every build must produce the same canonical fingerprint. Eight warmups
+precede 64 measured builds in each of three independent distributions.
+
+Final exact workload and memory contract:
+
+- faces: **1,024**;
+- unique families: **128**;
+- coverage ranges: **2,048**;
+- identity bytes: **21,504**;
+- family bytes: **1,408**;
+- persistent discovery snapshot: **40,832 bytes**;
+- discovery peak: **106,368 bytes**;
+- discovery hard cap: **110,592 bytes / 108 KiB**;
+- catalog current: **54,656 bytes**;
+- catalog peak: **62,848 bytes**;
+- catalog hard cap: **65,536 bytes / 64 KiB**;
+- fingerprint high: **11,374,214,594,173,821,916**;
+- fingerprint low: **6,136,634,794,114,554,189**;
+- rejected reservations: **0**;
+- accounting errors: **0**.
+
+Final three-distribution timing:
+
+- median P50: **0.421 ms**;
+- median P95: **0.458 ms**;
+- median P99: **0.516 ms**;
+- worst maximum: **0.700 ms**.
+
+Permanent gates are P95 <= 0.75 ms, P99 <= 1.00 ms, worst <= 2.00 ms,
+discovery peak <= 108 KiB, catalog peak <= 64 KiB, zero rejected reservations,
+zero accounting errors, and one identical fingerprint across all distributions.
 
 ## Explicitly not implemented
 
