@@ -20,15 +20,124 @@ permissions:
   contents: read
 
 jobs:
-  ubuntu-runtime-strict:
+  runtime-certification:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch pinned Unicode 17 mirroring sources
+        run: |
+          mkdir -p ucd-17.0.0 evidence
+          curl --fail --location --retry 3 \
+            https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt \
+            --output ucd-17.0.0/UnicodeData.txt
+          curl --fail --location --retry 3 \
+            https://www.unicode.org/Public/17.0.0/ucd/BidiMirroring.txt \
+            --output ucd-17.0.0/BidiMirroring.txt
+          echo '2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c  ucd-17.0.0/UnicodeData.txt' | sha256sum --check --strict
+          echo 'a2f16fb873ab4fcdf3221cb1a8a85a134ddd6ed03603181823ff5206af3741ce  ucd-17.0.0/BidiMirroring.txt' | sha256sum --check --strict
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-      - name: Build focused runtime target
-        run: cmake --build build --parallel 2 --target zevryon-bidi-mirroring-tests
+      - name: Build focused runtime targets
+        run: |
+          cmake --build build --parallel 2 --target \
+            zevryon-bidi-mirroring-tests \
+            zevryon-bidi-mirroring-conformance \
+            zevryon-bidi-mirroring-benchmark
       - run: ctest --test-dir build -R bidi-mirroring-tests --output-on-failure
+      - name: Run full Unicode source-vs-runtime conformance
+        run: |
+          ./build/zevryon-bidi-mirroring-conformance \
+            ucd-17.0.0/UnicodeData.txt \
+            ucd-17.0.0/BidiMirroring.txt \
+            > evidence/z1-bidi-mirroring-conformance.json
+          cat evidence/z1-bidi-mirroring-conformance.json
+      - name: Run three independent 64 KiB distributions
+        run: |
+          ./build/zevryon-bidi-mirroring-benchmark 1024 131072 \
+            > evidence/z1-bidi-mirroring-benchmark-1.json
+          ./build/zevryon-bidi-mirroring-benchmark 1024 131072 \
+            > evidence/z1-bidi-mirroring-benchmark-2.json
+          ./build/zevryon-bidi-mirroring-benchmark 1024 131072 \
+            > evidence/z1-bidi-mirroring-benchmark-3.json
+      - name: Enforce diagnostic correctness and memory gates
+        run: |
+          python - <<'PY'
+          import json, pathlib, statistics
+          root = pathlib.Path('evidence')
+          conformance = json.loads(
+              (root / 'z1-bidi-mirroring-conformance.json').read_text()
+          )
+          assert conformance['schema'] == 'zevryon.bidi-mirroring-conformance.v1'
+          assert conformance['unicode_version'] == '17.0.0'
+          assert conformance['codepoints_scanned'] == 1114112
+          assert conformance['mirrored_codepoints'] == 554
+          assert conformance['exact_mappings'] == 354
+          assert conformance['best_fit_mappings'] == 74
+          assert conformance['glyph_only_codepoints'] == 126
+          assert conformance['passed'] is True
+
+          reports = [
+              json.loads(
+                  (root / f'z1-bidi-mirroring-benchmark-{index}.json').read_text()
+              )
+              for index in range(1, 4)
+          ]
+          for report in reports:
+              assert report['schema'] == 'zevryon.bidi-mirroring-benchmark.v1'
+              assert report['uax_version'] == 'Unicode 17.0.0 / UAX #9 revision 51'
+              assert report['fixture_bytes'] == 65536
+              assert report['iterations'] == 1024
+              assert report['warmup_iterations'] == 32
+              assert report['request_record_bytes'] == 12
+              assert report['exact_character_requests'] > 0
+              assert report['best_fit_character_requests'] > 0
+              assert report['glyph_only_requests'] > 0
+              assert report['output_requests'] == (
+                  report['exact_character_requests'] +
+                  report['best_fit_character_requests'] +
+                  report['glyph_only_requests']
+              )
+              assert report['request_hard_limit_bytes'] == 131072
+              assert report['request_current_bytes'] == (
+                  report['output_requests'] * report['request_record_bytes']
+              )
+              assert report['request_peak_bytes'] == report['request_current_bytes']
+              assert report['request_peak_bytes'] <= 131072
+              assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
+              assert report['rejected_reservations'] == 0
+              assert report['accounting_errors'] == 0
+              assert report['within_hard_limits'] is True
+              assert report['accounting_clean'] is True
+
+          certification = {
+              'schema': 'zevryon.bidi-mirroring-certification.v1',
+              'unicode_version': '17.0.0',
+              'runs': len(reports),
+              'median_p50_ms': statistics.median(r['p50_ms'] for r in reports),
+              'median_p95_ms': statistics.median(r['p95_ms'] for r in reports),
+              'median_p99_ms': statistics.median(r['p99_ms'] for r in reports),
+              'worst_maximum_ms': max(r['maximum_ms'] for r in reports),
+              'worst_peak_bytes': max(r['request_peak_bytes'] for r in reports),
+              'output_requests': reports[0]['output_requests'],
+              'passed': True,
+          }
+          assert certification['median_p95_ms'] <= 5.0
+          assert certification['median_p99_ms'] <= 8.0
+          assert certification['worst_maximum_ms'] <= 16.0
+          (root / 'z1-bidi-mirroring-certification.json').write_text(
+              json.dumps(certification, indent=2, sort_keys=True) + '\n'
+          )
+          print(json.dumps(certification, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z1-bidi-mirroring-runtime-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: warn
 
   macos-runtime-strict:
     runs-on: macos-latest
@@ -36,10 +145,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-      - name: Build focused runtime target
+      - name: Build focused runtime targets
         run: |
           set -o pipefail
-          cmake --build build --parallel 2 --target zevryon-bidi-mirroring-tests \
+          cmake --build build --parallel 2 --target \
+            zevryon-bidi-mirroring-tests \
+            zevryon-bidi-mirroring-conformance \
+            zevryon-bidi-mirroring-benchmark \
             2>&1 | tee macos-bidi-mirroring-runtime-build.log
       - run: ctest --test-dir build -R bidi-mirroring-tests --output-on-failure
       - uses: actions/upload-artifact@v4
