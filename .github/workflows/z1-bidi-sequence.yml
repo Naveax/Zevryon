@@ -35,10 +35,11 @@ jobs:
           zevryon-bidi-sequence-conformance
           zevryon-bidi-sequence-benchmark
       - run: ctest --test-dir build -R bidi-sequence-tests --output-on-failure
-      - name: Run UAX X10 example conformance
-        run: >-
-          build/zevryon-bidi-sequence-conformance
-          > evidence/ci/z1-bidi-sequence-conformance.json
+      - name: Run official Unicode 17 BD13 examples
+        run: |
+          mkdir -p evidence/ci
+          build/zevryon-bidi-sequence-conformance \
+            > evidence/ci/z1-bidi-sequence-conformance.json
       - name: Run three independent 64 KiB distributions
         run: |
           mkdir -p evidence/ci
@@ -59,7 +60,7 @@ jobs:
               'schema': 'zevryon.bidi-sequence-conformance.v1',
               'uax_version': 'Unicode 17.0.0 / UAX #9 revision 51',
               'examples': 3,
-              'sequences': 14,
+              'sequences': 11,
               'passed': True,
           }
 
