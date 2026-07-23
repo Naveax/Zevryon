@@ -207,7 +207,7 @@ int main() {
             {{2U, 3U, 9U, 10U}, 1U, BidiClass::R, BidiClass::R},
             {{4U}, 2U, BidiClass::L, BidiClass::R},
             {{6U}, 3U, BidiClass::R, BidiClass::R},
-            {{8U}, 2U, BidiClass::R, BidiClass::R},
+            {{8U}, 2U, BidiClass::R, BidiClass::L},
         },
         &sequence_total);
 
