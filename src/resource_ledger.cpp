@@ -15,6 +15,7 @@ constexpr std::array<const char*, resource_class_count> kResourceNames{
     "bidi_run",
     "bidi_sequence",
     "bidi_type_resolution",
+    "bidi_neutral_resolution",
     "glyph_run",
     "computed_style",
     "layout_fragment",
