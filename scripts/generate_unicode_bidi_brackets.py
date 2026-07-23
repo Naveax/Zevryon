@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate deterministic Unicode Bidi_Paired_Bracket tables."""
+"""Generate deterministic compact Unicode Bidi_Paired_Bracket tables."""
 
 from __future__ import annotations
 
@@ -62,14 +62,16 @@ def generate(path: Path) -> tuple[str, dict[str, object]]:
     fingerprint = hashlib.sha256(
         json.dumps(canonical, separators=(",", ":"), sort_keys=True).encode("utf-8")
     ).hexdigest()
-    entries = "\n".join(
-        "    BidiBracketRecord{0x%XU, 0x%XU, BidiBracketType::%s},"
-        % (codepoint, paired, "Open" if bracket_type == "o" else "Close")
+    blob = b"".join(
+        codepoint.to_bytes(4, "little")
+        + paired.to_bytes(4, "little")
+        + bytes((1 if bracket_type == "o" else 2,))
         for codepoint, paired, bracket_type in rows
     )
     header = f'''#pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <string_view>
 
@@ -90,9 +92,47 @@ struct BidiBracketRecord {{
 inline constexpr std::string_view kUnicodeBidiBracketVersion = "{UNICODE_VERSION}";
 inline constexpr std::string_view kUnicodeBidiBracketFingerprint = "{fingerprint}";
 inline constexpr std::string_view kUnicodeBidiBracketSourceSha256 = "{sha256(path)}";
-inline constexpr std::array<BidiBracketRecord, {len(rows)}> kUnicodeBidiBracketRecords{{{{
-{entries}
-}}}};
+inline constexpr std::string_view kUnicodeBidiBracketHex =
+    "{blob.hex()}";
+
+constexpr std::uint8_t bidi_bracket_hex_nibble(char value) noexcept {{
+    return value >= '0' && value <= '9'
+        ? static_cast<std::uint8_t>(value - '0')
+        : static_cast<std::uint8_t>(value - 'a' + 10);
+}}
+
+constexpr std::uint8_t bidi_bracket_hex_byte(std::size_t offset) noexcept {{
+    return static_cast<std::uint8_t>(
+        (bidi_bracket_hex_nibble(kUnicodeBidiBracketHex[offset]) << 4U) |
+        bidi_bracket_hex_nibble(kUnicodeBidiBracketHex[offset + 1U]));
+}}
+
+constexpr std::uint32_t bidi_bracket_u32(std::size_t byte_offset) noexcept {{
+    const std::size_t hex_offset = byte_offset * 2U;
+    return static_cast<std::uint32_t>(bidi_bracket_hex_byte(hex_offset)) |
+           (static_cast<std::uint32_t>(bidi_bracket_hex_byte(hex_offset + 2U)) << 8U) |
+           (static_cast<std::uint32_t>(bidi_bracket_hex_byte(hex_offset + 4U)) << 16U) |
+           (static_cast<std::uint32_t>(bidi_bracket_hex_byte(hex_offset + 6U)) << 24U);
+}}
+
+constexpr std::array<BidiBracketRecord, {len(rows)}> decode_bidi_bracket_records() noexcept {{
+    std::array<BidiBracketRecord, {len(rows)}> output{{}};
+    for (std::size_t index = 0U; index < output.size(); ++index) {{
+        const std::size_t byte_offset = index * 9U;
+        output[index] = BidiBracketRecord{{
+            bidi_bracket_u32(byte_offset),
+            bidi_bracket_u32(byte_offset + 4U),
+            static_cast<BidiBracketType>(
+                bidi_bracket_hex_byte((byte_offset + 8U) * 2U))}};
+    }}
+    return output;
+}}
+
+inline constexpr auto kUnicodeBidiBracketRecords = decode_bidi_bracket_records();
+
+static_assert(kUnicodeBidiBracketHex.size() == {len(rows)}U * 9U * 2U);
+static_assert(kUnicodeBidiBracketRecords.front().codepoint == 0x28U);
+static_assert(kUnicodeBidiBracketRecords.back().codepoint == 0xFF63U);
 
 }} // namespace zevryon::text
 '''
