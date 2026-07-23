@@ -7,8 +7,10 @@ on:
       - 'CMakeLists.txt'
       - 'src/font_catalog.*'
       - 'src/font_fallback.*'
+      - 'src/font_fallback_benchmark_main.cpp'
       - 'src/resource_ledger.*'
       - 'tests/font_catalog_fallback_tests.cpp'
+      - 'tests/font_fallback_bucket_equivalence_tests.cpp'
       - 'docs/Z2A_FONT_CATALOG_FALLBACK.md'
   workflow_dispatch:
 
@@ -32,10 +34,17 @@ jobs:
       - name: Build focused core and tests
         run: cmake --build build --parallel 2 --target zevryon-massivedoc-core zevryon-font-catalog-fallback-tests
       - run: ctest --test-dir build -R font-catalog-fallback-tests --output-on-failure
+      - name: Build and run bucket-equivalence oracle
+        run: |
+          c++ -std=c++20 -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror \
+            -Isrc tests/font_fallback_bucket_equivalence_tests.cpp \
+            build/libzevryon-massivedoc-core.a \
+            -o build/zevryon-font-fallback-bucket-equivalence-tests
+          ./build/zevryon-font-fallback-bucket-equivalence-tests
       - name: Build diagnostic benchmark with strict flags
         run: |
           c++ -std=c++20 -O3 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror \
-            -include cstdlib -Isrc src/font_fallback_benchmark_main.cpp \
+            -Isrc src/font_fallback_benchmark_main.cpp \
             build/libzevryon-massivedoc-core.a \
             -o build/zevryon-font-fallback-benchmark
       - name: Run three independent 64 KiB / 256-face distributions
@@ -124,6 +133,13 @@ jobs:
           cmake --build build --parallel 2 --target zevryon-font-catalog-fallback-tests \
             2>&1 | tee macos-font-catalog-fallback-build.log
       - run: ctest --test-dir build -R font-catalog-fallback-tests --output-on-failure
+      - name: Build and run bucket-equivalence oracle
+        run: |
+          c++ -std=c++20 -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror \
+            -Isrc tests/font_fallback_bucket_equivalence_tests.cpp \
+            build/libzevryon-massivedoc-core.a \
+            -o build/zevryon-font-fallback-bucket-equivalence-tests
+          ./build/zevryon-font-fallback-bucket-equivalence-tests
       - uses: actions/upload-artifact@v4
         if: always()
         with:
