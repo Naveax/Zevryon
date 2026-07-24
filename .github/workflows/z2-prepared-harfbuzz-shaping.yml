@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/z2-prepared-harfbuzz-shaping.yml'
       - 'cmake/harfbuzz_shaping.cmake'
+      - 'src/catalog_harfbuzz_shaper.*'
       - 'src/harfbuzz_shaper.*'
       - 'src/harfbuzz_verified_shaper.cpp'
       - 'src/prepared_harfbuzz_face*'
@@ -56,14 +57,14 @@ jobs:
             -R '^(prepared-harfbuzz-shaping-tests|prepared-harfbuzz-face-tests|harfbuzz-verified-resource-tests)$' \
             --output-on-failure \
             2>&1 | tee prepared-harfbuzz-shaping-test.log
-      - name: Run alternating short-run distributions
+      - name: Run alternating short-run catalog distributions
         run: |
           for run in 1 2 3 4 5; do
             ./build/zevryon-prepared-harfbuzz-shaping-benchmark \
               /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
               > "prepared-harfbuzz-shaping-benchmark-${run}.jsonl"
           done
-      - name: Enforce equivalence and prepared-face latency gate
+      - name: Enforce catalog equivalence and prepared-face latency gate
         run: |
           python3 - <<'PY'
           import json
@@ -78,6 +79,8 @@ jobs:
               "total_x_advance",
               "total_y_advance",
               "units_per_em",
+              "generation_id",
+              "face_id",
               "verified_font_resource_id",
               "glyph_current_bytes",
               "glyph_peak_bytes",
