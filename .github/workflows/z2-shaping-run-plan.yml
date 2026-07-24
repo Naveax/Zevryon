@@ -51,10 +51,10 @@ jobs:
       - name: Run three independent 64 KiB distributions
         run: |
           mkdir -p evidence/ci
-          ./build/zevryon-shaping-run-plan-benchmark 512 131072 > evidence/ci/z2c-shaping-run-plan-1.json
-          ./build/zevryon-shaping-run-plan-benchmark 512 131072 > evidence/ci/z2c-shaping-run-plan-2.json
-          ./build/zevryon-shaping-run-plan-benchmark 512 131072 > evidence/ci/z2c-shaping-run-plan-3.json
-      - name: Enforce initial correctness, memory, and latency gates
+          ./build/zevryon-shaping-run-plan-benchmark 512 49152 > evidence/ci/z2c-shaping-run-plan-1.json
+          ./build/zevryon-shaping-run-plan-benchmark 512 49152 > evidence/ci/z2c-shaping-run-plan-2.json
+          ./build/zevryon-shaping-run-plan-benchmark 512 49152 > evidence/ci/z2c-shaping-run-plan-3.json
+      - name: Enforce final correctness, memory, and latency gates
         run: |
           python - <<'PY'
           import json
@@ -72,18 +72,21 @@ jobs:
               assert report['input_clusters'] == 65536
               assert report['active_bidi_units'] == 65536
               assert report['iterations'] == 512
-              assert report['boundary_record_bytes'] <= 16
+              assert report['boundary_record_bytes'] == 16
+              assert report['output_runs'] == 2731
+              assert report['output_boundaries'] == 2732
               assert report['output_boundaries'] == report['output_runs'] + 1
-              assert report['left_to_right_runs'] > 0
-              assert report['right_to_left_runs'] > 0
-              assert report['missing_font_runs'] > 0
-              assert report['script_splits'] > 0
-              assert report['font_splits'] > 0
-              assert report['direction_splits'] > 0
-              assert report['level_splits'] > 0
+              assert report['left_to_right_runs'] == 1365
+              assert report['right_to_left_runs'] == 1366
+              assert report['missing_font_runs'] == 390
+              assert report['script_splits'] == 1023
+              assert report['font_splits'] == 1365
+              assert report['direction_splits'] == 2047
+              assert report['level_splits'] == 2047
               assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
-              assert report['hard_limit_bytes'] == 131072
-              assert report['current_bytes'] <= report['peak_bytes'] <= 131072
+              assert report['hard_limit_bytes'] == 49152
+              assert report['current_bytes'] == 43712
+              assert report['peak_bytes'] == 43712
               assert report['rejected_reservations'] == 0
               assert report['accounting_errors'] == 0
               assert report['within_hard_limits'] is True
@@ -102,10 +105,10 @@ jobs:
               'output_boundaries': reports[0]['output_boundaries'],
               'passed': True,
           }
-          assert aggregate['median_p95_ms'] <= 5.00
-          assert aggregate['median_p99_ms'] <= 7.50
-          assert aggregate['worst_maximum_ms'] <= 15.00
-          assert aggregate['worst_peak_bytes'] <= 131072
+          assert aggregate['median_p95_ms'] <= 1.25
+          assert aggregate['median_p99_ms'] <= 1.50
+          assert aggregate['worst_maximum_ms'] <= 2.50
+          assert aggregate['worst_peak_bytes'] == 43712
           Path('evidence/ci/z2c-shaping-run-plan-certification.json').write_text(
               json.dumps(aggregate, indent=2, sort_keys=True) + '\n'
           )
@@ -118,33 +121,6 @@ jobs:
           path: |
             evidence/ci/z2c-shaping-run-plan-*.json
           if-no-files-found: warn
-
-  compiler-diagnostic:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Configure diagnostic strict build
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-      - name: Build with retained compiler output
-        id: diagnostic-build
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          cmake --build build --parallel 2 --verbose --target \
-            zevryon-shaping-run-plan-tests \
-            zevryon-shaping-run-plan-benchmark \
-            2>&1 | tee shaping-run-plan-build.log
-      - name: Upload compiler output
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: z2-shaping-run-plan-compiler-${{ github.sha }}
-          path: shaping-run-plan-build.log
-          if-no-files-found: error
-      - name: Enforce diagnostic build
-        if: steps.diagnostic-build.outcome != 'success'
-        run: exit 1
 
   linux-sanitizer:
     runs-on: ubuntu-latest
