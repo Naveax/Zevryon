@@ -22,7 +22,8 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
       zevryon-harfbuzz-shaper
       STATIC
         src/harfbuzz_shaper_backend.cpp
-        src/harfbuzz_verified_shaper.cpp)
+        src/harfbuzz_verified_shaper.cpp
+        src/catalog_harfbuzz_shaper.cpp)
     target_include_directories(zevryon-harfbuzz-shaper PUBLIC src)
     target_link_libraries(
       zevryon-harfbuzz-shaper
@@ -77,6 +78,22 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
         zevryon-harfbuzz-verified-resource-tests
         PRIVATE zevryon-harfbuzz-shaper)
       zevryon_options(zevryon-harfbuzz-verified-resource-tests)
+
+      add_executable(
+        zevryon-catalog-harfbuzz-shaper-tests
+        tests/catalog_harfbuzz_shaper_tests.cpp)
+      target_link_libraries(
+        zevryon-catalog-harfbuzz-shaper-tests
+        PRIVATE zevryon-harfbuzz-shaper)
+      zevryon_options(zevryon-catalog-harfbuzz-shaper-tests)
+
+      if(ZEVRYON_TEST_FONT_LATIN)
+        add_test(
+          NAME catalog-harfbuzz-shaper-tests
+          COMMAND
+            zevryon-catalog-harfbuzz-shaper-tests
+            "${ZEVRYON_TEST_FONT_LATIN}")
+      endif()
 
       if(ZEVRYON_TEST_FONT_LATIN AND ZEVRYON_TEST_FONT_DEVANAGARI)
         add_test(

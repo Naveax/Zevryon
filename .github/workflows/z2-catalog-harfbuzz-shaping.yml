@@ -1,0 +1,77 @@
+name: z2-catalog-harfbuzz-shaping
+
+# Certifies the complete catalog face -> verified resource -> HarfBuzz chain.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-catalog-harfbuzz-shaping.yml'
+      - 'cmake/harfbuzz_shaping.cmake'
+      - 'src/catalog_harfbuzz_shaper.*'
+      - 'src/catalog_font_resource_resolver.*'
+      - 'src/harfbuzz_*'
+      - 'src/font_*'
+      - 'src/verified_font_resource*'
+      - 'tests/catalog_harfbuzz_shaper_tests.cpp'
+      - 'docs/Z2B10_CATALOG_HARFBUZZ_SHAPING.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-catalog-harfbuzz-shaping-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  strict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz and real-font fixtures
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+      - name: Configure strict Release build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build catalog shaping dependency chain
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-catalog-harfbuzz-shaper-tests
+          zevryon-harfbuzz-verified-resource-tests
+          zevryon-catalog-font-resource-resolver-tests
+      - name: Run catalog shaping dependency chain
+        run: >-
+          ctest --test-dir build
+          -R '^(catalog-harfbuzz-shaper-tests|harfbuzz-verified-resource-tests|catalog-font-resource-resolver-tests)$'
+          --output-on-failure
+
+  sanitizer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz and real-font fixtures
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+      - name: Configure ASan and UBSan build
+        run: >-
+          cmake -S . -B build-sanitized
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build catalog shaping dependency chain under sanitizers
+        run: >-
+          cmake --build build-sanitized --parallel 2 --target
+          zevryon-catalog-harfbuzz-shaper-tests
+          zevryon-harfbuzz-verified-resource-tests
+          zevryon-catalog-font-resource-resolver-tests
+      - name: Run catalog shaping dependency chain under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: >-
+          ctest --test-dir build-sanitized
+          -R '^(catalog-harfbuzz-shaper-tests|harfbuzz-verified-resource-tests|catalog-font-resource-resolver-tests)$'
+          --output-on-failure
