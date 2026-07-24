@@ -15,6 +15,14 @@ target_link_libraries(
   zevryon-massivedoc-core
   PUBLIC Threads::Threads)
 
+add_executable(
+  zevryon-font-content-identity-benchmark
+  src/font_content_identity_benchmark_main.cpp)
+target_link_libraries(
+  zevryon-font-content-identity-benchmark
+  PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-font-content-identity-benchmark)
+
 if(BUILD_TESTING)
   add_executable(
     zevryon-font-resource-sfnt-tests
