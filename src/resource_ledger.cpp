@@ -33,6 +33,7 @@ constexpr std::array<const char*, resource_class_count> kResourceNames{
     "font_catalog",
     "font_fallback_plan",
     "font_discovery_snapshot",
+    "font_resource_bytes",
 };
 
 } // namespace
