@@ -1,5 +1,6 @@
 #pragma once
 
+#include "font_content_identity.hpp"
 #include "ledger_memory_resource.hpp"
 #include "resource_ledger.hpp"
 #include "verified_font_resource.hpp"
@@ -27,6 +28,9 @@ struct VerifiedFontResourceCacheKey {
 static_assert(
     sizeof(VerifiedFontResourceCacheKey) <= 24U,
     "verified font cache keys must remain compact");
+
+VerifiedFontResourceCacheKey verified_font_cache_key(
+    FontContentIdentity identity) noexcept;
 
 enum class VerifiedFontResourceCacheErrorKind : std::uint8_t {
     None = 0,
@@ -95,6 +99,17 @@ public:
         VerifiedFontResourceCacheKey key,
         std::span<const std::byte> source,
         std::shared_ptr<const VerifiedFontResource>* output,
+        VerifiedFontResourceCacheStats* stats,
+        VerifiedFontResourceCacheError* error) noexcept;
+
+    // Computes the domain-separated SHA-256-derived 128-bit identity from the
+    // exact source and face index, then uses the normal collision-guarded cache
+    // path. The optional identity output is published before cache lookup/build.
+    bool get_or_build_content_addressed(
+        std::span<const std::byte> source,
+        std::uint32_t face_index,
+        std::shared_ptr<const VerifiedFontResource>* output,
+        FontContentIdentity* identity,
         VerifiedFontResourceCacheStats* stats,
         VerifiedFontResourceCacheError* error) noexcept;
 
