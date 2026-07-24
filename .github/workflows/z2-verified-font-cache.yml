@@ -1,0 +1,77 @@
+name: z2-verified-font-cache
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-verified-font-cache.yml'
+      - 'cmake/font_resource_sfnt.cmake'
+      - 'src/font_resource_*.cpp'
+      - 'src/font_resource_*.hpp'
+      - 'src/verified_font_resource*.cpp'
+      - 'src/verified_font_resource*.hpp'
+      - 'src/resource_ledger.*'
+      - 'src/ledger_memory_resource.*'
+      - 'tests/verified_font_resource*_tests.cpp'
+      - 'docs/Z2B5_VERIFIED_FONT_CACHE.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-verified-font-cache-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  strict:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure strict Release build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build verified resource and cache tests
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-verified-font-resource-tests
+          zevryon-verified-font-resource-cache-tests
+          zevryon-resource-ledger-tests
+      - name: Run cache ownership concurrency and ledger tests
+        run: >-
+          ctest --test-dir build
+          -R '^(verified-font-resource(-cache)?-tests|resource-ledger-tests)$'
+          --output-on-failure
+
+  sanitizer:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AddressSanitizer and UndefinedBehaviorSanitizer
+        run: >-
+          cmake -S . -B build-sanitized
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build cache and ledger tests under sanitizers
+        run: >-
+          cmake --build build-sanitized --parallel 2 --target
+          zevryon-verified-font-resource-tests
+          zevryon-verified-font-resource-cache-tests
+          zevryon-resource-ledger-tests
+      - name: Run cache tests under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: >-
+          ctest --test-dir build-sanitized
+          -R '^(verified-font-resource(-cache)?-tests|resource-ledger-tests)$'
+          --output-on-failure
