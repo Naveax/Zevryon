@@ -8,6 +8,10 @@
 namespace zevryon::text {
 namespace {
 
+bool valid_content_identity(FontContentIdentity identity) noexcept {
+    return identity.high != 0U || identity.low != 0U;
+}
+
 void clear_resource_error(CatalogFontResourceError* error) noexcept {
     if (error != nullptr) {
         error->kind = CatalogFontResourceErrorKind::None;
@@ -72,6 +76,8 @@ bool CatalogFontFaceBinding::valid() const noexcept {
         face_id_ != kInvalidFontFaceId &&
         static_cast<std::size_t>(face_id_) <
             generation_->discovery_records().size() &&
+        valid_content_identity(content_identity_) &&
+        content_identity_.face_index == resource_->view().face_index() &&
         resource_->view().valid() && !resource_->bytes().empty() &&
         resource_->bytes().data() == resource_->view().bytes().data() &&
         resource_->accounting_clean() && resource_->within_hard_limit() &&
@@ -82,12 +88,23 @@ std::uint64_t CatalogFontFaceBinding::generation_id() const noexcept {
     return generation_ != nullptr ? generation_->generation_id() : 0U;
 }
 
+FontGenerationFingerprint
+CatalogFontFaceBinding::generation_fingerprint() const noexcept {
+    return generation_ != nullptr
+        ? generation_->fingerprint()
+        : FontGenerationFingerprint{};
+}
+
 FontFaceId CatalogFontFaceBinding::face_id() const noexcept {
     return face_id_;
 }
 
 std::uint64_t CatalogFontFaceBinding::resource_id() const noexcept {
     return resource_ != nullptr ? resource_->resource_id() : 0U;
+}
+
+FontContentIdentity CatalogFontFaceBinding::content_identity() const noexcept {
+    return content_identity_;
 }
 
 const std::shared_ptr<const FontCatalogGeneration>&
@@ -138,6 +155,7 @@ bool bind_catalog_font_face(
     CatalogFontFaceBinding candidate;
     candidate.generation_ = std::move(generation);
     candidate.resource_ = std::move(resource);
+    candidate.content_identity_ = stats->file_load.identity;
     candidate.face_id_ = face_id;
     if (!candidate.valid()) {
         return fail_binding_argument(
