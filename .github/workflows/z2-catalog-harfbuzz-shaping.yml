@@ -1,5 +1,6 @@
 name: z2-catalog-harfbuzz-shaping
 
+# Certifies the complete catalog face -> verified resource -> HarfBuzz chain.
 on:
   pull_request:
     paths:
