@@ -1,0 +1,116 @@
+name: z2-font-content-identity
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-font-content-identity.yml'
+      - 'cmake/font_resource_sfnt.cmake'
+      - 'src/font_content_identity.*'
+      - 'src/verified_font_resource_cache*'
+      - 'tests/font_content_identity_tests.cpp'
+      - 'docs/Z2B6_FONT_CONTENT_IDENTITY.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-font-content-identity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  strict:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure strict Release build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build identity cache and benchmark targets
+        run: >-
+          cmake --build build --config Release --parallel 2 --target
+          zevryon-font-content-identity-tests
+          zevryon-verified-font-resource-cache-tests
+          zevryon-font-content-identity-benchmark
+      - name: Run identity and cache regression tests
+        run: >-
+          ctest --test-dir build -C Release
+          -R '^(font-content-identity-tests|verified-font-resource-cache-tests)$'
+          --output-on-failure
+
+  sanitizer:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asan_options: detect_leaks=1:halt_on_error=1:abort_on_error=1
+          - os: macos-latest
+            asan_options: detect_leaks=0:halt_on_error=1:abort_on_error=1
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AddressSanitizer and UndefinedBehaviorSanitizer
+        run: >-
+          cmake -S . -B build-sanitized
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build identity and cache tests under sanitizers
+        run: >-
+          cmake --build build-sanitized --config RelWithDebInfo --parallel 2 --target
+          zevryon-font-content-identity-tests
+          zevryon-verified-font-resource-cache-tests
+      - name: Run identity and cache tests under sanitizers
+        env:
+          ASAN_OPTIONS: ${{ matrix.asan_options }}
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: >-
+          ctest --test-dir build-sanitized -C RelWithDebInfo
+          -R '^(font-content-identity-tests|verified-font-resource-cache-tests)$'
+          --output-on-failure
+
+  throughput:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure Release benchmark
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+      - name: Build identity benchmark
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-font-content-identity-benchmark
+      - name: Run three independent 16 MiB distributions
+        run: |
+          for run in 1 2 3; do
+            ./build/zevryon-font-content-identity-benchmark \
+              > "font-content-identity-${run}.json"
+          done
+      - name: Enforce identity throughput and latency gates
+        run: |
+          python3 - <<'PY'
+          import glob, json
+          for path in sorted(glob.glob('font-content-identity-*.json')):
+              row = json.load(open(path, encoding='utf-8'))
+              assert row['schema'] == 'zevryon.font-content-identity-benchmark.v1'
+              assert row['payload_bytes'] == 16 * 1024 * 1024
+              assert row['face_index'] == 17
+              assert row['iterations'] == 24
+              assert row['identity_high'] != 0 or row['identity_low'] != 0
+              assert row['p50_throughput_mib_s'] >= 100.0, (path, row)
+              assert row['p95_ms'] <= 160.0, (path, row)
+              assert row['p99_ms'] <= 200.0, (path, row)
+              assert row['maximum_ms'] <= 300.0, (path, row)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-font-content-identity-${{ github.sha }}
+          path: font-content-identity-*.json
+          if-no-files-found: warn
