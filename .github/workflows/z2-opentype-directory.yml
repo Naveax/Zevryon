@@ -98,11 +98,19 @@ jobs:
           set CL_EXIT=%ERRORLEVEL%
           type opentype-directory-msvc-build.log
           exit /b %CL_EXIT%
-      - name: Run MSVC AddressSanitizer test
+      - name: Run MSVC AddressSanitizer test with captured diagnostics
         shell: pwsh
         env:
           ASAN_OPTIONS: halt_on_error=1:abort_on_error=1:detect_leaks=0
-        run: .\opentype-directory-asan.exe | Tee-Object opentype-directory-msvc-asan.log
+        run: |
+          & .\opentype-directory-asan.exe *> opentype-directory-msvc-asan.log
+          $exitCode = $LASTEXITCODE
+          if (Test-Path opentype-directory-msvc-asan.log) {
+            Get-Content opentype-directory-msvc-asan.log
+          }
+          if ($exitCode -ne 0) {
+            throw "MSVC AddressSanitizer test failed with exit code $exitCode"
+          }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
