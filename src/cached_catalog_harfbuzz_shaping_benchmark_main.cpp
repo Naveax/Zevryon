@@ -40,7 +40,8 @@ double pct(const std::vector<double>& v, double p) {
     const double x = p * static_cast<double>(v.size() - 1U);
     const auto lo = static_cast<std::size_t>(x);
     const auto hi = std::min(lo + 1U, v.size() - 1U);
-    return v[lo] * (1.0 - (x - lo)) + v[hi] * (x - lo);
+    const double weight = x - static_cast<double>(lo);
+    return v[lo] * (1.0 - weight) + v[hi] * weight;
 }
 
 struct Fixture {
