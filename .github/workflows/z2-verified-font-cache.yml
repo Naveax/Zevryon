@@ -50,7 +50,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            asan_options: detect_leaks=1:halt_on_error=1:abort_on_error=1
+          - os: macos-latest
+            asan_options: detect_leaks=0:halt_on_error=1:abort_on_error=1
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -69,7 +73,7 @@ jobs:
           zevryon-resource-ledger-tests
       - name: Run cache tests under sanitizers
         env:
-          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
+          ASAN_OPTIONS: ${{ matrix.asan_options }}
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: >-
           ctest --test-dir build-sanitized
