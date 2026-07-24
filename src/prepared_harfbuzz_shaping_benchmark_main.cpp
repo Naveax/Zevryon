@@ -1,6 +1,5 @@
 #include "catalog_harfbuzz_shaper.hpp"
 #include "grapheme_segmenter.hpp"
-#include "harfbuzz_shaper.hpp"
 #include "ledger_memory_resource.hpp"
 #include "prepared_harfbuzz_face.hpp"
 #include "resource_ledger.hpp"
@@ -158,9 +157,9 @@ struct Fixture {
         return binding.valid() && prepared != nullptr && prepared->valid();
     }
 
-    HarfBuzzShapingRequest request() const {
-        HarfBuzzShapingRequest value;
-        value.face_index = 0U;
+    BoundCatalogHarfBuzzShapingRequest request(bool prepared_mode) const {
+        BoundCatalogHarfBuzzShapingRequest value;
+        value.binding = prepared_mode ? nullptr : &binding;
         value.codepoints = codepoints;
         value.grapheme_boundaries = graphemes;
         value.first_cluster = 0U;
@@ -171,6 +170,7 @@ struct Fixture {
         value.language = "en";
         value.beginning_of_text = true;
         value.end_of_text = true;
+        value.prepared_harfbuzz_face = prepared_mode ? prepared : nullptr;
         return value;
     }
 };
@@ -184,17 +184,17 @@ struct Measurement {
     ResourceLedger ledger;
     LedgerMemoryResource memory;
     ShapedGlyphRun output;
-    HarfBuzzShapingStats stats;
-    HarfBuzzShapingError error;
+    BoundCatalogHarfBuzzShapingStats stats;
+    BoundCatalogHarfBuzzShapingError error;
     std::vector<double> samples;
 };
 
 bool run_calls(
-    const HarfBuzzShapingRequest& request,
+    const BoundCatalogHarfBuzzShapingRequest& request,
     std::size_t count,
     Measurement* measurement) {
     for (std::size_t index = 0U; index < count; ++index) {
-        if (!shape_harfbuzz_segment(
+        if (!shape_bound_catalog_harfbuzz_segment(
                 request,
                 &measurement->output,
                 &measurement->stats,
@@ -207,7 +207,7 @@ bool run_calls(
 }
 
 double measure_batch(
-    const HarfBuzzShapingRequest& request,
+    const BoundCatalogHarfBuzzShapingRequest& request,
     Measurement* measurement,
     bool* ok) {
     const auto begin = std::chrono::steady_clock::now();
@@ -229,12 +229,15 @@ bool validate_measurement(
         measurement.ledger.snapshot(ResourceClass::GlyphRun);
     const std::size_t output_bytes =
         measurement.output.glyphs.size() * sizeof(ShapedGlyph);
-    return !measurement.output.glyphs.empty() &&
-        measurement.stats.missing_glyphs == 0U &&
-        measurement.stats.used_verified_font_resource &&
-        !measurement.stats.performed_inline_font_verification &&
-        measurement.stats.used_prepared_harfbuzz_face == prepared_mode &&
-        measurement.stats.verified_font_resource_id == resource_id &&
+    const HarfBuzzShapingStats& shaping = measurement.stats.shaping;
+    return measurement.stats.shaping_completed &&
+        measurement.stats.resource_id == resource_id &&
+        !measurement.output.glyphs.empty() &&
+        shaping.missing_glyphs == 0U &&
+        shaping.used_verified_font_resource &&
+        !shaping.performed_inline_font_verification &&
+        shaping.used_prepared_harfbuzz_face == prepared_mode &&
+        shaping.verified_font_resource_id == resource_id &&
         snapshot.current_bytes == output_bytes &&
         snapshot.rejected_reservations == 0U &&
         snapshot.accounting_errors == 0U &&
@@ -251,6 +254,7 @@ void emit(
         measurement->ledger.snapshot(ResourceClass::GlyphRun);
     const std::size_t output_bytes =
         measurement->output.glyphs.size() * sizeof(ShapedGlyph);
+    const HarfBuzzShapingStats& shaping = measurement->stats.shaping;
     std::cout << std::fixed << std::setprecision(9)
               << "{\"schema\":\"zevryon.prepared-harfbuzz-shaping-benchmark.v1\","
               << "\"mode\":\"" << mode << "\","
@@ -259,16 +263,15 @@ void emit(
               << "\"input_clusters\":" << fixture.graphemes.size() - 1U << ','
               << "\"output_glyphs\":" << measurement->output.glyphs.size() << ','
               << "\"output_bytes\":" << output_bytes << ','
-              << "\"total_x_advance\":"
-              << measurement->stats.total_x_advance << ','
-              << "\"total_y_advance\":"
-              << measurement->stats.total_y_advance << ','
-              << "\"units_per_em\":" << measurement->stats.units_per_em << ','
+              << "\"total_x_advance\":" << shaping.total_x_advance << ','
+              << "\"total_y_advance\":" << shaping.total_y_advance << ','
+              << "\"units_per_em\":" << shaping.units_per_em << ','
+              << "\"generation_id\":" << measurement->stats.generation_id << ','
+              << "\"face_id\":" << measurement->stats.face_id << ','
               << "\"verified_font_resource_id\":"
-              << measurement->stats.verified_font_resource_id << ','
+              << shaping.verified_font_resource_id << ','
               << "\"used_prepared_harfbuzz_face\":"
-              << (measurement->stats.used_prepared_harfbuzz_face
-                      ? "true" : "false") << ','
+              << (shaping.used_prepared_harfbuzz_face ? "true" : "false") << ','
               << "\"samples\":" << kSamples << ','
               << "\"calls_per_sample\":" << kBatchCalls << ','
               << "\"p50_ms\":"
@@ -310,10 +313,10 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    HarfBuzzShapingRequest verified_request = fixture.request();
-    verified_request.verified_font_resource = fixture.binding.resource();
-    HarfBuzzShapingRequest prepared_request = fixture.request();
-    prepared_request.prepared_harfbuzz_face = fixture.prepared;
+    const BoundCatalogHarfBuzzShapingRequest verified_request =
+        fixture.request(false);
+    const BoundCatalogHarfBuzzShapingRequest prepared_request =
+        fixture.request(true);
 
     Measurement verified;
     Measurement prepared;
@@ -342,6 +345,8 @@ int main(int argc, char** argv) {
         }
     }
 
+    const HarfBuzzShapingStats& verified_shaping = verified.stats.shaping;
+    const HarfBuzzShapingStats& prepared_shaping = prepared.stats.shaping;
     if (!validate_measurement(
             verified,
             false,
@@ -350,11 +355,15 @@ int main(int argc, char** argv) {
             prepared,
             true,
             fixture.binding.resource_id()) ||
+        verified.stats.generation_id != prepared.stats.generation_id ||
+        verified.stats.face_id != prepared.stats.face_id ||
         copy_glyphs(verified.output) != copy_glyphs(prepared.output) ||
-        verified.stats.total_x_advance != prepared.stats.total_x_advance ||
-        verified.stats.total_y_advance != prepared.stats.total_y_advance ||
-        verified.stats.units_per_em != prepared.stats.units_per_em) {
-        std::cerr << "prepared and verified benchmark paths diverged\n";
+        verified_shaping.total_x_advance !=
+            prepared_shaping.total_x_advance ||
+        verified_shaping.total_y_advance !=
+            prepared_shaping.total_y_advance ||
+        verified_shaping.units_per_em != prepared_shaping.units_per_em) {
+        std::cerr << "prepared and verified catalog benchmark paths diverged\n";
         return 1;
     }
 
