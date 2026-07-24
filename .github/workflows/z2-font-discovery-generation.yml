@@ -1,0 +1,202 @@
+name: z2-font-discovery-generation
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-font-discovery-generation.yml'
+      - 'CMakeLists.txt'
+      - 'src/font_discovery_generation.*'
+      - 'src/font_discovery_generation_benchmark_main.cpp'
+      - 'src/font_catalog.*'
+      - 'src/resource_ledger.*'
+      - 'tests/font_discovery_generation_tests.cpp'
+      - 'tests/font_discovery_generation_concurrency_tests.cpp'
+      - 'docs/Z2A2_FONT_DISCOVERY_GENERATION.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-font-discovery-generation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu-certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build focused target
+        run: cmake --build build --parallel 2 --target zevryon-font-discovery-generation-tests
+      - run: ctest --test-dir build -R font-discovery-generation-tests --output-on-failure
+      - name: Build and run concurrent reader stress
+        run: |
+          c++ -std=c++20 -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror \
+            -pthread -Isrc tests/font_discovery_generation_concurrency_tests.cpp \
+            build/libzevryon-massivedoc-core.a \
+            -o build/zevryon-font-discovery-generation-concurrency-tests
+          ./build/zevryon-font-discovery-generation-concurrency-tests
+      - name: Build generation benchmark with strict flags
+        run: |
+          c++ -std=c++20 -O3 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror \
+            -pthread -Isrc src/font_discovery_generation_benchmark_main.cpp \
+            build/libzevryon-massivedoc-core.a \
+            -o build/zevryon-font-discovery-generation-benchmark
+      - name: Run three independent 1024-face distributions
+        run: |
+          mkdir -p evidence
+          ./build/zevryon-font-discovery-generation-benchmark 64 \
+            > evidence/z2-font-generation-benchmark-1.json
+          ./build/zevryon-font-discovery-generation-benchmark 64 \
+            > evidence/z2-font-generation-benchmark-2.json
+          ./build/zevryon-font-discovery-generation-benchmark 64 \
+            > evidence/z2-font-generation-benchmark-3.json
+          cat evidence/z2-font-generation-benchmark-1.json
+      - name: Enforce final determinism, memory, and latency gates
+        run: |
+          python - <<'PY'
+          import json, pathlib, statistics
+          root = pathlib.Path('evidence')
+          reports = [
+              json.loads((root / f'z2-font-generation-benchmark-{index}.json').read_text())
+              for index in range(1, 4)
+          ]
+          fingerprints = {(r['fingerprint_high'], r['fingerprint_low']) for r in reports}
+          assert len(fingerprints) == 1
+          for report in reports:
+              assert report['schema'] == 'zevryon.font-discovery-generation-benchmark.v1'
+              assert report['faces'] == 1024
+              assert report['families'] == 128
+              assert report['iterations'] == 64
+              assert report['warmup_iterations'] == 8
+              assert report['identity_bytes'] == 21504
+              assert report['family_bytes'] == 1408
+              assert report['snapshot_bytes'] == 40832
+              assert report['catalog_faces'] == 1024
+              assert report['catalog_ranges'] == 2048
+              assert report['discovery_hard_limit_bytes'] == 110592
+              assert report['catalog_hard_limit_bytes'] == 65536
+              assert report['discovery_current_bytes'] == 40832
+              assert report['discovery_peak_bytes'] == 106368
+              assert report['catalog_current_bytes'] == 54656
+              assert report['catalog_peak_bytes'] == 62848
+              assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
+              assert report['p95_ms'] <= 0.75
+              assert report['p99_ms'] <= 1.0
+              assert report['maximum_ms'] <= 2.0
+              assert report['discovery_rejections'] == 0
+              assert report['catalog_rejections'] == 0
+              assert report['accounting_clean'] is True
+              assert report['within_hard_limits'] is True
+
+          certification = {
+              'schema': 'zevryon.font-discovery-generation-certification.v1',
+              'runs': len(reports),
+              'median_p50_ms': statistics.median(r['p50_ms'] for r in reports),
+              'median_p95_ms': statistics.median(r['p95_ms'] for r in reports),
+              'median_p99_ms': statistics.median(r['p99_ms'] for r in reports),
+              'worst_maximum_ms': max(r['maximum_ms'] for r in reports),
+              'worst_discovery_peak_bytes': max(r['discovery_peak_bytes'] for r in reports),
+              'worst_catalog_peak_bytes': max(r['catalog_peak_bytes'] for r in reports),
+              'snapshot_bytes': reports[0]['snapshot_bytes'],
+              'discovery_hard_limit_bytes': reports[0]['discovery_hard_limit_bytes'],
+              'catalog_hard_limit_bytes': reports[0]['catalog_hard_limit_bytes'],
+              'fingerprint_high': reports[0]['fingerprint_high'],
+              'fingerprint_low': reports[0]['fingerprint_low'],
+              'passed': True,
+          }
+          (root / 'z2-font-generation-certification.json').write_text(
+              json.dumps(certification, indent=2, sort_keys=True) + '\n'
+          )
+          print(json.dumps(certification, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-font-discovery-generation-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: warn
+
+  macos-strict:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build focused target
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target zevryon-font-discovery-generation-tests \
+            2>&1 | tee macos-font-discovery-generation-build.log
+      - run: ctest --test-dir build -R font-discovery-generation-tests --output-on-failure
+      - name: Build and run concurrent reader stress
+        run: |
+          c++ -std=c++20 -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror \
+            -pthread -Isrc tests/font_discovery_generation_concurrency_tests.cpp \
+            build/libzevryon-massivedoc-core.a \
+            -o build/zevryon-font-discovery-generation-concurrency-tests
+          ./build/zevryon-font-discovery-generation-concurrency-tests
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-font-discovery-generation-${{ github.sha }}
+          path: macos-font-discovery-generation-build.log
+          if-no-files-found: warn
+
+  windows-asan:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure MSVC AddressSanitizer
+        run: cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build focused target
+        shell: pwsh
+        run: |
+          cmake --build build-asan --config RelWithDebInfo --target zevryon-font-discovery-generation-tests --parallel 2 2>&1 | Tee-Object -FilePath windows-font-discovery-generation-asan-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Stage MSVC AddressSanitizer runtime
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw 'vswhere.exe not found' }
+          $installation = (& $vswhere -latest -products * -property installationPath).Trim()
+          if (-not $installation) { throw 'Visual Studio installation not found' }
+          $patterns = @(
+            "$installation\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan*dynamic-x86_64.dll",
+            "$installation\VC\Tools\Llvm\x64\bin\clang_rt.asan*dynamic-x86_64.dll"
+          )
+          $runtimes = @($patterns | ForEach-Object {
+            Get-ChildItem -Path $_ -File -ErrorAction SilentlyContinue
+          })
+          if (-not $runtimes) { throw 'MSVC AddressSanitizer runtime DLL not found' }
+          $output = Resolve-Path '.\build-asan\RelWithDebInfo'
+          $runtimes | Group-Object Name | ForEach-Object {
+            $runtime = $_.Group | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            Copy-Item $runtime.FullName -Destination $output -Force
+          }
+      - name: Run focused test under MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          $env:ASAN_OPTIONS = 'halt_on_error=1:abort_on_error=1:symbolize=1'
+          $env:ASAN_SAVE_DUMPS = 'windows-font-discovery-generation-asan.dmp'
+          $process = Start-Process `
+            -FilePath '.\build-asan\RelWithDebInfo\zevryon-font-discovery-generation-tests.exe' `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput 'windows-font-discovery-generation-asan.stdout.log' `
+            -RedirectStandardError 'windows-font-discovery-generation-asan.stderr.log'
+          "exit_code=$($process.ExitCode)" | Set-Content 'windows-font-discovery-generation-asan.exit.log'
+          Get-Content 'windows-font-discovery-generation-asan.stdout.log' -ErrorAction SilentlyContinue
+          Get-Content 'windows-font-discovery-generation-asan.stderr.log' -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-font-discovery-generation-asan-${{ github.sha }}
+          path: |
+            windows-font-discovery-generation-asan-build.log
+            windows-font-discovery-generation-asan.*.log
+            windows-font-discovery-generation-asan.dmp
+          if-no-files-found: warn

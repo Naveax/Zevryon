@@ -34,6 +34,7 @@ enum class ResourceClass : std::uint8_t {
     BidiMirrorRequest,
     FontCatalog,
     FontFallbackPlan,
+    FontDiscoverySnapshot,
     Count
 };
 
