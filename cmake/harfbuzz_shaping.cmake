@@ -96,6 +96,14 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
         PRIVATE zevryon-harfbuzz-shaper)
       zevryon_options(zevryon-prepared-harfbuzz-face-tests)
 
+      add_executable(
+        zevryon-prepared-harfbuzz-shaping-tests
+        tests/prepared_harfbuzz_shaping_tests.cpp)
+      target_link_libraries(
+        zevryon-prepared-harfbuzz-shaping-tests
+        PRIVATE zevryon-harfbuzz-shaper)
+      zevryon_options(zevryon-prepared-harfbuzz-shaping-tests)
+
       if(ZEVRYON_TEST_FONT_LATIN)
         add_test(
           NAME catalog-harfbuzz-shaper-tests
@@ -106,6 +114,11 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
           NAME prepared-harfbuzz-face-tests
           COMMAND
             zevryon-prepared-harfbuzz-face-tests
+            "${ZEVRYON_TEST_FONT_LATIN}")
+        add_test(
+          NAME prepared-harfbuzz-shaping-tests
+          COMMAND
+            zevryon-prepared-harfbuzz-shaping-tests
             "${ZEVRYON_TEST_FONT_LATIN}")
       endif()
 
