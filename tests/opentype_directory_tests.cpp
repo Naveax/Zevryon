@@ -12,13 +12,7 @@
 
 namespace {
 
-using zevryon::text::OpenTypeDirectory;
-using zevryon::text::OpenTypeDirectoryError;
-using zevryon::text::OpenTypeDirectoryErrorKind;
-using zevryon::text::OpenTypeDirectoryOptions;
-using zevryon::text::OpenTypeDirectoryStats;
-using zevryon::text::OpenTypeTag;
-using zevryon::text::open_type_tag;
+using namespace zevryon::text;
 
 struct TableSeed {
     OpenTypeTag tag{0};
@@ -33,36 +27,33 @@ bool require(bool condition, const std::string& message) {
     return true;
 }
 
-void write_u16(std::vector<std::byte>* output, std::size_t offset, std::uint16_t value) {
-    (*output)[offset] = static_cast<std::byte>((value >> 8U) & 0xffU);
-    (*output)[offset + 1U] = static_cast<std::byte>(value & 0xffU);
+void put_u16(std::vector<std::byte>* bytes, std::size_t offset, std::uint16_t value) {
+    (*bytes)[offset] = static_cast<std::byte>((value >> 8U) & 0xffU);
+    (*bytes)[offset + 1U] = static_cast<std::byte>(value & 0xffU);
 }
 
-void write_u32(std::vector<std::byte>* output, std::size_t offset, std::uint32_t value) {
-    (*output)[offset] = static_cast<std::byte>((value >> 24U) & 0xffU);
-    (*output)[offset + 1U] = static_cast<std::byte>((value >> 16U) & 0xffU);
-    (*output)[offset + 2U] = static_cast<std::byte>((value >> 8U) & 0xffU);
-    (*output)[offset + 3U] = static_cast<std::byte>(value & 0xffU);
+void put_u32(std::vector<std::byte>* bytes, std::size_t offset, std::uint32_t value) {
+    (*bytes)[offset] = static_cast<std::byte>((value >> 24U) & 0xffU);
+    (*bytes)[offset + 1U] = static_cast<std::byte>((value >> 16U) & 0xffU);
+    (*bytes)[offset + 2U] = static_cast<std::byte>((value >> 8U) & 0xffU);
+    (*bytes)[offset + 3U] = static_cast<std::byte>(value & 0xffU);
 }
 
-std::uint32_t read_u32(const std::vector<std::byte>& source, std::size_t offset) {
-    return (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(source[offset])) << 24U) |
-           (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(source[offset + 1U])) << 16U) |
-           (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(source[offset + 2U])) << 8U) |
-           static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(source[offset + 3U]));
+std::uint32_t get_u32(const std::vector<std::byte>& bytes, std::size_t offset) {
+    return (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(bytes[offset])) << 24U) |
+           (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(bytes[offset + 1U])) << 16U) |
+           (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(bytes[offset + 2U])) << 8U) |
+           static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(bytes[offset + 3U]));
 }
 
-std::uint32_t independent_checksum(
-    std::span<const std::byte> table,
-    bool zero_head_adjustment) {
+std::uint32_t checksum(std::span<const std::byte> table, bool head) {
     std::uint32_t sum = 0U;
     for (std::size_t offset = 0U; offset < table.size(); offset += 4U) {
         std::uint32_t word = 0U;
         for (std::size_t index = 0U; index < 4U; ++index) {
             const std::size_t position = offset + index;
             std::uint8_t value = 0U;
-            if (position < table.size() &&
-                !(zero_head_adjustment && position >= 8U && position < 12U)) {
+            if (position < table.size() && !(head && position >= 8U && position < 12U)) {
                 value = std::to_integer<std::uint8_t>(table[position]);
             }
             word = static_cast<std::uint32_t>((word << 8U) | value);
@@ -72,44 +63,38 @@ std::uint32_t independent_checksum(
     return sum;
 }
 
-std::size_t aligned_four(std::size_t value) {
+std::size_t align4(std::size_t value) {
     return (value + 3U) & ~std::size_t{3U};
 }
 
 std::vector<TableSeed> standard_tables() {
     std::vector<std::byte> head(12U, std::byte{0});
-    head[1] = std::byte{0x01};
+    head[1] = std::byte{1};
     head[8] = std::byte{0xde};
     head[9] = std::byte{0xad};
     head[10] = std::byte{0xbe};
     head[11] = std::byte{0xef};
     return {
-        {zevryon::text::kOpenTypeOs2Tag,
-         {std::byte{0x00}, std::byte{0x05}, std::byte{0x00}, std::byte{0x01}}},
-        {zevryon::text::kOpenTypeCmapTag,
-         {std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x01}, std::byte{0x7f}}},
-        {zevryon::text::kOpenTypeHeadTag, std::move(head)},
-        {zevryon::text::kOpenTypeMaxpTag,
-         {std::byte{0x00}, std::byte{0x01}, std::byte{0x00}, std::byte{0x00}}},
-        {zevryon::text::kOpenTypeNameTag,
-         {std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}}},
+        {kOpenTypeCmapTag,
+         {std::byte{0}, std::byte{0}, std::byte{0}, std::byte{1}, std::byte{0x7f}}},
+        {kOpenTypeHeadTag, std::move(head)},
+        {kOpenTypeNameTag,
+         {std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}}},
     };
 }
 
-std::vector<std::byte> make_sfnt(
-    OpenTypeTag version,
-    std::vector<TableSeed> tables) {
-    std::sort(tables.begin(), tables.end(), [](const TableSeed& left, const TableSeed& right) {
+std::vector<std::byte> make_sfnt(std::vector<TableSeed> tables) {
+    std::sort(tables.begin(), tables.end(), [](const auto& left, const auto& right) {
         return left.tag < right.tag;
     });
     const std::size_t directory_bytes = 12U + tables.size() * 16U;
     std::size_t total = directory_bytes;
-    for (const TableSeed& table : tables) {
-        total = aligned_four(total) + aligned_four(table.bytes.size());
+    for (const auto& table : tables) {
+        total = align4(total) + align4(table.bytes.size());
     }
     std::vector<std::byte> output(total, std::byte{0});
-    write_u32(&output, 0U, version);
-    write_u16(&output, 4U, static_cast<std::uint16_t>(tables.size()));
+    put_u32(&output, 0U, kOpenTypeTrueTypeVersion);
+    put_u16(&output, 4U, static_cast<std::uint16_t>(tables.size()));
     std::uint32_t power = 1U;
     std::uint16_t selector = 0U;
     while (power <= tables.size() / 2U) {
@@ -117,157 +102,124 @@ std::vector<std::byte> make_sfnt(
         ++selector;
     }
     const auto search_range = static_cast<std::uint16_t>(power * 16U);
-    write_u16(&output, 6U, search_range);
-    write_u16(&output, 8U, selector);
-    write_u16(
+    put_u16(&output, 6U, search_range);
+    put_u16(&output, 8U, selector);
+    put_u16(
         &output,
         10U,
         static_cast<std::uint16_t>(tables.size() * 16U - search_range));
 
     std::size_t table_offset = directory_bytes;
     for (std::size_t index = 0U; index < tables.size(); ++index) {
-        table_offset = aligned_four(table_offset);
-        const TableSeed& table = tables[index];
+        table_offset = align4(table_offset);
+        const auto& table = tables[index];
         const std::size_t record = 12U + index * 16U;
-        write_u32(&output, record, table.tag);
-        write_u32(
-            &output,
-            record + 4U,
-            independent_checksum(
-                table.bytes,
-                table.tag == zevryon::text::kOpenTypeHeadTag));
-        write_u32(&output, record + 8U, static_cast<std::uint32_t>(table_offset));
-        write_u32(&output, record + 12U, static_cast<std::uint32_t>(table.bytes.size()));
+        put_u32(&output, record, table.tag);
+        put_u32(&output, record + 4U, checksum(table.bytes, table.tag == kOpenTypeHeadTag));
+        put_u32(&output, record + 8U, static_cast<std::uint32_t>(table_offset));
+        put_u32(&output, record + 12U, static_cast<std::uint32_t>(table.bytes.size()));
         std::copy(
             table.bytes.begin(),
             table.bytes.end(),
             output.begin() + static_cast<std::ptrdiff_t>(table_offset));
-        table_offset += aligned_four(table.bytes.size());
+        table_offset += align4(table.bytes.size());
     }
     return output;
 }
 
-std::vector<std::byte> make_ttc_two_faces() {
+std::vector<std::byte> make_ttc() {
     constexpr std::size_t first_directory = 20U;
     constexpr std::size_t second_directory = 48U;
-    constexpr std::size_t shared_table = 76U;
+    constexpr std::size_t shared_head = 76U;
     std::vector<std::byte> output(88U, std::byte{0});
-    write_u32(&output, 0U, zevryon::text::kOpenTypeCollectionTag);
-    write_u32(&output, 4U, 0x00010000U);
-    write_u32(&output, 8U, 2U);
-    write_u32(&output, 12U, first_directory);
-    write_u32(&output, 16U, second_directory);
-
+    put_u32(&output, 0U, kOpenTypeCollectionTag);
+    put_u32(&output, 4U, 0x00010000U);
+    put_u32(&output, 8U, 2U);
+    put_u32(&output, 12U, first_directory);
+    put_u32(&output, 16U, second_directory);
     std::vector<std::byte> head(12U, std::byte{0});
-    head[1] = std::byte{0x01};
-    const std::uint32_t checksum = independent_checksum(head, true);
+    head[1] = std::byte{1};
+    const std::uint32_t head_checksum = checksum(head, true);
     for (std::size_t directory : {first_directory, second_directory}) {
-        write_u32(&output, directory, zevryon::text::kOpenTypeTrueTypeVersion);
-        write_u16(&output, directory + 4U, 1U);
-        write_u16(&output, directory + 6U, 16U);
-        write_u32(&output, directory + 12U, zevryon::text::kOpenTypeHeadTag);
-        write_u32(&output, directory + 16U, checksum);
-        write_u32(&output, directory + 20U, shared_table);
-        write_u32(&output, directory + 24U, static_cast<std::uint32_t>(head.size()));
+        put_u32(&output, directory, kOpenTypeTrueTypeVersion);
+        put_u16(&output, directory + 4U, 1U);
+        put_u16(&output, directory + 6U, 16U);
+        put_u32(&output, directory + 12U, kOpenTypeHeadTag);
+        put_u32(&output, directory + 16U, head_checksum);
+        put_u32(&output, directory + 20U, shared_head);
+        put_u32(&output, directory + 24U, static_cast<std::uint32_t>(head.size()));
     }
     std::copy(
         head.begin(),
         head.end(),
-        output.begin() + static_cast<std::ptrdiff_t>(shared_table));
+        output.begin() + static_cast<std::ptrdiff_t>(shared_head));
     return output;
 }
 
 bool parse(
     const std::vector<std::byte>& source,
-    std::uint32_t face_index,
+    std::uint32_t face,
     const OpenTypeDirectoryOptions& options,
-    std::size_t hard_limit,
+    std::size_t budget,
     std::shared_ptr<const OpenTypeDirectory>* output,
     OpenTypeDirectoryStats* stats,
     OpenTypeDirectoryError* error) {
-    return zevryon::text::parse_opentype_directory(
-        source,
-        face_index,
-        options,
-        hard_limit,
-        output,
-        stats,
-        error);
+    return parse_opentype_directory(source, face, options, budget, output, stats, error);
 }
 
-bool test_valid_single_font() {
-    const auto source = make_sfnt(
-        zevryon::text::kOpenTypeTrueTypeVersion,
-        standard_tables());
-    std::shared_ptr<const OpenTypeDirectory> directory;
-    OpenTypeDirectoryStats stats;
-    OpenTypeDirectoryError error;
-    if (!require(
-            parse(source, 0U, {}, 4096U, &directory, &stats, &error),
-            "valid SFNT failed: " + error.message) ||
-        !require(directory != nullptr, "valid parse published no directory") ||
-        !require(directory->tables().size() == 5U, "unexpected table count") ||
-        !require(directory->resource_snapshot().current_bytes == 80U,
-                 "persistent directory is not exactly 16 bytes per table") ||
-        !require(directory->accounting_clean(), "directory accounting is not clean") ||
-        !require(directory->within_hard_limit(), "directory exceeded hard limit") ||
-        !require(stats.checksums_verified == 5U, "not all checksums were verified") ||
-        !require(stats.required_table_views == 5U, "required table view count is wrong")) {
-        return false;
-    }
-    const auto cmap = zevryon::text::opentype_table_bytes(
-        source,
-        *directory,
-        zevryon::text::kOpenTypeCmapTag);
-    return require(cmap.size() == 5U, "zero-copy cmap view has wrong size") &&
-        require(cmap[4] == std::byte{0x7f}, "zero-copy cmap view has wrong data") &&
-        require(
-            zevryon::text::find_opentype_table(
-                *directory,
-                open_type_tag('G', 'S', 'U', 'B')) == nullptr,
-            "missing table lookup returned a record");
-}
-
-bool test_search_fields_and_collection() {
-    auto source = make_sfnt(
-        zevryon::text::kOpenTypeTrueTypeVersion,
-        standard_tables());
-    write_u16(&source, 6U, 0U);
+bool valid_and_collection_tests() {
+    const auto source = make_sfnt(standard_tables());
     std::shared_ptr<const OpenTypeDirectory> directory;
     OpenTypeDirectoryStats stats;
     OpenTypeDirectoryError error;
     if (!require(parse(source, 0U, {}, 4096U, &directory, &stats, &error),
-                 "derived search-field mode rejected a font") ||
+                 "valid SFNT failed: " + error.message) ||
+        !require(directory->tables().size() == 3U, "unexpected table count") ||
+        !require(directory->resource_snapshot().current_bytes == 48U,
+                 "persistent output is not 16 bytes per table") ||
+        !require(directory->accounting_clean() && directory->within_hard_limit(),
+                 "directory accounting failed") ||
+        !require(stats.checksums_verified == 3U && stats.required_table_views == 3U,
+                 "valid stats are incorrect")) {
+        return false;
+    }
+    const auto cmap = opentype_table_bytes(source, *directory, kOpenTypeCmapTag);
+    if (!require(cmap.size() == 5U && cmap[4] == std::byte{0x7f},
+                 "zero-copy cmap view is incorrect") ||
+        !require(find_opentype_table(*directory, open_type_tag('G', 'S', 'U', 'B')) == nullptr,
+                 "missing table lookup succeeded")) {
+        return false;
+    }
+
+    auto search_attack = source;
+    put_u16(&search_attack, 6U, 0U);
+    if (!require(parse(search_attack, 0U, {}, 4096U, &directory, &stats, &error),
+                 "derived search fields rejected a font") ||
         !require(stats.search_field_mismatches == 1U, "search mismatch was not counted")) {
         return false;
     }
-    OpenTypeDirectoryOptions strict;
-    strict.reject_invalid_search_fields = true;
-    if (!require(!parse(source, 0U, strict, 4096U, &directory, &stats, &error),
-                 "strict search-field policy accepted invalid fields") ||
+    OpenTypeDirectoryOptions strict_search;
+    strict_search.reject_invalid_search_fields = true;
+    if (!require(!parse(search_attack, 0U, strict_search, 4096U, &directory, &stats, &error),
+                 "strict search policy accepted malformed fields") ||
         !require(error.kind == OpenTypeDirectoryErrorKind::InvalidSearchFields,
-                 "strict search-field rejection has wrong error")) {
+                 "strict search failure has wrong error")) {
         return false;
     }
 
-    const auto ttc = make_ttc_two_faces();
-    if (!require(parse(ttc, 1U, {}, 4096U, &directory, &stats, &error),
-                 "valid TTC face failed: " + error.message) ||
-        !require(directory->face_index() == 1U, "wrong TTC face selected") ||
-        !require(directory->collection_face_count() == 2U, "wrong TTC face count") ||
-        !require(directory->directory_offset() == 48U, "wrong TTC directory offset")) {
-        return false;
-    }
-    return require(!parse(ttc, 2U, {}, 4096U, &directory, &stats, &error),
-                   "out-of-range TTC face succeeded") &&
+    const auto ttc = make_ttc();
+    return require(parse(ttc, 1U, {}, 4096U, &directory, &stats, &error),
+                   "valid TTC face failed: " + error.message) &&
+        require(directory->face_index() == 1U && directory->collection_face_count() == 2U,
+                "wrong TTC face metadata") &&
+        require(!parse(ttc, 2U, {}, 4096U, &directory, &stats, &error),
+                "out-of-range TTC face succeeded") &&
         require(error.kind == OpenTypeDirectoryErrorKind::FaceIndexOutOfRange,
-                "out-of-range TTC face has wrong error");
+                "out-of-range TTC error is wrong");
 }
 
-bool test_tag_alignment_and_overlap_failures() {
-    const auto original = make_sfnt(
-        zevryon::text::kOpenTypeTrueTypeVersion,
-        standard_tables());
+bool structural_failure_tests() {
+    const auto source = make_sfnt(standard_tables());
     std::shared_ptr<const OpenTypeDirectory> directory;
     OpenTypeDirectoryStats stats;
     OpenTypeDirectoryError error;
@@ -275,93 +227,90 @@ bool test_tag_alignment_and_overlap_failures() {
     structural.verify_table_checksums = false;
     structural.require_zero_padding = false;
 
-    auto invalid_tag = original;
-    write_u32(&invalid_tag, 12U, 0x01020304U);
+    auto invalid_tag = source;
+    put_u32(&invalid_tag, 12U, 0x01020304U);
     if (!require(!parse(invalid_tag, 0U, structural, 4096U, &directory, &stats, &error),
-                 "non-printable table tag succeeded") ||
+                 "invalid tag succeeded") ||
         !require(error.kind == OpenTypeDirectoryErrorKind::InvalidTableTag,
-                 "non-printable tag has wrong error")) {
+                 "invalid tag error is wrong")) {
         return false;
     }
 
-    auto duplicate = original;
-    write_u32(&duplicate, 28U, zevryon::text::kOpenTypeOs2Tag);
+    auto duplicate = source;
+    put_u32(&duplicate, 28U, kOpenTypeCmapTag);
     if (!require(!parse(duplicate, 0U, structural, 4096U, &directory, &stats, &error),
-                 "duplicate table tag succeeded") ||
+                 "duplicate tag succeeded") ||
         !require(error.kind == OpenTypeDirectoryErrorKind::DuplicateOrUnsortedTag,
-                 "duplicate tag has wrong error")) {
+                 "duplicate tag error is wrong")) {
         return false;
     }
 
-    const std::uint32_t first_offset = read_u32(original, 20U);
-    auto misaligned = original;
-    write_u32(&misaligned, 20U, first_offset + 1U);
+    const std::uint32_t first_offset = get_u32(source, 20U);
+    auto misaligned = source;
+    put_u32(&misaligned, 20U, first_offset + 1U);
     if (!require(!parse(misaligned, 0U, structural, 4096U, &directory, &stats, &error),
                  "misaligned table succeeded") ||
         !require(error.kind == OpenTypeDirectoryErrorKind::MisalignedTable,
-                 "misaligned table has wrong error")) {
+                 "misalignment error is wrong")) {
         return false;
     }
 
-    auto directory_overlap = original;
-    write_u32(&directory_overlap, 20U, 12U);
+    auto directory_overlap = source;
+    put_u32(&directory_overlap, 20U, 12U);
     if (!require(!parse(directory_overlap, 0U, structural, 4096U, &directory, &stats, &error),
-                 "table-directory overlap succeeded") ||
+                 "directory overlap succeeded") ||
         !require(error.kind == OpenTypeDirectoryErrorKind::TableOverlapsDirectory,
-                 "directory overlap has wrong error")) {
+                 "directory-overlap error is wrong")) {
         return false;
     }
 
-    auto table_overlap = original;
-    write_u32(&table_overlap, 36U, first_offset);
+    auto table_overlap = source;
+    put_u32(&table_overlap, 36U, first_offset);
     return require(!parse(table_overlap, 0U, structural, 4096U, &directory, &stats, &error),
-                   "overlapping tables succeeded") &&
+                   "table overlap succeeded") &&
         require(error.kind == OpenTypeDirectoryErrorKind::TableOverlap,
-                "overlapping tables have wrong error");
+                "table-overlap error is wrong");
 }
 
-bool test_padding_checksum_and_budget_failures() {
-    const auto original = make_sfnt(
-        zevryon::text::kOpenTypeTrueTypeVersion,
-        standard_tables());
+bool integrity_and_budget_tests() {
+    const auto source = make_sfnt(standard_tables());
     std::shared_ptr<const OpenTypeDirectory> directory;
     OpenTypeDirectoryStats stats;
     OpenTypeDirectoryError error;
+    if (!parse(source, 0U, {}, 4096U, &directory, &stats, &error)) {
+        return false;
+    }
+    const auto pinned_valid = directory;
 
-    auto bad_checksum = original;
-    bad_checksum.back() ^= std::byte{0x01};
-    if (!require(!parse(bad_checksum, 0U, {}, 4096U, &directory, &stats, &error),
+    auto checksum_attack = source;
+    checksum_attack.back() ^= std::byte{1};
+    if (!require(!parse(checksum_attack, 0U, {}, 4096U, &directory, &stats, &error),
                  "checksum corruption succeeded") ||
         !require(error.kind == OpenTypeDirectoryErrorKind::ChecksumMismatch,
-                 "checksum corruption has wrong error")) {
+                 "checksum error is wrong")) {
         return false;
     }
 
-    if (!parse(original, 0U, {}, 4096U, &directory, &stats, &error)) {
-        return false;
-    }
-    auto bad_padding = original;
-    const auto* cmap = zevryon::text::find_opentype_table(
-        *directory,
-        zevryon::text::kOpenTypeCmapTag);
+    auto padding_attack = source;
+    const auto* cmap = find_opentype_table(*pinned_valid, kOpenTypeCmapTag);
     if (cmap == nullptr) {
         return false;
     }
-    bad_padding[static_cast<std::size_t>(cmap->offset) + cmap->length] = std::byte{0x44};
-    if (!require(!parse(bad_padding, 0U, {}, 4096U, &directory, &stats, &error),
-                 "non-zero table padding succeeded") ||
+    padding_attack[static_cast<std::size_t>(cmap->offset) + cmap->length] = std::byte{0x44};
+    if (!require(!parse(padding_attack, 0U, {}, 4096U, &directory, &stats, &error),
+                 "non-zero padding succeeded") ||
         !require(error.kind == OpenTypeDirectoryErrorKind::NonZeroPadding,
-                 "padding corruption has wrong error")) {
+                 "padding error is wrong")) {
         return false;
     }
 
-    const auto previous = directory;
-    if (!require(!parse(original, 0U, {}, 1U, &directory, &stats, &error),
-                 "one-byte directory budget succeeded") ||
-        !require(directory == nullptr, "budget failure published a stale directory") ||
-        !require(previous != nullptr, "valid pre-budget directory was unexpectedly destroyed") ||
+    if (!require(!parse(source, 0U, {}, 1U, &directory, &stats, &error),
+                 "one-byte budget succeeded") ||
+        !require(directory == nullptr, "budget failure published stale output") ||
+        !require(pinned_valid != nullptr && pinned_valid->tables().size() == 3U,
+                 "pinned valid directory did not survive later failures") ||
         !require(error.kind == OpenTypeDirectoryErrorKind::OutputBudgetExceeded,
-                 "budget failure has wrong error")) {
+                 "budget error is wrong")) {
         return false;
     }
 
@@ -372,17 +321,16 @@ bool test_padding_checksum_and_budget_failures() {
     head[10] = std::byte{0xdd};
     head[11] = std::byte{0xcc};
     return require(
-        zevryon::text::calculate_opentype_table_checksum(head, true) == 0x12000000U,
-        "head checksumAdjustment bytes were not treated as zero");
+        calculate_opentype_table_checksum(head, true) == 0x12000000U,
+        "head checksumAdjustment was not zeroed");
 }
 
 } // namespace
 
 int main() {
-    return test_valid_single_font() &&
-            test_search_fields_and_collection() &&
-            test_tag_alignment_and_overlap_failures() &&
-            test_padding_checksum_and_budget_failures()
+    return valid_and_collection_tests() &&
+            structural_failure_tests() &&
+            integrity_and_budget_tests()
         ? 0
         : 1;
 }
