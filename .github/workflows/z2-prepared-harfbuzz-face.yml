@@ -1,0 +1,77 @@
+name: z2-prepared-harfbuzz-face
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-prepared-harfbuzz-face.yml'
+      - 'cmake/harfbuzz_shaping.cmake'
+      - 'src/prepared_harfbuzz_face.*'
+      - 'src/catalog_harfbuzz_shaper.*'
+      - 'src/catalog_font_resource_resolver.*'
+      - 'src/verified_font_resource*'
+      - 'tests/prepared_harfbuzz_face_tests.cpp'
+      - 'docs/Z2B11A_PREPARED_HARFBUZZ_FACE.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-prepared-harfbuzz-face-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  strict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz and real-font fixture
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libharfbuzz-dev fonts-dejavu-core
+      - name: Configure strict Release build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build prepared-face dependency chain
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-prepared-harfbuzz-face-tests
+          zevryon-catalog-harfbuzz-shaper-tests
+          zevryon-catalog-font-resource-resolver-tests
+      - name: Run prepared-face dependency chain
+        run: >-
+          ctest --test-dir build
+          -R '^(prepared-harfbuzz-face-tests|catalog-harfbuzz-shaper-tests|catalog-font-resource-resolver-tests)$'
+          --output-on-failure
+
+  sanitizer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz and real-font fixture
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libharfbuzz-dev fonts-dejavu-core
+      - name: Configure ASan and UBSan build
+        run: >-
+          cmake -S . -B build-sanitized
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build prepared-face dependency chain under sanitizers
+        run: >-
+          cmake --build build-sanitized --parallel 2 --target
+          zevryon-prepared-harfbuzz-face-tests
+          zevryon-catalog-harfbuzz-shaper-tests
+          zevryon-catalog-font-resource-resolver-tests
+      - name: Run prepared-face dependency chain under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: >-
+          ctest --test-dir build-sanitized
+          -R '^(prepared-harfbuzz-face-tests|catalog-harfbuzz-shaper-tests|catalog-font-resource-resolver-tests)$'
+          --output-on-failure
