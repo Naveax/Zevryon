@@ -1,0 +1,188 @@
+name: z2-prepared-harfbuzz-shaping
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-prepared-harfbuzz-shaping.yml'
+      - 'cmake/harfbuzz_shaping.cmake'
+      - 'src/catalog_harfbuzz_shaper.*'
+      - 'src/harfbuzz_shaper.*'
+      - 'src/harfbuzz_verified_shaper.cpp'
+      - 'src/prepared_harfbuzz_face*'
+      - 'src/prepared_harfbuzz_shaping_benchmark_main.cpp'
+      - 'tests/prepared_harfbuzz_shaping_tests.cpp'
+      - 'docs/Z2B11B_PREPARED_HARFBUZZ_SHAPING.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-prepared-harfbuzz-shaping-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  strict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz and real-font fixture
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libharfbuzz-dev \
+            fonts-dejavu-core
+      - name: Configure strict Release build
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON \
+            -DZEVRYON_TEST_FONT_LATIN=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
+      - name: Build prepared shaping dependency chain and benchmark
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target \
+            zevryon-prepared-harfbuzz-shaping-tests \
+            zevryon-prepared-harfbuzz-face-tests \
+            zevryon-harfbuzz-verified-resource-tests \
+            zevryon-prepared-harfbuzz-shaping-benchmark \
+            2>&1 | tee prepared-harfbuzz-shaping-build.log
+      - name: Run prepared shaping dependency chain
+        run: |
+          set -o pipefail
+          ctest --test-dir build \
+            -R '^(prepared-harfbuzz-shaping-tests|prepared-harfbuzz-face-tests|harfbuzz-verified-resource-tests)$' \
+            --output-on-failure \
+            2>&1 | tee prepared-harfbuzz-shaping-test.log
+      - name: Run alternating short-run catalog distributions
+        run: |
+          for run in 1 2 3 4 5; do
+            ./build/zevryon-prepared-harfbuzz-shaping-benchmark \
+              /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
+              > "prepared-harfbuzz-shaping-benchmark-${run}.jsonl"
+          done
+      - name: Enforce catalog equivalence and prepared-face latency gate
+        run: |
+          python3 - <<'PY'
+          import json
+          import statistics
+
+          equivalent = (
+              "input_utf8_bytes",
+              "input_codepoints",
+              "input_clusters",
+              "output_glyphs",
+              "output_bytes",
+              "total_x_advance",
+              "total_y_advance",
+              "units_per_em",
+              "generation_id",
+              "face_id",
+              "verified_font_resource_id",
+              "glyph_current_bytes",
+              "glyph_peak_bytes",
+          )
+          ratios = []
+          for run in range(1, 6):
+              path = f"prepared-harfbuzz-shaping-benchmark-{run}.jsonl"
+              rows = [
+                  json.loads(line)
+                  for line in open(path, encoding="utf-8")
+                  if line.strip()
+              ]
+              assert len(rows) == 2, (path, len(rows))
+              by_mode = {row["mode"]: row for row in rows}
+              assert set(by_mode) == {
+                  "verified_resource_call",
+                  "prepared_face_call",
+              }
+              verified = by_mode["verified_resource_call"]
+              prepared = by_mode["prepared_face_call"]
+              assert verified["schema"] == prepared["schema"] == \
+                  "zevryon.prepared-harfbuzz-shaping-benchmark.v1"
+              assert verified["used_prepared_harfbuzz_face"] is False
+              assert prepared["used_prepared_harfbuzz_face"] is True
+              for key in equivalent:
+                  assert verified[key] == prepared[key], (
+                      run,
+                      key,
+                      verified[key],
+                      prepared[key],
+                  )
+              for row in (verified, prepared):
+                  assert row["input_utf8_bytes"] >= 64
+                  assert row["output_glyphs"] > 0
+                  assert row["output_bytes"] == row["output_glyphs"] * 28
+                  assert row["accounting_clean"] is True
+                  assert row["within_hard_limits"] is True
+                  assert row["p50_ms"] > 0.0
+                  assert row["p95_ms"] >= row["p50_ms"]
+                  assert row["p99_ms"] >= row["p95_ms"]
+                  assert row["maximum_ms"] >= row["p99_ms"]
+              ratio = prepared["p50_ms"] / verified["p50_ms"]
+              assert ratio <= 1.10, (run, ratio)
+              ratios.append(ratio)
+          median_ratio = statistics.median(ratios)
+          assert median_ratio <= 0.97, (median_ratio, ratios)
+          print({"prepared_verified_p50_ratios": ratios,
+                 "median_ratio": median_ratio})
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-prepared-harfbuzz-shaping-${{ github.sha }}
+          path: |
+            prepared-harfbuzz-shaping-build.log
+            prepared-harfbuzz-shaping-test.log
+            prepared-harfbuzz-shaping-benchmark-*.jsonl
+          if-no-files-found: warn
+
+  sanitizer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz and real-font fixture
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libharfbuzz-dev \
+            fonts-dejavu-core
+      - name: Configure ASan and UBSan build
+        run: |
+          cmake -S . -B build-sanitized \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DBUILD_TESTING=ON \
+            -DZEVRYON_ENABLE_SANITIZERS=ON \
+            -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON \
+            -DZEVRYON_TEST_FONT_LATIN=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
+      - name: Build prepared shaping dependency chain under sanitizers
+        run: |
+          set -o pipefail
+          cmake --build build-sanitized --parallel 2 --target \
+            zevryon-prepared-harfbuzz-shaping-tests \
+            zevryon-prepared-harfbuzz-face-tests \
+            zevryon-harfbuzz-verified-resource-tests \
+            2>&1 | tee prepared-harfbuzz-shaping-sanitizer-build.log
+      - name: Run prepared shaping dependency chain under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          set -o pipefail
+          ctest --test-dir build-sanitized \
+            -R '^(prepared-harfbuzz-shaping-tests|prepared-harfbuzz-face-tests|harfbuzz-verified-resource-tests)$' \
+            --output-on-failure \
+            2>&1 | tee prepared-harfbuzz-shaping-sanitizer-test.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-prepared-harfbuzz-shaping-sanitized-${{ github.sha }}
+          path: |
+            prepared-harfbuzz-shaping-sanitizer-build.log
+            prepared-harfbuzz-shaping-sanitizer-test.log
+          if-no-files-found: warn

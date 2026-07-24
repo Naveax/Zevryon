@@ -1,5 +1,7 @@
 #include "harfbuzz_shaper.hpp"
 
+#include "prepared_harfbuzz_face_internal.hpp"
+
 #include <hb.h>
 #include <hb-ot.h>
 
@@ -384,31 +386,75 @@ bool shape_harfbuzz_segment(
     }
 
     try {
-        HbBlob blob(hb_blob_create(
-            reinterpret_cast<const char*>(request.font_bytes.data()),
-            static_cast<unsigned int>(request.font_bytes.size()),
-            HB_MEMORY_MODE_READONLY,
-            nullptr,
-            nullptr));
-        if (!blob ||
-            static_cast<std::size_t>(hb_blob_get_length(blob.get())) !=
-                request.font_bytes.size()) {
-            return fail(
-                HarfBuzzShapingErrorKind::BackendAllocationFailed,
-                request.first_cluster,
-                "HarfBuzz failed to create a read-only font blob",
-                error);
+        HbBlob owned_blob;
+        HbFace owned_face;
+        hb_face_t* face = nullptr;
+
+        const std::shared_ptr<const PreparedHarfBuzzFace> prepared =
+            request.prepared_harfbuzz_face;
+        if (prepared != nullptr) {
+            if (!prepared->valid() || prepared->binding().resource() == nullptr ||
+                prepared->binding().resource()->bytes().data() !=
+                    request.font_bytes.data() ||
+                prepared->binding().resource()->bytes().size() !=
+                    request.font_bytes.size() ||
+                prepared->binding().resource()->view().face_index() !=
+                    request.face_index) {
+                return fail(
+                    HarfBuzzShapingErrorKind::InvalidFontData,
+                    request.face_index,
+                    "prepared HarfBuzz face does not match the selected verified resource",
+                    error);
+            }
+            face = static_cast<hb_face_t*>(
+                prepared_harfbuzz_native_face(*prepared));
+            if (face == nullptr) {
+                return fail(
+                    HarfBuzzShapingErrorKind::InvalidFontData,
+                    request.face_index,
+                    "prepared HarfBuzz face does not expose native face state",
+                    error);
+            }
+        } else {
+            owned_blob.reset(hb_blob_create(
+                reinterpret_cast<const char*>(request.font_bytes.data()),
+                static_cast<unsigned int>(request.font_bytes.size()),
+                HB_MEMORY_MODE_READONLY,
+                nullptr,
+                nullptr));
+            if (!owned_blob ||
+                static_cast<std::size_t>(
+                    hb_blob_get_length(owned_blob.get())) !=
+                    request.font_bytes.size()) {
+                return fail(
+                    HarfBuzzShapingErrorKind::BackendAllocationFailed,
+                    request.first_cluster,
+                    "HarfBuzz failed to create a read-only font blob",
+                    error);
+            }
+
+            owned_face.reset(hb_face_create(
+                owned_blob.get(),
+                request.face_index));
+            if (!owned_face) {
+                return fail(
+                    HarfBuzzShapingErrorKind::InvalidFontData,
+                    request.face_index,
+                    "font data or face index does not produce a usable HarfBuzz face",
+                    error);
+            }
+            face = owned_face.get();
         }
 
-        HbFace face(hb_face_create(blob.get(), request.face_index));
-        if (!face || hb_face_get_glyph_count(face.get()) == 0U) {
+        const unsigned int glyph_count = hb_face_get_glyph_count(face);
+        if (glyph_count == 0U) {
             return fail(
                 HarfBuzzShapingErrorKind::InvalidFontData,
                 request.face_index,
-                "font data or face index does not produce a usable HarfBuzz face",
+                "font face has no usable glyphs",
                 error);
         }
-        const unsigned int units_per_em = hb_face_get_upem(face.get());
+        const unsigned int units_per_em = hb_face_get_upem(face);
         if (units_per_em == 0U ||
             units_per_em > static_cast<unsigned int>(INT_MAX)) {
             return fail(
@@ -418,7 +464,7 @@ bool shape_harfbuzz_segment(
                 error);
         }
 
-        HbFont font(hb_font_create(face.get()));
+        HbFont font(hb_font_create(face));
         if (!font) {
             return fail(
                 HarfBuzzShapingErrorKind::BackendAllocationFailed,
@@ -571,8 +617,7 @@ bool shape_harfbuzz_segment(
         working_stats.input_clusters =
             request.cluster_limit - request.first_cluster;
         working_stats.output_glyphs = info_count;
-        working_stats.glyph_count_before_shaping =
-            hb_face_get_glyph_count(face.get());
+        working_stats.glyph_count_before_shaping = glyph_count;
         working_stats.units_per_em = units_per_em;
 
         ShapedGlyphRun working(output->resource());
