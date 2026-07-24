@@ -1,5 +1,7 @@
 #include "catalog_harfbuzz_shaper.hpp"
 
+#include "prepared_harfbuzz_face.hpp"
+
 #include <memory>
 #include <utility>
 
@@ -175,33 +177,59 @@ bool shape_bound_catalog_harfbuzz_segment(
     }
     clear_shaping_error(error);
 
-    if (output == nullptr || stats == nullptr || error == nullptr ||
-        request.binding == nullptr) {
+    if (output == nullptr || stats == nullptr || error == nullptr) {
         return fail_shaping(
             BoundCatalogHarfBuzzShapingErrorKind::InvalidArgument,
-            "binding, output, stats, and error are required",
-            error);
-    }
-    if (!request.binding->valid()) {
-        return fail_shaping(
-            BoundCatalogHarfBuzzShapingErrorKind::InvalidBinding,
-            "catalog font-face binding is not valid",
+            "output, stats, and error are required",
             error);
     }
 
-    const std::shared_ptr<const FontCatalogGeneration> generation =
-        request.binding->generation();
-    const std::shared_ptr<const VerifiedFontResource> resource =
-        request.binding->resource();
-    if (!generation || !resource) {
+    const bool has_binding = request.binding != nullptr;
+    const bool has_prepared = request.prepared_harfbuzz_face != nullptr;
+    if (has_binding == has_prepared) {
+        return fail_shaping(
+            BoundCatalogHarfBuzzShapingErrorKind::InvalidArgument,
+            "exactly one catalog binding or prepared HarfBuzz face is required",
+            error);
+    }
+
+    std::shared_ptr<const PreparedHarfBuzzFace> prepared;
+    std::shared_ptr<const FontCatalogGeneration> generation;
+    std::shared_ptr<const VerifiedFontResource> resource;
+    FontFaceId face_id = kInvalidFontFaceId;
+
+    if (has_prepared) {
+        prepared = request.prepared_harfbuzz_face;
+        if (!prepared->valid() || !prepared->binding().valid()) {
+            return fail_shaping(
+                BoundCatalogHarfBuzzShapingErrorKind::InvalidBinding,
+                "prepared catalog HarfBuzz face is not valid",
+                error);
+        }
+        generation = prepared->binding().generation();
+        resource = prepared->binding().resource();
+        face_id = prepared->face_id();
+    } else {
+        if (!request.binding->valid()) {
+            return fail_shaping(
+                BoundCatalogHarfBuzzShapingErrorKind::InvalidBinding,
+                "catalog font-face binding is not valid",
+                error);
+        }
+        generation = request.binding->generation();
+        resource = request.binding->resource();
+        face_id = request.binding->face_id();
+    }
+
+    if (!generation || !resource || face_id == kInvalidFontFaceId) {
         return fail_shaping(
             BoundCatalogHarfBuzzShapingErrorKind::InvalidBinding,
-            "catalog font-face binding lost retained ownership",
+            "catalog shaping source lost retained ownership",
             error);
     }
 
     stats->generation_id = generation->generation_id();
-    stats->face_id = request.binding->face_id();
+    stats->face_id = face_id;
     stats->resource_id = resource->resource_id();
 
     HarfBuzzShapingRequest shaping_request;
@@ -221,7 +249,11 @@ bool shape_bound_catalog_harfbuzz_segment(
     shaping_request.end_of_text = request.end_of_text;
     shaping_request.produce_unsafe_to_concat =
         request.produce_unsafe_to_concat;
-    shaping_request.verified_font_resource = resource;
+    if (prepared != nullptr) {
+        shaping_request.prepared_harfbuzz_face = std::move(prepared);
+    } else {
+        shaping_request.verified_font_resource = std::move(resource);
+    }
 
     HarfBuzzShapingStats shaping_stats;
     HarfBuzzShapingError shaping_error;
