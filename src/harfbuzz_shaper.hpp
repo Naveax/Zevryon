@@ -19,6 +19,8 @@
 
 namespace zevryon::text {
 
+class PreparedHarfBuzzFace;
+
 enum class ShapingDirection : std::uint8_t {
     LeftToRight = 0,
     RightToLeft,
@@ -58,14 +60,16 @@ struct HarfBuzzShapingRequest {
     bool end_of_text{false};
     bool produce_unsafe_to_concat{true};
 
-    // Optional immutable retained font input. When present, font_bytes must be
-    // empty and face_index must equal the selected face in this resource.
+    // Font input modes are mutually exclusive. Raw bytes are structurally and
+    // integrity verified inline. A verified resource skips repeat validation.
+    // A prepared face additionally skips hb_blob_t/hb_face_t construction.
     std::shared_ptr<const VerifiedFontResource> verified_font_resource;
+    std::shared_ptr<const PreparedHarfBuzzFace> prepared_harfbuzz_face;
 
     HarfBuzzShapingRequest() = default;
 
-    // Preserves the original 16-field brace-construction contract while
-    // defaulting the appended immutable resource handle to null.
+    // Preserves the original brace-construction contract while defaulting all
+    // appended immutable handles to null.
     HarfBuzzShapingRequest(
         std::span<const std::byte> font_bytes_value,
         std::uint32_t face_index_value,
@@ -83,7 +87,8 @@ struct HarfBuzzShapingRequest {
         bool beginning_of_text_value,
         bool end_of_text_value,
         bool produce_unsafe_to_concat_value,
-        std::shared_ptr<const VerifiedFontResource> verified_resource_value = {}) noexcept
+        std::shared_ptr<const VerifiedFontResource> verified_resource_value = {},
+        std::shared_ptr<const PreparedHarfBuzzFace> prepared_face_value = {}) noexcept
         : font_bytes(font_bytes_value),
           face_index(face_index_value),
           codepoints(codepoints_value),
@@ -100,7 +105,8 @@ struct HarfBuzzShapingRequest {
           beginning_of_text(beginning_of_text_value),
           end_of_text(end_of_text_value),
           produce_unsafe_to_concat(produce_unsafe_to_concat_value),
-          verified_font_resource(std::move(verified_resource_value)) {}
+          verified_font_resource(std::move(verified_resource_value)),
+          prepared_harfbuzz_face(std::move(prepared_face_value)) {}
 };
 
 enum ShapedGlyphFlags : std::uint32_t {
@@ -186,6 +192,7 @@ struct HarfBuzzShapingStats {
     bool whole_font_checksum_ignored_for_collection{false};
     bool used_verified_font_resource{false};
     bool performed_inline_font_verification{false};
+    bool used_prepared_harfbuzz_face{false};
 };
 
 const char* harfbuzz_shaping_error_kind_name(
@@ -193,11 +200,10 @@ const char* harfbuzz_shaping_error_kind_name(
 const char* shaping_direction_name(ShapingDirection direction) noexcept;
 
 // Shapes one already-segmented font/script/direction run. Callers may provide
-// either raw bytes for strict inline verification or one immutable verified
-// resource handle. The two forms are mutually exclusive. The output is
-// published only after font-input selection, HarfBuzz shaping, cluster
-// verification, and one exact reserve in the caller-provided memory resource
-// all succeed.
+// raw bytes, one immutable verified resource, or one immutable prepared face.
+// The three forms are mutually exclusive. Output is published only after font
+// input selection, shaping, cluster verification, and one exact reserve in the
+// caller-provided memory resource all succeed.
 bool shape_harfbuzz_segment(
     const HarfBuzzShapingRequest& request,
     ShapedGlyphRun* output,
