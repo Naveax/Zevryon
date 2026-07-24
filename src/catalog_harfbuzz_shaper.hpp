@@ -20,8 +20,10 @@ public:
 
     bool valid() const noexcept;
     std::uint64_t generation_id() const noexcept;
+    FontGenerationFingerprint generation_fingerprint() const noexcept;
     FontFaceId face_id() const noexcept;
     std::uint64_t resource_id() const noexcept;
+    FontContentIdentity content_identity() const noexcept;
 
     const std::shared_ptr<const FontCatalogGeneration>& generation()
         const noexcept;
@@ -40,6 +42,7 @@ private:
 
     std::shared_ptr<const FontCatalogGeneration> generation_;
     std::shared_ptr<const VerifiedFontResource> resource_;
+    FontContentIdentity content_identity_{};
     FontFaceId face_id_{kInvalidFontFaceId};
 };
 

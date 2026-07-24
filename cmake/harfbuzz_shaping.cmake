@@ -24,7 +24,8 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
         src/harfbuzz_shaper_backend.cpp
         src/harfbuzz_verified_shaper.cpp
         src/catalog_harfbuzz_shaper.cpp
-        src/prepared_harfbuzz_face.cpp)
+        src/prepared_harfbuzz_face.cpp
+        src/prepared_harfbuzz_face_cache.cpp)
     target_include_directories(zevryon-harfbuzz-shaper PUBLIC src)
     target_link_libraries(
       zevryon-harfbuzz-shaper
@@ -49,6 +50,7 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
     zevryon_options(zevryon-prepared-harfbuzz-shaping-benchmark)
 
     if(BUILD_TESTING)
+      find_package(Threads REQUIRED)
       find_file(
         ZEVRYON_TEST_FONT_LATIN
         NAMES DejaVuSans.ttf
@@ -112,6 +114,16 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
         PRIVATE zevryon-harfbuzz-shaper)
       zevryon_options(zevryon-prepared-harfbuzz-shaping-tests)
 
+      add_executable(
+        zevryon-prepared-harfbuzz-face-cache-tests
+        tests/prepared_harfbuzz_face_cache_tests.cpp)
+      target_link_libraries(
+        zevryon-prepared-harfbuzz-face-cache-tests
+        PRIVATE
+          zevryon-harfbuzz-shaper
+          Threads::Threads)
+      zevryon_options(zevryon-prepared-harfbuzz-face-cache-tests)
+
       if(ZEVRYON_TEST_FONT_LATIN)
         add_test(
           NAME catalog-harfbuzz-shaper-tests
@@ -127,6 +139,11 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
           NAME prepared-harfbuzz-shaping-tests
           COMMAND
             zevryon-prepared-harfbuzz-shaping-tests
+            "${ZEVRYON_TEST_FONT_LATIN}")
+        add_test(
+          NAME prepared-harfbuzz-face-cache-tests
+          COMMAND
+            zevryon-prepared-harfbuzz-face-cache-tests
             "${ZEVRYON_TEST_FONT_LATIN}")
       endif()
 
