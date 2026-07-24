@@ -1,0 +1,110 @@
+name: z2-directwrite-discovery
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-directwrite-discovery.yml'
+      - 'CMakeLists.txt'
+      - 'src/directwrite_discovery.*'
+      - 'src/font_discovery_generation.*'
+      - 'src/font_catalog.*'
+      - 'tests/directwrite_discovery_tests.cpp'
+      - 'docs/Z2A4_DIRECTWRITE_DISCOVERY.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-directwrite-discovery-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-strict:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure strict Release build
+        run: cmake -S . -B build -DBUILD_TESTING=ON -DZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY=ON
+      - name: Build focused adapter and integration test
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --target zevryon-directwrite-discovery-tests --parallel 2 2>&1 | Tee-Object -FilePath windows-directwrite-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run real system-font integration test
+        shell: pwsh
+        run: |
+          $process = Start-Process `
+            -FilePath '.\build\Release\zevryon-directwrite-discovery-tests.exe' `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput 'windows-directwrite.stdout.log' `
+            -RedirectStandardError 'windows-directwrite.stderr.log'
+          "exit_code=$($process.ExitCode)" | Set-Content 'windows-directwrite.exit.log'
+          Get-Content 'windows-directwrite.stdout.log' -ErrorAction SilentlyContinue
+          Get-Content 'windows-directwrite.stderr.log' -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-directwrite-discovery-${{ github.sha }}
+          path: |
+            windows-directwrite-build.log
+            windows-directwrite.*.log
+          if-no-files-found: warn
+
+  windows-asan:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure MSVC AddressSanitizer
+        run: cmake -S . -B build-asan -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON -DZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY=ON
+      - name: Build focused adapter under MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          cmake --build build-asan --config RelWithDebInfo --target zevryon-directwrite-discovery-tests --parallel 2 2>&1 | Tee-Object -FilePath windows-directwrite-asan-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Stage MSVC AddressSanitizer runtime
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw 'vswhere.exe not found' }
+          $installation = (& $vswhere -latest -products * -property installationPath).Trim()
+          if (-not $installation) { throw 'Visual Studio installation not found' }
+          $patterns = @(
+            "$installation\VC\Tools\MSVC\*\bin\Hostx64\x64\clang_rt.asan*dynamic-x86_64.dll",
+            "$installation\VC\Tools\Llvm\x64\bin\clang_rt.asan*dynamic-x86_64.dll"
+          )
+          $runtimes = @($patterns | ForEach-Object {
+            Get-ChildItem -Path $_ -File -ErrorAction SilentlyContinue
+          })
+          if (-not $runtimes) { throw 'MSVC AddressSanitizer runtime DLL not found' }
+          $output = Resolve-Path '.\build-asan\RelWithDebInfo'
+          $runtimes | Group-Object Name | ForEach-Object {
+            $runtime = $_.Group | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            Copy-Item $runtime.FullName -Destination $output -Force
+          }
+      - name: Run real system-font test under MSVC AddressSanitizer
+        shell: pwsh
+        run: |
+          $env:ASAN_OPTIONS = 'halt_on_error=1:abort_on_error=1:symbolize=1'
+          $env:ASAN_SAVE_DUMPS = 'windows-directwrite-asan.dmp'
+          $process = Start-Process `
+            -FilePath '.\build-asan\RelWithDebInfo\zevryon-directwrite-discovery-tests.exe' `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput 'windows-directwrite-asan.stdout.log' `
+            -RedirectStandardError 'windows-directwrite-asan.stderr.log'
+          "exit_code=$($process.ExitCode)" | Set-Content 'windows-directwrite-asan.exit.log'
+          Get-Content 'windows-directwrite-asan.stdout.log' -ErrorAction SilentlyContinue
+          Get-Content 'windows-directwrite-asan.stderr.log' -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-directwrite-discovery-asan-${{ github.sha }}
+          path: |
+            windows-directwrite-asan-build.log
+            windows-directwrite-asan.*.log
+            windows-directwrite-asan.dmp
+          if-no-files-found: warn
