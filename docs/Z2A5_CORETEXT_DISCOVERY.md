@@ -105,9 +105,32 @@ system flag, confirms surrogate exclusion, accounts skipped descriptors, and
 proves discovery/catalog hard-budget failure is atomic.
 
 Focused gates run the real system-font test under strict AppleClang and under
-AppleClang AddressSanitizer plus UndefinedBehaviorSanitizer. Exact system-font
-counts and memory values are runner-image dependent and are stored in workflow
-artifacts rather than hard-coded into the portable contract.
+AppleClang AddressSanitizer plus UndefinedBehaviorSanitizer.
+
+On the GitHub-hosted macOS 26 arm64 image, strict Release and the sanitized
+build produced the same certification:
+
+- normalized descriptors: **528**;
+- skipped descriptors: **0**;
+- emitted physical faces: **528**;
+- canonical coverage ranges: **276,119**;
+- covered Unicode code points: **1,979,182**;
+- represented bitmap planes: **681**;
+- duplicate canonical identities: **0**;
+- variable faces: **55**;
+- color faces: **1**;
+- monospaced faces: **12**;
+- persistent discovery bytes: **67,736**;
+- discovery peak bytes: **101,528**;
+- persistent catalog bytes: **2,229,368**;
+- catalog peak bytes: **2,233,592**;
+- fingerprint high: **7188053349530181160**;
+- fingerprint low: **14697158166022761427**.
+
+Both sanitizer stderr and strict stderr were empty. Exact system-font counts
+and memory values are runner-image dependent. The portable contract requires
+internal consistency, deterministic repetition, clean accounting, and bounded
+publication rather than one fixed macOS inventory.
 
 ## Explicitly not implemented
 
