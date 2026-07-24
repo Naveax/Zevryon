@@ -92,6 +92,8 @@ endif()
 if(ZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY AND WIN32)
   add_library(zevryon-directwrite-discovery STATIC src/directwrite_discovery.cpp)
   target_include_directories(zevryon-directwrite-discovery PUBLIC src)
+  target_compile_definitions(
+    zevryon-directwrite-discovery PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
   target_link_libraries(
     zevryon-directwrite-discovery
     PUBLIC zevryon-massivedoc-core
