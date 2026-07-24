@@ -1,0 +1,81 @@
+name: z2-font-file-loader
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-font-file-loader.yml'
+      - 'cmake/font_resource_sfnt.cmake'
+      - 'src/font_file_loader.*'
+      - 'src/font_content_identity.*'
+      - 'src/verified_font_resource*'
+      - 'src/resource_ledger.*'
+      - 'tests/font_file_loader_tests.cpp'
+      - 'docs/Z2B7_FONT_FILE_LOADER.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-font-file-loader-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  strict:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure strict Release build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build file-loader identity and cache tests
+        run: >-
+          cmake --build build --config Release --parallel 2 --target
+          zevryon-font-file-loader-tests
+          zevryon-font-content-identity-tests
+          zevryon-verified-font-resource-cache-tests
+          zevryon-resource-ledger-tests
+      - name: Run file-loader and dependency tests
+        run: >-
+          ctest --test-dir build -C Release
+          -R '^(font-file-loader-tests|font-content-identity-tests|verified-font-resource-cache-tests|resource-ledger-tests)$'
+          --output-on-failure
+
+  sanitizer:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asan_options: detect_leaks=1:halt_on_error=1:abort_on_error=1
+          - os: macos-latest
+            asan_options: detect_leaks=0:halt_on_error=1:abort_on_error=1
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AddressSanitizer and UndefinedBehaviorSanitizer
+        run: >-
+          cmake -S . -B build-sanitized
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build file-loader identity and cache tests under sanitizers
+        run: >-
+          cmake --build build-sanitized --config RelWithDebInfo --parallel 2 --target
+          zevryon-font-file-loader-tests
+          zevryon-font-content-identity-tests
+          zevryon-verified-font-resource-cache-tests
+          zevryon-resource-ledger-tests
+      - name: Run file-loader dependency tests under sanitizers
+        env:
+          ASAN_OPTIONS: ${{ matrix.asan_options }}
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: >-
+          ctest --test-dir build-sanitized -C RelWithDebInfo
+          -R '^(font-file-loader-tests|font-content-identity-tests|verified-font-resource-cache-tests|resource-ledger-tests)$'
+          --output-on-failure
