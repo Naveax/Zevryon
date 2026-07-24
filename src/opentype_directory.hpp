@@ -93,7 +93,7 @@ struct OpenTypeDirectoryError {
 
 struct OpenTypeDirectoryOptions {
     std::uint32_t maximum_collection_faces{4096U};
-    std::uint16_t maximum_tables{4096U};
+    std::uint16_t maximum_tables{4095U};
     bool reject_invalid_search_fields{false};
     bool verify_table_checksums{true};
     bool require_zero_padding{true};
