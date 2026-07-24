@@ -22,7 +22,7 @@ Every boundary stream must cover the same grapheme cluster domain exactly. Activ
 
 ## Output contract
 
-`ShapingRunBoundary` is at most 16 bytes and contains:
+`ShapingRunBoundary` is exactly 16 bytes in the certified build and contains:
 
 - first grapheme cluster;
 - selected catalog face, or the explicit missing-font sentinel;
@@ -48,15 +48,52 @@ The planner performs two passes:
 
 Output is released before validation and remains empty after every failure. The appended `ShapingRunPlan` Resource Ledger class accounts the persistent boundary vector without changing any existing enum ordinal.
 
-## Initial certification surface
+## Unicode integration repair
 
-- intersection of Script, fallback, direction, and level boundaries;
+Z2C-1 is the first production translation unit that includes the generated Script and Bidi property headers together. Both generators previously exposed the shared `PropertyValueAliases.txt` provenance under the same C++ symbol. Script provenance is now emitted as `kUnicodeScriptPropertyValueAliasestxtSha256`; the Unicode 17 source hashes, Script tables, enum ordering, and data fingerprint are unchanged. The generated Script header and manifest remain reproduced twice byte-for-byte in CI.
+
+## Final 64 KiB certification
+
+The fixed fixture contains 65,536 decoded code points, 65,536 grapheme clusters, dense Script changes, dense fallback changes including explicit missing-font ranges, and final bidi levels changing every 32 clusters.
+
+Three independent 512-iteration distributions produced the same exact result:
+
+- 2,731 shaping runs and one final sentinel;
+- 1,365 LTR runs and 1,366 RTL runs;
+- 390 explicit missing-font runs;
+- 1,023 Script splits;
+- 1,365 font/source splits;
+- 2,047 direction splits;
+- 2,047 final-level splits;
+- 43,712 bytes resident and peak output;
+- zero rejected reservations and zero accounting errors.
+
+Initial measured timing:
+
+- median P50: **0.883 ms**;
+- median P95: **0.910 ms**;
+- median P99: **0.948 ms**;
+- worst sample: **1.185 ms**.
+
+Final permanent gates are stricter than the initial certification envelope:
+
+- median P95 <= **1.25 ms**;
+- median P99 <= **1.50 ms**;
+- worst sample <= **2.50 ms**;
+- hard memory limit: **48 KiB**;
+- exact expected peak: **43,712 bytes**.
+
+## Correctness and platform surface
+
+- exact Script, fallback, direction, and level intersection;
 - explicit missing-font runs;
 - X9-removed-only direction inheritance;
 - mixed-direction grapheme rejection;
 - invalid topology and boundary rejection;
 - one-byte output-budget rejection;
-- strict GCC, AppleClang, MSVC, Linux ASan/UBSan, and macOS ASan/UBSan.
+- strict GCC, AppleClang, and MSVC;
+- Linux ASan/UBSan and macOS ASan/UBSan;
+- deterministic Unicode Script generator reproduction.
 
 ## Next milestones
 
