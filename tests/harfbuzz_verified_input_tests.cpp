@@ -179,7 +179,7 @@ bool structural_failures_are_exact(
     HarfBuzzShapingStats stats;
     HarfBuzzShapingError error;
 
-    const std::vector<std::byte> invalid(8U, std::byte{0});
+    const std::vector<std::byte> invalid(12U, std::byte{0});
     bool ok = expect(
         !shape_harfbuzz_segment(
             make_request(invalid, 0U, text),
