@@ -1,4 +1,4 @@
-include(cmake/font_resource_sfnt.cmake)
+include("${CMAKE_CURRENT_LIST_DIR}/font_resource_sfnt.cmake")
 
 option(
   ZEVRYON_ENABLE_CORETEXT_DISCOVERY
