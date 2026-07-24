@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/z2-directwrite-discovery.yml'
+      - 'CMakeLists.txt'
       - 'src/directwrite_discovery.*'
       - 'src/font_discovery_generation.*'
       - 'src/font_catalog.*'
@@ -27,23 +28,19 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-      - name: Build portable core
+      - name: Configure and build production DirectWrite target
         shell: pwsh
         run: |
-          cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
-          cmake --build build --config Release --parallel 2 --target zevryon-massivedoc-core
-      - name: Build focused DirectWrite adapter and integration test
-        shell: cmd
-        run: |
-          cl /nologo /std:c++20 /W4 /WX /permissive- /EHsc /MD /I src src\directwrite_discovery.cpp tests\directwrite_discovery_tests.cpp build\Release\zevryon-massivedoc-core.lib dwrite.lib /Fe:directwrite-discovery-tests.exe > directwrite-build.log 2>&1
-          set CL_EXIT=%ERRORLEVEL%
-          type directwrite-build.log
-          exit /b %CL_EXIT%
-      - name: Run real system-font integration test twice
+          cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY=ON
+          cmake --build build --config Release --parallel 2 --target zevryon-directwrite-discovery-tests
+      - name: Run CTest integration gate
+        shell: pwsh
+        run: ctest --test-dir build -C Release --output-on-failure -R directwrite-discovery-tests
+      - name: Verify unchanged system collection twice
         shell: pwsh
         run: |
-          .\directwrite-discovery-tests.exe | Tee-Object directwrite-run-1.log
-          .\directwrite-discovery-tests.exe | Tee-Object directwrite-run-2.log
+          .\build\Release\zevryon-directwrite-discovery-tests.exe | Tee-Object directwrite-run-1.log
+          .\build\Release\zevryon-directwrite-discovery-tests.exe | Tee-Object directwrite-run-2.log
           if ((Get-Content directwrite-run-1.log -Raw) -ne (Get-Content directwrite-run-2.log -Raw)) {
             throw 'DirectWrite integration output changed between unchanged runs'
           }
@@ -52,7 +49,6 @@ jobs:
         with:
           name: z2-directwrite-discovery-${{ github.sha }}
           path: |
-            directwrite-build.log
             directwrite-run-1.log
             directwrite-run-2.log
           if-no-files-found: warn
@@ -65,28 +61,19 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-      - name: Build portable core with AddressSanitizer
+      - name: Configure and build production target with AddressSanitizer
         shell: pwsh
         run: |
-          cmake -S . -B build-san -A x64 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=OFF -DZEVRYON_ENABLE_SANITIZERS=ON
-          cmake --build build-san --config RelWithDebInfo --parallel 2 --target zevryon-massivedoc-core
-      - name: Build focused adapter with AddressSanitizer
-        shell: cmd
-        run: |
-          cl /nologo /std:c++20 /W4 /WX /permissive- /EHsc /MD /fsanitize=address /Zi /I src src\directwrite_discovery.cpp tests\directwrite_discovery_tests.cpp build-san\RelWithDebInfo\zevryon-massivedoc-core.lib dwrite.lib /Fe:directwrite-discovery-asan.exe /link /INCREMENTAL:NO > directwrite-asan-build.log 2>&1
-          set CL_EXIT=%ERRORLEVEL%
-          type directwrite-asan-build.log
-          exit /b %CL_EXIT%
-      - name: Run focused AddressSanitizer integration test
+          cmake -S . -B build-san -A x64 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY=ON -DZEVRYON_ENABLE_SANITIZERS=ON
+          cmake --build build-san --config RelWithDebInfo --parallel 2 --target zevryon-directwrite-discovery-tests
+      - name: Run production target with AddressSanitizer
         shell: pwsh
         env:
           ASAN_OPTIONS: halt_on_error=1:abort_on_error=1:detect_leaks=0
-        run: .\directwrite-discovery-asan.exe | Tee-Object directwrite-asan.log
+        run: .\build-san\RelWithDebInfo\zevryon-directwrite-discovery-tests.exe | Tee-Object directwrite-asan.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: z2-directwrite-discovery-asan-${{ github.sha }}
-          path: |
-            directwrite-asan-build.log
-            directwrite-asan.log
+          path: directwrite-asan.log
           if-no-files-found: warn
