@@ -1,0 +1,105 @@
+name: z2-harfbuzz-shaping
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-harfbuzz-shaping.yml'
+      - 'cmake/coretext_discovery.cmake'
+      - 'cmake/harfbuzz_shaping.cmake'
+      - 'src/harfbuzz_shaper.*'
+      - 'src/grapheme_segmenter.*'
+      - 'src/unicode_script.*'
+      - 'src/resource_ledger.*'
+      - 'tests/harfbuzz_shaper_tests.cpp'
+      - 'docs/Z2B1_HARFBUZZ_SHAPING.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-harfbuzz-shaping-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu-strict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz and fixed test fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libharfbuzz-dev \
+            fonts-dejavu-core \
+            fonts-noto-core
+      - name: Configure strict Release build
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON \
+            -DZEVRYON_TEST_FONT_LATIN=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
+            -DZEVRYON_TEST_FONT_DEVANAGARI=/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf
+      - name: Build focused backend and real shaping test
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target zevryon-harfbuzz-shaper-tests \
+            2>&1 | tee ubuntu-harfbuzz-build.log
+      - name: Run Latin, Arabic, Hebrew, combining, and Devanagari shaping
+        run: |
+          set -o pipefail
+          ctest --test-dir build -R '^harfbuzz-shaper-tests$' --output-on-failure \
+            2>&1 | tee ubuntu-harfbuzz-test.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-harfbuzz-shaping-${{ github.sha }}
+          path: |
+            ubuntu-harfbuzz-build.log
+            ubuntu-harfbuzz-test.log
+          if-no-files-found: warn
+
+  ubuntu-asan-ubsan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz and fixed test fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libharfbuzz-dev \
+            fonts-dejavu-core \
+            fonts-noto-core
+      - name: Configure sanitizers
+        run: |
+          cmake -S . -B build-sanitized \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DBUILD_TESTING=ON \
+            -DZEVRYON_ENABLE_SANITIZERS=ON \
+            -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON \
+            -DZEVRYON_TEST_FONT_LATIN=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
+            -DZEVRYON_TEST_FONT_DEVANAGARI=/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf
+      - name: Build focused backend under sanitizers
+        run: |
+          set -o pipefail
+          cmake --build build-sanitized --parallel 2 --target zevryon-harfbuzz-shaper-tests \
+            2>&1 | tee ubuntu-harfbuzz-sanitizer-build.log
+      - name: Run real shaping test under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          set -o pipefail
+          ctest --test-dir build-sanitized -R '^harfbuzz-shaper-tests$' --output-on-failure \
+            2>&1 | tee ubuntu-harfbuzz-sanitizer-test.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-harfbuzz-shaping-sanitized-${{ github.sha }}
+          path: |
+            ubuntu-harfbuzz-sanitizer-build.log
+            ubuntu-harfbuzz-sanitizer-test.log
+          if-no-files-found: warn
