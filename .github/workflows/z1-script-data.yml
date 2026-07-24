@@ -77,7 +77,7 @@ jobs:
           manifest = json.loads(Path('evidence/generated/unicode_script_data.manifest.json').read_text())
           assert manifest == {
               'fingerprint': '8f402bcab66ac57762f8078956a562f3e702aed37c5d32f290821dceeb573c18',
-              'generated_header_bytes': 82922,
+              'generated_header_bytes': 82935,
               'schema': 'zevryon.unicode-script-data.v1',
               'script_count': 176,
               'script_extension_pool_count': 536,
