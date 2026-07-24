@@ -6,11 +6,13 @@ option(
 if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
   find_package(PkgConfig QUIET)
   if(PkgConfig_FOUND)
-    pkg_check_modules(HARFBUZZ QUIET IMPORTED_TARGET "harfbuzz>=4.0.0")
+    pkg_check_modules(HARFBUZZ QUIET IMPORTED_TARGET "harfbuzz>=5.1.0")
   endif()
 
   if(TARGET PkgConfig::HARFBUZZ)
-    add_library(zevryon-harfbuzz-shaper STATIC src/harfbuzz_shaper.cpp)
+    add_library(
+      zevryon-harfbuzz-shaper
+      STATIC src/harfbuzz_shaper_backend.cpp)
     target_include_directories(zevryon-harfbuzz-shaper PUBLIC src)
     target_link_libraries(
       zevryon-harfbuzz-shaper
