@@ -14,6 +14,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace zevryon::text {
@@ -59,9 +60,47 @@ struct HarfBuzzShapingRequest {
 
     // Optional immutable retained font input. When present, font_bytes must be
     // empty and face_index must equal the selected face in this resource.
-    // Existing aggregate initializers remain source-compatible because this
-    // field is appended at the end of the request.
     std::shared_ptr<const VerifiedFontResource> verified_font_resource;
+
+    HarfBuzzShapingRequest() = default;
+
+    // Preserves the original 16-field brace-construction contract while
+    // defaulting the appended immutable resource handle to null.
+    HarfBuzzShapingRequest(
+        std::span<const std::byte> font_bytes_value,
+        std::uint32_t face_index_value,
+        std::span<const DecodedCodePoint> codepoints_value,
+        std::span<const GraphemeBoundary> grapheme_boundaries_value,
+        std::uint32_t first_cluster_value,
+        std::uint32_t cluster_limit_value,
+        ScriptId script_value,
+        ShapingDirection direction_value,
+        std::string_view language_value,
+        std::span<const ShapingFeature> features_value,
+        std::span<const ShapingVariation> variations_value,
+        std::int32_t x_scale_value,
+        std::int32_t y_scale_value,
+        bool beginning_of_text_value,
+        bool end_of_text_value,
+        bool produce_unsafe_to_concat_value,
+        std::shared_ptr<const VerifiedFontResource> verified_resource_value = {}) noexcept
+        : font_bytes(font_bytes_value),
+          face_index(face_index_value),
+          codepoints(codepoints_value),
+          grapheme_boundaries(grapheme_boundaries_value),
+          first_cluster(first_cluster_value),
+          cluster_limit(cluster_limit_value),
+          script(script_value),
+          direction(direction_value),
+          language(language_value),
+          features(features_value),
+          variations(variations_value),
+          x_scale(x_scale_value),
+          y_scale(y_scale_value),
+          beginning_of_text(beginning_of_text_value),
+          end_of_text(end_of_text_value),
+          produce_unsafe_to_concat(produce_unsafe_to_concat_value),
+          verified_font_resource(std::move(verified_resource_value)) {}
 };
 
 enum ShapedGlyphFlags : std::uint32_t {
