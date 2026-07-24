@@ -35,6 +35,7 @@ enum class ResourceClass : std::uint8_t {
     FontCatalog,
     FontFallbackPlan,
     FontDiscoverySnapshot,
+    FontResourceDirectory,
     Count
 };
 
