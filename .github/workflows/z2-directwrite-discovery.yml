@@ -34,11 +34,11 @@ jobs:
           cmake --build build --config Release --parallel 2 --target zevryon-massivedoc-core
       - name: Build focused DirectWrite adapter and integration test
         shell: cmd
-        run: >-
-          cl /nologo /std:c++20 /W4 /WX /permissive- /EHsc /I src
-          src\directwrite_discovery.cpp tests\directwrite_discovery_tests.cpp
-          build\Release\zevryon-massivedoc-core.lib dwrite.lib
-          /Fe:directwrite-discovery-tests.exe
+        run: |
+          cl /nologo /std:c++20 /W4 /WX /permissive- /EHsc /I src src\directwrite_discovery.cpp tests\directwrite_discovery_tests.cpp build\Release\zevryon-massivedoc-core.lib dwrite.lib /Fe:directwrite-discovery-tests.exe > directwrite-build.log 2>&1
+          set CL_EXIT=%ERRORLEVEL%
+          type directwrite-build.log
+          exit /b %CL_EXIT%
       - name: Run real system-font integration test twice
         shell: pwsh
         run: |
@@ -52,6 +52,7 @@ jobs:
         with:
           name: z2-directwrite-discovery-${{ github.sha }}
           path: |
+            directwrite-build.log
             directwrite-run-1.log
             directwrite-run-2.log
           if-no-files-found: warn
@@ -71,11 +72,11 @@ jobs:
           cmake --build build-san --config RelWithDebInfo --parallel 2 --target zevryon-massivedoc-core
       - name: Build focused adapter with AddressSanitizer
         shell: cmd
-        run: >-
-          cl /nologo /std:c++20 /W4 /WX /permissive- /EHsc /fsanitize=address /Zi /I src
-          src\directwrite_discovery.cpp tests\directwrite_discovery_tests.cpp
-          build-san\RelWithDebInfo\zevryon-massivedoc-core.lib dwrite.lib
-          /Fe:directwrite-discovery-asan.exe /link /INCREMENTAL:NO
+        run: |
+          cl /nologo /std:c++20 /W4 /WX /permissive- /EHsc /fsanitize=address /Zi /I src src\directwrite_discovery.cpp tests\directwrite_discovery_tests.cpp build-san\RelWithDebInfo\zevryon-massivedoc-core.lib dwrite.lib /Fe:directwrite-discovery-asan.exe /link /INCREMENTAL:NO > directwrite-asan-build.log 2>&1
+          set CL_EXIT=%ERRORLEVEL%
+          type directwrite-asan-build.log
+          exit /b %CL_EXIT%
       - name: Run focused AddressSanitizer integration test
         shell: pwsh
         env:
@@ -85,5 +86,7 @@ jobs:
         if: always()
         with:
           name: z2-directwrite-discovery-asan-${{ github.sha }}
-          path: directwrite-asan.log
+          path: |
+            directwrite-asan-build.log
+            directwrite-asan.log
           if-no-files-found: warn
