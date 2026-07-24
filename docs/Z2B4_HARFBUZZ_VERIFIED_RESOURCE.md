@@ -14,8 +14,9 @@ every call.
 ## Input contract
 
 `HarfBuzzShapingRequest` appends one optional
-`shared_ptr<const VerifiedFontResource>` field. Appending the field preserves
-existing aggregate-initializer source compatibility.
+`shared_ptr<const VerifiedFontResource>` field. A compatibility constructor
+preserves the original 16-value brace-construction contract and defaults the
+new handle to null, avoiding warnings-as-errors in existing strict callers.
 
 Exactly one input form is allowed:
 
@@ -85,7 +86,7 @@ The real DejaVu Sans integration test requires:
 The existing Latin, Arabic, Hebrew, combining-mark, and Devanagari tests remain
 mandatory.
 
-## Benchmark contract
+## Benchmark certification
 
 The 16 KiB benchmark supports two modes:
 
@@ -93,10 +94,30 @@ The 16 KiB benchmark supports two modes:
 - `verified_resource_call` — immutable resource built once outside timing,
   shaping only inside the measured loop.
 
-Each of three independent distributions emits Latin, Arabic, and Devanagari
-rows. CI requires equivalent glyph counts, advances, safety flags, output bytes,
-and ledger accounting between modes. The first certified run establishes the
-permanent retained-resource latency gates.
+Three independent distributions produced equivalent glyph counts, advances,
+safety flags, output bytes, and ledger accounting between modes.
+
+Observed median P50 changes:
+
+- Latin: **1.823 ms → 1.264 ms**, approximately **30.7% faster**;
+- Arabic: **1.329 ms → 0.782 ms**, approximately **41.1% faster**;
+- Devanagari: **1.716 ms → 1.559 ms**, approximately **9.2% faster**.
+
+The worst retained-resource observations were:
+
+- P95: **1.622 ms**;
+- P99: **1.911 ms**;
+- maximum: **2.377 ms**.
+
+Permanent retained-resource gates are:
+
+- P95 <= **2.0 ms**;
+- P99 <= **2.5 ms**;
+- maximum <= **4.0 ms**;
+- three-run median P50 ratio versus raw mode <= **0.80x Latin**,
+  **0.75x Arabic**, and **0.97x Devanagari**.
+
+Raw fallback gates remain P95 <=3 ms, P99 <=4 ms, and maximum <=8 ms.
 
 ## Explicit boundary
 
