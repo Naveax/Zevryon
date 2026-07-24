@@ -214,6 +214,8 @@ namespace zevryon::text {
     header += f"inline constexpr std::string_view kUnicodeScriptDataFingerprint = {cpp_string(fingerprint)};\n"
     for filename, digest in source_hashes.items():
         constant = re.sub(r"[^A-Za-z0-9]", "", filename)
+        if filename == "PropertyValueAliases.txt":
+            constant = "UnicodeScript" + constant
         header += f"inline constexpr std::string_view k{constant}Sha256 = {cpp_string(digest)};\n"
     header += "\n"
     header += "enum class ScriptId : std::uint16_t {\n"

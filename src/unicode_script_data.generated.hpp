@@ -11,7 +11,7 @@ inline constexpr std::string_view kUnicodeScriptDataVersion = "17.0.0";
 inline constexpr std::string_view kUnicodeScriptDataFingerprint = "8f402bcab66ac57762f8078956a562f3e702aed37c5d32f290821dceeb573c18";
 inline constexpr std::string_view kScriptstxtSha256 = "9f5e50d3abaee7d6ce09480f325c706f485ae3240912527e651954d2d6b035bf";
 inline constexpr std::string_view kScriptExtensionstxtSha256 = "ec2107e58825a1586acee8e0911ce18260394ac8b87e535ca325f1ccbeb06bc6";
-inline constexpr std::string_view kPropertyValueAliasestxtSha256 = "64e9a5f76f7a1e8b5a47d6a1f9a26522a251208f5276bdfa1559dac7cf2e827a";
+inline constexpr std::string_view kUnicodeScriptPropertyValueAliasestxtSha256 = "64e9a5f76f7a1e8b5a47d6a1f9a26522a251208f5276bdfa1559dac7cf2e827a";
 
 enum class ScriptId : std::uint16_t {
     Zzzz = 0,
