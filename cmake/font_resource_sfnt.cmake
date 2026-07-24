@@ -8,6 +8,7 @@ target_sources(
     src/font_resource_sfnt.cpp
     src/font_resource_integrity.cpp
     src/font_content_identity.cpp
+    src/font_load_locator.cpp
     src/verified_font_resource.cpp
     src/verified_font_resource_cache.cpp
     src/verified_font_resource_cache_identity.cpp
@@ -23,6 +24,14 @@ target_link_libraries(
   zevryon-font-content-identity-benchmark
   PRIVATE zevryon-massivedoc-core)
 zevryon_options(zevryon-font-content-identity-benchmark)
+
+add_executable(
+  zevryon-font-load-locator-benchmark
+  src/font_load_locator_benchmark_main.cpp)
+target_link_libraries(
+  zevryon-font-load-locator-benchmark
+  PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-font-load-locator-benchmark)
 
 if(BUILD_TESTING)
   add_executable(
@@ -57,6 +66,17 @@ if(BUILD_TESTING)
   add_test(
     NAME font-content-identity-tests
     COMMAND zevryon-font-content-identity-tests)
+
+  add_executable(
+    zevryon-font-load-locator-tests
+    tests/font_load_locator_tests.cpp)
+  target_link_libraries(
+    zevryon-font-load-locator-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-font-load-locator-tests)
+  add_test(
+    NAME font-load-locator-tests
+    COMMAND zevryon-font-load-locator-tests)
 
   add_executable(
     zevryon-font-file-loader-tests
