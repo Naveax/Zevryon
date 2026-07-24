@@ -1,5 +1,6 @@
 #include "fontconfig_discovery.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -18,6 +19,12 @@ bool expect(bool condition, const char* message) {
         std::cerr << "FAIL: " << message << '\n';
     }
     return condition;
+}
+
+template <typename Left, typename Right>
+bool equal_ranges(const Left& left, const Right& right) {
+    return left.size() == right.size() &&
+           std::equal(left.begin(), left.end(), right.begin());
 }
 
 bool build(
@@ -102,7 +109,7 @@ int main() {
         first->fingerprint() == second->fingerprint(),
         "unchanged Fontconfig state must reproduce the same fingerprint");
     ok &= expect(
-        first->discovery_records() == second->discovery_records(),
+        equal_ranges(first->discovery_records(), second->discovery_records()),
         "unchanged Fontconfig state must reproduce discovery records");
     ok &= expect(
         first->catalog().faces == second->catalog().faces,
