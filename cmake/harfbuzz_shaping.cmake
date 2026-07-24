@@ -1,5 +1,13 @@
 target_sources(zevryon-massivedoc-core PRIVATE src/shaping_run_plan.cpp)
 
+add_executable(
+  zevryon-shaping-run-plan-benchmark
+  src/shaping_run_plan_benchmark_main.cpp)
+target_link_libraries(
+  zevryon-shaping-run-plan-benchmark
+  PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-shaping-run-plan-benchmark)
+
 if(BUILD_TESTING)
   add_executable(
     zevryon-shaping-run-plan-tests
