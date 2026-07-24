@@ -1,5 +1,7 @@
 #include "harfbuzz_shaper.hpp"
 
+#include "prepared_harfbuzz_face.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -108,6 +110,7 @@ void publish_validation_stats(
     std::uint64_t resource_id,
     bool used_resource,
     bool inline_verification,
+    bool used_prepared_face,
     HarfBuzzShapingStats* stats) noexcept {
     stats->validated_font_faces = parse_stats.face_count;
     stats->validated_font_tables = parse_stats.table_count;
@@ -121,6 +124,7 @@ void publish_validation_stats(
         integrity_stats.whole_font_checksum_ignored_for_collection;
     stats->used_verified_font_resource = used_resource;
     stats->performed_inline_font_verification = inline_verification;
+    stats->used_prepared_harfbuzz_face = used_prepared_face;
 }
 
 bool copy_backend_failure(
@@ -149,22 +153,56 @@ bool shape_harfbuzz_segment(
     *stats = {};
     clear_error(error);
 
+    const bool has_raw = !request.font_bytes.empty();
+    const bool has_verified = request.verified_font_resource != nullptr;
+    const bool has_prepared = request.prepared_harfbuzz_face != nullptr;
+    const unsigned int input_modes =
+        static_cast<unsigned int>(has_raw) +
+        static_cast<unsigned int>(has_verified) +
+        static_cast<unsigned int>(has_prepared);
+    if (input_modes != 1U) {
+        return fail_input(
+            0U,
+            "exactly one of raw bytes, verified resource, or prepared face is required",
+            error);
+    }
+
     HarfBuzzShapingRequest backend_request = request;
     SfntParseStats parse_stats;
     SfntIntegrityStats integrity_stats;
     std::uint64_t resource_id = 0U;
     bool used_resource = false;
     bool inline_verification = false;
+    bool used_prepared_face = false;
 
-    const std::shared_ptr<const VerifiedFontResource> retained =
-        request.verified_font_resource;
-    if (retained != nullptr) {
-        if (!request.font_bytes.empty()) {
-            return fail_input(
-                0U,
-                "raw font_bytes and verified_font_resource are mutually exclusive",
+    if (has_prepared) {
+        const std::shared_ptr<const PreparedHarfBuzzFace> prepared =
+            request.prepared_harfbuzz_face;
+        if (!prepared->valid() || !prepared->binding().valid() ||
+            prepared->binding().resource() == nullptr) {
+            return fail_resource(
+                "prepared HarfBuzz face ownership invariant failed",
                 error);
         }
+        const std::shared_ptr<const VerifiedFontResource> retained =
+            prepared->binding().resource();
+        if (request.face_index != retained->view().face_index()) {
+            return fail_input(
+                request.face_index,
+                "request face_index does not match prepared HarfBuzz face",
+                error);
+        }
+        backend_request.font_bytes = retained->bytes();
+        backend_request.verified_font_resource.reset();
+        backend_request.prepared_harfbuzz_face = prepared;
+        parse_stats = retained->parse_stats();
+        integrity_stats = retained->integrity_stats();
+        resource_id = retained->resource_id();
+        used_resource = true;
+        used_prepared_face = true;
+    } else if (has_verified) {
+        const std::shared_ptr<const VerifiedFontResource> retained =
+            request.verified_font_resource;
         if (!retained->view().valid() || retained->bytes().empty() ||
             retained->bytes().data() != retained->view().bytes().data() ||
             !retained->accounting_clean() || !retained->within_hard_limit()) {
@@ -181,11 +219,14 @@ bool shape_harfbuzz_segment(
 
         backend_request.font_bytes = retained->bytes();
         backend_request.verified_font_resource.reset();
+        backend_request.prepared_harfbuzz_face.reset();
         parse_stats = retained->parse_stats();
         integrity_stats = retained->integrity_stats();
         resource_id = retained->resource_id();
         used_resource = true;
     } else {
+        backend_request.verified_font_resource.reset();
+        backend_request.prepared_harfbuzz_face.reset();
         SfntResourceView view;
         SfntParseError parse_error;
         if (!open_sfnt_resource(
@@ -224,6 +265,7 @@ bool shape_harfbuzz_segment(
         resource_id,
         used_resource,
         inline_verification,
+        used_prepared_face,
         &backend_stats);
     *stats = backend_stats;
     return true;
