@@ -1,3 +1,5 @@
+include(cmake/font_resource_sfnt.cmake)
+
 option(
   ZEVRYON_ENABLE_CORETEXT_DISCOVERY
   "Build the macOS CoreText discovery adapter"
