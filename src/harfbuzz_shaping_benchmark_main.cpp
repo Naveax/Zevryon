@@ -4,6 +4,7 @@
 #include "resource_ledger.hpp"
 #include "unicode_script.hpp"
 #include "unicode_stream.hpp"
+#include "verified_font_resource.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -14,6 +15,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <memory_resource>
 #include <span>
 #include <string>
@@ -98,9 +100,29 @@ double percentile(const std::vector<double>& sorted, double fraction) {
     return sorted[lower] * (1.0 - weight) + sorted[upper] * weight;
 }
 
+bool build_resource(
+    std::uint64_t resource_id,
+    std::span<const std::byte> font,
+    std::shared_ptr<const VerifiedFontResource>* output) {
+    VerifiedFontResourceError error;
+    if (!build_verified_font_resource(
+            resource_id,
+            font,
+            0U,
+            font.size(),
+            output,
+            nullptr,
+            &error)) {
+        std::cerr << "verified resource build failed: " << error.message << '\n';
+        return false;
+    }
+    return true;
+}
+
 bool run_case(
     std::string_view name,
     std::span<const std::byte> font,
+    const std::shared_ptr<const VerifiedFontResource>& verified_resource,
     Fixture& fixture,
     ScriptId script,
     ShapingDirection direction,
@@ -114,23 +136,23 @@ bool run_case(
     std::vector<double> durations;
     durations.reserve(kMeasuredIterations);
 
-    const HarfBuzzShapingRequest request{
-        font,
-        0U,
-        fixture.codepoints,
-        fixture.graphemes,
-        0U,
-        static_cast<std::uint32_t>(fixture.graphemes.size() - 1U),
-        script,
-        direction,
-        language,
-        {},
-        {},
-        0,
-        0,
-        true,
-        true,
-        true};
+    HarfBuzzShapingRequest request;
+    request.font_bytes = verified_resource == nullptr
+        ? font
+        : std::span<const std::byte>{};
+    request.face_index = 0U;
+    request.codepoints = fixture.codepoints;
+    request.grapheme_boundaries = fixture.graphemes;
+    request.first_cluster = 0U;
+    request.cluster_limit =
+        static_cast<std::uint32_t>(fixture.graphemes.size() - 1U);
+    request.script = script;
+    request.direction = direction;
+    request.language = language;
+    request.beginning_of_text = true;
+    request.end_of_text = true;
+    request.produce_unsafe_to_concat = true;
+    request.verified_font_resource = verified_resource;
 
     for (std::size_t iteration = 0U;
          iteration < kWarmupIterations + kMeasuredIterations;
@@ -156,13 +178,18 @@ bool run_case(
     const ResourceSnapshot snapshot = ledger.snapshot(ResourceClass::GlyphRun);
     const std::size_t expected_output_bytes =
         output.glyphs.size() * sizeof(ShapedGlyph);
+    const bool retained_mode = verified_resource != nullptr;
     if (stats.missing_glyphs != 0U ||
         snapshot.current_bytes != expected_output_bytes ||
         snapshot.rejected_reservations != 0U ||
         snapshot.accounting_errors != 0U ||
         !ledger.accounting_clean() ||
-        !ledger.within_hard_limits()) {
-        std::cerr << name << " benchmark accounting or coverage failed\n";
+        !ledger.within_hard_limits() ||
+        stats.used_verified_font_resource != retained_mode ||
+        stats.performed_inline_font_verification == retained_mode ||
+        stats.verified_font_resource_id !=
+            (retained_mode ? verified_resource->resource_id() : 0U)) {
+        std::cerr << name << " benchmark accounting or input-path failed\n";
         return false;
     }
 
@@ -176,10 +203,23 @@ bool run_case(
               (p50 / 1000.0);
 
     std::cout << std::fixed << std::setprecision(6)
-              << "{\"schema\":\"zevryon.harfbuzz-shaping-benchmark.v1\","
-              << "\"mode\":\"uncached_full_call\","
+              << "{\"schema\":\"zevryon.harfbuzz-shaping-benchmark.v1\"," 
+              << "\"mode\":\""
+              << (retained_mode
+                      ? "verified_resource_call"
+                      : "uncached_full_call")
+              << "\","
               << "\"case\":\"" << name << "\","
-              << "\"font_bytes\":" << font.size() << ','
+              << "\"font_bytes\":"
+              << (retained_mode ? verified_resource->bytes().size() : font.size())
+              << ','
+              << "\"verified_font_resource_id\":"
+              << stats.verified_font_resource_id << ','
+              << "\"used_verified_font_resource\":"
+              << (stats.used_verified_font_resource ? "true" : "false") << ','
+              << "\"performed_inline_font_verification\":"
+              << (stats.performed_inline_font_verification ? "true" : "false")
+              << ','
               << "\"input_utf8_bytes\":" << fixture.utf8.size() << ','
               << "\"input_codepoints\":" << fixture.codepoints.size() << ','
               << "\"input_clusters\":" << fixture.graphemes.size() - 1U << ','
@@ -210,8 +250,12 @@ bool run_case(
 } // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 3) {
-        std::cerr << "usage: harfbuzz_shaping_benchmark LATIN_FONT DEVANAGARI_FONT\n";
+    const bool verified_mode =
+        argc == 4 && std::string_view(argv[3]) == "--verified-resource";
+    if (argc != 3 && !verified_mode) {
+        std::cerr
+            << "usage: harfbuzz_shaping_benchmark LATIN_FONT DEVANAGARI_FONT "
+               "[--verified-resource]\n";
         return 2;
     }
 
@@ -219,6 +263,14 @@ int main(int argc, char** argv) {
     std::vector<std::byte> devanagari_font;
     if (!load_file(argv[1], &latin_font) ||
         !load_file(argv[2], &devanagari_font)) {
+        return 2;
+    }
+
+    std::shared_ptr<const VerifiedFontResource> latin_resource;
+    std::shared_ptr<const VerifiedFontResource> devanagari_resource;
+    if (verified_mode &&
+        (!build_resource(1001U, latin_font, &latin_resource) ||
+         !build_resource(1002U, devanagari_font, &devanagari_resource))) {
         return 2;
     }
 
@@ -237,6 +289,7 @@ int main(int argc, char** argv) {
     ok &= run_case(
         "latin",
         latin_font,
+        latin_resource,
         latin,
         require_script("Latn"),
         ShapingDirection::LeftToRight,
@@ -244,6 +297,7 @@ int main(int argc, char** argv) {
     ok &= run_case(
         "arabic",
         latin_font,
+        latin_resource,
         arabic,
         require_script("Arab"),
         ShapingDirection::RightToLeft,
@@ -251,6 +305,7 @@ int main(int argc, char** argv) {
     ok &= run_case(
         "devanagari",
         devanagari_font,
+        devanagari_resource,
         devanagari,
         require_script("Deva"),
         ShapingDirection::LeftToRight,
