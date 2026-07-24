@@ -9,6 +9,7 @@ target_sources(
     src/font_resource_integrity.cpp
     src/font_content_identity.cpp
     src/font_load_locator.cpp
+    src/catalog_font_resource_resolver.cpp
     src/verified_font_resource.cpp
     src/verified_font_resource_cache.cpp
     src/verified_font_resource_cache_identity.cpp
@@ -88,6 +89,17 @@ if(BUILD_TESTING)
   add_test(
     NAME font-file-loader-tests
     COMMAND zevryon-font-file-loader-tests)
+
+  add_executable(
+    zevryon-catalog-font-resource-resolver-tests
+    tests/catalog_font_resource_resolver_tests.cpp)
+  target_link_libraries(
+    zevryon-catalog-font-resource-resolver-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-catalog-font-resource-resolver-tests)
+  add_test(
+    NAME catalog-font-resource-resolver-tests
+    COMMAND zevryon-catalog-font-resource-resolver-tests)
 
   add_executable(
     zevryon-verified-font-resource-tests
