@@ -157,6 +157,9 @@ bool family_name(IDWriteFontFamily* family, std::string* output) {
 }
 
 bool postscript_name(IDWriteFont* font, std::string* output) {
+    if (font == nullptr || output == nullptr) {
+        return false;
+    }
     output->clear();
     ComPtr<IDWriteLocalizedStrings> names;
     BOOL exists = FALSE;
@@ -220,6 +223,15 @@ bool local_file_path(IDWriteFontFile* file, std::string* output) {
            utf16_to_utf8(std::wstring_view(path.data(), path_length), output);
 }
 
+void release_raw_files(std::vector<IDWriteFontFile*>* files) noexcept {
+    for (IDWriteFontFile*& file : *files) {
+        if (file != nullptr) {
+            file->Release();
+            file = nullptr;
+        }
+    }
+}
+
 bool face_file_paths(IDWriteFontFace* face, std::vector<std::string>* output) {
     if (face == nullptr || output == nullptr) {
         return false;
@@ -230,37 +242,37 @@ bool face_file_paths(IDWriteFontFace* face, std::vector<std::string>* output) {
         return false;
     }
 
-    std::vector<IDWriteFontFile*> raw_files(count, nullptr);
+    std::vector<IDWriteFontFile*> raw_files(
+        static_cast<std::size_t>(count),
+        nullptr);
+    std::vector<ComPtr<IDWriteFontFile>> files(
+        static_cast<std::size_t>(count));
     hr = face->GetFiles(&count, raw_files.data());
-    if (FAILED(hr)) {
-        for (IDWriteFontFile* raw : raw_files) {
-            if (raw != nullptr) {
-                raw->Release();
-            }
-        }
+    if (FAILED(hr) || static_cast<std::size_t>(count) > raw_files.size()) {
+        release_raw_files(&raw_files);
         return false;
     }
 
-    try {
-        output->clear();
-        output->reserve(count);
-        for (IDWriteFontFile* raw : raw_files) {
-            ComPtr<IDWriteFontFile> file;
-            file.Attach(raw);
-            std::string path;
-            if (!local_file_path(file.Get(), &path)) {
-                return false;
-            }
-            output->push_back(std::move(path));
+    for (std::size_t index = 0U;
+         index < static_cast<std::size_t>(count);
+         ++index) {
+        if (raw_files[index] == nullptr) {
+            release_raw_files(&raw_files);
+            return false;
         }
-    } catch (...) {
-        for (IDWriteFontFile*& raw : raw_files) {
-            if (raw != nullptr) {
-                raw->Release();
-                raw = nullptr;
-            }
+        files[index].Attach(raw_files[index]);
+        raw_files[index] = nullptr;
+    }
+    release_raw_files(&raw_files);
+
+    output->clear();
+    output->reserve(static_cast<std::size_t>(count));
+    for (const ComPtr<IDWriteFontFile>& file : files) {
+        std::string path;
+        if (!local_file_path(file.Get(), &path)) {
+            return false;
         }
-        throw;
+        output->push_back(std::move(path));
     }
 
     std::sort(output->begin(), output->end());
@@ -279,9 +291,18 @@ std::string make_identity(
     std::string identity;
     std::size_t path_bytes = 0U;
     for (const std::string& path : paths) {
+        if (path.size() > std::numeric_limits<std::size_t>::max() - path_bytes) {
+            path_bytes = 0U;
+            break;
+        }
         path_bytes += path.size();
     }
-    identity.reserve(96U + path_bytes + postscript.size());
+    const std::size_t fixed_estimate = 96U;
+    if (path_bytes <= std::numeric_limits<std::size_t>::max() - fixed_estimate &&
+        postscript.size() <=
+            std::numeric_limits<std::size_t>::max() - fixed_estimate - path_bytes) {
+        identity.reserve(fixed_estimate + path_bytes + postscript.size());
+    }
     identity.append("directwrite|");
     append_identity_field(&identity, std::to_string(paths.size()));
     for (const std::string& path : paths) {
@@ -342,24 +363,33 @@ bool append_unicode_ranges(
         return false;
     }
 
-    std::vector<DWRITE_UNICODE_RANGE> native_ranges(actual);
+    std::vector<DWRITE_UNICODE_RANGE> native_ranges(
+        static_cast<std::size_t>(actual));
+    bool complete = false;
     for (unsigned attempt = 0U; attempt < 3U; ++attempt) {
+        if (native_ranges.size() > static_cast<std::size_t>(
+                                       std::numeric_limits<UINT32>::max())) {
+            return false;
+        }
         UINT32 returned = 0U;
         hr = face->GetUnicodeRanges(
             static_cast<UINT32>(native_ranges.size()),
             native_ranges.data(),
             &returned);
-        if (hr == E_NOT_SUFFICIENT_BUFFER && returned > native_ranges.size()) {
-            native_ranges.resize(returned);
+        if (hr == E_NOT_SUFFICIENT_BUFFER &&
+            static_cast<std::size_t>(returned) > native_ranges.size()) {
+            native_ranges.resize(static_cast<std::size_t>(returned));
             continue;
         }
-        if (FAILED(hr) || returned == 0U || returned > native_ranges.size()) {
+        if (FAILED(hr) || returned == 0U ||
+            static_cast<std::size_t>(returned) > native_ranges.size()) {
             return false;
         }
-        native_ranges.resize(returned);
+        native_ranges.resize(static_cast<std::size_t>(returned));
+        complete = true;
         break;
     }
-    if (FAILED(hr)) {
+    if (!complete) {
         return false;
     }
 
@@ -392,7 +422,8 @@ bool append_unicode_ranges(
     std::array<std::uint64_t, kScriptCount> script_counts{};
     std::uint64_t total = 0U;
     for (const FontCoverageRange range : *output) {
-        total += static_cast<std::uint64_t>(range.last) - range.first + 1U;
+        total += static_cast<std::uint64_t>(range.last) -
+                 static_cast<std::uint64_t>(range.first) + 1U;
         for (std::uint64_t value = range.first; value <= range.last; ++value) {
             const ScriptId script = script_of(static_cast<std::uint32_t>(value));
             if (!is_neutral_script(script)) {
@@ -415,21 +446,27 @@ bool append_unicode_ranges(
 
 std::uint16_t face_flags(IDWriteFont* font, IDWriteFontFace* face) noexcept {
     std::uint16_t flags = kFontFaceSystem;
+    if (font == nullptr || face == nullptr) {
+        return flags;
+    }
 
     ComPtr<IDWriteFont1> font1;
-    if (SUCCEEDED(font->QueryInterface(IID_PPV_ARGS(&font1))) &&
+    if (SUCCEEDED(font->QueryInterface(
+            IID_PPV_ARGS(font1.ReleaseAndGetAddressOf()))) &&
         font1->IsMonospacedFont() != FALSE) {
         flags = static_cast<std::uint16_t>(flags | kFontFaceMonospace);
     }
 
     ComPtr<IDWriteFont2> font2;
-    if (SUCCEEDED(font->QueryInterface(IID_PPV_ARGS(&font2))) &&
+    if (SUCCEEDED(font->QueryInterface(
+            IID_PPV_ARGS(font2.ReleaseAndGetAddressOf()))) &&
         font2->IsColorFont() != FALSE) {
         flags = static_cast<std::uint16_t>(flags | kFontFaceColor);
     }
 
     ComPtr<IDWriteFontFace5> face5;
-    if (SUCCEEDED(face->QueryInterface(IID_PPV_ARGS(&face5))) &&
+    if (SUCCEEDED(face->QueryInterface(
+            IID_PPV_ARGS(face5.ReleaseAndGetAddressOf()))) &&
         face5->HasVariations() != FALSE) {
         flags = static_cast<std::uint16_t>(flags | kFontFaceVariable);
     }
@@ -488,7 +525,7 @@ bool build_directwrite_generation(
         HRESULT hr = DWriteCreateFactory(
             DWRITE_FACTORY_TYPE_SHARED,
             __uuidof(IDWriteFactory),
-            reinterpret_cast<IUnknown**>(factory.GetAddressOf()));
+            reinterpret_cast<IUnknown**>(factory.ReleaseAndGetAddressOf()));
         if (FAILED(hr)) {
             return fail(
                 DirectWriteDiscoveryErrorKind::FactoryCreationFailed,
@@ -513,7 +550,7 @@ bool build_directwrite_generation(
 
         std::vector<OwnedFace> owned;
         const UINT32 family_count = collection->GetFontFamilyCount();
-        stats->families_seen = family_count;
+        stats->families_seen = static_cast<std::uint64_t>(family_count);
 
         for (UINT32 family_index = 0U; family_index < family_count; ++family_index) {
             ComPtr<IDWriteFontFamily> family;
@@ -521,7 +558,7 @@ bool build_directwrite_generation(
             if (FAILED(hr)) {
                 return fail(
                     DirectWriteDiscoveryErrorKind::EnumerationFailed,
-                    family_index,
+                    static_cast<std::size_t>(family_index),
                     0U,
                     hr,
                     "DirectWrite failed to retrieve a font family",
@@ -532,7 +569,7 @@ bool build_directwrite_generation(
             if (!family_name(family.Get(), &family_utf8)) {
                 return fail(
                     DirectWriteDiscoveryErrorKind::MissingRequiredProperty,
-                    family_index,
+                    static_cast<std::size_t>(family_index),
                     0U,
                     E_FAIL,
                     "DirectWrite family has no deterministic UTF-8 name",
@@ -547,8 +584,8 @@ bool build_directwrite_generation(
                 if (FAILED(hr)) {
                     return fail(
                         DirectWriteDiscoveryErrorKind::EnumerationFailed,
-                        family_index,
-                        font_index,
+                        static_cast<std::size_t>(family_index),
+                        static_cast<std::size_t>(font_index),
                         hr,
                         "DirectWrite failed to retrieve a physical font",
                         error);
@@ -564,8 +601,8 @@ bool build_directwrite_generation(
                 if (FAILED(hr)) {
                     return fail(
                         DirectWriteDiscoveryErrorKind::EnumerationFailed,
-                        family_index,
-                        font_index,
+                        static_cast<std::size_t>(family_index),
+                        static_cast<std::size_t>(font_index),
                         hr,
                         "DirectWrite failed to create a font face",
                         error);
@@ -576,8 +613,8 @@ bool build_directwrite_generation(
                 if (FAILED(hr)) {
                     return fail(
                         DirectWriteDiscoveryErrorKind::InvalidNativeValue,
-                        family_index,
-                        font_index,
+                        static_cast<std::size_t>(family_index),
+                        static_cast<std::size_t>(font_index),
                         hr,
                         "DirectWrite font face does not expose Unicode ranges",
                         error);
@@ -593,8 +630,8 @@ bool build_directwrite_generation(
                         &face_codepoints)) {
                     return fail(
                         DirectWriteDiscoveryErrorKind::InvalidNativeValue,
-                        family_index,
-                        font_index,
+                        static_cast<std::size_t>(family_index),
+                        static_cast<std::size_t>(font_index),
                         E_FAIL,
                         "DirectWrite returned invalid or empty Unicode coverage",
                         error);
@@ -604,8 +641,8 @@ bool build_directwrite_generation(
                 if (!face_file_paths(face.Get(), &paths)) {
                     return fail(
                         DirectWriteDiscoveryErrorKind::UnsupportedFontFile,
-                        family_index,
-                        font_index,
+                        static_cast<std::size_t>(family_index),
+                        static_cast<std::size_t>(font_index),
                         E_NOINTERFACE,
                         "DirectWrite font files are not addressable by the local loader",
                         error);
@@ -615,8 +652,8 @@ bool build_directwrite_generation(
                 if (!postscript_name(font.Get(), &postscript)) {
                     return fail(
                         DirectWriteDiscoveryErrorKind::InvalidNativeValue,
-                        family_index,
-                        font_index,
+                        static_cast<std::size_t>(family_index),
+                        static_cast<std::size_t>(font_index),
                         E_FAIL,
                         "DirectWrite returned an invalid PostScript name",
                         error);
@@ -639,7 +676,8 @@ bool build_directwrite_generation(
                 candidate.flags = face_flags(font.Get(), face.Get());
 
                 stats->coverage_codepoints += face_codepoints;
-                stats->coverage_ranges += candidate.coverage.size();
+                stats->coverage_ranges +=
+                    static_cast<std::uint64_t>(candidate.coverage.size());
                 if ((candidate.flags & kFontFaceVariable) != 0U) {
                     ++stats->variable_faces;
                 }
@@ -726,7 +764,7 @@ bool build_directwrite_generation(
             return false;
         }
 
-        stats->faces_emitted = canonical.size();
+        stats->faces_emitted = static_cast<std::uint64_t>(canonical.size());
         stats->generation = generation_stats;
         return true;
     } catch (const std::bad_alloc&) {
