@@ -80,17 +80,23 @@ jobs:
               --verified-resource \
               > "harfbuzz-benchmark-resource-${run}.jsonl"
           done
-      - name: Enforce shaping equivalence and preliminary latency gates
+      - name: Enforce shaping equivalence and final latency gates
         run: |
           python3 - <<'PY'
-          import json
+          import json, statistics
           expected = {"latin", "arabic", "devanagari"}
+          improvement_limits = {
+              "latin": 0.80,
+              "arabic": 0.75,
+              "devanagari": 0.97,
+          }
           equivalent = (
               "input_utf8_bytes", "input_codepoints", "input_clusters",
               "output_glyphs", "output_bytes", "unsafe_to_break_glyphs",
               "unsafe_to_concat_glyphs", "total_x_advance", "total_y_advance",
               "units_per_em", "glyph_current_bytes", "glyph_peak_bytes",
           )
+          p50_ratios = {case: [] for case in expected}
           for run in range(1, 4):
               def read(path):
                   rows = [json.loads(line) for line in open(path, encoding="utf-8") if line.strip()]
@@ -122,11 +128,18 @@ jobs:
                       assert row["unsafe_to_concat_glyphs"] > 0
                       assert row["accounting_clean"] is True
                       assert row["within_hard_limits"] is True
-                      assert row["p95_ms"] <= 3.0
-                      assert row["p99_ms"] <= 4.0
-                      assert row["maximum_ms"] <= 8.0
+                  assert a["p95_ms"] <= 3.0
+                  assert a["p99_ms"] <= 4.0
+                  assert a["maximum_ms"] <= 8.0
+                  assert b["p95_ms"] <= 2.0
+                  assert b["p99_ms"] <= 2.5
+                  assert b["maximum_ms"] <= 4.0
+                  p50_ratios[case].append(b["p50_ms"] / a["p50_ms"])
               assert raw["arabic"]["unsafe_to_break_glyphs"] > 0
               assert resource["arabic"]["unsafe_to_break_glyphs"] > 0
+          for case, limit in improvement_limits.items():
+              ratio = statistics.median(p50_ratios[case])
+              assert ratio <= limit, (case, ratio, limit, p50_ratios[case])
           PY
       - uses: actions/upload-artifact@v4
         if: always()
