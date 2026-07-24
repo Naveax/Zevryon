@@ -10,9 +10,20 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
   endif()
 
   if(TARGET PkgConfig::HARFBUZZ)
+    # Keep the original HarfBuzz implementation private. The public symbol is
+    # provided by harfbuzz_verified_shaper.cpp after SFNT/TTC and integrity
+    # validation succeed.
+    set_source_files_properties(
+      src/harfbuzz_shaper_backend.cpp
+      PROPERTIES
+        COMPILE_DEFINITIONS
+          "shape_harfbuzz_segment=shape_harfbuzz_segment_backend")
+
     add_library(
       zevryon-harfbuzz-shaper
-      STATIC src/harfbuzz_shaper_backend.cpp)
+      STATIC
+        src/harfbuzz_shaper_backend.cpp
+        src/harfbuzz_verified_shaper.cpp)
     target_include_directories(zevryon-harfbuzz-shaper PUBLIC src)
     target_link_libraries(
       zevryon-harfbuzz-shaper
@@ -52,6 +63,14 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
         PRIVATE zevryon-harfbuzz-shaper)
       zevryon_options(zevryon-harfbuzz-shaper-tests)
 
+      add_executable(
+        zevryon-harfbuzz-verified-input-tests
+        tests/harfbuzz_verified_input_tests.cpp)
+      target_link_libraries(
+        zevryon-harfbuzz-verified-input-tests
+        PRIVATE zevryon-harfbuzz-shaper)
+      zevryon_options(zevryon-harfbuzz-verified-input-tests)
+
       if(ZEVRYON_TEST_FONT_LATIN AND ZEVRYON_TEST_FONT_DEVANAGARI)
         add_test(
           NAME harfbuzz-shaper-tests
@@ -59,6 +78,11 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
             zevryon-harfbuzz-shaper-tests
             "${ZEVRYON_TEST_FONT_LATIN}"
             "${ZEVRYON_TEST_FONT_DEVANAGARI}")
+        add_test(
+          NAME harfbuzz-verified-input-tests
+          COMMAND
+            zevryon-harfbuzz-verified-input-tests
+            "${ZEVRYON_TEST_FONT_LATIN}")
       endif()
     endif()
   endif()

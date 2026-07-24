@@ -6,13 +6,18 @@ on:
       - '.github/workflows/z2-harfbuzz-shaping.yml'
       - 'cmake/coretext_discovery.cmake'
       - 'cmake/harfbuzz_shaping.cmake'
+      - 'src/font_resource_sfnt.*'
+      - 'src/font_resource_integrity.*'
       - 'src/harfbuzz_shaper.*'
+      - 'src/harfbuzz_verified_shaper.cpp'
       - 'src/harfbuzz_shaping_benchmark_main.cpp'
       - 'src/grapheme_segmenter.*'
       - 'src/unicode_script.*'
       - 'src/resource_ledger.*'
       - 'tests/harfbuzz_shaper_tests.cpp'
+      - 'tests/harfbuzz_verified_input_tests.cpp'
       - 'docs/Z2B1_HARFBUZZ_SHAPING.md'
+      - 'docs/Z2B2_VERIFIED_HARFBUZZ_INPUT.md'
   workflow_dispatch:
 
 concurrency:
@@ -43,19 +48,22 @@ jobs:
             -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON \
             -DZEVRYON_TEST_FONT_LATIN=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
             -DZEVRYON_TEST_FONT_DEVANAGARI=/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf
-      - name: Build focused backend, tests, and benchmark
+      - name: Build verified backend, tests, and benchmark
         run: |
           set -o pipefail
           cmake --build build --parallel 2 --target \
             zevryon-harfbuzz-shaper-tests \
+            zevryon-harfbuzz-verified-input-tests \
             zevryon-harfbuzz-shaping-benchmark \
             2>&1 | tee ubuntu-harfbuzz-build.log
-      - name: Run Latin, Arabic, Hebrew, combining, and Devanagari shaping
+      - name: Run shaping and verified-font-input tests
         run: |
           set -o pipefail
-          ctest --test-dir build -R '^harfbuzz-shaper-tests$' --output-on-failure \
+          ctest --test-dir build \
+            -R '^harfbuzz-(shaper|verified-input)-tests$' \
+            --output-on-failure \
             2>&1 | tee ubuntu-harfbuzz-test.log
-      - name: Run three independent 16 KiB shaping distributions
+      - name: Run three independent 16 KiB verified shaping distributions
         run: |
           for run in 1 2 3; do
             ./build/zevryon-harfbuzz-shaping-benchmark \
@@ -122,18 +130,22 @@ jobs:
             -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON \
             -DZEVRYON_TEST_FONT_LATIN=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
             -DZEVRYON_TEST_FONT_DEVANAGARI=/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf
-      - name: Build focused backend under sanitizers
+      - name: Build verified backend under sanitizers
         run: |
           set -o pipefail
-          cmake --build build-sanitized --parallel 2 --target zevryon-harfbuzz-shaper-tests \
+          cmake --build build-sanitized --parallel 2 --target \
+            zevryon-harfbuzz-shaper-tests \
+            zevryon-harfbuzz-verified-input-tests \
             2>&1 | tee ubuntu-harfbuzz-sanitizer-build.log
-      - name: Run real shaping test under sanitizers
+      - name: Run shaping and verified-input tests under sanitizers
         env:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
           set -o pipefail
-          ctest --test-dir build-sanitized -R '^harfbuzz-shaper-tests$' --output-on-failure \
+          ctest --test-dir build-sanitized \
+            -R '^harfbuzz-(shaper|verified-input)-tests$' \
+            --output-on-failure \
             2>&1 | tee ubuntu-harfbuzz-sanitizer-test.log
       - uses: actions/upload-artifact@v4
         if: always()
