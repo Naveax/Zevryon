@@ -1,57 +1,88 @@
-# Z2B-10 Catalog-Backed HarfBuzz Shaping
+# Z2B-10 Immutable Catalog Font Binding and I/O-Free Shaping
 
 ## Purpose
 
 Z2B-9 resolves one immutable catalog face to a bounded, content-addressed
 `VerifiedFontResource`. The existing HarfBuzz path accepts that immutable
-resource, but callers still had to join the two stages manually. Z2B-10 adds
-one synchronous, failure-atomic bridge:
+resource. Z2B-10 joins the systems without repeating platform parsing, file
+reads, content hashing, or cache lookup for every shaped segment.
+
+The contract has two explicit phases:
 
 ```text
+Cold bind, once per selected catalog face
 FontCatalogGeneration + FontFaceId
   -> platform identity locator
   -> bounded stable file loader
   -> content-addressed verified resource cache
+  -> CatalogFontFaceBinding
+
+Hot shape, repeatedly
+CatalogFontFaceBinding + segmented text
   -> retained-resource HarfBuzz shaping
   -> ShapedGlyphRun
 ```
 
-## Contract
+## Immutable binding
 
-`CatalogHarfBuzzShapingRequest` owns no raw font bytes and accepts no caller
-supplied sfnt face index. The resolver determines the selected face from the
-retained generation and the platform identity. The verified resource remains
-owned through the complete HarfBuzz call.
+`bind_catalog_font_face` performs the only catalog/resource-resolution work.
+It publishes a value-type `CatalogFontFaceBinding` containing retained shared
+ownership of:
 
-The bridge:
+- the immutable `FontCatalogGeneration`;
+- the selected `VerifiedFontResource`;
+- the generation-local `FontFaceId`.
 
-- retains the immutable catalog generation through resolution;
-- resolves the requested face through Z2B-9;
-- reuses the bounded verified-resource cache;
-- passes only the immutable resource handle to HarfBuzz;
-- preserves resolver and shaping errors as separate nested surfaces;
-- releases prior glyph output before any work;
-- publishes glyphs only after both stages succeed;
-- reports whether resource resolution and shaping completed independently.
+A failed initial bind or failed rebind clears the output binding. Resolver,
+locator, file-loader, cache, parser, and integrity diagnostics remain on the
+existing `CatalogFontResourceError` surface.
+
+The binding remains valid when:
+
+- the caller releases its generation handle;
+- the generation store publishes a newer snapshot;
+- the verified-resource cache evicts or clears the resident entry.
+
+## Hot shaping
+
+`shape_bound_catalog_harfbuzz_segment` accepts no generation, path, cache,
+staging limit, raw font bytes, or caller-defined sfnt face index. It locally
+retains both shared handles from the binding and passes only the immutable
+resource into the existing verified HarfBuzz path.
+
+The hot path performs:
+
+- no platform-identity parsing;
+- no UTF-8 path conversion;
+- no filesystem metadata or payload read;
+- no content hashing;
+- no verified-resource cache lookup or mutation;
+- no SFNT/TTC reparsing or integrity rescan.
+
+Prior glyph output is released before validation. Invalid bindings, malformed
+segment ranges, backend failures, and glyph-budget failures publish no glyphs.
 
 ## Required certification
 
-The focused test uses a real DejaVu Sans resource and proves:
+The focused real-font test uses DejaVu Sans and proves:
 
-- catalog-backed shaping succeeds through the retained-resource path;
-- the second identical call is a verified-resource cache hit;
-- repeated output is byte-exact;
-- direct retained-resource shaping and catalog-backed shaping are byte-exact;
-- invalid face IDs preserve `CatalogFontResourceError`;
-- missing files preserve the nested `FontFileLoadError`;
-- invalid shaping ranges preserve `HarfBuzzShapingError`;
+- one cold bind publishes exact generation, face, resource, and cache-build evidence;
+- external generation ownership can be released after binding;
+- the verified-resource cache can be cleared after binding;
+- two later hot shapes succeed from the immutable binding;
+- the complete cache snapshot is byte-for-byte unchanged by hot shaping;
+- repeated hot output is byte-exact;
+- direct retained-resource shaping and bound shaping are byte-exact;
+- a default/invalid binding clears prior glyph output;
+- invalid shaping ranges preserve the nested `HarfBuzzShapingError`;
 - a one-byte glyph budget publishes no output;
-- all glyph-output ledgers remain clean;
+- invalid face and missing-file binds preserve resolver/file diagnostics;
+- failed rebinds clear a previously valid binding;
 - strict GCC and Linux ASan/UBSan pass.
 
 ## Explicit boundary
 
-This slice does not choose fallback faces, shape multiple font runs in one
+This slice does not choose fallback faces, shape multiple catalog runs in one
 call, cache HarfBuzz blobs/faces/fonts/shape plans, memoize path metadata,
-perform asynchronous I/O, derive OpenType language/features/variations,
-build caret maps, break lines, rasterize glyphs, or paint text.
+perform asynchronous I/O, derive language/features/variations, build caret
+maps, break lines, rasterize glyphs, or paint text.
