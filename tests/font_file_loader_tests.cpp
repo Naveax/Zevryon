@@ -305,7 +305,7 @@ bool verification_failures_are_chained(const TemporaryDirectory& temporary) {
                      error.cache_error.kind ==
                          VerifiedFontResourceCacheErrorKind::ResourceBuildFailed &&
                      error.cache_error.resource_error ==
-                         VerifiedFontResourceErrorKind::IntegrityFailure &&
+                         VerifiedFontResourceErrorKind::IntegrityFailed &&
                      error.cache_error.integrity_error ==
                          SfntIntegrityErrorKind::TableChecksumMismatch,
                  "checksum failure must preserve the complete error chain");
@@ -324,7 +324,7 @@ bool verification_failures_are_chained(const TemporaryDirectory& temporary) {
                  "invalid face index must fail");
     ok &= expect(!output && error.kind == FontFileLoadErrorKind::CacheFailed &&
                      error.cache_error.resource_error ==
-                         VerifiedFontResourceErrorKind::ParseFailure &&
+                         VerifiedFontResourceErrorKind::ParseFailed &&
                      error.cache_error.parse_error ==
                          SfntParseErrorKind::InvalidFaceIndex,
                  "face-index failure must preserve parser detail");
