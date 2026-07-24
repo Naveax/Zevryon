@@ -115,6 +115,13 @@ bool load_verified_font_file(
             error_value(filesystem_error),
             error);
     }
+    if (!std::filesystem::exists(initial_status)) {
+        return fail(
+            FontFileLoadErrorKind::MetadataFailed,
+            "font file does not exist",
+            0,
+            error);
+    }
     if (!std::filesystem::is_regular_file(initial_status)) {
         return fail(
             FontFileLoadErrorKind::NotRegularFile,
@@ -225,21 +232,34 @@ bool load_verified_font_file(
             stream.read(
                 reinterpret_cast<char*>(bytes.data()),
                 expected);
-            if (stream.gcount() != expected) {
+            const std::streamsize actual = stream.gcount();
+            if (actual > 0) {
+                staging_ledger.record_physical_read(
+                    core::ResourceClass::FontFileReadBuffer,
+                    static_cast<std::uint64_t>(actual));
+                stats->exact_read_bytes = static_cast<std::uint64_t>(actual);
+            }
+            if (actual != expected) {
                 return fail(
                     FontFileLoadErrorKind::ReadFailed,
                     "font file did not produce the exact preflight byte count",
                     0,
                     error);
             }
-            staging_ledger.record_physical_read(
-                core::ResourceClass::FontFileReadBuffer,
-                static_cast<std::uint64_t>(bytes.size()));
-            stats->exact_read_bytes = static_cast<std::uint64_t>(bytes.size());
 
             char extra = 0;
             stream.read(&extra, 1);
+            if (stream.bad()) {
+                return fail(
+                    FontFileLoadErrorKind::ReadFailed,
+                    "font file produced an I/O error after the exact read",
+                    0,
+                    error);
+            }
             if (stream.gcount() != 0) {
+                staging_ledger.record_physical_read(
+                    core::ResourceClass::FontFileReadBuffer,
+                    1U);
                 return fail(
                     FontFileLoadErrorKind::FileChanged,
                     "font file grew during the bounded read",
