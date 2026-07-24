@@ -12,6 +12,8 @@
 
 namespace zevryon::text {
 
+class PreparedHarfBuzzFace;
+
 class CatalogFontFaceBinding final {
 public:
     CatalogFontFaceBinding() = default;
@@ -54,6 +56,9 @@ bool bind_catalog_font_face(
     CatalogFontResourceError* error) noexcept;
 
 struct BoundCatalogHarfBuzzShapingRequest {
+    // Exactly one catalog font source is required. A plain binding uses the
+    // verified-resource path. A prepared face retains its binding and skips
+    // repeat hb_blob_t/hb_face_t construction.
     const CatalogFontFaceBinding* binding{nullptr};
     std::span<const DecodedCodePoint> codepoints;
     std::span<const GraphemeBoundary> grapheme_boundaries;
@@ -69,6 +74,7 @@ struct BoundCatalogHarfBuzzShapingRequest {
     bool beginning_of_text{false};
     bool end_of_text{false};
     bool produce_unsafe_to_concat{true};
+    std::shared_ptr<const PreparedHarfBuzzFace> prepared_harfbuzz_face;
 };
 
 enum class BoundCatalogHarfBuzzShapingErrorKind : std::uint8_t {
@@ -97,9 +103,10 @@ const char* bound_catalog_harfbuzz_shaping_error_kind_name(
     BoundCatalogHarfBuzzShapingErrorKind kind) noexcept;
 
 // Hot path: performs no platform-identity parsing, filesystem access, content
-// hashing, verified-resource cache lookup, or font verification. The immutable
-// binding's generation and resource handles are retained locally for the full
-// synchronous HarfBuzz call. Glyph output is empty after every failure.
+// hashing, verified-resource cache lookup, or font verification. The selected
+// binding or prepared face is retained for the complete synchronous call. A
+// prepared source also skips hb_blob_t/hb_face_t construction. Glyph output is
+// empty after every failure.
 bool shape_bound_catalog_harfbuzz_segment(
     const BoundCatalogHarfBuzzShapingRequest& request,
     ShapedGlyphRun* output,
