@@ -1,0 +1,84 @@
+name: z2-catalog-font-resource-resolver
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-catalog-font-resource-resolver.yml'
+      - 'cmake/font_resource_sfnt.cmake'
+      - 'src/catalog_font_resource_resolver.*'
+      - 'src/font_load_locator.*'
+      - 'src/font_file_loader.*'
+      - 'src/verified_font_resource*'
+      - 'src/font_discovery_generation.*'
+      - 'tests/catalog_font_resource_resolver_tests.cpp'
+      - 'docs/Z2B9_CATALOG_FONT_RESOURCE_RESOLVER.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-catalog-font-resource-resolver-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  strict:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure strict Release build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build resolver dependency tests
+        run: >-
+          cmake --build build --config Release --parallel 2 --target
+          zevryon-catalog-font-resource-resolver-tests
+          zevryon-font-load-locator-tests
+          zevryon-font-file-loader-tests
+          zevryon-verified-font-resource-cache-tests
+          zevryon-font-discovery-generation-tests
+      - name: Run resolver dependency chain
+        run: >-
+          ctest --test-dir build -C Release
+          -R '^(catalog-font-resource-resolver-tests|font-load-locator-tests|font-file-loader-tests|verified-font-resource-cache-tests|font-discovery-generation-tests)$'
+          --output-on-failure
+
+  sanitizer:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asan_options: detect_leaks=1:halt_on_error=1:abort_on_error=1
+          - os: macos-latest
+            asan_options: detect_leaks=0:halt_on_error=1:abort_on_error=1
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AddressSanitizer and UndefinedBehaviorSanitizer
+        run: >-
+          cmake -S . -B build-sanitized
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build resolver dependency tests under sanitizers
+        run: >-
+          cmake --build build-sanitized --config RelWithDebInfo --parallel 2 --target
+          zevryon-catalog-font-resource-resolver-tests
+          zevryon-font-load-locator-tests
+          zevryon-font-file-loader-tests
+          zevryon-verified-font-resource-cache-tests
+          zevryon-font-discovery-generation-tests
+      - name: Run resolver dependency chain under sanitizers
+        env:
+          ASAN_OPTIONS: ${{ matrix.asan_options }}
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: >-
+          ctest --test-dir build-sanitized -C RelWithDebInfo
+          -R '^(catalog-font-resource-resolver-tests|font-load-locator-tests|font-file-loader-tests|verified-font-resource-cache-tests|font-discovery-generation-tests)$'
+          --output-on-failure
