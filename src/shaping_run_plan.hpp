@@ -59,6 +59,7 @@ struct ShapingRunPlanStats {
     std::uint64_t script_splits{0};
     std::uint64_t font_splits{0};
     std::uint64_t direction_splits{0};
+    std::uint64_t level_splits{0};
 };
 
 class ShapingRunPlan final {
