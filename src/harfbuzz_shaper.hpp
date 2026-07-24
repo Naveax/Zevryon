@@ -5,9 +5,11 @@
 #include "grapheme_segmenter.hpp"
 #include "unicode_script.hpp"
 #include "unicode_stream.hpp"
+#include "verified_font_resource.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <memory_resource>
 #include <span>
 #include <string>
@@ -54,6 +56,12 @@ struct HarfBuzzShapingRequest {
     bool beginning_of_text{false};
     bool end_of_text{false};
     bool produce_unsafe_to_concat{true};
+
+    // Optional immutable retained font input. When present, font_bytes must be
+    // empty and face_index must equal the selected face in this resource.
+    // Existing aggregate initializers remain source-compatible because this
+    // field is appended at the end of the request.
+    std::shared_ptr<const VerifiedFontResource> verified_font_resource;
 };
 
 enum ShapedGlyphFlags : std::uint32_t {
@@ -129,6 +137,7 @@ struct HarfBuzzShapingStats {
     std::uint64_t maximum_absolute_offset{0};
     std::uint64_t verified_font_payload_bytes{0};
     std::uint64_t verified_font_padding_bytes{0};
+    std::uint64_t verified_font_resource_id{0};
     std::uint32_t glyph_count_before_shaping{0};
     std::uint32_t units_per_em{0};
     std::uint32_t validated_font_faces{0};
@@ -136,18 +145,20 @@ struct HarfBuzzShapingStats {
     std::uint32_t verified_font_table_checksums{0};
     bool whole_font_checksum_verified{false};
     bool whole_font_checksum_ignored_for_collection{false};
+    bool used_verified_font_resource{false};
+    bool performed_inline_font_verification{false};
 };
 
 const char* harfbuzz_shaping_error_kind_name(
     HarfBuzzShapingErrorKind kind) noexcept;
 const char* shaping_direction_name(ShapingDirection direction) noexcept;
 
-// Shapes one already-segmented font/script/direction run. Before any HarfBuzz
-// object is created, the caller-owned bytes must pass the allocation-free
-// SFNT/TTC parser and strict integrity verifier. The caller must keep
-// font_bytes alive for the duration of this call. The output is published only
-// after validation, HarfBuzz shaping, cluster verification, and one exact
-// reserve in the caller-provided memory resource all succeed.
+// Shapes one already-segmented font/script/direction run. Callers may provide
+// either raw bytes for strict inline verification or one immutable verified
+// resource handle. The two forms are mutually exclusive. The output is
+// published only after font-input selection, HarfBuzz shaping, cluster
+// verification, and one exact reserve in the caller-provided memory resource
+// all succeed.
 bool shape_harfbuzz_segment(
     const HarfBuzzShapingRequest& request,
     ShapedGlyphRun* output,
