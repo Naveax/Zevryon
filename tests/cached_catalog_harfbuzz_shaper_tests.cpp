@@ -152,7 +152,10 @@ bool concurrent(const Fixture& f, std::size_t size) {
     std::atomic<std::size_t> ready{0U}; std::atomic<bool> go{false};
     std::vector<std::thread> threads;
     for (std::size_t i = 0; i < n; ++i) threads.emplace_back([&, i] {
-        ready.fetch_add(1U); while (!go.load()) std::this_thread::yield();
+        ready.fetch_add(1U);
+        while (!go.load()) {
+            std::this_thread::yield();
+        }
         ResourceLedger l; l.set_hard_limit(ResourceClass::GlyphRun, kGlyphLimit);
         LedgerMemoryResource m(l, ResourceClass::GlyphRun); ShapedGlyphRun o(&m);
         CachedCatalogHarfBuzzShapingStats s; CachedCatalogHarfBuzzShapingError e;
@@ -160,7 +163,10 @@ bool concurrent(const Fixture& f, std::size_t size) {
             f.cached(&cache), &o, &s, &e) && l.accounting_clean();
         glyphs[i] = copy(o);
     });
-    while (ready.load() != n) std::this_thread::yield(); go.store(true);
+    while (ready.load() != n) {
+        std::this_thread::yield();
+    }
+    go.store(true);
     for (auto& thread : threads) thread.join();
     bool ok = true;
     for (std::size_t i = 0; i < n; ++i)
