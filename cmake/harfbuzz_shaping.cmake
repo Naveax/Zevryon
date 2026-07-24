@@ -1,3 +1,18 @@
+target_sources(zevryon-massivedoc-core PRIVATE src/shaping_run_plan.cpp)
+
+if(BUILD_TESTING)
+  add_executable(
+    zevryon-shaping-run-plan-tests
+    tests/shaping_run_plan_tests.cpp)
+  target_link_libraries(
+    zevryon-shaping-run-plan-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-shaping-run-plan-tests)
+  add_test(
+    NAME shaping-run-plan-tests
+    COMMAND zevryon-shaping-run-plan-tests)
+endif()
+
 option(
   ZEVRYON_ENABLE_HARFBUZZ_SHAPING
   "Build the HarfBuzz shaping backend"
