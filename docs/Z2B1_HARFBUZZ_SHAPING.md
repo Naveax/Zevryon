@@ -6,10 +6,10 @@ Z2B-1 establishes the first real glyph-shaping boundary above the completed
 Unicode, grapheme, Script, bidi, font fallback, and native font-discovery
 layers.
 
-The portable Zevryon core does not link HarfBuzz. When HarfBuzz is available,
-the optional backend shapes one already-segmented font, Script, direction, and
-language run into compact glyph records charged to the existing `GlyphRun`
-Resource Ledger class.
+The portable Zevryon core does not link HarfBuzz. When HarfBuzz 5.1 or newer is
+available, the optional backend shapes one already-segmented font, Script,
+direction, and language run into compact glyph records charged to the existing
+`GlyphRun` Resource Ledger class.
 
 ## Input contract
 
@@ -49,6 +49,11 @@ The backend:
 The read-only blob never owns or modifies the caller's font bytes. The bytes
 must remain alive only for the duration of the synchronous shaping call.
 
+HarfBuzz 5.1 is the minimum backend because Z2B-1 requires production and
+preservation of unsafe-to-concat and safe-to-insert-tatweel glyph information.
+The source has a compile-time `HB_VERSION_ATLEAST(5, 1, 0)` assertion; an older
+backend is not silently accepted with reduced semantics.
+
 ## Output contract
 
 Each shaped glyph is exactly 28 bytes:
@@ -60,8 +65,8 @@ Each shaped glyph is exactly 28 bytes:
 - 32-bit Zevryon glyph flags.
 
 The flags preserve HarfBuzz unsafe-to-break, unsafe-to-concat, and
-safe-to-insert-tatweel information when produced by the installed backend.
-Glyph identifier zero is counted explicitly as missing coverage.
+safe-to-insert-tatweel information. Glyph identifier zero is counted explicitly
+as missing coverage.
 
 A successful call records:
 
@@ -101,11 +106,11 @@ merge, split, substitute, and reorder glyphs. Left-to-right output cluster
 values remain monotone increasing; right-to-left output remains monotone
 decreasing.
 
-## Certification
+## Correctness certification
 
-The focused Linux workflow installs a fixed HarfBuzz development package and
-fixed DejaVu/Noto test fonts. Strict GCC and Linux AddressSanitizer plus
-UndefinedBehaviorSanitizer run real shaping for:
+The focused Linux workflow installs HarfBuzz 8.3 and fixed DejaVu/Noto test
+fonts. Strict GCC and Linux AddressSanitizer plus UndefinedBehaviorSanitizer run
+real shaping for:
 
 - Latin standard ligatures;
 - a combining-mark grapheme;
@@ -115,9 +120,43 @@ UndefinedBehaviorSanitizer run real shaping for:
 - invalid font data;
 - one-byte `GlyphRun` hard-budget rejection.
 
-Repeated Latin shaping must produce byte-identical glyph records and matching
-statistics. The successful output allocation must equal exactly
+Repeated Latin shaping produces byte-identical glyph records and matching
+statistics. The successful output allocation equals exactly
 `glyph_count * sizeof(ShapedGlyph)`.
+
+The corrected safety-flag path produces:
+
+- Latin unsafe-to-concat glyphs: **7,445**;
+- Arabic unsafe-to-break / unsafe-to-concat glyphs: **1,820 / 7,280**;
+- Devanagari unsafe-to-concat glyphs: **5,040**.
+
+## 16 KiB uncached full-call benchmark
+
+The certification benchmark includes read-only blob, face, font, buffer,
+shaping, validation, and exact PMR output publication. It deliberately does not
+reuse an `hb_face_t`, `hb_font_t`, buffer, or shape plan.
+
+Across three independent 64-iteration distributions:
+
+| Case | Codepoints | Clusters | Glyphs | Output bytes | Median P50 | Median P95 | Median P99 | Worst max |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Latin | 14,890 | 13,401 | 10,423 | 291,844 | 1.452 ms | 1.578 ms | 1.851 ms | 2.283 ms |
+| Arabic | 9,100 | 9,100 | 7,280 | 203,840 | 0.847 ms | 0.869 ms | 0.924 ms | 0.972 ms |
+| Devanagari | 6,300 | 3,780 | 5,040 | 141,120 | 1.723 ms | 1.767 ms | 1.817 ms | 1.832 ms |
+
+Every distribution had zero missing glyphs, exact current/peak output bytes,
+zero rejected reservations, zero accounting errors, and clean hard-budget
+state. Permanent gates are:
+
+- P95 **<= 3 ms**;
+- P99 **<= 4 ms**;
+- maximum **<= 8 ms**;
+- exact 28-byte output accounting;
+- unsafe-to-concat output in every case;
+- unsafe-to-break output in the Arabic case.
+
+These are backend-call measurements on a hosted Ubuntu runner, not complete
+browser text-layout or paint latency.
 
 ## Explicitly not implemented
 
