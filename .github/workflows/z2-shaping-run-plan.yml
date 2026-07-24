@@ -1,0 +1,61 @@
+name: z2-shaping-run-plan
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/shaping_run_plan.*'
+      - 'tests/shaping_run_plan_tests.cpp'
+      - 'src/resource_ledger.*'
+      - 'cmake/harfbuzz_shaping.cmake'
+      - 'docs/Z2C1_BOUNDED_SHAPING_RUN_PLAN.md'
+      - '.github/workflows/z2-shaping-run-plan.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-shaping-run-plan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  strict:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure strict Release build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build shaping-run planner
+        run: cmake --build build --config Release --target zevryon-shaping-run-plan-tests --parallel 2
+      - name: Run shaping-run planner tests
+        run: ctest --test-dir build -C Release -R '^shaping-run-plan-tests$' --output-on-failure
+
+  linux-sanitizer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure ASan and UBSan build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build shaping-run planner under sanitizers
+        run: cmake --build build --target zevryon-shaping-run-plan-tests --parallel 2
+      - name: Run shaping-run planner under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ./build/zevryon-shaping-run-plan-tests
+
+  macos-sanitizer:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AppleClang ASan and UBSan build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build shaping-run planner under sanitizers
+        run: cmake --build build --target zevryon-shaping-run-plan-tests --parallel 2
+      - name: Run shaping-run planner under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ./build/zevryon-shaping-run-plan-tests
