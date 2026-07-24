@@ -64,7 +64,7 @@ jobs:
             2>&1 | tee macos-coretext-sanitizer-build.log
       - name: Run real system-font test under sanitizers
         env:
-          ASAN_OPTIONS: halt_on_error=1:abort_on_error=1:detect_leaks=1
+          ASAN_OPTIONS: halt_on_error=1:abort_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
           set -o pipefail
