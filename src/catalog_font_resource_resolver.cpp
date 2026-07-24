@@ -44,7 +44,7 @@ bool path_from_utf8(
     if (output == nullptr) {
         return false;
     }
-    *output = {};
+    *output = std::filesystem::path{};
     try {
         std::u8string encoded;
         encoded.resize(utf8.size());
@@ -54,7 +54,7 @@ bool path_from_utf8(
         *output = std::filesystem::path(encoded);
         return true;
     } catch (...) {
-        *output = {};
+        *output = std::filesystem::path{};
         return false;
     }
 }
