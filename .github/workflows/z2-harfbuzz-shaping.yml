@@ -63,7 +63,7 @@ jobs:
               /usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf \
               > "harfbuzz-benchmark-${run}.jsonl"
           done
-      - name: Enforce diagnostic shaping gates
+      - name: Enforce final shaping gates
         run: |
           python3 - <<'PY'
           import glob, json
@@ -72,6 +72,7 @@ jobs:
               rows = [json.loads(line) for line in open(path, encoding="utf-8") if line.strip()]
               assert len(rows) == 3, (path, len(rows))
               assert {row["case"] for row in rows} == expected
+              by_case = {row["case"]: row for row in rows}
               for row in rows:
                   assert row["schema"] == "zevryon.harfbuzz-shaping-benchmark.v1"
                   assert row["mode"] == "uncached_full_call"
@@ -82,11 +83,13 @@ jobs:
                   assert row["output_bytes"] == row["output_glyphs"] * 28
                   assert row["glyph_current_bytes"] == row["output_bytes"]
                   assert row["glyph_peak_bytes"] == row["output_bytes"]
+                  assert row["unsafe_to_concat_glyphs"] > 0
                   assert row["accounting_clean"] is True
                   assert row["within_hard_limits"] is True
-                  assert row["p95_ms"] <= 100.0
-                  assert row["p99_ms"] <= 150.0
-                  assert row["maximum_ms"] <= 250.0
+                  assert row["p95_ms"] <= 3.0
+                  assert row["p99_ms"] <= 4.0
+                  assert row["maximum_ms"] <= 8.0
+              assert by_case["arabic"]["unsafe_to_break_glyphs"] > 0
           PY
       - uses: actions/upload-artifact@v4
         if: always()
