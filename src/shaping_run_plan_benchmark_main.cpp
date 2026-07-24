@@ -141,7 +141,7 @@ int main(int argc, char** argv) {
         const std::size_t iterations =
             argc > 1 ? parse_size(argv[1], "iterations") : 512U;
         const std::size_t hard_limit =
-            argc > 2 ? parse_size(argv[2], "hard limit") : 131072U;
+            argc > 2 ? parse_size(argv[2], "hard limit") : 49152U;
         constexpr std::size_t kFixtureBytes = 65536U;
         const Fixture fixture = make_fixture(kFixtureBytes);
 
