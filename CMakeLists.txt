@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 option(ZEVRYON_ENABLE_SANITIZERS "Enable ASan and UBSan" OFF)
 option(ZEVRYON_ENABLE_FONTCONFIG_DISCOVERY "Build the Linux Fontconfig discovery adapter" ON)
+option(ZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY "Build the Windows DirectWrite discovery adapter" ON)
 
 function(zevryon_options target)
   if(MSVC)
@@ -86,6 +87,18 @@ if(ZEVRYON_ENABLE_FONTCONFIG_DISCOVERY AND UNIX AND NOT APPLE)
       zevryon_options(zevryon-fontconfig-discovery)
     endif()
   endif()
+endif()
+
+if(ZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY AND WIN32)
+  add_library(zevryon-directwrite-discovery STATIC src/directwrite_discovery.cpp)
+  target_include_directories(zevryon-directwrite-discovery PUBLIC src)
+  target_compile_definitions(
+    zevryon-directwrite-discovery PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+  target_link_libraries(
+    zevryon-directwrite-discovery
+    PUBLIC zevryon-massivedoc-core
+    PRIVATE dwrite)
+  zevryon_options(zevryon-directwrite-discovery)
 endif()
 
 add_executable(zevryon-massivedoc src/main.cpp)
@@ -284,5 +297,13 @@ if(BUILD_TESTING)
       zevryon-fontconfig-discovery-tests PRIVATE zevryon-fontconfig-discovery)
     zevryon_options(zevryon-fontconfig-discovery-tests)
     add_test(NAME fontconfig-discovery-tests COMMAND zevryon-fontconfig-discovery-tests)
+  endif()
+
+  if(TARGET zevryon-directwrite-discovery)
+    add_executable(zevryon-directwrite-discovery-tests tests/directwrite_discovery_tests.cpp)
+    target_link_libraries(
+      zevryon-directwrite-discovery-tests PRIVATE zevryon-directwrite-discovery)
+    zevryon_options(zevryon-directwrite-discovery-tests)
+    add_test(NAME directwrite-discovery-tests COMMAND zevryon-directwrite-discovery-tests)
   endif()
 endif()
