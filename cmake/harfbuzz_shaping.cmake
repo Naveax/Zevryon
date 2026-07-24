@@ -40,6 +40,14 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
       PRIVATE zevryon-harfbuzz-shaper)
     zevryon_options(zevryon-harfbuzz-shaping-benchmark)
 
+    add_executable(
+      zevryon-prepared-harfbuzz-shaping-benchmark
+      src/prepared_harfbuzz_shaping_benchmark_main.cpp)
+    target_link_libraries(
+      zevryon-prepared-harfbuzz-shaping-benchmark
+      PRIVATE zevryon-harfbuzz-shaper)
+    zevryon_options(zevryon-prepared-harfbuzz-shaping-benchmark)
+
     if(BUILD_TESTING)
       find_file(
         ZEVRYON_TEST_FONT_LATIN
