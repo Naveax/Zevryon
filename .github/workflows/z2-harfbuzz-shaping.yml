@@ -8,6 +8,7 @@ on:
       - 'cmake/harfbuzz_shaping.cmake'
       - 'src/font_resource_sfnt.*'
       - 'src/font_resource_integrity.*'
+      - 'src/verified_font_resource.*'
       - 'src/harfbuzz_shaper.*'
       - 'src/harfbuzz_verified_shaper.cpp'
       - 'src/harfbuzz_shaping_benchmark_main.cpp'
@@ -16,8 +17,10 @@ on:
       - 'src/resource_ledger.*'
       - 'tests/harfbuzz_shaper_tests.cpp'
       - 'tests/harfbuzz_verified_input_tests.cpp'
+      - 'tests/harfbuzz_verified_resource_tests.cpp'
       - 'docs/Z2B1_HARFBUZZ_SHAPING.md'
       - 'docs/Z2B2_VERIFIED_HARFBUZZ_INPUT.md'
+      - 'docs/Z2B4_HARFBUZZ_VERIFIED_RESOURCE.md'
   workflow_dispatch:
 
 concurrency:
@@ -30,7 +33,7 @@ permissions:
 jobs:
   ubuntu-strict:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - name: Install HarfBuzz and fixed test fonts
@@ -48,56 +51,82 @@ jobs:
             -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON \
             -DZEVRYON_TEST_FONT_LATIN=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
             -DZEVRYON_TEST_FONT_DEVANAGARI=/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf
-      - name: Build verified backend, tests, and benchmark
+      - name: Build backend, three test groups, and benchmark
         run: |
           set -o pipefail
           cmake --build build --parallel 2 --target \
             zevryon-harfbuzz-shaper-tests \
             zevryon-harfbuzz-verified-input-tests \
+            zevryon-harfbuzz-verified-resource-tests \
             zevryon-harfbuzz-shaping-benchmark \
             2>&1 | tee ubuntu-harfbuzz-build.log
-      - name: Run shaping and verified-font-input tests
+      - name: Run shaping, raw-input, and immutable-resource tests
         run: |
           set -o pipefail
           ctest --test-dir build \
-            -R '^harfbuzz-(shaper|verified-input)-tests$' \
+            -R '^harfbuzz-(shaper|verified-input|verified-resource)-tests$' \
             --output-on-failure \
             2>&1 | tee ubuntu-harfbuzz-test.log
-      - name: Run three independent 16 KiB verified shaping distributions
+      - name: Run raw and immutable-resource 16 KiB distributions
         run: |
           for run in 1 2 3; do
             ./build/zevryon-harfbuzz-shaping-benchmark \
               /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
               /usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf \
-              > "harfbuzz-benchmark-${run}.jsonl"
+              > "harfbuzz-benchmark-raw-${run}.jsonl"
+            ./build/zevryon-harfbuzz-shaping-benchmark \
+              /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
+              /usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf \
+              --verified-resource \
+              > "harfbuzz-benchmark-resource-${run}.jsonl"
           done
-      - name: Enforce final shaping gates
+      - name: Enforce shaping equivalence and preliminary latency gates
         run: |
           python3 - <<'PY'
-          import glob, json
+          import json
           expected = {"latin", "arabic", "devanagari"}
-          for path in sorted(glob.glob("harfbuzz-benchmark-*.jsonl")):
-              rows = [json.loads(line) for line in open(path, encoding="utf-8") if line.strip()]
-              assert len(rows) == 3, (path, len(rows))
-              assert {row["case"] for row in rows} == expected
-              by_case = {row["case"]: row for row in rows}
-              for row in rows:
-                  assert row["schema"] == "zevryon.harfbuzz-shaping-benchmark.v1"
-                  assert row["mode"] == "uncached_full_call"
-                  assert row["input_utf8_bytes"] >= 16000
-                  assert row["input_codepoints"] > 0
-                  assert row["input_clusters"] > 0
-                  assert row["output_glyphs"] > 0
-                  assert row["output_bytes"] == row["output_glyphs"] * 28
-                  assert row["glyph_current_bytes"] == row["output_bytes"]
-                  assert row["glyph_peak_bytes"] == row["output_bytes"]
-                  assert row["unsafe_to_concat_glyphs"] > 0
-                  assert row["accounting_clean"] is True
-                  assert row["within_hard_limits"] is True
-                  assert row["p95_ms"] <= 3.0
-                  assert row["p99_ms"] <= 4.0
-                  assert row["maximum_ms"] <= 8.0
-              assert by_case["arabic"]["unsafe_to_break_glyphs"] > 0
+          equivalent = (
+              "input_utf8_bytes", "input_codepoints", "input_clusters",
+              "output_glyphs", "output_bytes", "unsafe_to_break_glyphs",
+              "unsafe_to_concat_glyphs", "total_x_advance", "total_y_advance",
+              "units_per_em", "glyph_current_bytes", "glyph_peak_bytes",
+          )
+          for run in range(1, 4):
+              def read(path):
+                  rows = [json.loads(line) for line in open(path, encoding="utf-8") if line.strip()]
+                  assert len(rows) == 3, (path, len(rows))
+                  assert {row["case"] for row in rows} == expected
+                  return {row["case"]: row for row in rows}
+              raw = read(f"harfbuzz-benchmark-raw-{run}.jsonl")
+              resource = read(f"harfbuzz-benchmark-resource-{run}.jsonl")
+              for case in sorted(expected):
+                  a = raw[case]
+                  b = resource[case]
+                  assert a["schema"] == b["schema"] == "zevryon.harfbuzz-shaping-benchmark.v1"
+                  assert a["mode"] == "uncached_full_call"
+                  assert b["mode"] == "verified_resource_call"
+                  assert a["used_verified_font_resource"] is False
+                  assert a["performed_inline_font_verification"] is True
+                  assert a["verified_font_resource_id"] == 0
+                  assert b["used_verified_font_resource"] is True
+                  assert b["performed_inline_font_verification"] is False
+                  assert b["verified_font_resource_id"] > 0
+                  for key in equivalent:
+                      assert a[key] == b[key], (run, case, key, a[key], b[key])
+                  for row in (a, b):
+                      assert row["input_utf8_bytes"] >= 16000
+                      assert row["output_glyphs"] > 0
+                      assert row["output_bytes"] == row["output_glyphs"] * 28
+                      assert row["glyph_current_bytes"] == row["output_bytes"]
+                      assert row["glyph_peak_bytes"] == row["output_bytes"]
+                      assert row["unsafe_to_concat_glyphs"] > 0
+                      assert row["accounting_clean"] is True
+                      assert row["within_hard_limits"] is True
+                      assert row["p95_ms"] <= 3.0
+                      assert row["p99_ms"] <= 4.0
+                      assert row["maximum_ms"] <= 8.0
+              assert raw["arabic"]["unsafe_to_break_glyphs"] > 0
+              assert resource["arabic"]["unsafe_to_break_glyphs"] > 0
           PY
       - uses: actions/upload-artifact@v4
         if: always()
@@ -130,21 +159,22 @@ jobs:
             -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON \
             -DZEVRYON_TEST_FONT_LATIN=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
             -DZEVRYON_TEST_FONT_DEVANAGARI=/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf
-      - name: Build verified backend under sanitizers
+      - name: Build all shaping tests under sanitizers
         run: |
           set -o pipefail
           cmake --build build-sanitized --parallel 2 --target \
             zevryon-harfbuzz-shaper-tests \
             zevryon-harfbuzz-verified-input-tests \
+            zevryon-harfbuzz-verified-resource-tests \
             2>&1 | tee ubuntu-harfbuzz-sanitizer-build.log
-      - name: Run shaping and verified-input tests under sanitizers
+      - name: Run all shaping tests under sanitizers
         env:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
           set -o pipefail
           ctest --test-dir build-sanitized \
-            -R '^harfbuzz-(shaper|verified-input)-tests$' \
+            -R '^harfbuzz-(shaper|verified-input|verified-resource)-tests$' \
             --output-on-failure \
             2>&1 | tee ubuntu-harfbuzz-sanitizer-test.log
       - uses: actions/upload-artifact@v4
