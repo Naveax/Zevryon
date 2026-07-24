@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 option(ZEVRYON_ENABLE_SANITIZERS "Enable ASan and UBSan" OFF)
+option(ZEVRYON_ENABLE_FONTCONFIG_DISCOVERY "Build the Linux Fontconfig discovery adapter" ON)
 
 function(zevryon_options target)
   if(MSVC)
@@ -70,6 +71,22 @@ add_library(zevryon-massivedoc-core STATIC
 )
 target_include_directories(zevryon-massivedoc-core PUBLIC src)
 zevryon_options(zevryon-massivedoc-core)
+
+if(ZEVRYON_ENABLE_FONTCONFIG_DISCOVERY AND UNIX AND NOT APPLE)
+  find_package(PkgConfig QUIET)
+  if(PkgConfig_FOUND)
+    pkg_check_modules(FONTCONFIG QUIET IMPORTED_TARGET fontconfig)
+    if(TARGET PkgConfig::FONTCONFIG)
+      add_library(zevryon-fontconfig-discovery STATIC src/fontconfig_discovery.cpp)
+      target_include_directories(zevryon-fontconfig-discovery PUBLIC src)
+      target_link_libraries(
+        zevryon-fontconfig-discovery
+        PUBLIC zevryon-massivedoc-core
+        PRIVATE PkgConfig::FONTCONFIG)
+      zevryon_options(zevryon-fontconfig-discovery)
+    endif()
+  endif()
+endif()
 
 add_executable(zevryon-massivedoc src/main.cpp)
 target_link_libraries(zevryon-massivedoc PRIVATE zevryon-massivedoc-core)
@@ -260,4 +277,12 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-font-discovery-generation-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-font-discovery-generation-tests)
   add_test(NAME font-discovery-generation-tests COMMAND zevryon-font-discovery-generation-tests)
+
+  if(TARGET zevryon-fontconfig-discovery)
+    add_executable(zevryon-fontconfig-discovery-tests tests/fontconfig_discovery_tests.cpp)
+    target_link_libraries(
+      zevryon-fontconfig-discovery-tests PRIVATE zevryon-fontconfig-discovery)
+    zevryon_options(zevryon-fontconfig-discovery-tests)
+    add_test(NAME fontconfig-discovery-tests COMMAND zevryon-fontconfig-discovery-tests)
+  endif()
 endif()
