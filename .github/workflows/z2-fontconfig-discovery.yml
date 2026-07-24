@@ -1,0 +1,58 @@
+name: z2-fontconfig-discovery
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-fontconfig-discovery.yml'
+      - 'CMakeLists.txt'
+      - 'src/fontconfig_discovery.*'
+      - 'src/font_discovery_generation.*'
+      - 'src/font_catalog.*'
+      - 'tests/fontconfig_discovery_tests.cpp'
+      - 'docs/Z2A3_FONTCONFIG_DISCOVERY.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-fontconfig-discovery-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu-strict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Fontconfig development files
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libfontconfig1-dev
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_FONTCONFIG_DISCOVERY=ON
+      - name: Build focused adapter and integration test
+        run: cmake --build build --parallel 2 --target zevryon-fontconfig-discovery-tests
+      - name: Run real system-font integration test twice
+        run: |
+          ctest --test-dir build -R fontconfig-discovery-tests --output-on-failure
+          ./build/zevryon-fontconfig-discovery-tests | tee fontconfig-discovery-run-2.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-fontconfig-discovery-${{ github.sha }}
+          path: fontconfig-discovery-run-2.log
+          if-no-files-found: warn
+
+  ubuntu-sanitizers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Fontconfig development files
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libfontconfig1-dev
+      - run: cmake -S . -B build-san -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_SANITIZERS=ON -DZEVRYON_ENABLE_FONTCONFIG_DISCOVERY=ON
+      - name: Build focused adapter under ASan/UBSan
+        run: cmake --build build-san --parallel 2 --target zevryon-fontconfig-discovery-tests
+      - name: Run focused test under ASan/UBSan
+        env:
+          ASAN_OPTIONS: halt_on_error=1:abort_on_error=1:detect_leaks=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build-san -R fontconfig-discovery-tests --output-on-failure
