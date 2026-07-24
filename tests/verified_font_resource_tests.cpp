@@ -10,6 +10,7 @@
 
 namespace {
 
+namespace core = zevryon::core;
 using namespace zevryon::text;
 using Bytes = std::vector<std::byte>;
 
@@ -36,11 +37,11 @@ void put_record(
     Bytes* bytes,
     std::size_t offset,
     std::uint32_t tag,
-    std::uint32_t checksum,
+    std::uint32_t checksum_value,
     std::uint32_t table_offset,
     std::uint32_t length) {
     put_u32(bytes, offset, tag);
-    put_u32(bytes, offset + 4U, checksum);
+    put_u32(bytes, offset + 4U, checksum_value);
     put_u32(bytes, offset + 8U, table_offset);
     put_u32(bytes, offset + 12U, length);
 }
@@ -103,7 +104,7 @@ Bytes make_font() {
     return bytes;
 }
 
-bool exact_retention_and_independent_lifetime() {
+bool exact_retention_and_lifetime() {
     Bytes source = make_font();
     const Bytes original = source;
     std::shared_ptr<const VerifiedFontResource> resource;
@@ -111,27 +112,22 @@ bool exact_retention_and_independent_lifetime() {
     VerifiedFontResourceError error;
     bool ok = expect(
         build_verified_font_resource(
-            41U,
-            source,
-            0U,
-            source.size(),
-            &resource,
-            &stats,
-            &error),
+            41U, source, 0U, source.size(), &resource, &stats, &error),
         "valid font must build at the exact byte hard limit");
     if (!resource) {
         return false;
     }
+
     ok &= expect(resource->resource_id() == 41U,
                  "resource identity must be retained");
     ok &= expect(resource->bytes().size() == original.size() &&
                      resource->bytes().data() == resource->view().bytes().data(),
-                 "view must address the immutable retained byte storage");
+                 "view must address retained immutable storage");
     ok &= expect(stats.source_bytes == original.size() &&
                      stats.retained_bytes == original.size() &&
                      stats.parse.table_count == 3U &&
                      stats.integrity.checksums_verified == 3U,
-                 "build statistics must preserve parse and integrity evidence");
+                 "build statistics must preserve validation evidence");
     const core::ResourceSnapshot snapshot = resource->resource_snapshot();
     ok &= expect(snapshot.current_bytes == original.size() &&
                      snapshot.peak_bytes == original.size() &&
@@ -147,20 +143,20 @@ bool exact_retention_and_independent_lifetime() {
                  "caller mutation and release must not affect retained bytes");
     SfntTableRecord head;
     ok &= expect(resource->view().find_table(sfnt_tag('h', 'e', 'a', 'd'), &head),
-                 "retained view must remain usable after caller storage changes");
+                 "retained view must survive caller storage changes");
 
     std::shared_ptr<const VerifiedFontResource> reader = resource;
     std::weak_ptr<const VerifiedFontResource> weak = resource;
     resource.reset();
     ok &= expect(!weak.expired() && reader->view().valid(),
-                 "retained reader must keep the immutable generation alive");
+                 "reader snapshot must retain the immutable resource");
     reader.reset();
     ok &= expect(weak.expired(),
-                 "resource must be released after the final reader drops it");
+                 "resource must release after its final reader");
     return ok;
 }
 
-bool atomic_failure_and_reader_isolation() {
+bool atomic_failures_preserve_other_readers() {
     Bytes valid = make_font();
     std::shared_ptr<const VerifiedFontResource> output;
     bool ok = expect(
@@ -174,31 +170,18 @@ bool atomic_failure_and_reader_isolation() {
     VerifiedFontResourceStats stats;
     ok &= expect(
         !build_verified_font_resource(
-            8U,
-            invalid,
-            0U,
-            invalid.size(),
-            &output,
-            &stats,
-            &error),
+            8U, invalid, 0U, invalid.size(), &output, &stats, &error),
         "structurally invalid replacement must fail");
     ok &= expect(!output && error.kind == VerifiedFontResourceErrorKind::ParseFailed &&
-                     error.parse_error == SfntParseErrorKind::UnsupportedSfntVersion,
-                 "parse failure must publish no replacement and preserve sub-error");
-    ok &= expect(stats.retained_bytes == 0U && retained->view().valid(),
-                 "failed replacement must not invalidate an existing reader");
+                     error.parse_error == SfntParseErrorKind::UnsupportedSfntVersion &&
+                     stats.retained_bytes == 0U && retained->view().valid(),
+                 "parse failure must be atomic and preserve an existing reader");
 
     Bytes corrupt = valid;
     corrupt[64U] ^= std::byte{1U};
     ok &= expect(
         !build_verified_font_resource(
-            9U,
-            corrupt,
-            0U,
-            corrupt.size(),
-            &output,
-            &stats,
-            &error),
+            9U, corrupt, 0U, corrupt.size(), &output, &stats, &error),
         "checksum-corrupt replacement must fail");
     ok &= expect(!output &&
                      error.kind == VerifiedFontResourceErrorKind::IntegrityFailed &&
@@ -206,7 +189,7 @@ bool atomic_failure_and_reader_isolation() {
                          SfntIntegrityErrorKind::TableChecksumMismatch &&
                      error.table_tag == sfnt_tag('c', 'm', 'a', 'p') &&
                      retained->bytes().size() == valid.size(),
-                 "integrity failure must be exact and leave retained reader valid");
+                 "integrity failure must be exact and reader-safe");
     return ok;
 }
 
@@ -216,59 +199,35 @@ bool budget_and_argument_failures() {
     VerifiedFontResourceError error;
     bool ok = expect(
         !build_verified_font_resource(
-            11U,
-            source,
-            0U,
-            source.size() - 1U,
-            &output,
-            nullptr,
-            &error),
+            11U, source, 0U, source.size() - 1U, &output, nullptr, &error),
         "source above retained-byte hard limit must fail before allocation");
     ok &= expect(!output &&
                      error.kind ==
                          VerifiedFontResourceErrorKind::OutputBudgetExceeded &&
                      error.byte_offset == source.size(),
-                 "budget failure must publish no resource and exact size");
+                 "budget failure must report the exact source size");
     ok &= expect(
         !build_verified_font_resource(
-            0U,
-            source,
-            0U,
-            source.size(),
-            &output,
-            nullptr,
-            &error),
+            0U, source, 0U, source.size(), &output, nullptr, &error),
         "zero resource identity must fail");
     ok &= expect(error.kind == VerifiedFontResourceErrorKind::InvalidArgument,
                  "zero resource identity must report invalid argument");
     ok &= expect(
         !build_verified_font_resource(
-            12U,
-            source,
-            1U,
-            source.size(),
-            &output,
-            nullptr,
-            &error),
+            12U, source, 1U, source.size(), &output, nullptr, &error),
         "out-of-range face index must fail after retention");
     ok &= expect(!output && error.kind == VerifiedFontResourceErrorKind::ParseFailed &&
                      error.parse_error == SfntParseErrorKind::InvalidFaceIndex,
-                 "face-index parse failure must be exact and atomic");
+                 "face-index failure must preserve parser detail");
     ok &= expect(
         !build_verified_font_resource(
-            13U,
-            source,
-            0U,
-            source.size(),
-            nullptr,
-            nullptr,
-            &error),
+            13U, source, 0U, source.size(), nullptr, nullptr, &error),
         "null output pointer must fail");
     ok &= expect(error.kind == VerifiedFontResourceErrorKind::InvalidArgument &&
                      std::string_view(
                          verified_font_resource_error_kind_name(error.kind)) ==
                          "invalid_argument",
-                 "argument error name must remain stable");
+                 "argument error naming must remain stable");
     return ok;
 }
 
@@ -276,8 +235,8 @@ bool budget_and_argument_failures() {
 
 int main() {
     bool ok = true;
-    ok &= exact_retention_and_independent_lifetime();
-    ok &= atomic_failure_and_reader_isolation();
+    ok &= exact_retention_and_lifetime();
+    ok &= atomic_failures_preserve_other_readers();
     ok &= budget_and_argument_failures();
     if (!ok) {
         return 1;
