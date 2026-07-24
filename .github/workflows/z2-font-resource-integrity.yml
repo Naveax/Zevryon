@@ -1,0 +1,76 @@
+name: z2-font-resource-integrity
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-font-resource-integrity.yml'
+      - 'cmake/font_resource_sfnt.cmake'
+      - 'src/font_resource_sfnt.*'
+      - 'src/font_resource_integrity.*'
+      - 'tests/font_resource_sfnt_tests.cpp'
+      - 'tests/font_resource_integrity_tests.cpp'
+      - 'docs/Z2B1B_FONT_RESOURCE_INTEGRITY.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-font-resource-integrity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  strict:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure strict Release build
+        shell: bash
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build parser and integrity production targets
+        shell: bash
+        run: >-
+          cmake --build build --config Release --parallel 2
+          --target zevryon-font-resource-sfnt-tests
+          zevryon-font-resource-integrity-tests
+      - name: Run parser and integrity tests
+        shell: bash
+        run: >-
+          ctest --test-dir build -C Release
+          -R '^font-resource-(sfnt|integrity)-tests$' --output-on-failure
+
+  sanitizer:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AddressSanitizer and UndefinedBehaviorSanitizer
+        shell: bash
+        run: >-
+          cmake -S . -B build-sanitized
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build parser and integrity targets under sanitizers
+        shell: bash
+        run: >-
+          cmake --build build-sanitized --parallel 2
+          --target zevryon-font-resource-sfnt-tests
+          zevryon-font-resource-integrity-tests
+      - name: Run parser and integrity tests under sanitizers
+        shell: bash
+        env:
+          ASAN_OPTIONS: halt_on_error=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: >-
+          ctest --test-dir build-sanitized
+          -R '^font-resource-(sfnt|integrity)-tests$' --output-on-failure
