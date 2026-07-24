@@ -1,0 +1,73 @@
+name: z2c-regenerate-script-header
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/generate_unicode_script_data.py'
+      - '.github/workflows/z2c-regenerate-script-header.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: z2c-regenerate-script-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regenerate:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch pinned Unicode 17 inputs
+        run: |
+          python - <<'PY'
+          import hashlib
+          import urllib.request
+          from pathlib import Path
+
+          expected = {
+              'Scripts.txt': '9f5e50d3abaee7d6ce09480f325c706f485ae3240912527e651954d2d6b035bf',
+              'ScriptExtensions.txt': 'ec2107e58825a1586acee8e0911ce18260394ac8b87e535ca325f1ccbeb06bc6',
+              'PropertyValueAliases.txt': '64e9a5f76f7a1e8b5a47d6a1f9a26522a251208f5276bdfa1559dac7cf2e827a',
+          }
+          root = Path('evidence/ci/z2c-ucd-17.0.0')
+          root.mkdir(parents=True, exist_ok=True)
+          for name, expected_sha in expected.items():
+              data = urllib.request.urlopen(
+                  'https://www.unicode.org/Public/17.0.0/ucd/' + name,
+                  timeout=60,
+              ).read()
+              actual = hashlib.sha256(data).hexdigest()
+              if actual != expected_sha:
+                  raise RuntimeError(f'{name} SHA-256 mismatch: {actual}')
+              (root / name).write_bytes(data)
+          PY
+      - name: Regenerate committed Script data
+        run: |
+          python scripts/generate_unicode_script_data.py \
+            --scripts evidence/ci/z2c-ucd-17.0.0/Scripts.txt \
+            --script-extensions evidence/ci/z2c-ucd-17.0.0/ScriptExtensions.txt \
+            --aliases evidence/ci/z2c-ucd-17.0.0/PropertyValueAliases.txt \
+            --output src/unicode_script_data.generated.hpp \
+            --manifest evidence/unicode_script_data.manifest.json
+      - name: Commit deterministic generated output
+        shell: bash
+        run: |
+          rm -rf evidence/ci/z2c-ucd-17.0.0
+          git add src/unicode_script_data.generated.hpp evidence/unicode_script_data.manifest.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'generated: namespace Script provenance constant'
+          git push origin HEAD:${{ github.head_ref || github.ref_name }}
