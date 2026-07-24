@@ -1,5 +1,7 @@
 #pragma once
 
+#include "font_resource_integrity.hpp"
+#include "font_resource_sfnt.hpp"
 #include "grapheme_segmenter.hpp"
 #include "unicode_script.hpp"
 #include "unicode_stream.hpp"
@@ -107,6 +109,9 @@ enum class HarfBuzzShapingErrorKind : std::uint8_t {
 struct HarfBuzzShapingError {
     HarfBuzzShapingErrorKind kind{HarfBuzzShapingErrorKind::None};
     std::size_t input_index{0};
+    SfntParseErrorKind sfnt_parse_error{SfntParseErrorKind::None};
+    SfntIntegrityErrorKind sfnt_integrity_error{SfntIntegrityErrorKind::None};
+    std::uint32_t font_table_tag{0};
     std::string message;
 };
 
@@ -122,18 +127,27 @@ struct HarfBuzzShapingStats {
     std::int64_t total_x_advance{0};
     std::int64_t total_y_advance{0};
     std::uint64_t maximum_absolute_offset{0};
+    std::uint64_t verified_font_payload_bytes{0};
+    std::uint64_t verified_font_padding_bytes{0};
     std::uint32_t glyph_count_before_shaping{0};
     std::uint32_t units_per_em{0};
+    std::uint32_t validated_font_faces{0};
+    std::uint32_t validated_font_tables{0};
+    std::uint32_t verified_font_table_checksums{0};
+    bool whole_font_checksum_verified{false};
+    bool whole_font_checksum_ignored_for_collection{false};
 };
 
 const char* harfbuzz_shaping_error_kind_name(
     HarfBuzzShapingErrorKind kind) noexcept;
 const char* shaping_direction_name(ShapingDirection direction) noexcept;
 
-// Shapes one already-segmented font/script/direction run. The caller owns and
-// must keep font_bytes alive for the duration of this call. The output is
-// published only after HarfBuzz succeeds, all clusters are validated, and one
-// exact reserve in the caller-provided memory resource succeeds.
+// Shapes one already-segmented font/script/direction run. Before any HarfBuzz
+// object is created, the caller-owned bytes must pass the allocation-free
+// SFNT/TTC parser and strict integrity verifier. The caller must keep
+// font_bytes alive for the duration of this call. The output is published only
+// after validation, HarfBuzz shaping, cluster verification, and one exact
+// reserve in the caller-provided memory resource all succeed.
 bool shape_harfbuzz_segment(
     const HarfBuzzShapingRequest& request,
     ShapedGlyphRun* output,
