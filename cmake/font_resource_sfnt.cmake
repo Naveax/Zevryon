@@ -25,6 +25,14 @@ target_link_libraries(
   PRIVATE zevryon-massivedoc-core)
 zevryon_options(zevryon-font-content-identity-benchmark)
 
+add_executable(
+  zevryon-font-load-locator-benchmark
+  src/font_load_locator_benchmark_main.cpp)
+target_link_libraries(
+  zevryon-font-load-locator-benchmark
+  PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-font-load-locator-benchmark)
+
 if(BUILD_TESTING)
   add_executable(
     zevryon-font-resource-sfnt-tests
