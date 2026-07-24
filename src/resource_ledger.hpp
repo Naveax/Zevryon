@@ -36,6 +36,8 @@ enum class ResourceClass : std::uint8_t {
     FontFallbackPlan,
     FontDiscoverySnapshot,
     FontResourceBytes,
+    FontResourceCacheMetadata,
+    FontResourceCacheRetention,
     Count
 };
 
