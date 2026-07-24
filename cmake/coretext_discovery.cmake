@@ -1,3 +1,5 @@
+include("${CMAKE_CURRENT_LIST_DIR}/opentype_directory.cmake")
+
 option(
   ZEVRYON_ENABLE_CORETEXT_DISCOVERY
   "Build the macOS CoreText discovery adapter"
