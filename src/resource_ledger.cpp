@@ -33,6 +33,7 @@ constexpr std::array<const char*, resource_class_count> kResourceNames{
     "font_catalog",
     "font_fallback_plan",
     "font_discovery_snapshot",
+    "font_resource_directory",
 };
 
 } // namespace
@@ -191,10 +192,9 @@ std::size_t ResourceLedger::index_of(ResourceClass resource_class) noexcept {
 std::uint64_t ResourceLedger::saturating_add(
     std::uint64_t left,
     std::uint64_t right) noexcept {
-    if (left > std::numeric_limits<std::uint64_t>::max() - right) {
-        return std::numeric_limits<std::uint64_t>::max();
-    }
-    return left + right;
+    return right > std::numeric_limits<std::uint64_t>::max() - left
+        ? std::numeric_limits<std::uint64_t>::max()
+        : left + right;
 }
 
 } // namespace zevryon::core
