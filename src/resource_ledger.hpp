@@ -38,6 +38,7 @@ enum class ResourceClass : std::uint8_t {
     FontResourceBytes,
     FontResourceCacheMetadata,
     FontResourceCacheRetention,
+    FontFileReadBuffer,
     Count
 };
 
