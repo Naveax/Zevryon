@@ -36,13 +36,13 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
       - name: Build verified resource and cache tests
         run: >-
-          cmake --build build --parallel 2 --target
+          cmake --build build --config Release --parallel 2 --target
           zevryon-verified-font-resource-tests
           zevryon-verified-font-resource-cache-tests
           zevryon-resource-ledger-tests
       - name: Run cache ownership concurrency and ledger tests
         run: >-
-          ctest --test-dir build
+          ctest --test-dir build -C Release
           -R '^(verified-font-resource(-cache)?-tests|resource-ledger-tests)$'
           --output-on-failure
 
@@ -67,7 +67,7 @@ jobs:
           -DZEVRYON_ENABLE_SANITIZERS=ON
       - name: Build cache and ledger tests under sanitizers
         run: >-
-          cmake --build build-sanitized --parallel 2 --target
+          cmake --build build-sanitized --config RelWithDebInfo --parallel 2 --target
           zevryon-verified-font-resource-tests
           zevryon-verified-font-resource-cache-tests
           zevryon-resource-ledger-tests
@@ -76,6 +76,6 @@ jobs:
           ASAN_OPTIONS: ${{ matrix.asan_options }}
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: >-
-          ctest --test-dir build-sanitized
+          ctest --test-dir build-sanitized -C RelWithDebInfo
           -R '^(verified-font-resource(-cache)?-tests|resource-ledger-tests)$'
           --output-on-failure
