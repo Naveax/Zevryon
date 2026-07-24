@@ -1,0 +1,79 @@
+name: z2-verified-font-resource
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-verified-font-resource.yml'
+      - 'cmake/font_resource_sfnt.cmake'
+      - 'src/resource_ledger.*'
+      - 'src/font_resource_sfnt.*'
+      - 'src/font_resource_integrity.*'
+      - 'src/verified_font_resource.*'
+      - 'tests/verified_font_resource_tests.cpp'
+      - 'docs/Z2B3_VERIFIED_FONT_RESOURCE.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-verified-font-resource-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  strict:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure strict Release build
+        shell: bash
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build verified resource and ledger tests
+        shell: bash
+        run: >-
+          cmake --build build --config Release --parallel 2
+          --target zevryon-verified-font-resource-tests
+          zevryon-resource-ledger-tests
+      - name: Run verified resource and ledger tests
+        shell: bash
+        run: >-
+          ctest --test-dir build -C Release
+          -R '^(verified-font-resource-tests|resource-ledger-tests)$'
+          --output-on-failure
+
+  sanitizer:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AddressSanitizer and UndefinedBehaviorSanitizer
+        shell: bash
+        run: >-
+          cmake -S . -B build-sanitized
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build verified resource and ledger tests under sanitizers
+        shell: bash
+        run: >-
+          cmake --build build-sanitized --parallel 2
+          --target zevryon-verified-font-resource-tests
+          zevryon-resource-ledger-tests
+      - name: Run verified resource and ledger tests under sanitizers
+        shell: bash
+        env:
+          ASAN_OPTIONS: halt_on_error=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: >-
+          ctest --test-dir build-sanitized
+          -R '^(verified-font-resource-tests|resource-ledger-tests)$'
+          --output-on-failure
