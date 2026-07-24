@@ -84,9 +84,29 @@ coverage slice, and proves discovery/catalog hard-budget failure is atomic.
 Focused gates run the real system-font test under strict MSVC and MSVC
 AddressSanitizer.
 
-Exact system-font counts and memory values are runner-image dependent and are
-recorded in the workflow artifact rather than hard-coded into the portable
-contract.
+On the GitHub-hosted Windows Server 2025 image, strict Release and MSVC
+AddressSanitizer produced the same certification:
+
+- system families: **89**;
+- enumerated font entries: **563**;
+- simulated entries skipped: **291**;
+- emitted physical faces: **272**;
+- canonical coverage ranges: **114,134**;
+- covered Unicode code points: **1,516,662**;
+- duplicate canonical identities: **0**;
+- variable faces: **102**;
+- color faces: **1**;
+- monospaced faces: **52**;
+- persistent discovery bytes: **33,733**;
+- discovery peak bytes: **51,141**;
+- persistent catalog bytes: **924,272**;
+- catalog peak bytes: **926,448**;
+- fingerprint high: **13754863219733896334**;
+- fingerprint low: **4041767920846461349**.
+
+Exact system-font counts and memory values are runner-image dependent. The
+portable contract requires internal consistency, deterministic repetition,
+clean accounting, and bounded publication rather than one fixed OS inventory.
 
 ## Explicitly not implemented
 
