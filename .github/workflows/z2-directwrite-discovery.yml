@@ -1,0 +1,89 @@
+name: z2-directwrite-discovery
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-directwrite-discovery.yml'
+      - 'src/directwrite_discovery.*'
+      - 'src/font_discovery_generation.*'
+      - 'src/font_catalog.*'
+      - 'tests/directwrite_discovery_tests.cpp'
+      - 'docs/Z2A4_DIRECTWRITE_DISCOVERY.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-directwrite-discovery-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-strict:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Build portable core
+        shell: pwsh
+        run: |
+          cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+          cmake --build build --config Release --parallel 2 --target zevryon-massivedoc-core
+      - name: Build focused DirectWrite adapter and integration test
+        shell: cmd
+        run: >-
+          cl /nologo /std:c++20 /W4 /WX /permissive- /EHsc /I src
+          src\directwrite_discovery.cpp tests\directwrite_discovery_tests.cpp
+          build\Release\zevryon-massivedoc-core.lib dwrite.lib
+          /Fe:directwrite-discovery-tests.exe
+      - name: Run real system-font integration test twice
+        shell: pwsh
+        run: |
+          .\directwrite-discovery-tests.exe | Tee-Object directwrite-run-1.log
+          .\directwrite-discovery-tests.exe | Tee-Object directwrite-run-2.log
+          if ((Get-Content directwrite-run-1.log -Raw) -ne (Get-Content directwrite-run-2.log -Raw)) {
+            throw 'DirectWrite integration output changed between unchanged runs'
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-directwrite-discovery-${{ github.sha }}
+          path: |
+            directwrite-run-1.log
+            directwrite-run-2.log
+          if-no-files-found: warn
+
+  windows-asan:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Build portable core with AddressSanitizer
+        shell: pwsh
+        run: |
+          cmake -S . -B build-san -A x64 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=OFF -DZEVRYON_ENABLE_SANITIZERS=ON
+          cmake --build build-san --config RelWithDebInfo --parallel 2 --target zevryon-massivedoc-core
+      - name: Build focused adapter with AddressSanitizer
+        shell: cmd
+        run: >-
+          cl /nologo /std:c++20 /W4 /WX /permissive- /EHsc /fsanitize=address /Zi /I src
+          src\directwrite_discovery.cpp tests\directwrite_discovery_tests.cpp
+          build-san\RelWithDebInfo\zevryon-massivedoc-core.lib dwrite.lib
+          /Fe:directwrite-discovery-asan.exe /link /INCREMENTAL:NO
+      - name: Run focused AddressSanitizer integration test
+        shell: pwsh
+        env:
+          ASAN_OPTIONS: halt_on_error=1:abort_on_error=1:detect_leaks=0
+        run: .\directwrite-discovery-asan.exe | Tee-Object directwrite-asan.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-directwrite-discovery-asan-${{ github.sha }}
+          path: directwrite-asan.log
+          if-no-files-found: warn
