@@ -28,9 +28,96 @@ jobs:
       - name: Configure strict Release build
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
       - name: Build shaping-run planner
-        run: cmake --build build --config Release --target zevryon-shaping-run-plan-tests --parallel 2
+        run: >-
+          cmake --build build --config Release --parallel 2 --target
+          zevryon-shaping-run-plan-tests
+          zevryon-shaping-run-plan-benchmark
       - name: Run shaping-run planner tests
         run: ctest --test-dir build -C Release -R '^shaping-run-plan-tests$' --output-on-failure
+
+  certification:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure strict Release certification build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build planner tests and benchmark
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-shaping-run-plan-tests
+          zevryon-shaping-run-plan-benchmark
+      - name: Run correctness test
+        run: ./build/zevryon-shaping-run-plan-tests
+      - name: Run three independent 64 KiB distributions
+        run: |
+          mkdir -p evidence/ci
+          ./build/zevryon-shaping-run-plan-benchmark 512 131072 > evidence/ci/z2c-shaping-run-plan-1.json
+          ./build/zevryon-shaping-run-plan-benchmark 512 131072 > evidence/ci/z2c-shaping-run-plan-2.json
+          ./build/zevryon-shaping-run-plan-benchmark 512 131072 > evidence/ci/z2c-shaping-run-plan-3.json
+      - name: Enforce initial correctness, memory, and latency gates
+        run: |
+          python - <<'PY'
+          import json
+          import statistics
+          from pathlib import Path
+
+          reports = [
+              json.loads(Path(f'evidence/ci/z2c-shaping-run-plan-{index}.json').read_text())
+              for index in range(1, 4)
+          ]
+          for report in reports:
+              assert report['schema'] == 'zevryon.shaping-run-plan-benchmark.v1'
+              assert report['fixture_bytes'] == 65536
+              assert report['input_codepoints'] == 65536
+              assert report['input_clusters'] == 65536
+              assert report['active_bidi_units'] == 65536
+              assert report['iterations'] == 512
+              assert report['boundary_record_bytes'] <= 16
+              assert report['output_boundaries'] == report['output_runs'] + 1
+              assert report['left_to_right_runs'] > 0
+              assert report['right_to_left_runs'] > 0
+              assert report['missing_font_runs'] > 0
+              assert report['script_splits'] > 0
+              assert report['font_splits'] > 0
+              assert report['direction_splits'] > 0
+              assert report['level_splits'] > 0
+              assert report['p50_ms'] <= report['p95_ms'] <= report['p99_ms'] <= report['maximum_ms']
+              assert report['hard_limit_bytes'] == 131072
+              assert report['current_bytes'] <= report['peak_bytes'] <= 131072
+              assert report['rejected_reservations'] == 0
+              assert report['accounting_errors'] == 0
+              assert report['within_hard_limits'] is True
+              assert report['accounting_clean'] is True
+              assert report['passed'] is True
+
+          aggregate = {
+              'schema': 'zevryon.shaping-run-plan-certification.v1',
+              'runs': len(reports),
+              'median_p50_ms': statistics.median(item['p50_ms'] for item in reports),
+              'median_p95_ms': statistics.median(item['p95_ms'] for item in reports),
+              'median_p99_ms': statistics.median(item['p99_ms'] for item in reports),
+              'worst_maximum_ms': max(item['maximum_ms'] for item in reports),
+              'worst_peak_bytes': max(item['peak_bytes'] for item in reports),
+              'output_runs': reports[0]['output_runs'],
+              'output_boundaries': reports[0]['output_boundaries'],
+              'passed': True,
+          }
+          assert aggregate['median_p95_ms'] <= 5.00
+          assert aggregate['median_p99_ms'] <= 7.50
+          assert aggregate['worst_maximum_ms'] <= 15.00
+          assert aggregate['worst_peak_bytes'] <= 131072
+          Path('evidence/ci/z2c-shaping-run-plan-certification.json').write_text(
+              json.dumps(aggregate, indent=2, sort_keys=True) + '\n'
+          )
+          print(json.dumps(aggregate, indent=2, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2c-shaping-run-plan-${{ github.sha }}
+          path: |
+            evidence/ci/z2c-shaping-run-plan-*.json
+          if-no-files-found: warn
 
   compiler-diagnostic:
     runs-on: ubuntu-latest
@@ -44,7 +131,10 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cmake --build build --target zevryon-shaping-run-plan-tests --parallel 2 --verbose 2>&1 | tee shaping-run-plan-build.log
+          cmake --build build --parallel 2 --verbose --target \
+            zevryon-shaping-run-plan-tests \
+            zevryon-shaping-run-plan-benchmark \
+            2>&1 | tee shaping-run-plan-build.log
       - name: Upload compiler output
         if: always()
         uses: actions/upload-artifact@v4
