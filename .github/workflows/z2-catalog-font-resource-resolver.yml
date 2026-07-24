@@ -1,5 +1,6 @@
 name: z2-catalog-font-resource-resolver
 
+# Preserves strict and sanitizer compiler logs while Z2B-9 is certified.
 on:
   pull_request:
     paths:
