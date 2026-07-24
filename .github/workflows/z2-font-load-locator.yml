@@ -1,0 +1,113 @@
+name: z2-font-load-locator
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-font-load-locator.yml'
+      - 'cmake/font_resource_sfnt.cmake'
+      - 'src/font_load_locator.*'
+      - 'src/font_load_locator_benchmark_main.cpp'
+      - 'tests/font_load_locator_tests.cpp'
+      - 'docs/Z2B8_FONT_LOAD_LOCATOR.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-font-load-locator-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  strict:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure strict Release build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build locator generation and benchmark targets
+        run: >-
+          cmake --build build --config Release --parallel 2 --target
+          zevryon-font-load-locator-tests
+          zevryon-font-discovery-generation-tests
+          zevryon-font-load-locator-benchmark
+      - name: Run locator and generation tests
+        run: >-
+          ctest --test-dir build -C Release
+          -R '^(font-load-locator-tests|font-discovery-generation-tests)$'
+          --output-on-failure
+
+  sanitizer:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asan_options: detect_leaks=1:halt_on_error=1:abort_on_error=1
+          - os: macos-latest
+            asan_options: detect_leaks=0:halt_on_error=1:abort_on_error=1
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AddressSanitizer and UndefinedBehaviorSanitizer
+        run: >-
+          cmake -S . -B build-sanitized
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build locator and generation tests under sanitizers
+        run: >-
+          cmake --build build-sanitized --config RelWithDebInfo --parallel 2 --target
+          zevryon-font-load-locator-tests
+          zevryon-font-discovery-generation-tests
+      - name: Run locator and generation tests under sanitizers
+        env:
+          ASAN_OPTIONS: ${{ matrix.asan_options }}
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: >-
+          ctest --test-dir build-sanitized -C RelWithDebInfo
+          -R '^(font-load-locator-tests|font-discovery-generation-tests)$'
+          --output-on-failure
+
+  throughput:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure Release benchmark
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+      - name: Build locator benchmark
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-font-load-locator-benchmark
+      - name: Run three independent mixed-platform distributions
+        run: |
+          for run in 1 2 3; do
+            ./build/zevryon-font-load-locator-benchmark \
+              > "font-load-locator-${run}.json"
+          done
+      - name: Enforce parser latency and throughput gates
+        run: |
+          python3 - <<'PY'
+          import glob, json
+          for path in sorted(glob.glob('font-load-locator-*.json')):
+              row = json.load(open(path, encoding='utf-8'))
+              assert row['schema'] == 'zevryon.font-load-locator-benchmark.v1'
+              assert row['iterations'] == 1_000_000
+              assert row['platforms'] == 3
+              assert row['checksum'] != 0
+              assert row['identities_per_second'] >= 3_000_000, (path, row)
+              assert row['elapsed_ms'] <= 350.0, (path, row)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-font-load-locator-${{ github.sha }}
+          path: font-load-locator-*.json
+          if-no-files-found: warn
