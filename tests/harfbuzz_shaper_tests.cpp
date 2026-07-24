@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <fstream>
 #include <iostream>
-#include <iterator>
+#include <limits>
 #include <memory_resource>
 #include <span>
 #include <string>
@@ -22,11 +22,7 @@ namespace {
 using namespace zevryon::core;
 using namespace zevryon::text;
 
-constexpr std::uint32_t tag(
-    char a,
-    char b,
-    char c,
-    char d) noexcept {
+constexpr std::uint32_t tag(char a, char b, char c, char d) noexcept {
     return (static_cast<std::uint32_t>(static_cast<unsigned char>(a)) << 24U) |
            (static_cast<std::uint32_t>(static_cast<unsigned char>(b)) << 16U) |
            (static_cast<std::uint32_t>(static_cast<unsigned char>(c)) << 8U) |
@@ -47,20 +43,24 @@ bool expect(bool condition, const char* message) {
 }
 
 bool load_file(const char* path, std::vector<std::byte>* output) {
-    std::ifstream stream(path, std::ios::binary);
+    std::ifstream stream(path, std::ios::binary | std::ios::ate);
     if (!stream) {
         std::cerr << "unable to open font: " << path << '\n';
         return false;
     }
-    const std::vector<char> bytes(
-        std::istreambuf_iterator<char>(stream),
-        std::istreambuf_iterator<char>());
-    output->resize(bytes.size());
-    for (std::size_t index = 0U; index < bytes.size(); ++index) {
-        (*output)[index] = static_cast<std::byte>(
-            static_cast<unsigned char>(bytes[index]));
+    const std::streampos end = stream.tellg();
+    if (end <= 0 ||
+        static_cast<std::uint64_t>(end) >
+            static_cast<std::uint64_t>(
+                std::numeric_limits<std::size_t>::max())) {
+        return false;
     }
-    return !output->empty();
+    output->resize(static_cast<std::size_t>(end));
+    stream.seekg(0, std::ios::beg);
+    stream.read(
+        reinterpret_cast<char*>(output->data()),
+        static_cast<std::streamsize>(output->size()));
+    return stream.good() || stream.eof();
 }
 
 bool make_text(std::string_view utf8, TextFixture* fixture) {
@@ -90,38 +90,13 @@ ScriptId require_script(std::string_view name) {
     ScriptId script = ScriptId::Zzzz;
     if (!script_id_from_name(name, &script)) {
         std::cerr << "missing Script: " << name << '\n';
-        return ScriptId::Zzzz;
     }
     return script;
 }
 
-bool validate_run(
-    const ShapedGlyphRun& run,
-    const HarfBuzzShapingStats& stats,
-    std::uint32_t first_cluster,
-    std::uint32_t cluster_limit) {
-    bool ok = true;
-    ok &= expect(!run.glyphs.empty(), "shaping must emit glyphs");
-    ok &= expect(
-        run.glyphs.size() == stats.output_glyphs,
-        "glyph vector and stats must agree");
-    ok &= expect(
-        run.first_cluster == first_cluster &&
-            run.cluster_limit == cluster_limit,
-        "run metadata must preserve the requested cluster range");
-    ok &= expect(stats.units_per_em != 0U, "font units-per-em must be recorded");
-    for (const ShapedGlyph glyph : run.glyphs) {
-        ok &= expect(
-            glyph.cluster_index >= first_cluster &&
-                glyph.cluster_index < cluster_limit,
-            "every output cluster must remain within the request");
-    }
-    return ok;
-}
-
 bool shape(
     std::span<const std::byte> font,
-    TextFixture* text,
+    TextFixture& text,
     ScriptId script,
     ShapingDirection direction,
     std::string_view language,
@@ -133,10 +108,10 @@ bool shape(
         HarfBuzzShapingRequest{
             font,
             0U,
-            text->codepoints,
-            text->graphemes,
+            text.codepoints,
+            text.graphemes,
             0U,
-            static_cast<std::uint32_t>(text->graphemes.size() - 1U),
+            static_cast<std::uint32_t>(text.graphemes.size() - 1U),
             script,
             direction,
             language,
@@ -152,14 +127,36 @@ bool shape(
         error);
 }
 
-bool test_latin_and_determinism(std::span<const std::byte> font) {
+bool validate_run(
+    const ShapedGlyphRun& run,
+    const HarfBuzzShapingStats& stats,
+    std::uint32_t cluster_limit) {
+    bool ok = true;
+    ok &= expect(!run.glyphs.empty(), "shaping must emit glyphs");
+    ok &= expect(
+        run.glyphs.size() == stats.output_glyphs,
+        "glyph vector and stats must agree");
+    ok &= expect(
+        run.first_cluster == 0U && run.cluster_limit == cluster_limit,
+        "run metadata must preserve the cluster range");
+    ok &= expect(stats.units_per_em != 0U, "units-per-em must be recorded");
+    for (const ShapedGlyph glyph : run.glyphs) {
+        ok &= expect(
+            glyph.cluster_index < cluster_limit,
+            "output cluster must remain inside the request");
+    }
+    return ok;
+}
+
+bool test_latin(std::span<const std::byte> font) {
     TextFixture text;
     if (!make_text("office a\xCC\x81", &text)) {
         return false;
     }
-    const ScriptId latin = require_script("Latn");
-    const std::array<ShapingFeature, 1> liga_on{{{tag('l', 'i', 'g', 'a'), 1U}}};
-    const std::array<ShapingFeature, 1> liga_off{{{tag('l', 'i', 'g', 'a'), 0U}}};
+    const std::array<ShapingFeature, 1> liga_on{{
+        {tag('l', 'i', 'g', 'a'), 1U}}};
+    const std::array<ShapingFeature, 1> liga_off{{
+        {tag('l', 'i', 'g', 'a'), 0U}}};
 
     ResourceLedger first_ledger;
     first_ledger.set_hard_limit(ResourceClass::GlyphRun, 1024U * 1024U);
@@ -169,8 +166,8 @@ bool test_latin_and_determinism(std::span<const std::byte> font) {
     HarfBuzzShapingError first_error;
     if (!shape(
             font,
-            &text,
-            latin,
+            text,
+            require_script("Latn"),
             ShapingDirection::LeftToRight,
             "en",
             liga_on,
@@ -181,24 +178,22 @@ bool test_latin_and_determinism(std::span<const std::byte> font) {
         return false;
     }
 
-    ResourceLedger second_ledger;
-    second_ledger.set_hard_limit(ResourceClass::GlyphRun, 1024U * 1024U);
-    LedgerMemoryResource second_resource(second_ledger, ResourceClass::GlyphRun);
-    ShapedGlyphRun second(&second_resource);
-    HarfBuzzShapingStats second_stats;
-    HarfBuzzShapingError second_error;
+    ResourceLedger repeat_ledger;
+    repeat_ledger.set_hard_limit(ResourceClass::GlyphRun, 1024U * 1024U);
+    LedgerMemoryResource repeat_resource(repeat_ledger, ResourceClass::GlyphRun);
+    ShapedGlyphRun repeat(&repeat_resource);
+    HarfBuzzShapingStats repeat_stats;
+    HarfBuzzShapingError repeat_error;
     if (!shape(
             font,
-            &text,
-            latin,
+            text,
+            require_script("Latn"),
             ShapingDirection::LeftToRight,
             "en",
             liga_on,
-            &second,
-            &second_stats,
-            &second_error)) {
-        std::cerr << "repeat Latin shaping failed: "
-                  << second_error.message << '\n';
+            &repeat,
+            &repeat_stats,
+            &repeat_error)) {
         return false;
     }
 
@@ -210,39 +205,34 @@ bool test_latin_and_determinism(std::span<const std::byte> font) {
     HarfBuzzShapingError disabled_error;
     if (!shape(
             font,
-            &text,
-            latin,
+            text,
+            require_script("Latn"),
             ShapingDirection::LeftToRight,
             "en",
             liga_off,
             &disabled,
             &disabled_stats,
             &disabled_error)) {
-        std::cerr << "Latin shaping without liga failed: "
-                  << disabled_error.message << '\n';
         return false;
     }
 
-    bool ok = validate_run(
-        first,
-        first_stats,
-        0U,
-        static_cast<std::uint32_t>(text.graphemes.size() - 1U));
-    ok &= expect(first.glyphs == second.glyphs, "repeated shaping must be byte-exact");
+    const std::uint32_t cluster_limit = static_cast<std::uint32_t>(
+        text.graphemes.size() - 1U);
+    bool ok = validate_run(first, first_stats, cluster_limit);
+    ok &= expect(first.glyphs == repeat.glyphs, "repeat shaping must be byte-exact");
     ok &= expect(
-        first_stats.output_glyphs == second_stats.output_glyphs &&
-            first_stats.total_x_advance == second_stats.total_x_advance &&
-            first_stats.total_y_advance == second_stats.total_y_advance,
-        "repeated shaping stats must remain deterministic");
+        first_stats.total_x_advance == repeat_stats.total_x_advance &&
+            first_stats.output_glyphs == repeat_stats.output_glyphs,
+        "repeat shaping stats must be deterministic");
     ok &= expect(
         first.glyphs.size() <= disabled.glyphs.size(),
-        "enabling standard ligatures must not increase Latin glyph count");
-    ok &= expect(first_stats.missing_glyphs == 0U, "Latin font must cover fixture");
+        "standard ligatures must not increase glyph count");
+    ok &= expect(first_stats.missing_glyphs == 0U, "Latin fixture must be covered");
     ok &= expect(
         first_ledger.snapshot(ResourceClass::GlyphRun).current_bytes ==
             first.glyphs.size() * sizeof(ShapedGlyph),
-        "one exact output reserve must account every shaped glyph byte");
-    ok &= expect(first_ledger.accounting_clean(), "Latin shaping accounting must be clean");
+        "glyph output must use one exact accounted reserve");
+    ok &= expect(first_ledger.accounting_clean(), "Latin accounting must be clean");
     return ok;
 }
 
@@ -263,7 +253,7 @@ bool test_rtl(
     HarfBuzzShapingError error;
     if (!shape(
             font,
-            &text,
+            text,
             require_script(script_name),
             ShapingDirection::RightToLeft,
             language,
@@ -278,22 +268,22 @@ bool test_rtl(
     bool ok = validate_run(
         run,
         stats,
-        0U,
         static_cast<std::uint32_t>(text.graphemes.size() - 1U));
-    ok &= expect(stats.missing_glyphs == 0U, "RTL font must cover fixture");
+    ok &= expect(stats.missing_glyphs == 0U, "RTL fixture must be covered");
     for (std::size_t index = 1U; index < run.glyphs.size(); ++index) {
         ok &= expect(
             run.glyphs[index - 1U].cluster_index >=
                 run.glyphs[index].cluster_index,
-            "RTL monotone-grapheme clusters must not increase");
+            "RTL clusters must remain monotone decreasing");
     }
-    ok &= expect(ledger.accounting_clean(), "RTL shaping accounting must be clean");
-    return ok;
+    return ok && ledger.accounting_clean();
 }
 
 bool test_devanagari(std::span<const std::byte> font) {
     TextFixture text;
-    if (!make_text("\xE0\xA4\x95\xE0\xA4\xB0\xE0\xA5\x8D\xE0\xA4\xAE", &text)) {
+    if (!make_text(
+            "\xE0\xA4\x95\xE0\xA4\xB0\xE0\xA5\x8D\xE0\xA4\xAE",
+            &text)) {
         return false;
     }
     ResourceLedger ledger;
@@ -304,7 +294,7 @@ bool test_devanagari(std::span<const std::byte> font) {
     HarfBuzzShapingError error;
     if (!shape(
             font,
-            &text,
+            text,
             require_script("Deva"),
             ShapingDirection::LeftToRight,
             "hi",
@@ -315,14 +305,12 @@ bool test_devanagari(std::span<const std::byte> font) {
         std::cerr << "Devanagari shaping failed: " << error.message << '\n';
         return false;
     }
-    bool ok = validate_run(
-        run,
-        stats,
-        0U,
-        static_cast<std::uint32_t>(text.graphemes.size() - 1U));
-    ok &= expect(stats.missing_glyphs == 0U, "Devanagari font must cover fixture");
-    ok &= expect(ledger.accounting_clean(), "Devanagari accounting must be clean");
-    return ok;
+    return validate_run(
+               run,
+               stats,
+               static_cast<std::uint32_t>(text.graphemes.size() - 1U)) &&
+           expect(stats.missing_glyphs == 0U, "Devanagari fixture must be covered") &&
+           ledger.accounting_clean();
 }
 
 bool test_failures(std::span<const std::byte> font) {
@@ -330,7 +318,6 @@ bool test_failures(std::span<const std::byte> font) {
     if (!make_text("budget", &text)) {
         return false;
     }
-    const ScriptId latin = require_script("Latn");
 
     ResourceLedger tiny_ledger;
     tiny_ledger.set_hard_limit(ResourceClass::GlyphRun, 1U);
@@ -341,22 +328,22 @@ bool test_failures(std::span<const std::byte> font) {
     bool ok = expect(
         !shape(
             font,
-            &text,
-            latin,
+            text,
+            require_script("Latn"),
             ShapingDirection::LeftToRight,
             "en",
             {},
             &tiny,
             &tiny_stats,
             &tiny_error),
-        "tiny glyph budget must fail");
+        "one-byte glyph budget must fail");
     ok &= expect(
         tiny_error.kind == HarfBuzzShapingErrorKind::OutputBudgetExceeded,
-        "tiny glyph budget must report output budget failure");
+        "glyph budget failure must report exact error kind");
     ok &= expect(tiny.glyphs.empty(), "budget failure must publish no glyphs");
     ok &= expect(
         tiny_ledger.snapshot(ResourceClass::GlyphRun).rejected_reservations > 0U,
-        "budget rejection must be accounted");
+        "glyph budget rejection must be accounted");
 
     const std::array<std::byte, 8> invalid_font{};
     ResourceLedger invalid_ledger;
@@ -368,18 +355,18 @@ bool test_failures(std::span<const std::byte> font) {
     ok &= expect(
         !shape(
             invalid_font,
-            &text,
-            latin,
+            text,
+            require_script("Latn"),
             ShapingDirection::LeftToRight,
             "en",
             {},
             &invalid,
             &invalid_stats,
             &invalid_error),
-        "invalid font data must fail");
+        "invalid font bytes must fail");
     ok &= expect(
         invalid_error.kind == HarfBuzzShapingErrorKind::InvalidFontData,
-        "invalid font data must report exact error kind");
+        "invalid font bytes must report exact error kind");
     ok &= expect(invalid.glyphs.empty(), "invalid font must publish no glyphs");
     return ok;
 }
@@ -400,7 +387,7 @@ int main(int argc, char** argv) {
     }
 
     bool ok = true;
-    ok &= test_latin_and_determinism(latin_font);
+    ok &= test_latin(latin_font);
     ok &= test_rtl(
         latin_font,
         "\xD8\xB3\xD9\x84\xD8\xA7\xD9\x85",
