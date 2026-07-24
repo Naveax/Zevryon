@@ -33,3 +33,5 @@ if(ZEVRYON_ENABLE_CORETEXT_DISCOVERY AND APPLE)
       COMMAND zevryon-coretext-discovery-tests)
   endif()
 endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/harfbuzz_shaping.cmake")
