@@ -2,12 +2,37 @@
 
 #include "font_discovery_generation.hpp"
 
+#if defined(__APPLE__)
+#include <CoreFoundation/CoreFoundation.h>
+#endif
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
 
 namespace zevryon::text {
+
+#if defined(__APPLE__)
+// CoreFoundation exposes file-path extraction but no CFURLIsFileURL C helper.
+// Keep scheme validation local to the platform adapter instead of assuming that
+// every URL attribute can be converted into a physical font path.
+inline bool CFURLIsFileURL(CFURLRef url) noexcept {
+    if (url == nullptr) {
+        return false;
+    }
+    CFStringRef scheme = CFURLCopyScheme(url);
+    if (scheme == nullptr) {
+        return false;
+    }
+    const bool is_file = CFStringCompare(
+        scheme,
+        CFSTR("file"),
+        kCFCompareCaseInsensitive) == kCFCompareEqualTo;
+    CFRelease(scheme);
+    return is_file;
+}
+#endif
 
 enum class CoreTextDiscoveryErrorKind : std::uint8_t {
     None = 0,
