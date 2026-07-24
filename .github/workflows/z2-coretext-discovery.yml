@@ -1,0 +1,83 @@
+name: z2-coretext-discovery
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-coretext-discovery.yml'
+      - 'src/coretext_discovery.*'
+      - 'src/font_discovery_generation.*'
+      - 'src/font_catalog.*'
+      - 'tests/coretext_discovery_tests.cpp'
+      - 'docs/Z2A5_CORETEXT_DISCOVERY.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-coretext-discovery-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  macos-strict:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build portable core
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+          cmake --build build --parallel 2 --target zevryon-massivedoc-core
+      - name: Build focused CoreText adapter and integration test
+        run: |
+          clang++ -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror \
+            -I src \
+            src/coretext_discovery.cpp tests/coretext_discovery_tests.cpp \
+            build/libzevryon-massivedoc-core.a \
+            -framework CoreText -framework CoreFoundation \
+            -o coretext-discovery-tests \
+            > coretext-build.log 2>&1
+      - name: Run real system-font integration test
+        run: |
+          ./coretext-discovery-tests | tee coretext-run.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-coretext-discovery-${{ github.sha }}
+          path: |
+            coretext-build.log
+            coretext-run.log
+          if-no-files-found: warn
+
+  macos-asan:
+    runs-on: macos-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build portable core with sanitizers
+        run: |
+          cmake -S . -B build-san -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=OFF -DZEVRYON_ENABLE_SANITIZERS=ON
+          cmake --build build-san --parallel 2 --target zevryon-massivedoc-core
+      - name: Build focused adapter with sanitizers
+        run: |
+          clang++ -std=c++20 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror \
+            -fno-omit-frame-pointer -fsanitize=address,undefined \
+            -I src \
+            src/coretext_discovery.cpp tests/coretext_discovery_tests.cpp \
+            build-san/libzevryon-massivedoc-core.a \
+            -framework CoreText -framework CoreFoundation \
+            -o coretext-discovery-asan \
+            > coretext-asan-build.log 2>&1
+      - name: Run real system-font test under sanitizers
+        env:
+          ASAN_OPTIONS: halt_on_error=1:abort_on_error=1:detect_leaks=0
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ./coretext-discovery-asan | tee coretext-asan.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-coretext-discovery-asan-${{ github.sha }}
+          path: |
+            coretext-asan-build.log
+            coretext-asan.log
+          if-no-files-found: warn
