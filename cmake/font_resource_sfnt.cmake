@@ -1,11 +1,17 @@
 include_guard(GLOBAL)
 
+find_package(Threads REQUIRED)
+
 target_sources(
   zevryon-massivedoc-core
   PRIVATE
     src/font_resource_sfnt.cpp
     src/font_resource_integrity.cpp
-    src/verified_font_resource.cpp)
+    src/verified_font_resource.cpp
+    src/verified_font_resource_cache.cpp)
+target_link_libraries(
+  zevryon-massivedoc-core
+  PUBLIC Threads::Threads)
 
 if(BUILD_TESTING)
   add_executable(
@@ -40,4 +46,15 @@ if(BUILD_TESTING)
   add_test(
     NAME verified-font-resource-tests
     COMMAND zevryon-verified-font-resource-tests)
+
+  add_executable(
+    zevryon-verified-font-resource-cache-tests
+    tests/verified_font_resource_cache_tests.cpp)
+  target_link_libraries(
+    zevryon-verified-font-resource-cache-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-verified-font-resource-cache-tests)
+  add_test(
+    NAME verified-font-resource-cache-tests
+    COMMAND zevryon-verified-font-resource-cache-tests)
 endif()
