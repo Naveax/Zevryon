@@ -307,3 +307,5 @@ if(BUILD_TESTING)
     add_test(NAME directwrite-discovery-tests COMMAND zevryon-directwrite-discovery-tests)
   endif()
 endif()
+
+include(cmake/coretext_discovery.cmake)
