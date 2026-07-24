@@ -1,6 +1,7 @@
 #include "ledger_memory_resource.hpp"
 #include "shaping_run_plan.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -114,7 +115,11 @@ bool test_intersection_and_sentinel() {
         ShapingRunBoundary{8U, kInvalidFontFaceId, ScriptId::Zzzz, ShapingDirection::LeftToRight, FontFallbackSource::Missing, 0U, 0U}};
 
     return require(
-               std::equal(plan.boundaries.begin(), plan.boundaries.end(), expected.begin(), expected.end()),
+               std::equal(
+                   plan.boundaries.begin(),
+                   plan.boundaries.end(),
+                   expected.begin(),
+                   expected.end()),
                "intersection output is exact") &&
            require(stats.output_runs == 6U, "six shaping runs reported") &&
            require(stats.left_to_right_runs == 4U, "four LTR runs reported") &&
