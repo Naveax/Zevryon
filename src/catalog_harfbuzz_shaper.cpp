@@ -6,19 +6,41 @@
 namespace zevryon::text {
 namespace {
 
-void clear_error(CatalogHarfBuzzShapingError* error) noexcept {
+void clear_resource_error(CatalogFontResourceError* error) noexcept {
     if (error != nullptr) {
-        error->kind = CatalogHarfBuzzShapingErrorKind::None;
-        error->resource_error = {};
+        error->kind = CatalogFontResourceErrorKind::None;
+        error->locator_error = {};
+        error->file_error = {};
+        error->message.clear();
+    }
+}
+
+bool fail_binding_argument(
+    const char* message,
+    CatalogFontResourceError* error) noexcept {
+    if (error != nullptr) {
+        error->kind = CatalogFontResourceErrorKind::InvalidArgument;
+        try {
+            error->message = message;
+        } catch (...) {
+            error->message.clear();
+        }
+    }
+    return false;
+}
+
+void clear_shaping_error(BoundCatalogHarfBuzzShapingError* error) noexcept {
+    if (error != nullptr) {
+        error->kind = BoundCatalogHarfBuzzShapingErrorKind::None;
         error->shaping_error = {};
         error->message.clear();
     }
 }
 
-bool fail(
-    CatalogHarfBuzzShapingErrorKind kind,
+bool fail_shaping(
+    BoundCatalogHarfBuzzShapingErrorKind kind,
     const char* message,
-    CatalogHarfBuzzShapingError* error) noexcept {
+    BoundCatalogHarfBuzzShapingError* error) noexcept {
     if (error != nullptr) {
         error->kind = kind;
         try {
@@ -30,21 +52,10 @@ bool fail(
     return false;
 }
 
-void set_resource_failure_message(
-    CatalogHarfBuzzShapingError* error) noexcept {
+void set_nested_shaping_message(
+    BoundCatalogHarfBuzzShapingError* error) noexcept {
     try {
-        error->message = "catalog font resource resolution failed: ";
-        error->message += catalog_font_resource_error_kind_name(
-            error->resource_error.kind);
-    } catch (...) {
-        error->message.clear();
-    }
-}
-
-void set_shaping_failure_message(
-    CatalogHarfBuzzShapingError* error) noexcept {
-    try {
-        error->message = "catalog-backed HarfBuzz shaping failed: ";
+        error->message = "bound catalog HarfBuzz shaping failed: ";
         error->message += harfbuzz_shaping_error_kind_name(
             error->shaping_error.kind);
     } catch (...) {
@@ -54,66 +65,144 @@ void set_shaping_failure_message(
 
 } // namespace
 
-const char* catalog_harfbuzz_shaping_error_kind_name(
-    CatalogHarfBuzzShapingErrorKind kind) noexcept {
+bool CatalogFontFaceBinding::valid() const noexcept {
+    return generation_ != nullptr && resource_ != nullptr &&
+        face_id_ != kInvalidFontFaceId &&
+        static_cast<std::size_t>(face_id_) <
+            generation_->discovery_records().size() &&
+        resource_->view().valid() && !resource_->bytes().empty() &&
+        resource_->bytes().data() == resource_->view().bytes().data() &&
+        resource_->accounting_clean() && resource_->within_hard_limit() &&
+        generation_->accounting_clean() && generation_->within_hard_limits();
+}
+
+std::uint64_t CatalogFontFaceBinding::generation_id() const noexcept {
+    return generation_ != nullptr ? generation_->generation_id() : 0U;
+}
+
+FontFaceId CatalogFontFaceBinding::face_id() const noexcept {
+    return face_id_;
+}
+
+std::uint64_t CatalogFontFaceBinding::resource_id() const noexcept {
+    return resource_ != nullptr ? resource_->resource_id() : 0U;
+}
+
+const std::shared_ptr<const FontCatalogGeneration>&
+CatalogFontFaceBinding::generation() const noexcept {
+    return generation_;
+}
+
+const std::shared_ptr<const VerifiedFontResource>&
+CatalogFontFaceBinding::resource() const noexcept {
+    return resource_;
+}
+
+bool bind_catalog_font_face(
+    std::shared_ptr<const FontCatalogGeneration> generation,
+    FontFaceId face_id,
+    std::size_t staging_hard_limit,
+    VerifiedFontResourceCache* cache,
+    CatalogFontFaceBinding* output,
+    CatalogFontResourceStats* stats,
+    CatalogFontResourceError* error) noexcept {
+    if (output != nullptr) {
+        *output = CatalogFontFaceBinding{};
+    }
+    if (stats != nullptr) {
+        *stats = {};
+    }
+    clear_resource_error(error);
+
+    if (!generation || cache == nullptr || output == nullptr ||
+        stats == nullptr || error == nullptr || staging_hard_limit == 0U) {
+        return fail_binding_argument(
+            "generation, cache, positive staging limit, output, stats, and error are required",
+            error);
+    }
+
+    std::shared_ptr<const VerifiedFontResource> resource;
+    if (!resolve_catalog_font_resource(
+            generation,
+            face_id,
+            staging_hard_limit,
+            cache,
+            &resource,
+            stats,
+            error)) {
+        return false;
+    }
+
+    CatalogFontFaceBinding candidate;
+    candidate.generation_ = std::move(generation);
+    candidate.resource_ = std::move(resource);
+    candidate.face_id_ = face_id;
+    if (!candidate.valid()) {
+        return fail_binding_argument(
+            "resolved catalog face did not produce a valid immutable binding",
+            error);
+    }
+
+    *output = std::move(candidate);
+    return true;
+}
+
+const char* bound_catalog_harfbuzz_shaping_error_kind_name(
+    BoundCatalogHarfBuzzShapingErrorKind kind) noexcept {
     switch (kind) {
-    case CatalogHarfBuzzShapingErrorKind::None:
+    case BoundCatalogHarfBuzzShapingErrorKind::None:
         return "none";
-    case CatalogHarfBuzzShapingErrorKind::InvalidArgument:
+    case BoundCatalogHarfBuzzShapingErrorKind::InvalidArgument:
         return "invalid_argument";
-    case CatalogHarfBuzzShapingErrorKind::ResourceResolutionFailed:
-        return "resource_resolution_failed";
-    case CatalogHarfBuzzShapingErrorKind::ShapingFailed:
+    case BoundCatalogHarfBuzzShapingErrorKind::InvalidBinding:
+        return "invalid_binding";
+    case BoundCatalogHarfBuzzShapingErrorKind::ShapingFailed:
         return "shaping_failed";
     }
     return "unknown";
 }
 
-bool shape_catalog_harfbuzz_segment(
-    const CatalogHarfBuzzShapingRequest& request,
+bool shape_bound_catalog_harfbuzz_segment(
+    const BoundCatalogHarfBuzzShapingRequest& request,
     ShapedGlyphRun* output,
-    CatalogHarfBuzzShapingStats* stats,
-    CatalogHarfBuzzShapingError* error) noexcept {
+    BoundCatalogHarfBuzzShapingStats* stats,
+    BoundCatalogHarfBuzzShapingError* error) noexcept {
     if (output != nullptr) {
         output->release();
     }
     if (stats != nullptr) {
         *stats = {};
     }
-    clear_error(error);
+    clear_shaping_error(error);
 
     if (output == nullptr || stats == nullptr || error == nullptr ||
-        !request.generation || request.cache == nullptr ||
-        request.staging_hard_limit == 0U) {
-        return fail(
-            CatalogHarfBuzzShapingErrorKind::InvalidArgument,
-            "generation, cache, positive staging limit, output, stats, and error are required",
+        request.binding == nullptr) {
+        return fail_shaping(
+            BoundCatalogHarfBuzzShapingErrorKind::InvalidArgument,
+            "binding, output, stats, and error are required",
+            error);
+    }
+    if (!request.binding->valid()) {
+        return fail_shaping(
+            BoundCatalogHarfBuzzShapingErrorKind::InvalidBinding,
+            "catalog font-face binding is not valid",
             error);
     }
 
     const std::shared_ptr<const FontCatalogGeneration> generation =
-        request.generation;
-    std::shared_ptr<const VerifiedFontResource> resource;
-    CatalogFontResourceStats resource_stats;
-    CatalogFontResourceError resource_error;
-    if (!resolve_catalog_font_resource(
-            generation,
-            request.face_id,
-            request.staging_hard_limit,
-            request.cache,
-            &resource,
-            &resource_stats,
-            &resource_error)) {
-        stats->resource = resource_stats;
-        error->kind =
-            CatalogHarfBuzzShapingErrorKind::ResourceResolutionFailed;
-        error->resource_error = std::move(resource_error);
-        set_resource_failure_message(error);
-        return false;
+        request.binding->generation();
+    const std::shared_ptr<const VerifiedFontResource> resource =
+        request.binding->resource();
+    if (!generation || !resource) {
+        return fail_shaping(
+            BoundCatalogHarfBuzzShapingErrorKind::InvalidBinding,
+            "catalog font-face binding lost retained ownership",
+            error);
     }
 
-    stats->resource = resource_stats;
-    stats->resource_resolved = true;
+    stats->generation_id = generation->generation_id();
+    stats->face_id = request.binding->face_id();
+    stats->resource_id = resource->resource_id();
 
     HarfBuzzShapingRequest shaping_request;
     shaping_request.face_index = resource->view().face_index();
@@ -132,7 +221,7 @@ bool shape_catalog_harfbuzz_segment(
     shaping_request.end_of_text = request.end_of_text;
     shaping_request.produce_unsafe_to_concat =
         request.produce_unsafe_to_concat;
-    shaping_request.verified_font_resource = std::move(resource);
+    shaping_request.verified_font_resource = resource;
 
     HarfBuzzShapingStats shaping_stats;
     HarfBuzzShapingError shaping_error;
@@ -142,9 +231,9 @@ bool shape_catalog_harfbuzz_segment(
             &shaping_stats,
             &shaping_error)) {
         stats->shaping = shaping_stats;
-        error->kind = CatalogHarfBuzzShapingErrorKind::ShapingFailed;
+        error->kind = BoundCatalogHarfBuzzShapingErrorKind::ShapingFailed;
         error->shaping_error = std::move(shaping_error);
-        set_shaping_failure_message(error);
+        set_nested_shaping_message(error);
         return false;
     }
 
