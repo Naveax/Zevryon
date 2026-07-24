@@ -10,7 +10,8 @@ target_sources(
     src/font_content_identity.cpp
     src/verified_font_resource.cpp
     src/verified_font_resource_cache.cpp
-    src/verified_font_resource_cache_identity.cpp)
+    src/verified_font_resource_cache_identity.cpp
+    src/font_file_loader.cpp)
 target_link_libraries(
   zevryon-massivedoc-core
   PUBLIC Threads::Threads)
@@ -56,6 +57,17 @@ if(BUILD_TESTING)
   add_test(
     NAME font-content-identity-tests
     COMMAND zevryon-font-content-identity-tests)
+
+  add_executable(
+    zevryon-font-file-loader-tests
+    tests/font_file_loader_tests.cpp)
+  target_link_libraries(
+    zevryon-font-file-loader-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-font-file-loader-tests)
+  add_test(
+    NAME font-file-loader-tests
+    COMMAND zevryon-font-file-loader-tests)
 
   add_executable(
     zevryon-verified-font-resource-tests
