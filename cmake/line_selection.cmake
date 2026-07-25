@@ -29,5 +29,16 @@ if(TARGET zevryon-harfbuzz-shaper)
     add_test(
       NAME line-selection-tests
       COMMAND zevryon-line-selection-tests)
+
+    add_executable(
+      zevryon-line-selection-signed-advance-tests
+      tests/line_selection_signed_advance_tests.cpp)
+    target_link_libraries(
+      zevryon-line-selection-signed-advance-tests
+      PRIVATE zevryon-line-selection)
+    zevryon_options(zevryon-line-selection-signed-advance-tests)
+    add_test(
+      NAME line-selection-signed-advance-tests
+      COMMAND zevryon-line-selection-signed-advance-tests)
   endif()
 endif()
