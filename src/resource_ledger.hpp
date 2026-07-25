@@ -41,6 +41,7 @@ enum class ResourceClass : std::uint8_t {
     FontFileReadBuffer,
     ShapingRunPlan,
     MultiRunShapeMetadata,
+    GlyphClusterMap,
     Count
 };
 
