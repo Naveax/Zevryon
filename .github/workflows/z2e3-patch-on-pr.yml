@@ -1,4 +1,5 @@
 name: z2e3-patch-on-pr
+# One-shot PR synchronization patch; removes itself after applying.
 
 on:
   pull_request:
