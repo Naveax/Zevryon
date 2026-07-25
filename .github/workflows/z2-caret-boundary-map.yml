@@ -11,7 +11,7 @@ on:
       - 'src/multi_run_harfbuzz_shaper.*'
       - 'src/resource_ledger.*'
       - 'tests/caret_boundary_map_tests.cpp'
-      - 'docs/Z2C3B_BOUNDED_CARET_BOUNDARY_MAP.md'
+      - 'docs/Z2C3B_CARET_BOUNDARY_MAP.md'
   workflow_dispatch:
 
 concurrency:
