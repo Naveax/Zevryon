@@ -55,10 +55,24 @@ bool checked_add(std::uint64_t* value, std::uint64_t addition) noexcept {
     return true;
 }
 
-std::uint64_t advance_magnitude(std::int32_t advance) noexcept {
-    const std::int64_t widened = advance;
-    return widened >= 0 ? static_cast<std::uint64_t>(widened)
-                        : static_cast<std::uint64_t>(-widened);
+bool checked_add_signed(
+    std::int64_t* value,
+    std::int32_t addition) noexcept {
+    const std::int64_t widened = addition;
+    if ((widened > 0 &&
+         *value > std::numeric_limits<std::int64_t>::max() - widened) ||
+        (widened < 0 &&
+         *value < std::numeric_limits<std::int64_t>::min() - widened)) {
+        return false;
+    }
+    *value += widened;
+    return true;
+}
+
+std::uint64_t advance_magnitude(std::int64_t advance) noexcept {
+    return advance >= 0
+        ? static_cast<std::uint64_t>(advance)
+        : static_cast<std::uint64_t>(-(advance + 1)) + 1U;
 }
 
 bool same_group(
@@ -675,24 +689,26 @@ bool select_bounded_lines(
             continue;
         }
 
-        std::uint64_t owner_advance = 0U;
+        std::int64_t signed_owner_advance = 0;
         for (std::size_t glyph_offset = 0U;
              glyph_offset < glyph_count;
              ++glyph_offset) {
             const std::size_t glyph_index = first_glyph + glyph_offset;
-            if (!checked_add(
-                    &owner_advance,
-                    advance_magnitude(run.glyphs[glyph_index].x_advance))) {
+            if (!checked_add_signed(
+                    &signed_owner_advance,
+                    run.glyphs[glyph_index].x_advance)) {
                 return fail(
                     LineSelectionErrorKind::AdvanceOverflow,
                     record.segment_index,
                     glyph_index,
                     cluster_index,
                     cluster_index,
-                    "glyph-group inline advance overflowed",
+                    "signed glyph-group inline advance overflowed",
                     error);
             }
         }
+        const std::uint64_t owner_advance =
+            advance_magnitude(signed_owner_advance);
         cluster_advances[static_cast<std::size_t>(cluster_index)] =
             owner_advance;
         if (owner_advance == 0U &&
