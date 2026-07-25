@@ -1,0 +1,37 @@
+name: z2d1-compile-diagnostic
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2d1-compile-diagnostic.yml'
+      - 'cmake/unicode_line_break.cmake'
+      - 'cmake/harfbuzz_shaping.cmake'
+      - 'src/line_break_*'
+      - 'src/unicode_line_break_*'
+      - 'src/resource_ledger.*'
+      - 'tests/line_break_*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gcc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build focused target with complete log
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target zevryon-line-break-opportunity-tests \
+            2>&1 | tee z2d1-compile.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2d1-compile-diagnostic-${{ github.sha }}
+          path: z2d1-compile.log
+          if-no-files-found: warn
