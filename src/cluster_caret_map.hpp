@@ -23,22 +23,21 @@ enum ClusterGlyphMapFlags : std::uint32_t {
     kClusterGlyphMapMissingGlyph = 1U << 5U
 };
 
-// One compact record per logical grapheme cluster. Multiple clusters consumed by
-// one ligature or another merged HarfBuzz cluster group intentionally carry the
-// same segment-local glyph span and logical group range.
+// One compact record per logical grapheme cluster. Clusters consumed by one
+// ligature or another merged HarfBuzz group intentionally carry identical
+// segment-local glyph spans. Existing ShapedGlyph::cluster_index fields remain
+// the zero-copy glyph-to-cluster relation.
 struct ClusterGlyphMapEntry final {
     std::uint32_t segment_index{kInvalidClusterMapIndex};
     std::uint32_t first_glyph{0};
     std::uint32_t glyph_count{0};
-    std::uint32_t group_first_cluster{0};
-    std::uint32_t group_cluster_limit{0};
     std::uint32_t flags{0};
 
     bool operator==(const ClusterGlyphMapEntry&) const noexcept = default;
 };
 
 static_assert(
-    sizeof(ClusterGlyphMapEntry) == 24U,
+    sizeof(ClusterGlyphMapEntry) == 16U,
     "cluster-to-glyph records must remain within the Z2 memory contract");
 
 class ClusterCaretMap final {
@@ -58,6 +57,8 @@ public:
 };
 
 struct ClusterCaretMapRequest final {
+    // The shaped text must outlive every use of this index because entries refer
+    // to its segment-local glyph arrays by index rather than owning glyph copies.
     const MultiRunShapedText* shaped_text{nullptr};
     std::uint32_t cluster_count{0};
 };
@@ -90,9 +91,9 @@ enum CaretBoundaryFlags : std::uint32_t {
     kCaretBoundaryUnsafeToBreak = 1U << 5U
 };
 
-// A zero-allocation view of one logical grapheme boundary. This does not invent
-// interior ligature coordinates: boundaries inside a merged glyph group are
-// explicitly reported as unsafe and non-glyph-edge boundaries.
+// A zero-allocation view of one logical grapheme boundary. This layer does not
+// invent interior ligature coordinates: boundaries inside a merged glyph group
+// are explicitly reported as unsafe and non-glyph-edge boundaries.
 struct CaretBoundaryInfo final {
     std::uint32_t boundary_index{0};
     std::uint32_t left_cluster{kInvalidClusterMapIndex};
@@ -121,7 +122,7 @@ struct ClusterCaretMapStats final {
 const char* cluster_caret_map_error_kind_name(
     ClusterCaretMapErrorKind kind) noexcept;
 
-// Builds a failure-atomic logical cluster-to-glyph map from the retained Z2C-2
+// Builds a failure-atomic logical cluster-to-glyph map from retained Z2C-2
 // segments. Glyph storage is referenced by segment-local indices and is never
 // flattened or copied. The map is empty after every failure.
 bool build_cluster_caret_map(
