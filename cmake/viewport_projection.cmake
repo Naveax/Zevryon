@@ -40,3 +40,5 @@ if(TARGET zevryon-line-box-layout)
       COMMAND zevryon-viewport-hit-test-equivalence-tests)
   endif()
 endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/text_paint_command_stream.cmake")
