@@ -2,47 +2,180 @@ name: z2-viewport-projection
 
 on:
   pull_request:
-    branches:
-      - main
+    paths:
+      - '.github/workflows/z2-viewport-projection.yml'
+      - 'cmake/viewport_projection.cmake'
+      - 'cmake/line_box_layout.cmake'
+      - 'src/viewport_projection.*'
+      - 'src/line_box_layout.*'
+      - 'src/line_fragment_layout.*'
+      - 'src/caret_boundary_map.*'
+      - 'src/glyph_cluster_map.*'
+      - 'src/multi_run_harfbuzz_shaper.*'
+      - 'src/ledger_memory_resource.*'
+      - 'src/resource_ledger.*'
+      - 'tests/viewport_projection_tests.cpp'
+      - 'tests/viewport_hit_test_equivalence_tests.cpp'
+      - 'docs/Z2E3_BOUNDED_VIEWPORT_PROJECTION.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-viewport-projection-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  patch_split_caret:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+  strict:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 1
-      - name: Patch split-caret source
-        shell: bash
-        env:
-          OLD_BLOCK_B64: ICAgIGNvbnN0IFZpZXdwb3J0Q2FyZXRFZGdlKiBjaG9zZW4gPSBudWxscHRyOwogICAgaWYgKGxvd2VyID09IGJlZ2luKSB7CiAgICAgICAgY2hvc2VuID0gJipsb3dlcjsKICAgIH0gZWxzZSBpZiAobG93ZXIgPT0gZW5kKSB7CiAgICAgICAgY2hvc2VuID0gJiooZW5kIC0gMSk7CiAgICB9IGVsc2UgewogICAgICAgIGNvbnN0IFZpZXdwb3J0Q2FyZXRFZGdlJiByaWdodCA9ICpsb3dlcjsKICAgICAgICBjb25zdCBWaWV3cG9ydENhcmV0RWRnZSYgbGVmdCA9ICoobG93ZXIgLSAxKTsKICAgICAgICBjb25zdCBzdGQ6OnVpbnQ2NF90IGxlZnRfZGlzdGFuY2UgPSBhYnNvbHV0ZV9kaWZmZXJlbmNlKAogICAgICAgICAgICB2aWV3cG9ydF9pbmxpbmVfcG9zaXRpb24sCiAgICAgICAgICAgIGxlZnQudmlld3BvcnRfaW5saW5lX3Bvc2l0aW9uKTsKICAgICAgICBjb25zdCBzdGQ6OnVpbnQ2NF90IHJpZ2h0X2Rpc3RhbmNlID0gYWJzb2x1dGVfZGlmZmVyZW5jZSgKICAgICAgICAgICAgdmlld3BvcnRfaW5saW5lX3Bvc2l0aW9uLAogICAgICAgICAgICByaWdodC52aWV3cG9ydF9pbmxpbmVfcG9zaXRpb24pOwogICAgICAgIGlmIChsZWZ0X2Rpc3RhbmNlIDwgcmlnaHRfZGlzdGFuY2UpIHsKICAgICAgICAgICAgY2hvc2VuID0gJmxlZnQ7CiAgICAgICAgfSBlbHNlIGlmIChyaWdodF9kaXN0YW5jZSA8IGxlZnRfZGlzdGFuY2UpIHsKICAgICAgICAgICAgY2hvc2VuID0gJnJpZ2h0OwogICAgICAgIH0gZWxzZSBpZiAoYmlhcyA9PSBWaWV3cG9ydEhpdFRlc3RCaWFzOjpUb3dhcmRWaXN1YWxFbmQpIHsKICAgICAgICAgICAgY2hvc2VuID0gJnJpZ2h0OwogICAgICAgIH0gZWxzZSB7CiAgICAgICAgICAgIGNob3NlbiA9ICZsZWZ0OwogICAgICAgIH0KICAgIH0K
-          NEW_BLOCK_B64: ICAgIGF1dG8gZXF1YWxfZmlyc3QgPSBbJl0oYXV0byBwb3NpdGlvbiwgc3RkOjppbnQ2NF90IHZhbHVlKSB7CiAgICAgICAgcmV0dXJuIHN0ZDo6bG93ZXJfYm91bmQoCiAgICAgICAgICAgIGJlZ2luLAogICAgICAgICAgICBwb3NpdGlvbiwKICAgICAgICAgICAgdmFsdWUsCiAgICAgICAgICAgIFtdKGNvbnN0IFZpZXdwb3J0Q2FyZXRFZGdlJiBjYXJldCwgc3RkOjppbnQ2NF90IHRhcmdldCkgewogICAgICAgICAgICAgICAgcmV0dXJuIGNhcmV0LnZpZXdwb3J0X2lubGluZV9wb3NpdGlvbiA8IHRhcmdldDsKICAgICAgICAgICAgfSk7CiAgICB9OwogICAgYXV0byBlcXVhbF9saW1pdCA9IFsmXShhdXRvIHBvc2l0aW9uLCBzdGQ6OmludDY0X3QgdmFsdWUpIHsKICAgICAgICByZXR1cm4gc3RkOjp1cHBlcl9ib3VuZCgKICAgICAgICAgICAgcG9zaXRpb24sCiAgICAgICAgICAgIGVuZCwKICAgICAgICAgICAgdmFsdWUsCiAgICAgICAgICAgIFtdKHN0ZDo6aW50NjRfdCB0YXJnZXQsIGNvbnN0IFZpZXdwb3J0Q2FyZXRFZGdlJiBjYXJldCkgewogICAgICAgICAgICAgICAgcmV0dXJuIHRhcmdldCA8IGNhcmV0LnZpZXdwb3J0X2lubGluZV9wb3NpdGlvbjsKICAgICAgICAgICAgfSk7CiAgICB9OwogICAgYXV0byBzZWxlY3RfZnJvbV9lcXVhbF9yYW5nZSA9IFsmXShhdXRvIGZpcnN0X2VxdWFsLCBhdXRvIGxpbWl0X2VxdWFsKQogICAgICAgIC0+IGNvbnN0IFZpZXdwb3J0Q2FyZXRFZGdlKiB7CiAgICAgICAgcmV0dXJuIGJpYXMgPT0gVmlld3BvcnRIaXRUZXN0Qmlhczo6VG93YXJkVmlzdWFsRW5kCiAgICAgICAgICAgID8gJioobGltaXRfZXF1YWwgLSAxKQogICAgICAgICAgICA6ICYqZmlyc3RfZXF1YWw7CiAgICB9OwoKICAgIGNvbnN0IFZpZXdwb3J0Q2FyZXRFZGdlKiBjaG9zZW4gPSBudWxscHRyOwogICAgaWYgKGxvd2VyICE9IGVuZCAmJgogICAgICAgIGxvd2VyLT52aWV3cG9ydF9pbmxpbmVfcG9zaXRpb24gPT0gdmlld3BvcnRfaW5saW5lX3Bvc2l0aW9uKSB7CiAgICAgICAgY2hvc2VuID0gc2VsZWN0X2Zyb21fZXF1YWxfcmFuZ2UoCiAgICAgICAgICAgIGxvd2VyLAogICAgICAgICAgICBlcXVhbF9saW1pdChsb3dlciwgdmlld3BvcnRfaW5saW5lX3Bvc2l0aW9uKSk7CiAgICB9IGVsc2UgaWYgKGxvd2VyID09IGJlZ2luKSB7CiAgICAgICAgY2hvc2VuID0gc2VsZWN0X2Zyb21fZXF1YWxfcmFuZ2UoCiAgICAgICAgICAgIGJlZ2luLAogICAgICAgICAgICBlcXVhbF9saW1pdChiZWdpbiwgYmVnaW4tPnZpZXdwb3J0X2lubGluZV9wb3NpdGlvbikpOwogICAgfSBlbHNlIGlmIChsb3dlciA9PSBlbmQpIHsKICAgICAgICBjb25zdCBzdGQ6OmludDY0X3QgdmFsdWUgPSAoZW5kIC0gMSktPnZpZXdwb3J0X2lubGluZV9wb3NpdGlvbjsKICAgICAgICBjaG9zZW4gPSBzZWxlY3RfZnJvbV9lcXVhbF9yYW5nZSgKICAgICAgICAgICAgZXF1YWxfZmlyc3QoZW5kLCB2YWx1ZSksCiAgICAgICAgICAgIGVuZCk7CiAgICB9IGVsc2UgewogICAgICAgIGNvbnN0IHN0ZDo6aW50NjRfdCBsZWZ0X3ZhbHVlID0gKGxvd2VyIC0gMSktPnZpZXdwb3J0X2lubGluZV9wb3NpdGlvbjsKICAgICAgICBjb25zdCBzdGQ6OmludDY0X3QgcmlnaHRfdmFsdWUgPSBsb3dlci0+dmlld3BvcnRfaW5saW5lX3Bvc2l0aW9uOwogICAgICAgIGNvbnN0IGF1dG8gbGVmdF9maXJzdCA9IGVxdWFsX2ZpcnN0KGxvd2VyLCBsZWZ0X3ZhbHVlKTsKICAgICAgICBjb25zdCBhdXRvIHJpZ2h0X2xpbWl0ID0gZXF1YWxfbGltaXQobG93ZXIsIHJpZ2h0X3ZhbHVlKTsKICAgICAgICBjb25zdCBzdGQ6OnVpbnQ2NF90IGxlZnRfZGlzdGFuY2UgPSBhYnNvbHV0ZV9kaWZmZXJlbmNlKAogICAgICAgICAgICB2aWV3cG9ydF9pbmxpbmVfcG9zaXRpb24sIGxlZnRfdmFsdWUpOwogICAgICAgIGNvbnN0IHN0ZDo6dWludDY0X3QgcmlnaHRfZGlzdGFuY2UgPSBhYnNvbHV0ZV9kaWZmZXJlbmNlKAogICAgICAgICAgICB2aWV3cG9ydF9pbmxpbmVfcG9zaXRpb24sIHJpZ2h0X3ZhbHVlKTsKICAgICAgICBpZiAobGVmdF9kaXN0YW5jZSA8IHJpZ2h0X2Rpc3RhbmNlKSB7CiAgICAgICAgICAgIGNob3NlbiA9IHNlbGVjdF9mcm9tX2VxdWFsX3JhbmdlKGxlZnRfZmlyc3QsIGxvd2VyKTsKICAgICAgICB9IGVsc2UgaWYgKHJpZ2h0X2Rpc3RhbmNlIDwgbGVmdF9kaXN0YW5jZSkgewogICAgICAgICAgICBjaG9zZW4gPSBzZWxlY3RfZnJvbV9lcXVhbF9yYW5nZShsb3dlciwgcmlnaHRfbGltaXQpOwogICAgICAgIH0gZWxzZSBpZiAoYmlhcyA9PSBWaWV3cG9ydEhpdFRlc3RCaWFzOjpUb3dhcmRWaXN1YWxFbmQpIHsKICAgICAgICAgICAgY2hvc2VuID0gJioocmlnaHRfbGltaXQgLSAxKTsKICAgICAgICB9IGVsc2UgewogICAgICAgICAgICBjaG9zZW4gPSAmKmxlZnRfZmlyc3Q7CiAgICAgICAgfQogICAgfQo=
+      - name: Install HarfBuzz
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libharfbuzz-dev
+      - name: Configure strict Release build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+      - name: Build focused targets
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target \
+            zevryon-viewport-projection-tests \
+            zevryon-viewport-hit-test-equivalence-tests \
+            zevryon-viewport-projection-benchmark \
+            zevryon-line-box-layout-tests \
+            zevryon-line-fragment-layout-tests \
+            2>&1 | tee viewport-projection-build.log
+      - name: Repeat focused certification
+        run: |
+          set -o pipefail
+          ctest --test-dir build -R '^viewport-projection-tests$' \
+            --repeat until-fail:20 --output-on-failure \
+            2>&1 | tee viewport-projection-repeat.log
+      - name: Exhaustively certify hit testing
+        run: |
+          set -o pipefail
+          ctest --test-dir build -R '^viewport-hit-test-equivalence-tests$' \
+            --output-on-failure 2>&1 | tee viewport-hit-test-equivalence.log
+      - name: Run three independent distributions
+        run: |
+          for run in 1 2 3; do
+            ./build/zevryon-viewport-projection-benchmark \
+              > "viewport-projection-benchmark-${run}.json"
+          done
+      - name: Enforce exact output, memory and latency gates
         run: |
           python3 - <<'PY'
-          import base64
-          import os
-          from pathlib import Path
+          import json
 
-          source = Path('src/viewport_projection.cpp')
-          text = source.read_text(encoding='utf-8')
-          old = base64.b64decode(os.environ['OLD_BLOCK_B64']).decode('utf-8')
-          new = base64.b64decode(os.environ['NEW_BLOCK_B64']).decode('utf-8')
-          if old not in text:
-              if 'auto equal_first' in text:
-                  raise SystemExit(0)
-              raise SystemExit('expected hit-test block was not found')
-          source.write_text(text.replace(old, new, 1), encoding='utf-8')
+          rows = []
+          for run in range(1, 4):
+              with open(f'viewport-projection-benchmark-{run}.json', encoding='utf-8') as handle:
+                  row = json.load(handle)
+              assert row['schema'] == 'zevryon.viewport-projection-benchmark.v1'
+              assert row['input_document_lines'] == 16_384
+              assert row['input_clusters'] == 65_536
+              assert row['input_fragments'] == 65_536
+              assert row['first_source_line'] == 8_184
+              assert row['source_line_limit'] == 8_264
+              assert row['output_lines'] == 80
+              assert row['output_fragment_rects'] == 320
+              assert row['output_carets'] == 640
+              assert row['output_selection_rects'] == 64
+              assert row['glyph_groups'] == 320
+              assert row['unsafe_caret_boundaries_skipped'] == 0
+              assert row['lines_before_viewport'] == 8
+              assert row['lines_after_viewport'] == 8
+              assert row['line_record_bytes'] == 64
+              assert row['fragment_record_bytes'] == 48
+              assert row['caret_record_bytes'] == 40
+              assert row['selection_record_bytes'] == 48
+              assert row['retained_bytes'] == 49_152
+              assert row['peak_bytes'] == 49_152
+              assert row['hard_limit_bytes'] == 49_152
+              assert row['document_block_extent'] == 16_384_000
+              assert row['hit_queries_per_iteration'] == 256
+              assert row['checksum'] == 1_409_705_956_279_003_952
+              assert row['expected_checksum'] == row['checksum']
+              assert row['within_hard_limits'] is True
+              assert row['accounting_clean'] is True
+              assert 0.0 < row['p50_ms'] <= row['p95_ms'] <= row['p99_ms'] <= row['maximum_ms']
+              assert row['p95_ms'] <= 6.0, row
+              assert row['p99_ms'] <= 10.0, row
+              assert row['maximum_ms'] <= 20.0, row
+              rows.append(row)
+          assert len({row['checksum'] for row in rows}) == 1
+          print({
+              'p50_ms': [row['p50_ms'] for row in rows],
+              'p95_ms': [row['p95_ms'] for row in rows],
+              'p99_ms': [row['p99_ms'] for row in rows],
+              'maximum_ms': [row['maximum_ms'] for row in rows],
+              'checksum': rows[0]['checksum'],
+          })
           PY
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/viewport_projection.cpp
-          if git diff --cached --quiet; then
-            exit 0
-          fi
-          git commit -m "Fix split-caret hit-test affinity"
-          git push origin HEAD:${{ github.head_ref }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-viewport-projection-${{ github.sha }}
+          path: |
+            viewport-projection-build.log
+            viewport-projection-repeat.log
+            viewport-hit-test-equivalence.log
+            viewport-projection-benchmark-*.json
+          if-no-files-found: warn
+
+  sanitizer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libharfbuzz-dev
+      - name: Configure ASan and UBSan build
+        run: >-
+          cmake -S . -B build-sanitized
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+          -DCMAKE_CXX_FLAGS=-fsanitize=address,undefined
+          -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined
+          -DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined
+      - name: Build focused tests under sanitizers
+        run: >-
+          cmake --build build-sanitized --parallel 2 --target
+          zevryon-viewport-projection-tests
+          zevryon-viewport-hit-test-equivalence-tests
+      - name: Run focused tests under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build-sanitized -R '^viewport-(projection|hit-test-equivalence)-tests$' --output-on-failure
+
+  appleclang:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz
+        run: brew install harfbuzz
+      - name: Configure AppleClang Release build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+      - name: Build benchmark and focused tests
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target \
+            zevryon-viewport-projection-tests \
+            zevryon-viewport-hit-test-equivalence-tests \
+            zevryon-viewport-projection-benchmark \
+            2>&1 | tee apple-viewport-projection-build.log
+          ctest --test-dir build -R '^viewport-(projection|hit-test-equivalence)-tests$' --output-on-failure
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-viewport-projection-appleclang-${{ github.sha }}
+          path: apple-viewport-projection-build.log
+          if-no-files-found: warn
