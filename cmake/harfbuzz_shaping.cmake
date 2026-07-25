@@ -46,7 +46,8 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
         src/prepared_harfbuzz_face.cpp
         src/prepared_harfbuzz_face_cache.cpp
         src/cached_catalog_harfbuzz_shaper.cpp
-        src/multi_run_harfbuzz_shaper.cpp)
+        src/multi_run_harfbuzz_shaper.cpp
+        src/glyph_cluster_map.cpp)
     target_include_directories(zevryon-harfbuzz-shaper PUBLIC src)
     target_link_libraries(
       zevryon-harfbuzz-shaper
@@ -148,6 +149,14 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
       target_link_libraries(zevryon-multi-run-harfbuzz-shaper-tests
         PRIVATE zevryon-harfbuzz-shaper Threads::Threads)
       zevryon_options(zevryon-multi-run-harfbuzz-shaper-tests)
+
+      add_executable(zevryon-glyph-cluster-map-tests
+        tests/glyph_cluster_map_tests.cpp)
+      target_link_libraries(zevryon-glyph-cluster-map-tests
+        PRIVATE zevryon-harfbuzz-shaper)
+      zevryon_options(zevryon-glyph-cluster-map-tests)
+      add_test(NAME glyph-cluster-map-tests
+        COMMAND zevryon-glyph-cluster-map-tests)
 
       if(ZEVRYON_TEST_FONT_LATIN)
         add_test(NAME catalog-harfbuzz-shaper-tests
