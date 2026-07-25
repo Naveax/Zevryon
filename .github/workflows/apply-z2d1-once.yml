@@ -21,26 +21,52 @@ jobs:
         with:
           ref: work/z2d-unicode-line-break-opportunities
           fetch-depth: 0
-      - name: Verify staged payload
+          show-progress: false
+      - name: Decode and materialize Z2D-1 sources
         shell: bash
         run: |
           set -euo pipefail
-          cat .z2d1-payload/chunk-* > /tmp/z2d1.b64
-          test "$(wc -c < /tmp/z2d1.b64)" -eq 39948
-          echo "fd086eb12b7f6b58cf3b584a5e2c1125447b8f8160f7e75d5e840ca8c8e72923  /tmp/z2d1.b64" | sha256sum --check
-          base64 --decode /tmp/z2d1.b64 > /tmp/z2d1.tar.gz
-          echo "b43ca68b54a13c40644244d549a872135251aa46e0975fb3f587bd7ebc028951  /tmp/z2d1.tar.gz" | sha256sum --check
-          gzip --test /tmp/z2d1.tar.gz
-          tar --list --gzip --file /tmp/z2d1.tar.gz
-      - name: Materialize Z2D-1 sources
-        shell: bash
-        run: |
-          set -euo pipefail
-          tar --extract --gzip --file /tmp/z2d1.tar.gz --directory .
-          test -f src/line_break_opportunity.cpp
-          test -f src/unicode_line_break_data.cpp
-          test -f tests/line_break_opportunity_tests.cpp
-          test -f .github/workflows/z2-unicode-line-break.yml
+          python3 - <<'PY'
+          import base64
+          import gzip
+          import hashlib
+          import io
+          import tarfile
+          from pathlib import Path
+
+          paths = sorted(Path('.z2d1-payload').glob('chunk-*'))
+          if len(paths) != 8:
+              raise SystemExit(f'expected 8 payload chunks, found {len(paths)}')
+          encoded = ''.join(path.read_text(encoding='ascii') for path in paths)
+          if len(encoded) != 39948:
+              raise SystemExit(f'encoded length mismatch: {len(encoded)}')
+          encoded_hash = hashlib.sha256(encoded.encode('ascii')).hexdigest()
+          if encoded_hash != 'fd086eb12b7f6b58cf3b584a5e2c1125447b8f8160f7e75d5e840ca8c8e72923':
+              raise SystemExit(f'encoded SHA-256 mismatch: {encoded_hash}')
+          archive = base64.b64decode(encoded, validate=True)
+          archive_hash = hashlib.sha256(archive).hexdigest()
+          if archive_hash != 'b43ca68b54a13c40644244d549a872135251aa46e0975fb3f587bd7ebc028951':
+              raise SystemExit(f'archive SHA-256 mismatch: {archive_hash}')
+          gzip.decompress(archive)
+          with tarfile.open(fileobj=io.BytesIO(archive), mode='r:gz') as bundle:
+              names = bundle.getnames()
+              if len(names) != 12:
+                  raise SystemExit(f'archive member count mismatch: {len(names)}')
+              for member in bundle.getmembers():
+                  if member.islnk() or member.issym() or member.name.startswith('/') or '..' in Path(member.name).parts:
+                      raise SystemExit(f'unsafe archive member: {member.name}')
+              bundle.extractall(path='.', filter='data')
+          required = [
+              'src/line_break_opportunity.cpp',
+              'src/unicode_line_break_data.cpp',
+              'tests/line_break_opportunity_tests.cpp',
+              '.github/workflows/z2-unicode-line-break.yml',
+          ]
+          for name in required:
+              if not Path(name).is_file():
+                  raise SystemExit(f'missing materialized file: {name}')
+          print({'chunks': len(paths), 'encoded_bytes': len(encoded), 'archive_bytes': len(archive), 'members': names})
+          PY
           rm -rf .z2d1-payload
           rm -f .github/workflows/apply-z2d1-once.yml
       - name: Commit materialized sources
