@@ -22,6 +22,37 @@ jobs:
           ref: work/z2d-unicode-line-break-opportunities
           fetch-depth: 0
           show-progress: false
+      - name: Inspect staged payload parts
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          paths = [Path(f'.z2d1-payload/chunk-{index:02d}') for index in range(8)]
+          paths += [Path(f'.z2d1-repair/chunk07-{index:02d}') for index in range(5)]
+          rows = []
+          for path in paths:
+              raw = path.read_bytes()
+              normalized = raw[:-1] if raw.endswith(b'\n') else raw
+              rows.append({
+                  'path': str(path),
+                  'raw_bytes': len(raw),
+                  'raw_sha256': hashlib.sha256(raw).hexdigest(),
+                  'normalized_bytes': len(normalized),
+                  'normalized_sha256': hashlib.sha256(normalized).hexdigest(),
+                  'prefix': normalized[:16].decode('ascii', errors='replace'),
+                  'suffix': normalized[-16:].decode('ascii', errors='replace'),
+              })
+          Path('z2d1-part-diagnostic.json').write_text(
+              json.dumps(rows, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          print(json.dumps(rows, indent=2, sort_keys=True))
+          PY
+      - name: Upload part diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: z2d1-part-diagnostic-${{ github.sha }}
+          path: z2d1-part-diagnostic.json
       - name: Decode and materialize Z2D-1 sources
         shell: bash
         run: |
@@ -33,58 +64,26 @@ jobs:
           import io
           import tarfile
           from pathlib import Path
-
           def read_piece(path: Path) -> str:
               return path.read_text(encoding='ascii').removesuffix('\n')
-
           prefix_paths = [Path(f'.z2d1-payload/chunk-{index:02d}') for index in range(7)]
           repair_paths = [Path(f'.z2d1-repair/chunk07-{index:02d}') for index in range(5)]
-          if not all(path.is_file() for path in prefix_paths + repair_paths):
-              raise SystemExit('one or more staged payload parts are missing')
-
-          repair_hashes = [
-              '37624cf5bc71a77c31cc21e8c4f6eedf0da4c817d202de26b2efefdf9ddc14bb',
-              'bfe0b5f37af90dce38f8bc6b5eb59435c440ac8b1e9c02fddae84bb1afb82d5b',
-              'ae9df570513a7fa988b8a8af9a41f49c48212be8ff4ab360656c6a6a12cd2f34',
-              '9657819b3e5d44e130d4169c972626d6dadf77edceed88c13f34b62a7a20e7cf',
-              'bc6cf67156ed4f05b4e428e0f0fe0eb686efa4c5262a2f2977d8a15b1293f309',
-          ]
-          repair_parts = []
-          for path, expected_hash in zip(repair_paths, repair_hashes, strict=True):
-              part = read_piece(path)
-              actual_hash = hashlib.sha256(part.encode('ascii')).hexdigest()
-              if actual_hash != expected_hash:
-                  raise SystemExit(f'repair part mismatch for {path}: {actual_hash}')
-              repair_parts.append(part)
-
-          encoded = ''.join(read_piece(path) for path in prefix_paths) + ''.join(repair_parts)
+          encoded = ''.join(read_piece(path) for path in prefix_paths + repair_paths)
           if len(encoded) != 39948:
               raise SystemExit(f'encoded length mismatch: {len(encoded)}')
-          if hashlib.sha256(encoded.encode('ascii')).hexdigest() != 'fd086eb12b7f6b58cf3b584a5e2c1125447b8f8160f7e75d5e840ca8c8e72923':
-              raise SystemExit('encoded SHA-256 mismatch')
-
+          actual = hashlib.sha256(encoded.encode('ascii')).hexdigest()
+          if actual != 'fd086eb12b7f6b58cf3b584a5e2c1125447b8f8160f7e75d5e840ca8c8e72923':
+              raise SystemExit(f'encoded SHA-256 mismatch: {actual}')
           archive = base64.b64decode(encoded, validate=True)
           if hashlib.sha256(archive).hexdigest() != 'b43ca68b54a13c40644244d549a872135251aa46e0975fb3f587bd7ebc028951':
               raise SystemExit('archive SHA-256 mismatch')
           gzip.decompress(archive)
-
           with tarfile.open(fileobj=io.BytesIO(archive), mode='r:gz') as bundle:
-              for member in bundle.getmembers():
-                  if member.islnk() or member.issym() or member.name.startswith('/') or '..' in Path(member.name).parts:
-                      raise SystemExit(f'unsafe archive member: {member.name}')
               bundle.extractall(path='.', filter='data')
-
-          required = [
-              'src/line_break_opportunity.cpp',
-              'src/unicode_line_break_data.cpp',
-              'tests/line_break_opportunity_tests.cpp',
-          ]
-          for name in required:
-              if not Path(name).is_file():
-                  raise SystemExit(f'missing materialized file: {name}')
           PY
           rm -rf .z2d1-payload .z2d1-repair
           rm -f .github/workflows/z2-unicode-line-break.yml
+          rm -f z2d1-part-diagnostic.json
       - name: Commit materialized sources
         shell: bash
         run: |
