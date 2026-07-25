@@ -47,9 +47,9 @@ unsupported vertical directions, compact-index overflow, and hard-budget
 rejection all fail closed. A failed replacement releases any previously
 published map.
 
-## Initial certification
+## Correctness certification
 
-The first correctness fixture contains:
+The focused correctness fixture contains:
 
 - one LTR segment over clusters 0–3;
 - one RTL segment over clusters 4–7;
@@ -61,7 +61,38 @@ The first correctness fixture contains:
 It requires exact eight-record output, six owner clusters, two continuation
 clusters, correct LTR/RTL offsets, non-monotone rejection with exact location,
 segment-gap rejection, stale-output clearing, one-byte hard-cap rejection, and
-clean Resource Ledger accounting.
+clean Resource Ledger accounting. The complete topology suite passes twenty
+consecutive strict executions and Linux ASan/UBSan.
+
+## Final 64 KiB certification
+
+Three independent distributions used an adversarial dense logical domain:
+
+- logical clusters: **65,536**;
+- alternating LTR/RTL segments: **2,048**;
+- input glyphs: **40,960**;
+- owner clusters: **32,768**;
+- continuation clusters: **32,768**;
+- output records: **65,536**;
+- record size: **16 bytes**;
+- current and peak retained output: **1,048,576 bytes**;
+- deterministic checksum: **9,629,874,028,625,752,963**.
+
+Observed latency:
+
+- P50: **0.864–0.889 ms**, median **0.876 ms**;
+- P95: **0.946–1.401 ms**, median **1.105 ms**;
+- P99: **1.090–1.574 ms**, median **1.358 ms**;
+- maximum: **1.214–1.669 ms**, worst **1.669 ms**.
+
+The thresholds were fixed before measurement and all passed unchanged:
+
+- P95 `<= 4 ms`;
+- P99 `<= 6 ms`;
+- maximum `<= 10 ms`;
+- exact 1 MiB output cap;
+- identical checksum across all distributions;
+- zero rejected reservations and zero accounting errors.
 
 ## Explicit boundary
 
