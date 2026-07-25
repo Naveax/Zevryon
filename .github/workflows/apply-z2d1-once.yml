@@ -34,34 +34,42 @@ jobs:
           import tarfile
           from pathlib import Path
 
-          expected_encoded_hash = 'fd086eb12b7f6b58cf3b584a5e2c1125447b8f8160f7e75d5e840ca8c8e72923'
-          paths = sorted(Path('.z2d1-payload').glob('chunk-*'))
-          if len(paths) != 8:
-              raise SystemExit(f'expected 8 payload chunks, found {len(paths)}')
-          chunks = [path.read_text(encoding='ascii').removesuffix('\n') for path in paths]
-          encoded = ''.join(chunks)
-          encoded_hash = hashlib.sha256(encoded.encode('ascii')).hexdigest()
-          if encoded_hash != expected_encoded_hash:
-              if len(encoded) != 39956:
-                  raise SystemExit(f'unexpected staged payload length/hash: {len(encoded)} {encoded_hash}')
-              prefix = ''.join(chunks[:-1])
-              final_chunk = chunks[-1]
-              repaired = []
-              for index in range(0, len(final_chunk) - 7):
-                  candidate = prefix + final_chunk[:index] + final_chunk[index + 8:]
-                  if hashlib.sha256(candidate.encode('ascii')).hexdigest() == expected_encoded_hash:
-                      repaired.append((index, final_chunk[index:index + 8], candidate))
-              if len(repaired) != 1:
-                  raise SystemExit(f'expected one exact 8-byte repair, found {len(repaired)}')
-              index, removed, encoded = repaired[0]
-              print({'repaired_final_chunk_at': index, 'removed': removed})
+          def read_piece(path: Path) -> str:
+              return path.read_text(encoding='ascii').removesuffix('\n')
+
+          prefix_paths = [Path(f'.z2d1-payload/chunk-{index:02d}') for index in range(7)]
+          repair_paths = [Path(f'.z2d1-repair/chunk07-{index:02d}') for index in range(5)]
+          if not all(path.is_file() for path in prefix_paths + repair_paths):
+              raise SystemExit('one or more staged payload parts are missing')
+
+          repair_hashes = [
+              '37624cf5bc71a77c31cc21e8c4f6eedf0da4c817d202de26b2efefdf9ddc14bb',
+              'bfe0b5f37af90dce38f8bc6b5eb59435c440ac8b1e9c02fddae84bb1afb82d5b',
+              'ae9df570513a7fa988b8a8af9a41f49c48212be8ff4ab360656c6a6a12cd2f34',
+              '9657819b3e5d44e130d4169c972626d6dadf77edceed88c13f34b62a7a20e7cf',
+              'bc6cf67156ed4f05b4e428e0f0fe0eb686efa4c5262a2f2977d8a15b1293f309',
+          ]
+          repair_parts = []
+          for path, expected_hash in zip(repair_paths, repair_hashes, strict=True):
+              part = read_piece(path)
+              actual_hash = hashlib.sha256(part.encode('ascii')).hexdigest()
+              if actual_hash != expected_hash:
+                  raise SystemExit(f'repair part mismatch for {path}: {actual_hash}')
+              repair_parts.append(part)
+
+          encoded = ''.join(read_piece(path) for path in prefix_paths) + ''.join(repair_parts)
           if len(encoded) != 39948:
-              raise SystemExit(f'encoded length mismatch after repair: {len(encoded)}')
+              raise SystemExit(f'encoded length mismatch: {len(encoded)}')
+          encoded_hash = hashlib.sha256(encoded.encode('ascii')).hexdigest()
+          if encoded_hash != 'fd086eb12b7f6b58cf3b584a5e2c1125447b8f8160f7e75d5e840ca8c8e72923':
+              raise SystemExit(f'encoded SHA-256 mismatch: {encoded_hash}')
+
           archive = base64.b64decode(encoded, validate=True)
           archive_hash = hashlib.sha256(archive).hexdigest()
           if archive_hash != 'b43ca68b54a13c40644244d549a872135251aa46e0975fb3f587bd7ebc028951':
               raise SystemExit(f'archive SHA-256 mismatch: {archive_hash}')
           gzip.decompress(archive)
+
           with tarfile.open(fileobj=io.BytesIO(archive), mode='r:gz') as bundle:
               names = bundle.getnames()
               if len(names) != 12:
@@ -70,6 +78,7 @@ jobs:
                   if member.islnk() or member.issym() or member.name.startswith('/') or '..' in Path(member.name).parts:
                       raise SystemExit(f'unsafe archive member: {member.name}')
               bundle.extractall(path='.', filter='data')
+
           required = [
               'src/line_break_opportunity.cpp',
               'src/unicode_line_break_data.cpp',
@@ -79,9 +88,9 @@ jobs:
           for name in required:
               if not Path(name).is_file():
                   raise SystemExit(f'missing materialized file: {name}')
-          print({'chunks': len(paths), 'encoded_bytes': len(encoded), 'archive_bytes': len(archive), 'members': names})
+          print({'encoded_bytes': len(encoded), 'archive_bytes': len(archive), 'members': names})
           PY
-          rm -rf .z2d1-payload
+          rm -rf .z2d1-payload .z2d1-repair
           rm -f .github/workflows/apply-z2d1-once.yml
       - name: Commit materialized sources
         shell: bash
