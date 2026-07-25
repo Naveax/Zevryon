@@ -14,6 +14,7 @@ on:
       - 'src/ledger_memory_resource.*'
       - 'src/resource_ledger.*'
       - 'tests/line_fragment_layout_tests.cpp'
+      - 'tests/line_fragment_layout_equivalence_tests.cpp'
       - 'docs/Z2E1_BOUNDED_VISUAL_LINE_FRAGMENTS.md'
   workflow_dispatch:
 
@@ -41,6 +42,7 @@ jobs:
           set -o pipefail
           cmake --build build --parallel 2 --target \
             zevryon-line-fragment-layout-tests \
+            zevryon-line-fragment-layout-equivalence-tests \
             zevryon-line-fragment-layout-benchmark \
             zevryon-line-selection-tests \
             zevryon-bidi-visual-tests \
@@ -51,6 +53,11 @@ jobs:
           ctest --test-dir build -R '^line-fragment-layout-tests$' \
             --repeat until-fail:20 --output-on-failure \
             2>&1 | tee line-fragment-repeat.log
+      - name: Exhaustively compare fragment and scalar L2
+        run: |
+          set -o pipefail
+          ctest --test-dir build -R '^line-fragment-layout-equivalence-tests$' \
+            --output-on-failure 2>&1 | tee line-fragment-equivalence.log
       - name: Run three independent distributions
         run: |
           for run in 1 2 3; do
@@ -112,6 +119,7 @@ jobs:
           path: |
             line-fragment-build.log
             line-fragment-repeat.log
+            line-fragment-equivalence.log
             line-fragment-benchmark-*.json
           if-no-files-found: warn
 
@@ -133,13 +141,16 @@ jobs:
           -DCMAKE_CXX_FLAGS=-fsanitize=address,undefined
           -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined
           -DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined
-      - name: Build focused test under sanitizers
-        run: cmake --build build-sanitized --parallel 2 --target zevryon-line-fragment-layout-tests
-      - name: Run focused test under sanitizers
+      - name: Build focused tests under sanitizers
+        run: >-
+          cmake --build build-sanitized --parallel 2 --target
+          zevryon-line-fragment-layout-tests
+          zevryon-line-fragment-layout-equivalence-tests
+      - name: Run focused tests under sanitizers
         env:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: ctest --test-dir build-sanitized -R '^line-fragment-layout-tests$' --output-on-failure
+        run: ctest --test-dir build-sanitized -R '^line-fragment-layout-(tests|equivalence-tests)$' --output-on-failure
 
   appleclang:
     runs-on: macos-latest
@@ -152,5 +163,7 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
       - name: Build and run focused tests
         run: |
-          cmake --build build --parallel 2 --target zevryon-line-fragment-layout-tests
-          ctest --test-dir build -R '^line-fragment-layout-tests$' --output-on-failure
+          cmake --build build --parallel 2 --target \
+            zevryon-line-fragment-layout-tests \
+            zevryon-line-fragment-layout-equivalence-tests
+          ctest --test-dir build -R '^line-fragment-layout-(tests|equivalence-tests)$' --output-on-failure
