@@ -25,67 +25,56 @@ jobs:
       - name: Decode and materialize Z2D-1 sources
         shell: bash
         run: |
+          set -euo pipefail
           python3 - <<'PY'
           import base64
           import gzip
           import hashlib
           import io
-          import json
           import tarfile
-          import traceback
           from pathlib import Path
 
-          diagnostic = {}
-          try:
-              paths = sorted(Path('.z2d1-payload').glob('chunk-*'))
-              diagnostic['paths'] = [str(path) for path in paths]
-              diagnostic['chunk_sizes'] = [path.stat().st_size for path in paths]
-              diagnostic['chunk_sha256'] = [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths]
-              encoded = ''.join(path.read_text(encoding='ascii') for path in paths)
-              diagnostic['encoded_length'] = len(encoded)
-              diagnostic['encoded_sha256'] = hashlib.sha256(encoded.encode('ascii')).hexdigest()
-              archive = base64.b64decode(encoded, validate=True)
-              diagnostic['archive_length'] = len(archive)
-              diagnostic['archive_sha256'] = hashlib.sha256(archive).hexdigest()
-              diagnostic['gzip_length'] = len(gzip.decompress(archive))
-              with tarfile.open(fileobj=io.BytesIO(archive), mode='r:gz') as bundle:
-                  names = bundle.getnames()
-                  diagnostic['members'] = names
-                  for member in bundle.getmembers():
-                      if member.islnk() or member.issym() or member.name.startswith('/') or '..' in Path(member.name).parts:
-                          raise RuntimeError(f'unsafe archive member: {member.name}')
-                  bundle.extractall(path='.', filter='data')
-              required = [
-                  'src/line_break_opportunity.cpp',
-                  'src/unicode_line_break_data.cpp',
-                  'tests/line_break_opportunity_tests.cpp',
-                  '.github/workflows/z2-unicode-line-break.yml',
-              ]
-              diagnostic['required_exists'] = {name: Path(name).is_file() for name in required}
-              if not all(diagnostic['required_exists'].values()):
-                  raise RuntimeError('one or more materialized files are missing')
-              diagnostic['success'] = True
-          except Exception as exc:
-              diagnostic['success'] = False
-              diagnostic['error'] = repr(exc)
-              diagnostic['traceback'] = traceback.format_exc()
-          Path('z2d1-bootstrap-diagnostic.json').write_text(
-              json.dumps(diagnostic, indent=2, sort_keys=True) + '\n',
-              encoding='utf-8')
-          print(json.dumps(diagnostic, indent=2, sort_keys=True))
-          if not diagnostic['success']:
-              raise SystemExit(1)
+          paths = sorted(Path('.z2d1-payload').glob('chunk-*'))
+          if len(paths) != 8:
+              raise SystemExit(f'expected 8 payload chunks, found {len(paths)}')
+          chunks = []
+          for path in paths:
+              text = path.read_text(encoding='ascii')
+              if text.endswith('\n'):
+                  text = text[:-1]
+              chunks.append(text)
+          encoded = ''.join(chunks)
+          if len(encoded) != 39948:
+              raise SystemExit(f'encoded length mismatch: {len(encoded)}')
+          encoded_hash = hashlib.sha256(encoded.encode('ascii')).hexdigest()
+          if encoded_hash != 'fd086eb12b7f6b58cf3b584a5e2c1125447b8f8160f7e75d5e840ca8c8e72923':
+              raise SystemExit(f'encoded SHA-256 mismatch: {encoded_hash}')
+          archive = base64.b64decode(encoded, validate=True)
+          archive_hash = hashlib.sha256(archive).hexdigest()
+          if archive_hash != 'b43ca68b54a13c40644244d549a872135251aa46e0975fb3f587bd7ebc028951':
+              raise SystemExit(f'archive SHA-256 mismatch: {archive_hash}')
+          gzip.decompress(archive)
+          with tarfile.open(fileobj=io.BytesIO(archive), mode='r:gz') as bundle:
+              names = bundle.getnames()
+              if len(names) != 12:
+                  raise SystemExit(f'archive member count mismatch: {len(names)}')
+              for member in bundle.getmembers():
+                  if member.islnk() or member.issym() or member.name.startswith('/') or '..' in Path(member.name).parts:
+                      raise SystemExit(f'unsafe archive member: {member.name}')
+              bundle.extractall(path='.', filter='data')
+          required = [
+              'src/line_break_opportunity.cpp',
+              'src/unicode_line_break_data.cpp',
+              'tests/line_break_opportunity_tests.cpp',
+              '.github/workflows/z2-unicode-line-break.yml',
+          ]
+          for name in required:
+              if not Path(name).is_file():
+                  raise SystemExit(f'missing materialized file: {name}')
+          print({'chunks': len(paths), 'encoded_bytes': len(encoded), 'archive_bytes': len(archive), 'members': names})
           PY
           rm -rf .z2d1-payload
           rm -f .github/workflows/apply-z2d1-once.yml
-          rm -f z2d1-bootstrap-diagnostic.json
-      - name: Upload bootstrap diagnostic
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: z2d1-bootstrap-diagnostic-${{ github.sha }}
-          path: z2d1-bootstrap-diagnostic.json
-          if-no-files-found: warn
       - name: Commit materialized sources
         shell: bash
         run: |
