@@ -41,6 +41,7 @@ constexpr std::array<const char*, resource_class_count> kResourceNames{
     "multi_run_shape_metadata",
     "glyph_cluster_map",
     "caret_boundary_map",
+    "line_break_opportunity_map",
 };
 
 } // namespace
