@@ -88,12 +88,13 @@ jobs:
               assert row['maximum_line_advance'] == 2_048
               assert row['maximum_fragments_per_line'] == 4
               assert row['maximum_fragment_level'] == 2
+              assert row['checksum'] == 5_351_747_927_310_235_931
               assert row['within_hard_limits'] is True
               assert row['accounting_clean'] is True
               assert 0.0 < row['p50_ms'] <= row['p95_ms'] <= row['p99_ms'] <= row['maximum_ms']
-              assert row['p95_ms'] <= 12.0, row
-              assert row['p99_ms'] <= 18.0, row
-              assert row['maximum_ms'] <= 30.0, row
+              assert row['p95_ms'] <= 8.0, row
+              assert row['p99_ms'] <= 12.0, row
+              assert row['maximum_ms'] <= 20.0, row
               rows.append(row)
           assert len({row['checksum'] for row in rows}) == 1
           print({
