@@ -27,8 +27,6 @@ constexpr std::uint32_t kSegmentCount =
 constexpr std::uint32_t kGlyphCount = kClusterCount / 2U;
 constexpr std::uint32_t kFragmentCount = kSegmentCount;
 constexpr std::uint64_t kGroupAdvance = 64U;
-constexpr std::uint64_t kFragmentAdvance =
-    (kClustersPerSegment / 2U) * kGroupAdvance;
 constexpr std::uint64_t kLineAdvance =
     (kClustersPerLine / 2U) * kGroupAdvance;
 constexpr std::size_t kRetainedBytes =
