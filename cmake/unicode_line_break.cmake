@@ -32,6 +32,13 @@ if(BUILD_TESTING)
     zevryon-line-break-opportunity-tests
     PRIVATE zevryon-unicode-line-break)
   zevryon_options(zevryon-line-break-opportunity-tests)
+  if(MSVC)
+    target_compile_options(
+      zevryon-line-break-opportunity-tests PRIVATE /UNDEBUG)
+  else()
+    target_compile_options(
+      zevryon-line-break-opportunity-tests PRIVATE -UNDEBUG)
+  endif()
   add_test(
     NAME line-break-opportunity-tests
     COMMAND zevryon-line-break-opportunity-tests)
