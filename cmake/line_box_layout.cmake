@@ -52,3 +52,5 @@ if(TARGET zevryon-line-fragment-layout)
       COMMAND zevryon-line-box-layout-equivalence-tests)
   endif()
 endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/viewport_projection.cmake")
