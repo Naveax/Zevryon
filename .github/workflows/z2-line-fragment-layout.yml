@@ -1,0 +1,178 @@
+name: z2-line-fragment-layout
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-line-fragment-layout.yml'
+      - 'cmake/line_fragment_layout.cmake'
+      - 'cmake/line_selection.cmake'
+      - 'src/line_fragment_layout.*'
+      - 'src/line_selection.*'
+      - 'src/bidi_visual.*'
+      - 'src/glyph_cluster_map.*'
+      - 'src/multi_run_harfbuzz_shaper.*'
+      - 'src/ledger_memory_resource.*'
+      - 'src/resource_ledger.*'
+      - 'tests/line_fragment_layout_tests.cpp'
+      - 'tests/line_fragment_layout_equivalence_tests.cpp'
+      - 'docs/Z2E1_BOUNDED_VISUAL_LINE_FRAGMENTS.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-line-fragment-layout-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  strict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libharfbuzz-dev
+      - name: Configure strict Release build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+      - name: Build focused targets
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target \
+            zevryon-line-fragment-layout-tests \
+            zevryon-line-fragment-layout-equivalence-tests \
+            zevryon-line-fragment-layout-benchmark \
+            zevryon-line-selection-tests \
+            zevryon-bidi-visual-tests \
+            2>&1 | tee line-fragment-build.log
+      - name: Repeat focused certification
+        run: |
+          set -o pipefail
+          ctest --test-dir build -R '^line-fragment-layout-tests$' \
+            --repeat until-fail:20 --output-on-failure \
+            2>&1 | tee line-fragment-repeat.log
+      - name: Exhaustively compare fragment and scalar L2
+        run: |
+          set -o pipefail
+          ctest --test-dir build -R '^line-fragment-layout-equivalence-tests$' \
+            --output-on-failure 2>&1 | tee line-fragment-equivalence.log
+      - name: Run three independent distributions
+        run: |
+          for run in 1 2 3; do
+            ./build/zevryon-line-fragment-layout-benchmark \
+              > "line-fragment-benchmark-${run}.json"
+          done
+      - name: Enforce exact output, memory and latency gates
+        run: |
+          python3 - <<'PY'
+          import json
+
+          rows = []
+          for run in range(1, 4):
+              with open(f'line-fragment-benchmark-{run}.json', encoding='utf-8') as handle:
+                  row = json.load(handle)
+              assert row['schema'] == 'zevryon.line-fragment-layout-benchmark.v1'
+              assert row['input_clusters'] == 65_536
+              assert row['input_lines'] == 1_024
+              assert row['input_segments'] == 4_096
+              assert row['input_glyphs'] == 32_768
+              assert row['input_active_units'] == 65_536
+              assert row['output_lines'] == 1_024
+              assert row['output_fragments'] == 4_096
+              assert row['rtl_fragments'] == 2_048
+              assert row['l1_adjusted_fragments'] == 0
+              assert row['x9_only_fragments'] == 0
+              assert row['l2_reversal_spans'] == 1_024
+              assert row['l2_reversed_fragments'] == 3_072
+              assert row['line_record_bytes'] == 24
+              assert row['fragment_record_bytes'] == 32
+              assert row['retained_bytes'] == 155_648
+              assert row['peak_bytes'] == 1_277_960
+              assert row['hard_limit_bytes'] == 1_277_960
+              assert row['total_inline_advance'] == 2_097_152
+              assert row['maximum_line_advance'] == 2_048
+              assert row['maximum_fragments_per_line'] == 4
+              assert row['maximum_fragment_level'] == 2
+              assert row['checksum'] == 5_351_747_927_310_235_931
+              assert row['within_hard_limits'] is True
+              assert row['accounting_clean'] is True
+              assert 0.0 < row['p50_ms'] <= row['p95_ms'] <= row['p99_ms'] <= row['maximum_ms']
+              assert row['p95_ms'] <= 8.0, row
+              assert row['p99_ms'] <= 12.0, row
+              assert row['maximum_ms'] <= 20.0, row
+              rows.append(row)
+          assert len({row['checksum'] for row in rows}) == 1
+          print({
+              'p50_ms': [row['p50_ms'] for row in rows],
+              'p95_ms': [row['p95_ms'] for row in rows],
+              'p99_ms': [row['p99_ms'] for row in rows],
+              'maximum_ms': [row['maximum_ms'] for row in rows],
+              'checksum': rows[0]['checksum'],
+          })
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-line-fragment-layout-${{ github.sha }}
+          path: |
+            line-fragment-build.log
+            line-fragment-repeat.log
+            line-fragment-equivalence.log
+            line-fragment-benchmark-*.json
+          if-no-files-found: warn
+
+  sanitizer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libharfbuzz-dev
+      - name: Configure ASan and UBSan build
+        run: >-
+          cmake -S . -B build-sanitized
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+          -DCMAKE_CXX_FLAGS=-fsanitize=address,undefined
+          -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined
+          -DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined
+      - name: Build focused tests under sanitizers
+        run: >-
+          cmake --build build-sanitized --parallel 2 --target
+          zevryon-line-fragment-layout-tests
+          zevryon-line-fragment-layout-equivalence-tests
+      - name: Run focused tests under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build-sanitized -R '^line-fragment-layout-(tests|equivalence-tests)$' --output-on-failure
+
+  appleclang:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz
+        run: brew install harfbuzz
+      - name: Configure AppleClang Release build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+      - name: Build benchmark and focused tests
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target \
+            zevryon-line-fragment-layout-tests \
+            zevryon-line-fragment-layout-equivalence-tests \
+            zevryon-line-fragment-layout-benchmark \
+            2>&1 | tee apple-line-fragment-build.log
+          ctest --test-dir build -R '^line-fragment-layout-(tests|equivalence-tests)$' --output-on-failure
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-line-fragment-layout-appleclang-${{ github.sha }}
+          path: apple-line-fragment-build.log
+          if-no-files-found: warn
