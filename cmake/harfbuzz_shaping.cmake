@@ -78,6 +78,14 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
       PRIVATE zevryon-harfbuzz-shaper)
     zevryon_options(zevryon-cached-catalog-harfbuzz-shaping-benchmark)
 
+    add_executable(
+      zevryon-multi-run-harfbuzz-shaping-benchmark
+      src/multi_run_harfbuzz_shaping_benchmark_main.cpp)
+    target_link_libraries(
+      zevryon-multi-run-harfbuzz-shaping-benchmark
+      PRIVATE zevryon-harfbuzz-shaper)
+    zevryon_options(zevryon-multi-run-harfbuzz-shaping-benchmark)
+
     if(BUILD_TESTING)
       find_package(Threads REQUIRED)
       find_file(
