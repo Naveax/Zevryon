@@ -32,6 +32,11 @@ the existing single-run exact glyph allocation under `GlyphRun`. Glyphs are not
 copied into a flattened paragraph vector, and the executor does not run
 HarfBuzz twice merely to count output.
 
+Referenced catalog faces are counted with a temporary PMR bitmap using one bit
+per supplied binding. Preflight therefore remains `O(B + R log B)` instead of
+performing a binding-by-run Cartesian scan; the bitmap is released before the
+segment table is reserved, so its current bytes do not overlap retained output.
+
 On any failure, every already-shaped segment is destroyed and both metadata and
 glyph resources return to their pre-call ownership state. Cache preparation may
 remain as a valid bounded side effect because prepared faces are immutable and

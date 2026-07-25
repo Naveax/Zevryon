@@ -297,20 +297,45 @@ bool shape_multi_run_catalog_harfbuzz(
     }
 
     const std::size_t run_count = boundaries.size() - 1U;
-    std::uint64_t used_faces = 0U;
-    for (std::size_t binding_index = 0U;
-         binding_index < request.bindings.size();
-         ++binding_index) {
-        const FontFaceId face_id = request.bindings[binding_index].face_id();
-        bool used = false;
-        for (std::size_t run_index = 0U; run_index < run_count; ++run_index) {
-            if (boundaries[run_index].face_id == face_id) {
-                used = true;
-                break;
-            }
-        }
-        used_faces += used ? 1U : 0U;
+    constexpr std::size_t kBindingWordBits =
+        std::numeric_limits<std::uint64_t>::digits;
+    static_assert(kBindingWordBits == 64U);
+    if (request.bindings.size() >
+        std::numeric_limits<std::size_t>::max() -
+            (kBindingWordBits - 1U)) {
+        return fail(
+            MultiRunCatalogHarfBuzzShapingErrorKind::MetadataBudgetExceeded,
+            0U,
+            0U,
+            kInvalidFontFaceId,
+            "binding-use bitmap size overflows",
+            error);
     }
+    const std::size_t binding_word_count =
+        (request.bindings.size() + kBindingWordBits - 1U) /
+        kBindingWordBits;
+    std::pmr::vector<std::uint64_t> used_binding_words(
+        output->metadata_resource());
+    try {
+        used_binding_words.resize(binding_word_count, std::uint64_t{0});
+    } catch (const std::bad_alloc&) {
+        return fail(
+            MultiRunCatalogHarfBuzzShapingErrorKind::MetadataBudgetExceeded,
+            0U,
+            0U,
+            kInvalidFontFaceId,
+            "binding-use bitmap exceeds its hard budget",
+            error);
+    } catch (...) {
+        return fail(
+            MultiRunCatalogHarfBuzzShapingErrorKind::MetadataBudgetExceeded,
+            0U,
+            0U,
+            kInvalidFontFaceId,
+            "binding-use bitmap allocation failed",
+            error);
+    }
+    std::uint64_t used_faces = 0U;
 
     for (std::size_t run_index = 0U; run_index < run_count; ++run_index) {
         const ShapingRunBoundary& current = boundaries[run_index];
@@ -342,7 +367,9 @@ bool shape_multi_run_catalog_harfbuzz(
                 "missing-font runs require an explicit last-resort policy before shaping",
                 error);
         }
-        if (find_binding(request.bindings, current.face_id) == nullptr) {
+        const CatalogFontFaceBinding* binding =
+            find_binding(request.bindings, current.face_id);
+        if (binding == nullptr) {
             return fail(
                 MultiRunCatalogHarfBuzzShapingErrorKind::FaceBindingNotFound,
                 run_index,
@@ -350,6 +377,15 @@ bool shape_multi_run_catalog_harfbuzz(
                 current.face_id,
                 "shaping-run face is absent from the immutable binding table",
                 error);
+        }
+        const std::size_t binding_index = static_cast<std::size_t>(
+            binding - request.bindings.data());
+        const std::size_t word_index = binding_index / kBindingWordBits;
+        const std::size_t bit_index = binding_index % kBindingWordBits;
+        const std::uint64_t mask = std::uint64_t{1} << bit_index;
+        if ((used_binding_words[word_index] & mask) == 0U) {
+            used_binding_words[word_index] |= mask;
+            ++used_faces;
         }
     }
 
@@ -360,6 +396,7 @@ bool shape_multi_run_catalog_harfbuzz(
     stats->input_codepoints = request.codepoints.size();
     stats->input_clusters = cluster_count;
     stats->distinct_bound_faces = used_faces;
+    release_vector(&used_binding_words);
 
     try {
         output->segments.reserve(run_count);

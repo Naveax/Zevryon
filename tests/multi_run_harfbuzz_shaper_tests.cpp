@@ -298,6 +298,48 @@ bool test_success_repeat_and_direct_equivalence(
     ok &= expect(
         repeat_stats.cache_after.hits >= repeat_stats.cache_before.hits + 2U,
         "repeat observes two resident prepared-face hits");
+
+    ShapingRunPlan alternating_plan;
+    const std::uint32_t cluster_count = static_cast<std::uint32_t>(
+        fixture.graphemes.size() - 1U);
+    for (std::uint32_t cluster_index = 0U;
+         cluster_index < cluster_count;
+         ++cluster_index) {
+        const bool right_to_left = cluster_index >= fixture.split_cluster;
+        alternating_plan.boundaries.push_back(ShapingRunBoundary{
+            cluster_index,
+            static_cast<FontFaceId>(cluster_index & 1U),
+            right_to_left ? script("Arab") : script("Latn"),
+            right_to_left ? ShapingDirection::RightToLeft
+                          : ShapingDirection::LeftToRight,
+            right_to_left ? FontFallbackSource::ScriptMatch
+                          : FontFallbackSource::Primary,
+            static_cast<std::uint8_t>(right_to_left ? 1U : 0U),
+            0U});
+    }
+    alternating_plan.boundaries.push_back(ShapingRunBoundary{
+        cluster_count,
+        kInvalidFontFaceId,
+        ScriptId::Zzzz,
+        ShapingDirection::LeftToRight,
+        FontFallbackSource::Missing,
+        0U,
+        0U});
+    MultiRunCatalogHarfBuzzShapingRequest alternating_request =
+        fixture.request(&face_cache);
+    alternating_request.plan = &alternating_plan;
+    MultiRunCatalogHarfBuzzShapingStats alternating_stats;
+    MultiRunCatalogHarfBuzzShapingError alternating_error;
+    ok &= expect(
+        shape_multi_run_catalog_harfbuzz(
+            alternating_request,
+            &output,
+            &alternating_stats,
+            &alternating_error) &&
+            output.segments.size() == cluster_count &&
+            alternating_stats.completed_runs == cluster_count &&
+            alternating_stats.distinct_bound_faces == 2U,
+        "repeated non-adjacent face ids retain an exact distinct-face count");
     return ok && metadata_ledger.accounting_clean() &&
            glyph_ledger.accounting_clean();
 }
