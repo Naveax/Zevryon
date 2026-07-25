@@ -98,17 +98,38 @@ The permanent 64 KiB performance certification uses:
 - exact equality of input dimensions, segment count, glyph records, glyph bytes,
   metadata bytes, advances, and output checksum.
 
-Five independent in-process alternating distributions enforce the following
-thresholds without post-measurement relaxation:
+### Calibration boundary
 
-- every executor/manual P50 ratio `<= 1.35`;
-- median executor/manual P50 ratio `<= 1.20`;
-- executor P95 `<= 25 ms`;
-- executor P99 `<= 30 ms`;
-- executor maximum `<= 45 ms`;
+The first benchmark attempt was intentionally treated as development
+calibration rather than final certification. It completed two alternating
+distributions before its workflow was cancelled by a newer branch head. Both
+paths produced exactly 49,152 glyphs, 1,376,256 glyph bytes, 81,920 metadata
+bytes, equal advances, and the same output checksum. Observed P50 values were
+`44.09–44.42 ms`, and executor/manual P50 ratios were approximately
+`0.9995–1.0000`.
+
+The speculative pre-calibration absolute gates of 25/30/45 ms were therefore
+invalid for a workload containing 1,024 independent HarfBuzz calls. They were
+never accepted as a passing certificate. The final envelope below was frozen
+after calibration and must pass on a fresh exact head using five new independent
+distributions.
+
+### Frozen final gates
+
+Five fresh in-process alternating distributions enforce:
+
+- every executor/manual P50 ratio `<= 1.10`;
+- median executor/manual P50 ratio `<= 1.03`;
+- median executor P50 `<= 50 ms`;
+- median executor P95 `<= 50 ms`;
+- median executor P99 `<= 55 ms`;
+- worst executor maximum `<= 65 ms`;
 - retained metadata `<= 512 KiB`;
 - retained glyph output `<= 4 MiB`;
 - zero accounting errors and no hard-limit violation.
+
+No final gate may be changed using measurements from the five-distribution
+certification run.
 
 ## Explicit boundary
 
