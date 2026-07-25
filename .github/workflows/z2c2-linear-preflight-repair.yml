@@ -1,6 +1,11 @@
 name: z2c2-linear-preflight-repair
 
 on:
+  push:
+    branches:
+      - 'work/z2c-bounded-multi-run-shaping'
+    paths:
+      - '.github/workflows/z2c2-linear-preflight-repair.yml'
   pull_request:
     paths:
       - '.github/workflows/z2c2-linear-preflight-repair.yml'
@@ -11,7 +16,7 @@ permissions:
 
 jobs:
   repair:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
