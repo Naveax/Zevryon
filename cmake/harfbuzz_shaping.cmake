@@ -87,6 +87,14 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
       PRIVATE zevryon-harfbuzz-shaper)
     zevryon_options(zevryon-multi-run-harfbuzz-shaping-benchmark)
 
+    add_executable(
+      zevryon-glyph-cluster-map-benchmark
+      src/glyph_cluster_map_benchmark_main.cpp)
+    target_link_libraries(
+      zevryon-glyph-cluster-map-benchmark
+      PRIVATE zevryon-harfbuzz-shaper)
+    zevryon_options(zevryon-glyph-cluster-map-benchmark)
+
     if(BUILD_TESTING)
       find_package(Threads REQUIRED)
       find_file(
