@@ -42,3 +42,5 @@ if(TARGET zevryon-line-selection)
       COMMAND zevryon-line-fragment-layout-equivalence-tests)
   endif()
 endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/line_box_layout.cmake")
