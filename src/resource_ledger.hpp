@@ -42,6 +42,7 @@ enum class ResourceClass : std::uint8_t {
     ShapingRunPlan,
     MultiRunShapeMetadata,
     GlyphClusterMap,
+    CaretBoundaryMap,
     Count
 };
 
