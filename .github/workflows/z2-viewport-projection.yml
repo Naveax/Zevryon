@@ -16,8 +16,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
-          fetch-depth: 2
-      - name: Patch source and restore permanent certification workflow
+          fetch-depth: 1
+      - name: Patch split-caret source
         shell: bash
         env:
           OLD_BLOCK_B64: ICAgIGNvbnN0IFZpZXdwb3J0Q2FyZXRFZGdlKiBjaG9zZW4gPSBudWxscHRyOwogICAgaWYgKGxvd2VyID09IGJlZ2luKSB7CiAgICAgICAgY2hvc2VuID0gJipsb3dlcjsKICAgIH0gZWxzZSBpZiAobG93ZXIgPT0gZW5kKSB7CiAgICAgICAgY2hvc2VuID0gJiooZW5kIC0gMSk7CiAgICB9IGVsc2UgewogICAgICAgIGNvbnN0IFZpZXdwb3J0Q2FyZXRFZGdlJiByaWdodCA9ICpsb3dlcjsKICAgICAgICBjb25zdCBWaWV3cG9ydENhcmV0RWRnZSYgbGVmdCA9ICoobG93ZXIgLSAxKTsKICAgICAgICBjb25zdCBzdGQ6OnVpbnQ2NF90IGxlZnRfZGlzdGFuY2UgPSBhYnNvbHV0ZV9kaWZmZXJlbmNlKAogICAgICAgICAgICB2aWV3cG9ydF9pbmxpbmVfcG9zaXRpb24sCiAgICAgICAgICAgIGxlZnQudmlld3BvcnRfaW5saW5lX3Bvc2l0aW9uKTsKICAgICAgICBjb25zdCBzdGQ6OnVpbnQ2NF90IHJpZ2h0X2Rpc3RhbmNlID0gYWJzb2x1dGVfZGlmZmVyZW5jZSgKICAgICAgICAgICAgdmlld3BvcnRfaW5saW5lX3Bvc2l0aW9uLAogICAgICAgICAgICByaWdodC52aWV3cG9ydF9pbmxpbmVfcG9zaXRpb24pOwogICAgICAgIGlmIChsZWZ0X2Rpc3RhbmNlIDwgcmlnaHRfZGlzdGFuY2UpIHsKICAgICAgICAgICAgY2hvc2VuID0gJmxlZnQ7CiAgICAgICAgfSBlbHNlIGlmIChyaWdodF9kaXN0YW5jZSA8IGxlZnRfZGlzdGFuY2UpIHsKICAgICAgICAgICAgY2hvc2VuID0gJnJpZ2h0OwogICAgICAgIH0gZWxzZSBpZiAoYmlhcyA9PSBWaWV3cG9ydEhpdFRlc3RCaWFzOjpUb3dhcmRWaXN1YWxFbmQpIHsKICAgICAgICAgICAgY2hvc2VuID0gJnJpZ2h0OwogICAgICAgIH0gZWxzZSB7CiAgICAgICAgICAgIGNob3NlbiA9ICZsZWZ0OwogICAgICAgIH0KICAgIH0K
@@ -33,14 +33,16 @@ jobs:
           old = base64.b64decode(os.environ['OLD_BLOCK_B64']).decode('utf-8')
           new = base64.b64decode(os.environ['NEW_BLOCK_B64']).decode('utf-8')
           if old not in text:
+              if 'auto equal_first' in text:
+                  raise SystemExit(0)
               raise SystemExit('expected hit-test block was not found')
           source.write_text(text.replace(old, new, 1), encoding='utf-8')
           PY
-          git rm -f .github/workflows/z2e3-apply-hit-test-patch.yml
-          git rm -f .github/workflows/z2e3-patch-on-pr.yml
-          git show HEAD^:.github/workflows/z2-viewport-projection.yml > .github/workflows/z2-viewport-projection.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/viewport_projection.cpp .github/workflows/z2-viewport-projection.yml
+          git add src/viewport_projection.cpp
+          if git diff --cached --quiet; then
+            exit 0
+          fi
           git commit -m "Fix split-caret hit-test affinity"
           git push origin HEAD:${{ github.head_ref }}
