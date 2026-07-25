@@ -1453,28 +1453,63 @@ bool hit_test_viewport_projection(
             return caret.viewport_inline_position < value;
         });
 
+    auto equal_first = [&](auto position, std::int64_t value) {
+        return std::lower_bound(
+            begin,
+            position,
+            value,
+            [](const ViewportCaretEdge& caret, std::int64_t target) {
+                return caret.viewport_inline_position < target;
+            });
+    };
+    auto equal_limit = [&](auto position, std::int64_t value) {
+        return std::upper_bound(
+            position,
+            end,
+            value,
+            [](std::int64_t target, const ViewportCaretEdge& caret) {
+                return target < caret.viewport_inline_position;
+            });
+    };
+    auto select_from_equal_range = [&](auto first_equal, auto limit_equal)
+        -> const ViewportCaretEdge* {
+        return bias == ViewportHitTestBias::TowardVisualEnd
+            ? &*(limit_equal - 1)
+            : &*first_equal;
+    };
+
     const ViewportCaretEdge* chosen = nullptr;
-    if (lower == begin) {
-        chosen = &*lower;
+    if (lower != end &&
+        lower->viewport_inline_position == viewport_inline_position) {
+        chosen = select_from_equal_range(
+            lower,
+            equal_limit(lower, viewport_inline_position));
+    } else if (lower == begin) {
+        chosen = select_from_equal_range(
+            begin,
+            equal_limit(begin, begin->viewport_inline_position));
     } else if (lower == end) {
-        chosen = &*(end - 1);
+        const std::int64_t value = (end - 1)->viewport_inline_position;
+        chosen = select_from_equal_range(
+            equal_first(end, value),
+            end);
     } else {
-        const ViewportCaretEdge& right = *lower;
-        const ViewportCaretEdge& left = *(lower - 1);
+        const std::int64_t left_value = (lower - 1)->viewport_inline_position;
+        const std::int64_t right_value = lower->viewport_inline_position;
+        const auto left_first = equal_first(lower, left_value);
+        const auto right_limit = equal_limit(lower, right_value);
         const std::uint64_t left_distance = absolute_difference(
-            viewport_inline_position,
-            left.viewport_inline_position);
+            viewport_inline_position, left_value);
         const std::uint64_t right_distance = absolute_difference(
-            viewport_inline_position,
-            right.viewport_inline_position);
+            viewport_inline_position, right_value);
         if (left_distance < right_distance) {
-            chosen = &left;
+            chosen = select_from_equal_range(left_first, lower);
         } else if (right_distance < left_distance) {
-            chosen = &right;
+            chosen = select_from_equal_range(lower, right_limit);
         } else if (bias == ViewportHitTestBias::TowardVisualEnd) {
-            chosen = &right;
+            chosen = &*(right_limit - 1);
         } else {
-            chosen = &left;
+            chosen = &*left_first;
         }
     }
 
