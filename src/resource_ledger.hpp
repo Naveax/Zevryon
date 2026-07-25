@@ -40,6 +40,7 @@ enum class ResourceClass : std::uint8_t {
     FontResourceCacheRetention,
     FontFileReadBuffer,
     ShapingRunPlan,
+    MultiRunShapeMetadata,
     Count
 };
 

@@ -45,7 +45,8 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
         src/catalog_harfbuzz_shaper.cpp
         src/prepared_harfbuzz_face.cpp
         src/prepared_harfbuzz_face_cache.cpp
-        src/cached_catalog_harfbuzz_shaper.cpp)
+        src/cached_catalog_harfbuzz_shaper.cpp
+        src/multi_run_harfbuzz_shaper.cpp)
     target_include_directories(zevryon-harfbuzz-shaper PUBLIC src)
     target_link_libraries(
       zevryon-harfbuzz-shaper
@@ -76,6 +77,14 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
       zevryon-cached-catalog-harfbuzz-shaping-benchmark
       PRIVATE zevryon-harfbuzz-shaper)
     zevryon_options(zevryon-cached-catalog-harfbuzz-shaping-benchmark)
+
+    add_executable(
+      zevryon-multi-run-harfbuzz-shaping-benchmark
+      src/multi_run_harfbuzz_shaping_benchmark_main.cpp)
+    target_link_libraries(
+      zevryon-multi-run-harfbuzz-shaping-benchmark
+      PRIVATE zevryon-harfbuzz-shaper)
+    zevryon_options(zevryon-multi-run-harfbuzz-shaping-benchmark)
 
     if(BUILD_TESTING)
       find_package(Threads REQUIRED)
@@ -134,6 +143,12 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
         PRIVATE zevryon-harfbuzz-shaper Threads::Threads)
       zevryon_options(zevryon-cached-catalog-harfbuzz-shaper-tests)
 
+      add_executable(zevryon-multi-run-harfbuzz-shaper-tests
+        tests/multi_run_harfbuzz_shaper_tests.cpp)
+      target_link_libraries(zevryon-multi-run-harfbuzz-shaper-tests
+        PRIVATE zevryon-harfbuzz-shaper Threads::Threads)
+      zevryon_options(zevryon-multi-run-harfbuzz-shaper-tests)
+
       if(ZEVRYON_TEST_FONT_LATIN)
         add_test(NAME catalog-harfbuzz-shaper-tests
           COMMAND zevryon-catalog-harfbuzz-shaper-tests "${ZEVRYON_TEST_FONT_LATIN}")
@@ -145,6 +160,8 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
           COMMAND zevryon-prepared-harfbuzz-face-cache-tests "${ZEVRYON_TEST_FONT_LATIN}")
         add_test(NAME cached-catalog-harfbuzz-shaper-tests
           COMMAND zevryon-cached-catalog-harfbuzz-shaper-tests "${ZEVRYON_TEST_FONT_LATIN}")
+        add_test(NAME multi-run-harfbuzz-shaper-tests
+          COMMAND zevryon-multi-run-harfbuzz-shaper-tests "${ZEVRYON_TEST_FONT_LATIN}")
       endif()
 
       if(ZEVRYON_TEST_FONT_LATIN AND ZEVRYON_TEST_FONT_DEVANAGARI)
