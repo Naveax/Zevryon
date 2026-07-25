@@ -1,10 +1,14 @@
 name: z2d2-signed-advance-patch-once
 
-# Second push intentionally triggers this one-time branch patch.
 on:
   push:
     branches:
       - work/z2d-bounded-width-line-selection
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/z2d2-signed-advance-patch-once.yml'
 
 permissions:
   contents: write
