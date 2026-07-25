@@ -29,5 +29,16 @@ if(TARGET zevryon-line-selection)
     add_test(
       NAME line-fragment-layout-tests
       COMMAND zevryon-line-fragment-layout-tests)
+
+    add_executable(
+      zevryon-line-fragment-layout-equivalence-tests
+      tests/line_fragment_layout_equivalence_tests.cpp)
+    target_link_libraries(
+      zevryon-line-fragment-layout-equivalence-tests
+      PRIVATE zevryon-line-fragment-layout)
+    zevryon_options(zevryon-line-fragment-layout-equivalence-tests)
+    add_test(
+      NAME line-fragment-layout-equivalence-tests
+      COMMAND zevryon-line-fragment-layout-equivalence-tests)
   endif()
 endif()
