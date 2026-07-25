@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - work/z2d-unicode-line-break-opportunities
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
