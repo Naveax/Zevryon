@@ -20,13 +20,24 @@ jobs:
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
-      - name: Apply bounded preflight repair and remove temporary machinery
+      - name: Apply bounded preflight repair to production files only
         run: |
-          python3 scripts/repair_z2c2_linear_preflight.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/repair_z2c2_linear_preflight.py')
+          source = path.read_text()
+          marker = 'workflow = WORKFLOW_PATH.read_text()\n'
+          if marker not in source:
+              raise SystemExit('repair cleanup marker missing')
+          source = source[:source.index(marker)]
+          exec(compile(source, str(path), 'exec'))
+          PY
           git diff --check
           git config user.name 'OpenAI Coding Agent'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add --all
+          git add src/multi_run_harfbuzz_shaper.cpp \
+            tests/multi_run_harfbuzz_shaper_tests.cpp \
+            docs/Z2C2_BOUNDED_MULTI_RUN_SHAPING.md
           if git diff --cached --quiet; then
             exit 0
           fi
