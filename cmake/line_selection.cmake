@@ -42,3 +42,5 @@ if(TARGET zevryon-harfbuzz-shaper)
       COMMAND zevryon-line-selection-signed-advance-tests)
   endif()
 endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/line_fragment_layout.cmake")
