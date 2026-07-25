@@ -210,3 +210,5 @@ if(ZEVRYON_ENABLE_HARFBUZZ_SHAPING)
     endif()
   endif()
 endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/unicode_line_break.cmake")
