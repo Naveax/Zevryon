@@ -109,7 +109,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends pkg-config libharfbuzz-dev
       - name: Configure ASan and UBSan build
-        run: cmake -S . -B build-sanitized -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON -DZEVRYON_ENABLE_SANITIZERS=ON
+        run: >-
+          cmake -S . -B build-sanitized
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+          -DCMAKE_CXX_FLAGS=-fsanitize=address,undefined
+          -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined
+          -DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined
       - name: Build focused tests under sanitizers
         run: cmake --build build-sanitized --parallel 2 --target zevryon-caret-boundary-map-tests
       - name: Run focused tests under sanitizers
