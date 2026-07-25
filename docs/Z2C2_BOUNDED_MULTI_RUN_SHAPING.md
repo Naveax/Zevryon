@@ -71,9 +71,9 @@ The executor publishes no partial text for:
 
 ## Certification surface
 
-The initial real-font certification uses one Latin LTR run and one Arabic RTL
-run with two catalog face IDs backed by the same verified DejaVu Sans bytes. It
-requires:
+The real-font correctness certification uses one Latin LTR run and one Arabic
+RTL run with two catalog face IDs backed by the same verified DejaVu Sans bytes.
+It requires:
 
 - exact two-segment output and global cluster continuity;
 - byte-exact equality with two direct cache-backed segment calls;
@@ -83,7 +83,32 @@ requires:
 - one-byte metadata rejection before shaping;
 - failure on the second run after the first run has allocated glyphs, followed
   by complete metadata and glyph rollback;
+- repeated non-adjacent face IDs with an exact distinct-face count;
 - strict warnings-as-errors and Linux ASan/UBSan.
+
+The permanent 64 KiB performance certification uses:
+
+- 65,536 logical UTF-8 bytes;
+- 49,152 code points and singleton grapheme clusters;
+- 1,024 alternating Latin LTR and Arabic RTL shaping runs;
+- two resident prepared catalog faces;
+- identical PMR metadata and glyph resources for both compared paths;
+- a manual loop over the existing cache-backed segment API as the baseline;
+- the production multi-run executor as the measured path;
+- exact equality of input dimensions, segment count, glyph records, glyph bytes,
+  metadata bytes, advances, and output checksum.
+
+Five independent in-process alternating distributions enforce the following
+thresholds without post-measurement relaxation:
+
+- every executor/manual P50 ratio `<= 1.35`;
+- median executor/manual P50 ratio `<= 1.20`;
+- executor P95 `<= 25 ms`;
+- executor P99 `<= 30 ms`;
+- executor maximum `<= 45 ms`;
+- retained metadata `<= 512 KiB`;
+- retained glyph output `<= 4 MiB`;
+- zero accounting errors and no hard-limit violation.
 
 ## Explicit boundary
 
