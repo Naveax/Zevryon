@@ -1,0 +1,228 @@
+from pathlib import Path
+
+SOURCE_PATH = Path("src/multi_run_harfbuzz_shaper.cpp")
+TEST_PATH = Path("tests/multi_run_harfbuzz_shaper_tests.cpp")
+DOC_PATH = Path("docs/Z2C2_BOUNDED_MULTI_RUN_SHAPING.md")
+WORKFLOW_PATH = Path(".github/workflows/z2-multi-run-harfbuzz-shaping.yml")
+TEMP_WORKFLOW_PATH = Path(".github/workflows/z2c2-linear-preflight-repair.yml")
+SELF_PATH = Path("scripts/repair_z2c2_linear_preflight.py")
+
+old_scan = '''    const std::size_t run_count = boundaries.size() - 1U;
+    std::uint64_t used_faces = 0U;
+    for (std::size_t binding_index = 0U;
+         binding_index < request.bindings.size();
+         ++binding_index) {
+        const FontFaceId face_id = request.bindings[binding_index].face_id();
+        bool used = false;
+        for (std::size_t run_index = 0U; run_index < run_count; ++run_index) {
+            if (boundaries[run_index].face_id == face_id) {
+                used = true;
+                break;
+            }
+        }
+        used_faces += used ? 1U : 0U;
+    }
+'''
+
+new_scan = '''    const std::size_t run_count = boundaries.size() - 1U;
+    constexpr std::size_t kBindingWordBits =
+        std::numeric_limits<std::uint64_t>::digits;
+    static_assert(kBindingWordBits == 64U);
+    if (request.bindings.size() >
+        std::numeric_limits<std::size_t>::max() -
+            (kBindingWordBits - 1U)) {
+        return fail(
+            MultiRunCatalogHarfBuzzShapingErrorKind::MetadataBudgetExceeded,
+            0U,
+            0U,
+            kInvalidFontFaceId,
+            "binding-use bitmap size overflows",
+            error);
+    }
+    const std::size_t binding_word_count =
+        (request.bindings.size() + kBindingWordBits - 1U) /
+        kBindingWordBits;
+    std::pmr::vector<std::uint64_t> used_binding_words(
+        output->metadata_resource());
+    try {
+        used_binding_words.resize(binding_word_count, std::uint64_t{0});
+    } catch (const std::bad_alloc&) {
+        return fail(
+            MultiRunCatalogHarfBuzzShapingErrorKind::MetadataBudgetExceeded,
+            0U,
+            0U,
+            kInvalidFontFaceId,
+            "binding-use bitmap exceeds its hard budget",
+            error);
+    } catch (...) {
+        return fail(
+            MultiRunCatalogHarfBuzzShapingErrorKind::MetadataBudgetExceeded,
+            0U,
+            0U,
+            kInvalidFontFaceId,
+            "binding-use bitmap allocation failed",
+            error);
+    }
+    std::uint64_t used_faces = 0U;
+'''
+
+old_lookup = '''        if (find_binding(request.bindings, current.face_id) == nullptr) {
+            return fail(
+                MultiRunCatalogHarfBuzzShapingErrorKind::FaceBindingNotFound,
+                run_index,
+                current.cluster_index,
+                current.face_id,
+                "shaping-run face is absent from the immutable binding table",
+                error);
+        }
+'''
+
+new_lookup = '''        const CatalogFontFaceBinding* binding =
+            find_binding(request.bindings, current.face_id);
+        if (binding == nullptr) {
+            return fail(
+                MultiRunCatalogHarfBuzzShapingErrorKind::FaceBindingNotFound,
+                run_index,
+                current.cluster_index,
+                current.face_id,
+                "shaping-run face is absent from the immutable binding table",
+                error);
+        }
+        const std::size_t binding_index = static_cast<std::size_t>(
+            binding - request.bindings.data());
+        const std::size_t word_index = binding_index / kBindingWordBits;
+        const std::size_t bit_index = binding_index % kBindingWordBits;
+        const std::uint64_t mask = std::uint64_t{1} << bit_index;
+        if ((used_binding_words[word_index] & mask) == 0U) {
+            used_binding_words[word_index] |= mask;
+            ++used_faces;
+        }
+'''
+
+old_stats = '''    stats->input_clusters = cluster_count;
+    stats->distinct_bound_faces = used_faces;
+
+    try {
+'''
+
+new_stats = '''    stats->input_clusters = cluster_count;
+    stats->distinct_bound_faces = used_faces;
+    release_vector(&used_binding_words);
+
+    try {
+'''
+
+source = SOURCE_PATH.read_text()
+if old_scan in source:
+    source = source.replace(old_scan, new_scan, 1)
+elif "constexpr std::size_t kBindingWordBits" not in source:
+    raise SystemExit("neither quadratic nor bounded binding preflight was found")
+
+if old_lookup in source:
+    source = source.replace(old_lookup, new_lookup, 1)
+elif "const std::size_t word_index = binding_index / kBindingWordBits;" not in source:
+    raise SystemExit("binding-use bitmap lookup was not found")
+
+if old_stats in source:
+    source = source.replace(old_stats, new_stats, 1)
+elif "release_vector(&used_binding_words);" not in source:
+    raise SystemExit("binding-use bitmap release was not found")
+SOURCE_PATH.write_text(source)
+
+old_test_tail = '''    ok &= expect(
+        repeat_stats.cache_after.hits >= repeat_stats.cache_before.hits + 2U,
+        "repeat observes two resident prepared-face hits");
+    return ok && metadata_ledger.accounting_clean() &&
+           glyph_ledger.accounting_clean();
+'''
+
+new_test_tail = '''    ok &= expect(
+        repeat_stats.cache_after.hits >= repeat_stats.cache_before.hits + 2U,
+        "repeat observes two resident prepared-face hits");
+
+    ShapingRunPlan alternating_plan;
+    const std::uint32_t cluster_count = static_cast<std::uint32_t>(
+        fixture.graphemes.size() - 1U);
+    for (std::uint32_t cluster_index = 0U;
+         cluster_index < cluster_count;
+         ++cluster_index) {
+        const bool right_to_left = cluster_index >= fixture.split_cluster;
+        alternating_plan.boundaries.push_back(ShapingRunBoundary{
+            cluster_index,
+            static_cast<FontFaceId>(cluster_index & 1U),
+            right_to_left ? script("Arab") : script("Latn"),
+            right_to_left ? ShapingDirection::RightToLeft
+                          : ShapingDirection::LeftToRight,
+            right_to_left ? FontFallbackSource::ScriptMatch
+                          : FontFallbackSource::Primary,
+            static_cast<std::uint8_t>(right_to_left ? 1U : 0U),
+            0U});
+    }
+    alternating_plan.boundaries.push_back(ShapingRunBoundary{
+        cluster_count,
+        kInvalidFontFaceId,
+        ScriptId::Zzzz,
+        ShapingDirection::LeftToRight,
+        FontFallbackSource::Missing,
+        0U,
+        0U});
+    MultiRunCatalogHarfBuzzShapingRequest alternating_request =
+        fixture.request(&face_cache);
+    alternating_request.plan = &alternating_plan;
+    MultiRunCatalogHarfBuzzShapingStats alternating_stats;
+    MultiRunCatalogHarfBuzzShapingError alternating_error;
+    ok &= expect(
+        shape_multi_run_catalog_harfbuzz(
+            alternating_request,
+            &output,
+            &alternating_stats,
+            &alternating_error) &&
+            output.segments.size() == cluster_count &&
+            alternating_stats.completed_runs == cluster_count &&
+            alternating_stats.distinct_bound_faces == 2U,
+        "repeated non-adjacent face ids retain an exact distinct-face count");
+    return ok && metadata_ledger.accounting_clean() &&
+           glyph_ledger.accounting_clean();
+'''
+
+tests = TEST_PATH.read_text()
+if old_test_tail in tests:
+    tests = tests.replace(old_test_tail, new_test_tail, 1)
+elif "repeated non-adjacent face ids retain an exact distinct-face count" not in tests:
+    raise SystemExit("distinct-face regression insertion point was not found")
+TEST_PATH.write_text(tests)
+
+doc_anchor = '''Each segment owns the existing `ShapedGlyphRun` value and therefore preserves
+the existing single-run exact glyph allocation under `GlyphRun`. Glyphs are not
+copied into a flattened paragraph vector, and the executor does not run
+HarfBuzz twice merely to count output.
+'''
+
+doc_addition = doc_anchor + '''
+Referenced catalog faces are counted with a temporary PMR bitmap using one bit
+per supplied binding. Preflight therefore remains `O(B + R log B)` instead of
+performing a binding-by-run Cartesian scan; the bitmap is released before the
+segment table is reserved, so its current bytes do not overlap retained output.
+'''
+
+doc = DOC_PATH.read_text()
+if "Preflight therefore remains `O(B + R log B)`" not in doc:
+    if doc_anchor not in doc:
+        raise SystemExit("documentation insertion point was not found")
+    doc = doc.replace(doc_anchor, doc_addition, 1)
+DOC_PATH.write_text(doc)
+
+workflow = WORKFLOW_PATH.read_text()
+begin = "  # BEGIN TEMPORARY Z2C2 LINEAR PREFLIGHT REPAIR\n"
+end = "  # END TEMPORARY Z2C2 LINEAR PREFLIGHT REPAIR\n"
+if begin in workflow:
+    start = workflow.index(begin)
+    finish = workflow.index(end, start) + len(end)
+    workflow = workflow[:start] + workflow[finish:]
+workflow = workflow.replace("permissions:\n  contents: write\n", "permissions:\n  contents: read\n", 1)
+WORKFLOW_PATH.write_text(workflow)
+
+if TEMP_WORKFLOW_PATH.exists():
+    TEMP_WORKFLOW_PATH.unlink()
+if SELF_PATH.exists():
+    SELF_PATH.unlink()
