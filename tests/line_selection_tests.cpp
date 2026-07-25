@@ -137,14 +137,14 @@ void test_last_fitting_boundary_is_selected() {
     LineSelectionStats stats;
     LineSelection output = select(&fixture, 10U, &stats);
     REQUIRE(output.lines.size() == 2U);
-    REQUIRE(output.lines[0] == SelectedLineRecord{
+    REQUIRE(output.lines[0] == (SelectedLineRecord{
         8U,
         2U,
-        kSelectedLineSoftBreak});
-    REQUIRE(output.lines[1] == SelectedLineRecord{
+        kSelectedLineSoftBreak}));
+    REQUIRE(output.lines[1] == (SelectedLineRecord{
         8U,
         4U,
-        kSelectedLineMandatoryBreak | kSelectedLineTextEnd});
+        kSelectedLineMandatoryBreak | kSelectedLineTextEnd}));
     REQUIRE(selected_line_first_cluster(output, 0U) == 0U);
     REQUIRE(selected_line_first_cluster(output, 1U) == 2U);
     REQUIRE(stats.output_lines == 2U);
