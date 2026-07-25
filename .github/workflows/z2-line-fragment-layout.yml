@@ -161,9 +161,10 @@ jobs:
         run: brew install harfbuzz
       - name: Configure AppleClang Release build
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
-      - name: Build and run focused tests
+      - name: Build benchmark and focused tests
         run: |
           cmake --build build --parallel 2 --target \
             zevryon-line-fragment-layout-tests \
-            zevryon-line-fragment-layout-equivalence-tests
+            zevryon-line-fragment-layout-equivalence-tests \
+            zevryon-line-fragment-layout-benchmark
           ctest --test-dir build -R '^line-fragment-layout-(tests|equivalence-tests)$' --output-on-failure
