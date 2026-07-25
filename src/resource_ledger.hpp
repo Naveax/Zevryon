@@ -44,6 +44,7 @@ enum class ResourceClass : std::uint8_t {
     GlyphClusterMap,
     CaretBoundaryMap,
     LineBreakOpportunityMap,
+    LineSelectionMap,
     Count
 };
 
