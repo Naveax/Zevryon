@@ -39,6 +39,7 @@ constexpr std::array<const char*, resource_class_count> kResourceNames{
     "font_file_read_buffer",
     "shaping_run_plan",
     "multi_run_shape_metadata",
+    "glyph_cluster_map",
 };
 
 } // namespace
