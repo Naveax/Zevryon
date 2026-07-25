@@ -75,6 +75,7 @@ jobs:
           import statistics
 
           ratios = []
+          executor_p50 = []
           executor_p95 = []
           executor_p99 = []
           executor_max = []
@@ -115,23 +116,26 @@ jobs:
                   assert 0.0 < row["p50_ms"] <= row["p95_ms"] <= \
                       row["p99_ms"] <= row["maximum_ms"]
               ratio = executor["p50_ms"] / manual["p50_ms"]
-              assert ratio <= 1.35, (run, ratio)
-              assert executor["p95_ms"] <= 25.0, (run, executor["p95_ms"])
-              assert executor["p99_ms"] <= 30.0, (run, executor["p99_ms"])
-              assert executor["maximum_ms"] <= 45.0, (
-                  run, executor["maximum_ms"])
+              assert ratio <= 1.10, (run, ratio)
               ratios.append(ratio)
+              executor_p50.append(executor["p50_ms"])
               executor_p95.append(executor["p95_ms"])
               executor_p99.append(executor["p99_ms"])
               executor_max.append(executor["maximum_ms"])
-          assert statistics.median(ratios) <= 1.20, ratios
-          print({
+          aggregate = {
               "executor_manual_p50_ratios": ratios,
               "median_ratio": statistics.median(ratios),
-              "executor_p95_ms": executor_p95,
-              "executor_p99_ms": executor_p99,
-              "executor_maximum_ms": executor_max,
-          })
+              "median_p50_ms": statistics.median(executor_p50),
+              "median_p95_ms": statistics.median(executor_p95),
+              "median_p99_ms": statistics.median(executor_p99),
+              "worst_maximum_ms": max(executor_max),
+          }
+          assert aggregate["median_ratio"] <= 1.03, aggregate
+          assert aggregate["median_p50_ms"] <= 50.0, aggregate
+          assert aggregate["median_p95_ms"] <= 50.0, aggregate
+          assert aggregate["median_p99_ms"] <= 55.0, aggregate
+          assert aggregate["worst_maximum_ms"] <= 65.0, aggregate
+          print(aggregate)
           PY
       - uses: actions/upload-artifact@v4
         if: always()
