@@ -163,8 +163,16 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
       - name: Build benchmark and focused tests
         run: |
+          set -o pipefail
           cmake --build build --parallel 2 --target \
             zevryon-line-fragment-layout-tests \
             zevryon-line-fragment-layout-equivalence-tests \
-            zevryon-line-fragment-layout-benchmark
+            zevryon-line-fragment-layout-benchmark \
+            2>&1 | tee apple-line-fragment-build.log
           ctest --test-dir build -R '^line-fragment-layout-(tests|equivalence-tests)$' --output-on-failure
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-line-fragment-layout-appleclang-${{ github.sha }}
+          path: apple-line-fragment-build.log
+          if-no-files-found: warn
