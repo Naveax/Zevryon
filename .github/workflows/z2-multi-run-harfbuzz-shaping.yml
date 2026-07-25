@@ -6,6 +6,7 @@ on:
       - '.github/workflows/z2-multi-run-harfbuzz-shaping.yml'
       - 'cmake/harfbuzz_shaping.cmake'
       - 'src/multi_run_harfbuzz_shaper.*'
+      - 'src/multi_run_harfbuzz_shaping_benchmark_main.cpp'
       - 'src/shaping_run_plan.*'
       - 'src/cached_catalog_harfbuzz_shaper.*'
       - 'src/resource_ledger.*'
@@ -22,7 +23,7 @@ permissions:
 jobs:
   strict:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Install HarfBuzz and real-font fixture
@@ -36,13 +37,14 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON \
             -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON \
             -DZEVRYON_TEST_FONT_LATIN=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
-      - name: Build multi-run shaping chain
+      - name: Build multi-run shaping chain and benchmark
         run: |
           set -o pipefail
           cmake --build build --parallel 2 --target \
             zevryon-multi-run-harfbuzz-shaper-tests \
             zevryon-cached-catalog-harfbuzz-shaper-tests \
             zevryon-shaping-run-plan-tests \
+            zevryon-multi-run-harfbuzz-shaping-benchmark \
             2>&1 | tee multi-run-shaping-build.log
       - name: Repeat multi-run concurrency and rollback certification
         run: |
@@ -58,6 +60,78 @@ jobs:
             -R '^(shaping-run-plan-tests|cached-catalog-harfbuzz-shaper-tests)$' \
             --output-on-failure \
             2>&1 | tee multi-run-shaping-dependencies.log
+      - name: Run alternating 64 KiB executor distributions
+        run: |
+          for run in 1 2 3 4 5; do
+            ./build/zevryon-multi-run-harfbuzz-shaping-benchmark \
+              /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
+              > "multi-run-shaping-benchmark-${run}.jsonl"
+          done
+      - name: Enforce equivalence, memory, latency, and overhead gates
+        run: |
+          python3 - <<'PY'
+          import json
+          import statistics
+
+          ratios = []
+          executor_p95 = []
+          executor_p99 = []
+          executor_max = []
+          equal = (
+              "input_utf8_bytes", "input_codepoints", "input_clusters",
+              "input_runs", "output_segments", "output_glyphs",
+              "glyph_bytes", "metadata_bytes", "total_x_advance", "checksum",
+          )
+          for run in range(1, 6):
+              rows = [json.loads(line) for line in open(
+                  f"multi-run-shaping-benchmark-{run}.jsonl",
+                  encoding="utf-8") if line.strip()]
+              assert len(rows) == 2, (run, len(rows))
+              data = {row["mode"]: row for row in rows}
+              assert set(data) == {
+                  "manual_cached_segment_loop",
+                  "production_multi_run_executor",
+              }
+              manual = data["manual_cached_segment_loop"]
+              executor = data["production_multi_run_executor"]
+              assert manual["schema"] == executor["schema"] == \
+                  "zevryon.multi-run-shaping-benchmark.v1"
+              for key in equal:
+                  assert manual[key] == executor[key], (
+                      run, key, manual[key], executor[key])
+              for row in (manual, executor):
+                  assert row["input_utf8_bytes"] == 65_536
+                  assert row["input_codepoints"] == 49_152
+                  assert row["input_clusters"] == 49_152
+                  assert row["input_runs"] == 1_024
+                  assert row["output_segments"] == 1_024
+                  assert row["output_glyphs"] > 0
+                  assert row["glyph_bytes"] == row["output_glyphs"] * 28
+                  assert 0 < row["metadata_bytes"] <= 512 * 1024
+                  assert row["glyph_bytes"] <= 4 * 1024 * 1024
+                  assert row["accounting_clean"] is True
+                  assert row["within_hard_limits"] is True
+                  assert 0.0 < row["p50_ms"] <= row["p95_ms"] <= \
+                      row["p99_ms"] <= row["maximum_ms"]
+              ratio = executor["p50_ms"] / manual["p50_ms"]
+              assert ratio <= 1.35, (run, ratio)
+              assert executor["p95_ms"] <= 25.0, (run, executor["p95_ms"])
+              assert executor["p99_ms"] <= 30.0, (run, executor["p99_ms"])
+              assert executor["maximum_ms"] <= 45.0, (
+                  run, executor["maximum_ms"])
+              ratios.append(ratio)
+              executor_p95.append(executor["p95_ms"])
+              executor_p99.append(executor["p99_ms"])
+              executor_max.append(executor["maximum_ms"])
+          assert statistics.median(ratios) <= 1.20, ratios
+          print({
+              "executor_manual_p50_ratios": ratios,
+              "median_ratio": statistics.median(ratios),
+              "executor_p95_ms": executor_p95,
+              "executor_p99_ms": executor_p99,
+              "executor_maximum_ms": executor_max,
+          })
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -66,6 +140,7 @@ jobs:
             multi-run-shaping-build.log
             multi-run-shaping-repeat.log
             multi-run-shaping-dependencies.log
+            multi-run-shaping-benchmark-*.jsonl
           if-no-files-found: warn
 
   sanitizer:
