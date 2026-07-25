@@ -43,3 +43,5 @@ if(BUILD_TESTING)
     NAME line-break-opportunity-tests
     COMMAND zevryon-line-break-opportunity-tests)
 endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/line_selection.cmake")
