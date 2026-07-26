@@ -1,5 +1,6 @@
 #include "gpu_atlas_frame_submission.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cstddef>
@@ -248,6 +249,57 @@ void verify_case(
         static_cast<std::uint32_t>(atlas.draw_batches.size()) + caret_count;
     const std::uint32_t expected_fills = selection_count + caret_count;
 
+    struct ExpectedPage final {
+        std::uint32_t page_index{0};
+        std::uint64_t page_generation{0};
+        GlyphRasterFormat format{GlyphRasterFormat::Empty};
+        std::uint32_t first_batch{0};
+        std::uint32_t batch_count{0};
+        std::uint64_t required_upload_fence{0};
+    };
+    std::vector<ExpectedPage> expected_pages;
+    std::vector<std::uint32_t> expected_batch_page_indices;
+    expected_batch_page_indices.reserve(atlas.draw_batches.size());
+    for (std::size_t batch_index = 0;
+         batch_index < atlas.draw_batches.size();
+         ++batch_index) {
+        const GlyphAtlasDrawBatch& batch = atlas.draw_batches[batch_index];
+        const GlyphAtlasDrawInstance& first_instance =
+            atlas.draw_instances[batch.first_instance];
+        const GlyphRasterMode mode = pipeline.working.entries[
+            first_instance.working_set_key_index].key.mode;
+        const GlyphRasterFormat format = mode == GlyphRasterMode::Grayscale
+            ? GlyphRasterFormat::Alpha8
+            : mode == GlyphRasterMode::Lcd
+                ? GlyphRasterFormat::LcdRgb8
+                : GlyphRasterFormat::Bgra8;
+        auto page = std::find_if(
+            expected_pages.begin(),
+            expected_pages.end(),
+            [&batch](const ExpectedPage& candidate) {
+                return candidate.page_index == batch.page_index;
+            });
+        if (page == expected_pages.end()) {
+            ExpectedPage candidate;
+            candidate.page_index = batch.page_index;
+            candidate.page_generation = batch.page_generation;
+            candidate.format = format;
+            candidate.first_batch = static_cast<std::uint32_t>(batch_index);
+            candidate.batch_count = 1U;
+            candidate.required_upload_fence = expected_upload_fence(
+                upload, batch.page_index, batch.page_generation);
+            expected_pages.push_back(candidate);
+            expected_batch_page_indices.push_back(
+                static_cast<std::uint32_t>(expected_pages.size() - 1U));
+        } else {
+            assert(page->page_generation == batch.page_generation);
+            assert(page->format == format);
+            ++page->batch_count;
+            expected_batch_page_indices.push_back(
+                static_cast<std::uint32_t>(page - expected_pages.begin()));
+        }
+    }
+
     GpuFrameSubmissionRequest request;
     request.paint_stream = &paint;
     request.working_set = &pipeline.working;
@@ -262,11 +314,12 @@ void verify_case(
     const std::uint32_t slack = exact_limits ? 0U : 7U;
     request.limits.maximum_clips = clip_count + slack;
     request.limits.maximum_commands = expected_commands + slack;
-    request.limits.maximum_fill_rects = expected_fills + slack;
+    request.limits.maximum_fill_rects =
+        std::max<std::uint32_t>(1U, expected_fills + slack);
     request.limits.maximum_glyph_batches =
         static_cast<std::uint32_t>(atlas.draw_batches.size()) + slack;
     request.limits.maximum_page_references =
-        static_cast<std::uint32_t>(atlas.draw_batches.size()) + slack;
+        static_cast<std::uint32_t>(expected_pages.size()) + slack;
     request.limits.maximum_referenced_instances =
         atlas.draw_instances.size() + slack;
 
@@ -282,7 +335,7 @@ void verify_case(
     assert(output.commands.size() == expected_commands);
     assert(output.fill_rects.size() == expected_fills);
     assert(output.glyph_batches.size() == atlas.draw_batches.size());
-    assert(output.page_references.size() == atlas.draw_batches.size());
+    assert(output.page_references.size() == expected_pages.size());
 
     for (std::uint32_t i = 0U; i < selection_count; ++i) {
         assert(output.commands[i].kind == GpuFrameCommandKind::FillRect);
@@ -306,17 +359,22 @@ void verify_case(
         assert(batch.instance_count == source.instance_count);
         assert(batch.style_id == source.style_id);
         assert(batch.clip_index == source.clip_index);
-        assert(batch.page_reference_index == i);
+        assert(batch.page_reference_index == expected_batch_page_indices[i]);
 
-        const GpuFramePageReference& page = output.page_references[i];
-        assert(page.page_index == source.page_index);
-        assert(page.page_generation == source.page_generation);
-        assert(page.first_batch == i);
-        assert(page.batch_count == 1U);
-        const std::uint64_t fence = expected_upload_fence(
-            upload, source.page_index, source.page_generation);
-        assert(page.required_upload_fence == fence);
-        expected_required_fence = std::max(expected_required_fence, fence);
+        const ExpectedPage& expected_page =
+            expected_pages[batch.page_reference_index];
+        const GpuFramePageReference& page =
+            output.page_references[batch.page_reference_index];
+        assert(page.page_index == expected_page.page_index);
+        assert(page.page_generation == expected_page.page_generation);
+        assert(page.format == expected_page.format);
+        assert(page.first_batch == expected_page.first_batch);
+        assert(page.batch_count == expected_page.batch_count);
+        assert(page.required_upload_fence ==
+            expected_page.required_upload_fence);
+        expected_required_fence = std::max(
+            expected_required_fence,
+            expected_page.required_upload_fence);
     }
 
     for (std::uint32_t i = 0U; i < caret_count; ++i) {
@@ -336,7 +394,7 @@ void verify_case(
     assert(stats.output_commands == expected_commands);
     assert(stats.output_fill_rects == expected_fills);
     assert(stats.output_glyph_batches == atlas.draw_batches.size());
-    assert(stats.output_page_references == atlas.draw_batches.size());
+    assert(stats.output_page_references == expected_pages.size());
     assert(stats.selection_commands == selection_count);
     assert(stats.caret_commands == caret_count);
     assert(stats.referenced_instances == atlas.draw_instances.size());
