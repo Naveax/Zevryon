@@ -670,9 +670,11 @@ bool execute_device_glyph_raster_plan(
                 return fail_execution(DeviceGlyphRasterExecutionErrorKind::BackendRenderFailed,
                     i, "device raster backend render failed", &backend_error, error);
             }
+            const bool empty =
+                (current.flags & kDeviceGlyphRasterMetricsEmpty) != 0U;
             GlyphRasterSourceRecord source;
             source.key = job.key;
-            source.payload_offset = offset;
+            source.payload_offset = empty ? 0U : offset;
             source.payload_size = current.payload_size;
             source.width = current.width;
             source.height = current.height;
@@ -680,8 +682,9 @@ bool execute_device_glyph_raster_plan(
             source.bearing_x = current.bearing_x;
             source.bearing_y = current.bearing_y;
             source.format = current.format;
-            source.flags = (current.flags & kDeviceGlyphRasterMetricsEmpty) != 0U ? 1U : 0U;
-            source.content_checksum = fnv1a64(destination);
+            source.flags = empty ?
+                static_cast<std::uint8_t>(kGlyphRasterSourceEmpty) : 0U;
+            source.content_checksum = empty ? 0U : fnv1a64(destination);
             staged_sources[i] = source;
             offset += current.payload_size;
         }
