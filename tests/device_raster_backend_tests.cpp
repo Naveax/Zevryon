@@ -148,10 +148,18 @@ void test_cold_hot_plan_and_reference_execution() {
     assert(execution_stats.grayscale_sources == 1U);
     assert(execution_stats.color_sources == 1U);
     for (const GlyphRasterSourceRecord& source : sources.sources) {
+        const bool empty =
+            (source.flags & static_cast<std::uint8_t>(kGlyphRasterSourceEmpty)) != 0U;
         const auto payload = std::span<const std::byte>(sources.payload.data(), sources.payload.size())
             .subspan(static_cast<std::size_t>(source.payload_offset),
                 static_cast<std::size_t>(source.payload_size));
-        assert(source.content_checksum == fnv1a64(payload));
+        if (empty) {
+            assert(source.payload_offset == 0U);
+            assert(source.payload_size == 0U);
+            assert(source.content_checksum == 0U);
+        } else {
+            assert(source.content_checksum == fnv1a64(payload));
+        }
     }
 
     execution_request.expected_queue_generation = 6U;
