@@ -9,29 +9,47 @@ permissions:
   contents: write
 
 jobs:
-  diagnose:
+  publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: work/z2f-bounded-gpu-residency-compositor
-      - name: Export combined payload
+      - name: Verify and extract payload
         shell: bash
         run: |
-          set +e
-          wc -c .z2f4/part00 .z2f4/part01 .z2f4/part02 .z2f4/part03 .z2f4/part04 > z2f4-diagnostic.txt
-          cat .z2f4/part00 .z2f4/part01 .z2f4/part02 .z2f4/part03 .z2f4/part04 | tr -d '\r\n' > z2f4-payload.b64
-          wc -c z2f4-payload.b64 >> z2f4-diagnostic.txt
-          sha256sum z2f4-payload.b64 >> z2f4-diagnostic.txt
-          base64 -d z2f4-payload.b64 > z2f4-payload.tar.gz
-          echo "decode_status=$?" >> z2f4-diagnostic.txt
-          wc -c z2f4-payload.tar.gz >> z2f4-diagnostic.txt
-          sha256sum z2f4-payload.tar.gz >> z2f4-diagnostic.txt
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: z2f4-payload-bytes-${{ github.sha }}
-          path: |
-            z2f4-diagnostic.txt
-            z2f4-payload.b64
-          if-no-files-found: error
+          set -euo pipefail
+          cat .z2f4/part00 .z2f4/part01 .z2f4/part02 .z2f4/part03 .z2f4/part04 .z2f4/part05 | tr -d '\r\n' > /tmp/z2f4-payload.b64
+          echo '8bdd9b92524cb07c8367d687a282d0390e5de02463ecbd9f0945766aa6328994  /tmp/z2f4-payload.b64' | sha256sum -c -
+          base64 -d /tmp/z2f4-payload.b64 > /tmp/z2f4-payload.tar.gz
+          echo 'ed0c8b4f0c2e7c45d97d9c5a7bcdfb3ae3f22d6c612bb92e91f6a684ea5f6917  /tmp/z2f4-payload.tar.gz' | sha256sum -c -
+          tar -tzf /tmp/z2f4-payload.tar.gz
+          tar -xzf /tmp/z2f4-payload.tar.gz
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('cmake/device_raster_backend.cmake')
+          include = 'include("${CMAKE_CURRENT_LIST_DIR}/gpu_compositor_submission.cmake")'
+          text = path.read_text(encoding='utf-8')
+          if include not in text:
+              path.write_text(text.rstrip() + '\n\n' + include + '\n', encoding='utf-8')
+          PY
+      - name: Commit implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            src/gpu_compositor_submission.hpp \
+            src/gpu_compositor_submission.cpp \
+            src/gpu_compositor_submission_benchmark_main.cpp \
+            tests/gpu_compositor_submission_tests.cpp \
+            tests/gpu_compositor_equivalence_tests.cpp \
+            cmake/gpu_compositor_submission.cmake \
+            cmake/device_raster_backend.cmake \
+            docs/Z2F4_BOUNDED_GPU_RESIDENCY_COMPOSITOR_SUBMISSION.md
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m 'Implement bounded GPU residency and compositor submission'
+          git push origin HEAD:work/z2f-bounded-gpu-residency-compositor
