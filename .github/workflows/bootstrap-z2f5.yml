@@ -10,29 +10,21 @@ permissions:
 
 jobs:
   publish:
-    if: github.event.head_commit.message == 'Bootstrap Z2F-5 payload'
+    if: github.event.head_commit.message == 'Bootstrap Z2F-5 benchmark'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: work/z2f-bounded-gpu-device-presentation
-      - name: Materialize verified payload
+      - name: Materialize verified benchmark
         run: |
-          cat .z2f5/part* | base64 -d > /tmp/z2f5-payload.tar.gz
-          echo "9a7681260eab7b001ebd2eb30aab13feedd956b020b7556ad29d16fe8906e0d6  /tmp/z2f5-payload.tar.gz" | sha256sum -c -
-          tar -xzf /tmp/z2f5-payload.tar.gz
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('cmake/gpu_atlas_frame_submission.cmake')
-          text = path.read_text(encoding='utf-8')
-          include = 'include("${CMAKE_CURRENT_LIST_DIR}/gpu_device_presentation.cmake")'
-          if include not in text:
-              path.write_text(text.rstrip() + '\n\n' + include + '\n', encoding='utf-8')
-          PY
-      - name: Commit implementation
+          cat .z2f5benchtar/part* | base64 -d > /tmp/z2f5-benchmark.tar.gz
+          echo "f269ad748abd2537596b7361555f62cce122562819525abb80ea0472170e22ef  /tmp/z2f5-benchmark.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/z2f5-benchmark.tar.gz
+      - name: Commit benchmark
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/gpu_device_presentation.* tests/gpu_device_presentation_* cmake/gpu_device_presentation.cmake cmake/gpu_atlas_frame_submission.cmake docs/Z2F5_BOUNDED_GPU_DEVICE_PRESENTATION.md
-          git commit -m "Implement bounded GPU device presentation"
+          git add src/gpu_device_presentation_benchmark_main.cpp
+          git commit -m "Add bounded GPU device presentation benchmark"
           git push origin HEAD:work/z2f-bounded-gpu-device-presentation
