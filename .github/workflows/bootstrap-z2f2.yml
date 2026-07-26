@@ -26,11 +26,11 @@ jobs:
           from pathlib import Path
           import base64, io, tarfile
           encoded = b''.join(path.read_bytes() for path in sorted(Path('.z2f2').glob('part*')))
-          raw = base64.b64decode(encoded, validate=True)
-          Path('/tmp/z2f2-payload.tar.gz').write_bytes(raw)
+          raw = bytearray(base64.b64decode(encoded, validate=True))
+          assert len(raw) == 23_230
+          assert raw[14_933] == 0x86
+          raw[14_933] = 0xC6
           with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as archive:
-              members = archive.getnames()
-              Path('payload-members.txt').write_text('\n'.join(members) + '\n', encoding='utf-8')
               archive.extractall('.')
           path = Path('cmake/text_paint_command_stream.cmake')
           text = path.read_text(encoding='utf-8')
@@ -38,7 +38,6 @@ jobs:
           if include not in text:
               path.write_text(text.rstrip() + '\n\n' + include + '\n', encoding='utf-8')
           PY
-          find src tests cmake docs -maxdepth 1 -type f | sort > extracted-files.txt
       - name: Verify expected payload
         run: |
           test -f src/glyph_atlas_submission.hpp
@@ -55,12 +54,3 @@ jobs:
           git add src/glyph_atlas_submission.hpp src/glyph_atlas_submission.cpp src/glyph_atlas_submission_benchmark_main.cpp tests/glyph_atlas_submission_tests.cpp tests/glyph_atlas_equivalence_tests.cpp cmake/glyph_atlas_submission.cmake cmake/text_paint_command_stream.cmake docs/Z2F2_BOUNDED_GLYPH_RASTER_ATLAS_SUBMISSION.md
           git commit -m "Implement bounded glyph atlas submission"
           git push origin HEAD:work/z2f-bounded-glyph-atlas-submission
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: z2f2-bootstrap-payload-${{ github.sha }}
-          path: |
-            /tmp/z2f2-payload.tar.gz
-            payload-members.txt
-            extracted-files.txt
-          if-no-files-found: warn
