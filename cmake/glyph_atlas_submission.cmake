@@ -40,3 +40,5 @@ if(TARGET zevryon-text-paint-command-stream)
       COMMAND zevryon-glyph-atlas-equivalence-tests)
   endif()
 endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/device_raster_backend.cmake")
