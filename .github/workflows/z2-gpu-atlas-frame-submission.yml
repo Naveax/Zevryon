@@ -1,0 +1,167 @@
+name: z2-gpu-atlas-frame-submission
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-gpu-atlas-frame-submission.yml'
+      - 'cmake/gpu_atlas_frame_submission.cmake'
+      - 'cmake/device_raster_backend.cmake'
+      - 'src/gpu_atlas_frame_submission.*'
+      - 'src/device_raster_backend.*'
+      - 'src/glyph_atlas_submission.*'
+      - 'src/text_paint_command_stream.*'
+      - 'tests/gpu_atlas_frame_submission_tests.cpp'
+      - 'tests/gpu_atlas_frame_submission_equivalence_tests.cpp'
+      - 'docs/Z2F4_BOUNDED_GPU_ATLAS_FRAME_SUBMISSION.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-gpu-atlas-frame-submission-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  strict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libharfbuzz-dev
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+      - name: Build focused targets
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target \
+            zevryon-gpu-atlas-frame-submission-tests \
+            zevryon-gpu-atlas-frame-submission-equivalence-tests \
+            zevryon-gpu-atlas-frame-submission-benchmark \
+            zevryon-device-raster-backend-tests \
+            zevryon-glyph-atlas-submission-tests \
+            2>&1 | tee gpu-atlas-frame-build.log
+      - name: Repeat functional certification
+        run: |
+          set -o pipefail
+          ctest --test-dir build -R '^gpu-atlas-frame-submission-tests$' --repeat until-fail:20 --output-on-failure 2>&1 | tee gpu-atlas-frame-repeat.log
+      - name: Run 9216-case equivalence oracle
+        run: |
+          set -o pipefail
+          ctest --test-dir build -R '^gpu-atlas-frame-submission-equivalence-tests$' --output-on-failure 2>&1 | tee gpu-atlas-frame-equivalence.log
+      - name: Run benchmark distributions
+        run: |
+          for run in 1 2 3; do
+            ./build/zevryon-gpu-atlas-frame-submission-benchmark > "gpu-atlas-frame-benchmark-${run}.json"
+          done
+      - name: Enforce exact bounded gates
+        run: |
+          python3 - <<'PY'
+          import json
+          rows=[]
+          for index in range(1,4):
+              with open(f'gpu-atlas-frame-benchmark-{index}.json', encoding='utf-8') as handle:
+                  row=json.load(handle)
+              assert row['schema']=='zevryon.gpu-atlas-frame-submission-benchmark.v1'
+              assert row['input_document_lines']==16384
+              assert row['input_projected_lines']==80
+              assert row['input_paint_commands']==145
+              assert row['input_draw_instances']==310
+              assert row['frame_commands']==68
+              assert row['fill_rects']==65
+              assert row['glyph_batches']==3
+              assert row['page_references']==3
+              assert row['cold_wait_fence']==3
+              assert row['cold_signal_fence']==4
+              assert row['hot_wait_fence']==0
+              assert row['hot_signal_fence']==5
+              assert row['submitted_frames']==2
+              assert row['retired_frames']==2
+              assert row['resident_pages']==3
+              assert row['in_flight_frames']==0
+              assert row['page_pins']==0
+              assert row['output_current_bytes']==8512
+              assert row['output_peak_bytes']==11584
+              assert row['scheduler_current_bytes']==328
+              assert row['scheduler_peak_bytes']==712
+              assert row['checksum']==14886188858454970425
+              assert 0<row['p50_ms']<=row['p95_ms']<=row['p99_ms']<=row['maximum_ms']
+              assert row['p95_ms']<=1.0
+              assert row['p99_ms']<=2.0
+              assert row['maximum_ms']<=5.0
+              rows.append(row)
+          stable=('frame_commands','fill_rects','glyph_batches','page_references','cold_wait_fence','cold_signal_fence','hot_wait_fence','hot_signal_fence','output_current_bytes','output_peak_bytes','scheduler_current_bytes','scheduler_peak_bytes','checksum')
+          for key in stable:
+              assert len({row[key] for row in rows})==1, key
+          print(json.dumps({key:rows[0][key] for key in stable}, sort_keys=True))
+          print(json.dumps({key:[row[key] for row in rows] for key in ('p50_ms','p95_ms','p99_ms','maximum_ms')}, sort_keys=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-gpu-atlas-frame-submission-${{ github.sha }}
+          path: |
+            gpu-atlas-frame-build.log
+            gpu-atlas-frame-repeat.log
+            gpu-atlas-frame-equivalence.log
+            gpu-atlas-frame-benchmark-*.json
+          if-no-files-found: warn
+
+  sanitizer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libharfbuzz-dev
+      - name: Configure sanitizers
+        run: >-
+          cmake -S . -B build-sanitized
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+          -DCMAKE_CXX_FLAGS=-fsanitize=address,undefined
+          -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined
+          -DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined
+      - name: Build and run focused tests
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          set -o pipefail
+          cmake --build build-sanitized --parallel 2 --target zevryon-gpu-atlas-frame-submission-tests zevryon-gpu-atlas-frame-submission-equivalence-tests 2>&1 | tee gpu-atlas-frame-sanitizer-build.log
+          ctest --test-dir build-sanitized -R '^gpu-atlas-frame-submission-(tests|equivalence-tests)$' --output-on-failure
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-gpu-atlas-frame-submission-sanitizer-${{ github.sha }}
+          path: gpu-atlas-frame-sanitizer-build.log
+          if-no-files-found: warn
+
+  appleclang:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz
+        run: brew install harfbuzz
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+      - name: Build and run focused tests
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target zevryon-gpu-atlas-frame-submission-tests zevryon-gpu-atlas-frame-submission-equivalence-tests zevryon-gpu-atlas-frame-submission-benchmark 2>&1 | tee apple-gpu-atlas-frame-build.log
+          ctest --test-dir build -R '^gpu-atlas-frame-submission-(tests|equivalence-tests)$' --output-on-failure 2>&1 | tee apple-gpu-atlas-frame-test.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-gpu-atlas-frame-submission-appleclang-${{ github.sha }}
+          path: |
+            apple-gpu-atlas-frame-build.log
+            apple-gpu-atlas-frame-test.log
+          if-no-files-found: warn
