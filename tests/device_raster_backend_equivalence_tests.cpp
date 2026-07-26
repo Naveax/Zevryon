@@ -78,7 +78,8 @@ int main() {
                         job.key.x_scale = scale;
                         job.key.y_scale = scale;
                         job.key.mode = mode;
-                        job.key.subpixel_x = mode == GlyphRasterMode::Color ? 0U :
+                        job.key.subpixel_x = mode == GlyphRasterMode::Color ?
+                            static_cast<std::uint8_t>(0U) :
                             static_cast<std::uint8_t>((glyph_id - 1U) % phase_grid);
                         job.key.subpixel_y = job.key.subpixel_x;
                         job.queue_generation = 1U;
