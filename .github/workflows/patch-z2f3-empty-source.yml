@@ -1,6 +1,9 @@
 name: patch-z2f3-empty-source
 
 on:
+  push:
+    branches:
+      - work/z2f-bounded-device-raster-execution
   pull_request:
     branches:
       - main
@@ -10,6 +13,7 @@ permissions:
 
 jobs:
   patch:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
