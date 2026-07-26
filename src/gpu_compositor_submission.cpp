@@ -85,11 +85,13 @@ bool texture_matches(
     std::uint64_t device_generation,
     std::uint64_t atlas_generation_id,
     std::uint64_t page_generation,
-    std::uint32_t page_index) noexcept {
+    std::uint32_t page_index,
+    GlyphRasterFormat format) noexcept {
     return record.handle.device_generation == device_generation &&
         record.atlas_generation_id == atlas_generation_id &&
         record.page_generation == page_generation &&
         record.handle.page_index == page_index &&
+        record.handle.format == format &&
         (record.handle.flags & kGpuTextureHandleValid) != 0U;
 }
 
@@ -98,7 +100,8 @@ GpuTextureResidencyRecord* find_texture(
     std::uint64_t device_generation,
     std::uint64_t atlas_generation_id,
     std::uint64_t page_generation,
-    std::uint32_t page_index) noexcept {
+    std::uint32_t page_index,
+    GlyphRasterFormat format) noexcept {
     const auto it = std::find_if(
         textures->begin(),
         textures->end(),
@@ -108,9 +111,35 @@ GpuTextureResidencyRecord* find_texture(
                 device_generation,
                 atlas_generation_id,
                 page_generation,
-                page_index);
+                page_index,
+                format);
         });
     return it == textures->end() ? nullptr : &*it;
+}
+
+bool page_format_for_submission(
+    const GlyphAtlasSubmission& submission,
+    std::uint64_t page_generation,
+    std::uint32_t page_index,
+    GlyphRasterFormat* output) noexcept {
+    bool found = false;
+    GlyphRasterFormat format = GlyphRasterFormat::Alpha8;
+    for (const GlyphAtlasUploadRecord& upload : submission.uploads) {
+        if (upload.page_generation != page_generation ||
+            upload.page_index != page_index) {
+            continue;
+        }
+        if (!found) {
+            format = upload.format;
+            found = true;
+        } else if (format != upload.format) {
+            return false;
+        }
+    }
+    if (found && output != nullptr) {
+        *output = format;
+    }
+    return found;
 }
 
 bool texture_required_by_frame(
@@ -122,7 +151,8 @@ bool texture_required_by_frame(
         [&](const GlyphAtlasBackendUploadBatch& batch) {
             return texture.atlas_generation_id == batch.atlas_generation_id &&
                 texture.page_generation == batch.page_generation &&
-                texture.handle.page_index == batch.page_index;
+                texture.handle.page_index == batch.page_index &&
+                texture.handle.format == batch.format;
         });
     if (required_by_upload) {
         return true;
@@ -131,10 +161,17 @@ bool texture_required_by_frame(
         request.atlas_submission->draw_batches.begin(),
         request.atlas_submission->draw_batches.end(),
         [&](const GlyphAtlasDrawBatch& batch) {
-            return texture.atlas_generation_id ==
+            GlyphRasterFormat format = GlyphRasterFormat::Alpha8;
+            return page_format_for_submission(
+                       *request.atlas_submission,
+                       batch.page_generation,
+                       batch.page_index,
+                       &format) &&
+                texture.atlas_generation_id ==
                     request.atlas_submission->atlas_generation_id &&
                 texture.page_generation == batch.page_generation &&
-                texture.handle.page_index == batch.page_index;
+                texture.handle.page_index == batch.page_index &&
+                texture.handle.format == format;
         });
 }
 
@@ -551,7 +588,8 @@ bool prepare_gpu_compositor_frame(
                 cache->config_.device_generation,
                 batch.atlas_generation_id,
                 batch.page_generation,
-                batch.page_index);
+                batch.page_index,
+                batch.format);
             if (texture == nullptr) {
                 if (staged_textures.size() >= cache->config_.maximum_textures) {
                     const bool has_in_flight = std::any_of(
@@ -759,12 +797,29 @@ bool prepare_gpu_compositor_frame(
                     nullptr,
                     error);
             }
+            GlyphRasterFormat draw_format = GlyphRasterFormat::Alpha8;
+            if (!page_format_for_submission(
+                    *request.atlas_submission,
+                    draw.page_generation,
+                    draw.page_index,
+                    &draw_format)) {
+                for (const GpuTextureHandle& handle : newly_allocated) {
+                    backend->release_texture(handle);
+                }
+                return fail(
+                    GpuCompositorFrameErrorKind::CommandTopologyViolation,
+                    0U, 0U, draw_index, draw.page_index,
+                    "draw batch page has no unique raster format",
+                    nullptr,
+                    error);
+            }
             GpuTextureResidencyRecord* texture = find_texture(
                 &staged_textures,
                 cache->config_.device_generation,
                 request.atlas_submission->atlas_generation_id,
                 draw.page_generation,
-                draw.page_index);
+                draw.page_index,
+                draw_format);
             if (texture == nullptr) {
                 for (const GpuTextureHandle& handle : newly_allocated) {
                     backend->release_texture(handle);
