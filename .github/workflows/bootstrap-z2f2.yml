@@ -4,13 +4,16 @@ on:
   push:
     branches:
       - work/z2f-bounded-glyph-atlas-submission
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   publish:
-    if: github.event.head_commit.message == 'Run Z2F-2 payload bootstrap'
+    if: github.event_name == 'pull_request' || github.event.head_commit.message == 'Run Z2F-2 payload bootstrap'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,5 +36,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/glyph_atlas_submission.* tests/glyph_atlas_* cmake/glyph_atlas_submission.cmake cmake/text_paint_command_stream.cmake docs/Z2F2_BOUNDED_GLYPH_RASTER_ATLAS_SUBMISSION.md
+          if git diff --cached --quiet; then
+            exit 0
+          fi
           git commit -m "Implement bounded glyph atlas submission"
           git push origin HEAD:work/z2f-bounded-glyph-atlas-submission
