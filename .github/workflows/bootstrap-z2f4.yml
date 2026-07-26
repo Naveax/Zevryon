@@ -1,5 +1,6 @@
 name: bootstrap-z2f4
 
+# One-shot source materialization for the Z2F-4 branch.
 on:
   push:
     branches:
