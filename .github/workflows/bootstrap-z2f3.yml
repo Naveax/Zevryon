@@ -9,56 +9,17 @@ permissions:
   contents: write
 
 jobs:
-  publish:
+  cleanup:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: work/z2f-bounded-device-raster-execution
           fetch-depth: 0
-      - name: Materialize payload
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import hashlib
-          import io
-          import tarfile
-
-          encoded = ''.join(
-              path.read_text(encoding='utf-8').strip()
-              for path in sorted(Path('.z2f3').glob('part*'))
-          )
-          raw = bytes.fromhex(encoded)
-          digest = hashlib.sha256(raw).hexdigest()
-          assert digest == '91c76cfa5fdb6c6c8c3e143818ac18e2b7ee240c7d1fbce0b2452464df15e8bf', digest
-          with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as archive:
-              archive.extractall('.')
-
-          expected = [
-              'src/device_raster_backend.hpp',
-              'src/device_raster_backend.cpp',
-              'src/device_raster_backend_benchmark_main.cpp',
-              'tests/device_raster_backend_tests.cpp',
-              'tests/device_raster_backend_equivalence_tests.cpp',
-              'cmake/device_raster_backend.cmake',
-              'cmake/glyph_atlas_submission.cmake',
-              'docs/Z2F3_BOUNDED_DEVICE_RASTER_EXECUTION.md',
-          ]
-          missing = [path for path in expected if not Path(path).is_file()]
-          assert not missing, missing
-          PY
-      - name: Commit implementation
+      - name: Remove bootstrap payload
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            src/device_raster_backend.hpp \
-            src/device_raster_backend.cpp \
-            src/device_raster_backend_benchmark_main.cpp \
-            tests/device_raster_backend_tests.cpp \
-            tests/device_raster_backend_equivalence_tests.cpp \
-            cmake/device_raster_backend.cmake \
-            cmake/glyph_atlas_submission.cmake \
-            docs/Z2F3_BOUNDED_DEVICE_RASTER_EXECUTION.md
-          git commit -m "Implement bounded device raster execution"
+          git rm -r .z2f3 .github/workflows/bootstrap-z2f3.yml
+          git commit -m "Remove Z2F-3 bootstrap payload"
           git push origin HEAD:work/z2f-bounded-device-raster-execution
