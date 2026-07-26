@@ -67,3 +67,5 @@ if(TARGET zevryon-glyph-atlas-submission)
       COMMAND zevryon-device-raster-backend-equivalence-tests)
   endif()
 endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/gpu_compositor_submission.cmake")
