@@ -1,38 +1,36 @@
 name: bootstrap-z2f2
 
 on:
-  push:
-    branches:
-      - work/z2f-bounded-glyph-atlas-submission
   pull_request:
     branches:
       - main
+
+concurrency:
+  group: bootstrap-z2f2-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
 
 jobs:
   publish:
-    if: github.event_name == 'pull_request' || github.event.head_commit.message == 'Run Z2F-2 payload bootstrap'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: work/z2f-bounded-glyph-atlas-submission
+          fetch-depth: 0
       - name: Materialize payload
         run: |
-          wc -c .z2f2/part*
           python3 - <<'PY'
           from pathlib import Path
           import base64, hashlib, io, tarfile
           encoded = b''.join(path.read_bytes() for path in sorted(Path('.z2f2').glob('part*')))
-          print('encoded_bytes', len(encoded))
-          print('encoded_sha256', hashlib.sha256(encoded).hexdigest())
+          assert len(encoded) == 30_976, len(encoded)
+          assert hashlib.sha256(encoded).hexdigest() == '0558c4a63970a24b71edee329fb11e19a9c8e7dc790a58a4ec4ec77815c7ee6c'
           raw = base64.b64decode(encoded, validate=True)
-          print('archive_bytes', len(raw))
-          print('archive_sha256', hashlib.sha256(raw).hexdigest())
+          assert hashlib.sha256(raw).hexdigest() == 'd4bfa9b98968a05a6e40b6a20cbe329cb406e74d0f7581d93a287a2613fefaa6'
           with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as archive:
-              print('archive_members', archive.getnames())
               archive.extractall('.')
           path = Path('cmake/text_paint_command_stream.cmake')
           text = path.read_text(encoding='utf-8')
