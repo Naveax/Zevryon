@@ -57,7 +57,7 @@ jobs:
           for run in 1 2 3; do
             ./build/zevryon-gpu-atlas-frame-submission-benchmark > "gpu-atlas-frame-benchmark-${run}.json"
           done
-      - name: Enforce bounded gates
+      - name: Enforce exact bounded gates
         run: |
           python3 - <<'PY'
           import json
@@ -74,18 +74,26 @@ jobs:
               assert row['fill_rects']==65
               assert row['glyph_batches']==3
               assert row['page_references']==3
-              assert row['cold_wait_fence']>0 and row['hot_wait_fence']==0
-              assert row['cold_signal_fence']>row['cold_wait_fence']
-              assert row['hot_signal_fence']>row['cold_signal_fence']
-              assert row['submitted_frames']==2 and row['retired_frames']==2
-              assert row['resident_pages']==3 and row['in_flight_frames']==0 and row['page_pins']==0
-              assert 0<row['output_current_bytes']<=row['output_peak_bytes']<=65536
-              assert 0<row['scheduler_current_bytes']<=row['scheduler_peak_bytes']<=65536
-              assert row['checksum']!=0
+              assert row['cold_wait_fence']==3
+              assert row['cold_signal_fence']==4
+              assert row['hot_wait_fence']==0
+              assert row['hot_signal_fence']==5
+              assert row['submitted_frames']==2
+              assert row['retired_frames']==2
+              assert row['resident_pages']==3
+              assert row['in_flight_frames']==0
+              assert row['page_pins']==0
+              assert row['output_current_bytes']==8512
+              assert row['output_peak_bytes']==11584
+              assert row['scheduler_current_bytes']==328
+              assert row['scheduler_peak_bytes']==712
+              assert row['checksum']==14886188858454970425
               assert 0<row['p50_ms']<=row['p95_ms']<=row['p99_ms']<=row['maximum_ms']
-              assert row['p95_ms']<=5 and row['p99_ms']<=8 and row['maximum_ms']<=20
+              assert row['p95_ms']<=1.0
+              assert row['p99_ms']<=2.0
+              assert row['maximum_ms']<=5.0
               rows.append(row)
-          stable=('frame_commands','fill_rects','glyph_batches','page_references','output_current_bytes','output_peak_bytes','scheduler_current_bytes','scheduler_peak_bytes','checksum')
+          stable=('frame_commands','fill_rects','glyph_batches','page_references','cold_wait_fence','cold_signal_fence','hot_wait_fence','hot_signal_fence','output_current_bytes','output_peak_bytes','scheduler_current_bytes','scheduler_peak_bytes','checksum')
           for key in stable:
               assert len({row[key] for row in rows})==1, key
           print(json.dumps({key:rows[0][key] for key in stable}, sort_keys=True))
