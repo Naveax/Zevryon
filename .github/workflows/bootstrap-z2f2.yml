@@ -1,0 +1,37 @@
+name: bootstrap-z2f2
+
+on:
+  push:
+    branches:
+      - work/z2f-bounded-glyph-atlas-submission
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.event.head_commit.message == 'Run Z2F-2 payload bootstrap'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/z2f-bounded-glyph-atlas-submission
+      - name: Materialize payload
+        run: |
+          cat .z2f2/part* | base64 -d > /tmp/z2f2-payload.tar.gz
+          tar -xzf /tmp/z2f2-payload.tar.gz
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('cmake/text_paint_command_stream.cmake')
+          text = path.read_text(encoding='utf-8')
+          include = 'include("${CMAKE_CURRENT_LIST_DIR}/glyph_atlas_submission.cmake")'
+          if include not in text:
+              path.write_text(text.rstrip() + '\n\n' + include + '\n', encoding='utf-8')
+          PY
+      - name: Commit implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/glyph_atlas_submission.* tests/glyph_atlas_* cmake/glyph_atlas_submission.cmake cmake/text_paint_command_stream.cmake docs/Z2F2_BOUNDED_GLYPH_RASTER_ATLAS_SUBMISSION.md
+          git commit -m "Implement bounded glyph atlas submission"
+          git push origin HEAD:work/z2f-bounded-glyph-atlas-submission
