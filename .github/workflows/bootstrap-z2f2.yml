@@ -21,10 +21,19 @@ jobs:
           ref: work/z2f-bounded-glyph-atlas-submission
       - name: Materialize payload
         run: |
-          cat .z2f2/part* | base64 -d > /tmp/z2f2-payload.tar.gz
-          tar -xzf /tmp/z2f2-payload.tar.gz
+          wc -c .z2f2/part*
           python3 - <<'PY'
           from pathlib import Path
+          import base64, hashlib, io, tarfile
+          encoded = b''.join(path.read_bytes() for path in sorted(Path('.z2f2').glob('part*')))
+          print('encoded_bytes', len(encoded))
+          print('encoded_sha256', hashlib.sha256(encoded).hexdigest())
+          raw = base64.b64decode(encoded, validate=True)
+          print('archive_bytes', len(raw))
+          print('archive_sha256', hashlib.sha256(raw).hexdigest())
+          with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as archive:
+              print('archive_members', archive.getnames())
+              archive.extractall('.')
           path = Path('cmake/text_paint_command_stream.cmake')
           text = path.read_text(encoding='utf-8')
           include = 'include("${CMAKE_CURRENT_LIST_DIR}/glyph_atlas_submission.cmake")'
