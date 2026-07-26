@@ -42,6 +42,12 @@ A texture identity includes device generation, texture generation, texture ID,
 page index, and raster format. Atlas/page generation mismatches never alias an
 existing texture.
 
+Raster format participates in every cache lookup, current-frame protection,
+eviction decision, and draw resolution. Alpha8, LCD RGB8, and BGRA8 pages with
+otherwise equal page index and generation values therefore cannot alias one GPU
+texture handle. A draw page must also resolve to one unique format in the atlas
+submission or frame preparation fails closed.
+
 ## Pending to resident promotion
 
 New textures are published as `Pending` with `ready_fence_value == 0`. Preparing
