@@ -18,9 +18,8 @@ jobs:
           ref: work/z2f-bounded-device-raster-execution
           fetch-depth: 0
 
-      - name: Repair source and restore permanent workflows
+      - name: Canonicalize empty raster source metadata
         run: |
-          git fetch origin main
           python3 - <<'PY'
           from pathlib import Path
 
@@ -60,20 +59,10 @@ jobs:
           if text.count(old) != 1:
               raise SystemExit(f'expected one empty-raster publication block, found {text.count(old)}')
           source.write_text(text.replace(old, new, 1), encoding='utf-8')
-
-          focused_hex = Path('.z2f3/focused.hex').read_text(encoding='utf-8').strip()
-          Path('.github/workflows/z2-device-raster-backend.yml').write_bytes(
-              bytes.fromhex(focused_hex))
           PY
 
-          git checkout origin/main -- .github/workflows/z2-glyph-atlas-submission.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add \
-            src/device_raster_backend.cpp \
-            .github/workflows/z2-device-raster-backend.yml \
-            .github/workflows/z2-glyph-atlas-submission.yml
-          git rm -r .z2f3 .github/workflows/repair-z2f3.yml
-          git commit -m "Repair Z2F-3 empty raster publication"
+          git add src/device_raster_backend.cpp
+          git commit -m "Canonicalize empty raster source metadata"
           git push origin HEAD:work/z2f-bounded-device-raster-execution
