@@ -40,3 +40,5 @@ if(TARGET zevryon-viewport-projection)
       COMMAND zevryon-text-paint-command-equivalence-tests)
   endif()
 endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/glyph_atlas_submission.cmake")
