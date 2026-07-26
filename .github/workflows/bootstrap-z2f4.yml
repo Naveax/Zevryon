@@ -5,13 +5,16 @@ on:
   push:
     branches:
       - work/z2f-bounded-gpu-residency-compositor
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   publish:
-    if: github.event.head_commit.message == 'Bootstrap Z2F-4 payload'
+    if: github.event_name == 'pull_request' || github.event.head_commit.message == 'Bootstrap Z2F-4 payload'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,5 +53,8 @@ jobs:
             cmake/gpu_compositor_submission.cmake \
             cmake/device_raster_backend.cmake \
             docs/Z2F4_BOUNDED_GPU_RESIDENCY_COMPOSITOR_SUBMISSION.md
+          if git diff --cached --quiet; then
+            exit 0
+          fi
           git commit -m 'Implement bounded GPU residency and compositor submission'
           git push origin HEAD:work/z2f-bounded-gpu-residency-compositor
