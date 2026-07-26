@@ -77,16 +77,18 @@ jobs:
               assert row['source_payload_bytes'] == 12_720
               assert row['cold_uploads'] == 93
               assert row['cold_draw_instances'] == 310
-              assert row['backend_upload_batches'] >= 3
+              assert row['cold_draw_batches'] == 3
+              assert row['backend_upload_batches'] == 3
               assert row['hot_jobs'] == 0
               assert row['hot_uploads'] == 0
               assert row['hot_draw_instances'] == 310
-              assert row['output_current_bytes'] > 0
-              assert row['output_peak_bytes'] >= row['output_current_bytes']
-              assert row['cache_current_bytes'] > 0
-              assert row['cache_peak_bytes'] >= row['cache_current_bytes']
+              assert row['output_current_bytes'] == 102_592
+              assert row['output_peak_bytes'] == 102_592
+              assert row['cache_current_bytes'] == 9_360
+              assert row['cache_peak_bytes'] == 18_723
               assert row['cache_pages'] == 3
               assert row['cache_entries'] == 96
+              assert row['checksum'] == 3_419_726_875_785_770_731
               assert 0.0 < row['p50_ms'] <= row['p95_ms'] <= row['p99_ms'] <= row['maximum_ms']
               assert row['p95_ms'] <= 5.0, row
               assert row['p99_ms'] <= 8.0, row
