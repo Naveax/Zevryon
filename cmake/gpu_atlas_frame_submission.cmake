@@ -61,3 +61,5 @@ if(TARGET zevryon-device-raster-backend)
       COMMAND zevryon-gpu-atlas-frame-submission-equivalence-tests)
   endif()
 endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/gpu_device_presentation.cmake")
