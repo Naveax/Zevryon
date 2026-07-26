@@ -1,6 +1,9 @@
 name: z2-gpu-compositor-submission
 
 on:
+  push:
+    branches:
+      - work/z2f-bounded-gpu-residency-compositor
   pull_request:
     paths:
       - '.github/workflows/z2-gpu-compositor-submission.yml'
