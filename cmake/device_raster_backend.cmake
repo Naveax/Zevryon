@@ -24,9 +24,6 @@ if(TARGET zevryon-glyph-atlas-submission)
       zevryon-device-raster-backend-tests
       PRIVATE zevryon-device-raster-backend)
     zevryon_options(zevryon-device-raster-backend-tests)
-    add_test(
-      NAME device-raster-backend-tests
-      COMMAND zevryon-device-raster-backend-tests)
 
     add_executable(
       zevryon-device-raster-backend-equivalence-tests
@@ -35,6 +32,26 @@ if(TARGET zevryon-glyph-atlas-submission)
       zevryon-device-raster-backend-equivalence-tests
       PRIVATE zevryon-device-raster-backend)
     zevryon_options(zevryon-device-raster-backend-equivalence-tests)
+
+    # Release and RelWithDebInfo define NDEBUG globally. These certification
+    # executables deliberately use assert as their fail-fast test primitive, so
+    # keep those checks active on every compiler and configuration.
+    if(MSVC)
+      target_compile_options(
+        zevryon-device-raster-backend-tests PRIVATE /UNDEBUG)
+      target_compile_options(
+        zevryon-device-raster-backend-equivalence-tests PRIVATE /UNDEBUG)
+    else()
+      target_compile_options(
+        zevryon-device-raster-backend-tests
+        PRIVATE -UNDEBUG -Wno-unused-function)
+      target_compile_options(
+        zevryon-device-raster-backend-equivalence-tests PRIVATE -UNDEBUG)
+    endif()
+
+    add_test(
+      NAME device-raster-backend-tests
+      COMMAND zevryon-device-raster-backend-tests)
     add_test(
       NAME device-raster-backend-equivalence-tests
       COMMAND zevryon-device-raster-backend-equivalence-tests)
