@@ -37,11 +37,25 @@ jobs:
           PY
       - name: Commit implementation
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/glyph_atlas_submission.* tests/glyph_atlas_* cmake/glyph_atlas_submission.cmake cmake/text_paint_command_stream.cmake docs/Z2F2_BOUNDED_GLYPH_RASTER_ATLAS_SUBMISSION.md
-          if git diff --cached --quiet; then
-            exit 0
-          fi
-          git commit -m "Implement bounded glyph atlas submission"
-          git push origin HEAD:work/z2f-bounded-glyph-atlas-submission
+          set +e
+          {
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src/glyph_atlas_submission.* tests/glyph_atlas_* cmake/glyph_atlas_submission.cmake cmake/text_paint_command_stream.cmake docs/Z2F2_BOUNDED_GLYPH_RASTER_ATLAS_SUBMISSION.md
+            git status --short
+            git diff --cached --stat
+            if git diff --cached --quiet; then
+              exit 0
+            fi
+            git commit -m "Implement bounded glyph atlas submission"
+            git push origin HEAD:work/z2f-bounded-glyph-atlas-submission
+          } > bootstrap-publication.log 2>&1
+          status=$?
+          cat bootstrap-publication.log
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2f2-bootstrap-publication-${{ github.sha }}
+          path: bootstrap-publication.log
+          if-no-files-found: warn
