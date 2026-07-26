@@ -19,125 +19,26 @@ jobs:
         with:
           ref: work/z2f-bounded-gpu-atlas-frame-submission
           fetch-depth: 0
-      - name: Correct unique-page oracle
+      - name: Replace unique-page oracle
+        env:
+          VERIFY_CASE_GZIP_BASE64: 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
         run: |
           python3 - <<'PY'
+          import base64
+          import gzip
+          import os
           from pathlib import Path
+
           path = Path('tests/gpu_atlas_frame_submission_equivalence_tests.cpp')
           text = path.read_text(encoding='utf-8')
-          text = text.replace('#include <array>\n', '#include <algorithm>\n#include <array>\n', 1)
-          old = '''    const std::uint32_t expected_commands = selection_count +
-              static_cast<std::uint32_t>(atlas.draw_batches.size()) + caret_count;
-          const std::uint32_t expected_fills = selection_count + caret_count;
-          '''
-          new = '''    const std::uint32_t expected_commands = selection_count +
-              static_cast<std::uint32_t>(atlas.draw_batches.size()) + caret_count;
-          const std::uint32_t expected_fills = selection_count + caret_count;
-
-          struct ExpectedPage final {
-              std::uint32_t page_index{0};
-              std::uint64_t page_generation{0};
-              GlyphRasterFormat format{GlyphRasterFormat::Empty};
-              std::uint32_t first_batch{0};
-              std::uint32_t batch_count{0};
-              std::uint64_t required_upload_fence{0};
-          };
-          std::vector<ExpectedPage> expected_pages;
-          std::vector<std::uint32_t> expected_batch_page_indices;
-          expected_batch_page_indices.reserve(atlas.draw_batches.size());
-          for (std::size_t batch_index = 0;
-               batch_index < atlas.draw_batches.size();
-               ++batch_index) {
-              const GlyphAtlasDrawBatch& batch = atlas.draw_batches[batch_index];
-              const GlyphAtlasDrawInstance& first_instance =
-                  atlas.draw_instances[batch.first_instance];
-              const GlyphRasterMode mode = pipeline.working.entries[
-                  first_instance.working_set_key_index].key.mode;
-              const GlyphRasterFormat format = mode == GlyphRasterMode::Grayscale
-                  ? GlyphRasterFormat::Alpha8
-                  : mode == GlyphRasterMode::Lcd
-                      ? GlyphRasterFormat::LcdRgb8
-                      : GlyphRasterFormat::Bgra8;
-              auto page = std::find_if(
-                  expected_pages.begin(),
-                  expected_pages.end(),
-                  [&batch](const ExpectedPage& candidate) {
-                      return candidate.page_index == batch.page_index;
-                  });
-              if (page == expected_pages.end()) {
-                  ExpectedPage candidate;
-                  candidate.page_index = batch.page_index;
-                  candidate.page_generation = batch.page_generation;
-                  candidate.format = format;
-                  candidate.first_batch = static_cast<std::uint32_t>(batch_index);
-                  candidate.batch_count = 1U;
-                  candidate.required_upload_fence = expected_upload_fence(
-                      upload, batch.page_index, batch.page_generation);
-                  expected_pages.push_back(candidate);
-                  expected_batch_page_indices.push_back(
-                      static_cast<std::uint32_t>(expected_pages.size() - 1U));
-              } else {
-                  assert(page->page_generation == batch.page_generation);
-                  assert(page->format == format);
-                  ++page->batch_count;
-                  expected_batch_page_indices.push_back(
-                      static_cast<std::uint32_t>(page - expected_pages.begin()));
-              }
-          }
-          '''
-          assert old in text
-          text = text.replace(old, new, 1)
-          text = text.replace(
-              '    request.limits.maximum_fill_rects = expected_fills + slack;\n',
-              '    request.limits.maximum_fill_rects =\n        std::max<std::uint32_t>(1U, expected_fills + slack);\n',
-              1)
-          text = text.replace(
-              '''    request.limits.maximum_page_references =
-              static_cast<std::uint32_t>(atlas.draw_batches.size()) + slack;
-          ''',
-              '''    request.limits.maximum_page_references =
-              static_cast<std::uint32_t>(expected_pages.size()) + slack;
-          ''',
-              1)
-          text = text.replace(
-              '    assert(output.page_references.size() == atlas.draw_batches.size());\n',
-              '    assert(output.page_references.size() == expected_pages.size());\n',
-              1)
-          old = '''        assert(batch.page_reference_index == i);
-
-                  const GpuFramePageReference& page = output.page_references[i];
-                  assert(page.page_index == source.page_index);
-                  assert(page.page_generation == source.page_generation);
-                  assert(page.first_batch == i);
-                  assert(page.batch_count == 1U);
-                  const std::uint64_t fence = expected_upload_fence(
-                      upload, source.page_index, source.page_generation);
-                  assert(page.required_upload_fence == fence);
-                  expected_required_fence = std::max(expected_required_fence, fence);
-          '''
-          new = '''        assert(batch.page_reference_index == expected_batch_page_indices[i]);
-
-                  const ExpectedPage& expected_page =
-                      expected_pages[batch.page_reference_index];
-                  const GpuFramePageReference& page =
-                      output.page_references[batch.page_reference_index];
-                  assert(page.page_index == expected_page.page_index);
-                  assert(page.page_generation == expected_page.page_generation);
-                  assert(page.format == expected_page.format);
-                  assert(page.first_batch == expected_page.first_batch);
-                  assert(page.batch_count == expected_page.batch_count);
-                  assert(page.required_upload_fence ==
-                      expected_page.required_upload_fence);
-                  expected_required_fence = std::max(
-                      expected_required_fence,
-                      expected_page.required_upload_fence);
-          '''
-          assert old in text
-          text = text.replace(old, new, 1)
-          text = text.replace(
-              '    assert(stats.output_page_references == atlas.draw_batches.size());\n',
-              '    assert(stats.output_page_references == expected_pages.size());\n',
-              1)
+          if '#include <algorithm>\n' not in text:
+              text = text.replace('#include <array>\n', '#include <algorithm>\n#include <array>\n', 1)
+          start = text.index('void verify_case(')
+          end = text.index('\n}\n\n} // namespace', start) + 2
+          replacement = gzip.decompress(
+              base64.b64decode(os.environ['VERIFY_CASE_GZIP_BASE64']))
+          replacement = replacement.decode('utf-8')
+          text = text[:start] + replacement + text[end:]
           path.write_text(text, encoding='utf-8')
           PY
           git config user.name "github-actions[bot]"
