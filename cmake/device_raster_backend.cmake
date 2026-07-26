@@ -16,6 +16,17 @@ if(TARGET zevryon-glyph-atlas-submission)
     PRIVATE zevryon-device-raster-backend)
   zevryon_options(zevryon-device-raster-backend-benchmark)
 
+  # Release and RelWithDebInfo define NDEBUG globally. This certification
+  # benchmark uses assert for fixture and topology invariants, so keep those
+  # checks active in every configuration.
+  if(MSVC)
+    target_compile_options(
+      zevryon-device-raster-backend-benchmark PRIVATE /UNDEBUG)
+  else()
+    target_compile_options(
+      zevryon-device-raster-backend-benchmark PRIVATE -UNDEBUG)
+  endif()
+
   if(BUILD_TESTING)
     add_executable(
       zevryon-device-raster-backend-tests
@@ -33,9 +44,8 @@ if(TARGET zevryon-glyph-atlas-submission)
       PRIVATE zevryon-device-raster-backend)
     zevryon_options(zevryon-device-raster-backend-equivalence-tests)
 
-    # Release and RelWithDebInfo define NDEBUG globally. These certification
-    # executables deliberately use assert as their fail-fast test primitive, so
-    # keep those checks active on every compiler and configuration.
+    # The focused tests use assert as their fail-fast primitive. Keep assertions
+    # active under Release and RelWithDebInfo on all supported compilers.
     if(MSVC)
       target_compile_options(
         zevryon-device-raster-backend-tests PRIVATE /UNDEBUG)
