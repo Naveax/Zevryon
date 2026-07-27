@@ -2,7 +2,7 @@ name: z2f8b1-bootstrap
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, synchronize]
     paths:
       - '.z2f8b1_payload.b64'
       - '.github/workflows/z2f8b1-bootstrap.yml'
@@ -30,7 +30,7 @@ jobs:
           import io
           import tarfile
 
-          expected_sha = "b421291bf036d38837a6f7195046833fa8947fe28286111b871ca8ac4863060f"
+          expected_sha = "0e729ad2c664100f6a4f281da614458d58dfe05978a00b9e38f25d8ceb132f0e"
           expected = {
               ".github/workflows/z2-native-window-swapchain.yml",
               "cmake/native_platform_adapters.cmake",
