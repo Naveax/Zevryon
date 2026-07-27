@@ -58,7 +58,8 @@ NativePlatformSubmission submission_for(
     submission.command_generation = 41U;
     submission.source_command_checksum = 43U;
     submission.encoded_checksum = 0xA5A50000ULL | mask;
-    const std::uint32_t command_count = 8U + std::popcount(mask);
+    const std::uint32_t command_count =
+        8U + static_cast<std::uint32_t>(std::popcount(mask));
     for (std::uint32_t index = 0U; index < command_count; ++index) {
         NativePlatformCommandRecord command;
         command.kind = static_cast<NativePlatformCommandKind>(index % 11U);
