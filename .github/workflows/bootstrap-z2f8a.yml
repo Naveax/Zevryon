@@ -1,0 +1,148 @@
+name: bootstrap-z2f8a
+
+on:
+  pull_request:
+    types: [opened]
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.event.pull_request.head.ref == 'work/z2f-concrete-native-gpu-execution'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/z2f-concrete-native-gpu-execution
+
+      - name: Verify and extract Z2F-8A payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .z2f8a/part* | base64 -d > /tmp/z2f8a-payload.tar.gz
+          echo "2a70f1df5d3d9fa453d87c989bd2e9fa0a35cfbd8e5dbfea12b4c50d1e60af46  /tmp/z2f8a-payload.tar.gz" | sha256sum -c -
+          mkdir -p /tmp/z2f8a-payload
+          tar -xzf /tmp/z2f8a-payload.tar.gz -C /tmp/z2f8a-payload
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path('/tmp/z2f8a-payload')
+          expected = {
+              'cmake/native_platform_adapters.cmake',
+              'cmake/native_gpu_sdk_execution.cmake',
+              'docs/Z2F8A_CONCRETE_NATIVE_GPU_EXECUTION.md',
+              'src/native_gpu_sdk_execution.cpp',
+              'src/native_gpu_sdk_execution_vulkan.cpp',
+              'src/native_gpu_sdk_execution_metal.mm',
+              'src/native_gpu_sdk_execution_stub.cpp',
+              'src/native_gpu_sdk_execution_d3d12.cpp',
+              'src/native_gpu_sdk_execution_benchmark_main.cpp',
+              'src/native_gpu_sdk_execution.hpp',
+              'tests/native_gpu_sdk_execution_equivalence_tests.cpp',
+              'tests/native_gpu_sdk_platform_smoke_tests.cpp',
+              'tests/native_gpu_sdk_execution_tests.cpp',
+          }
+          actual = {
+              str(path.relative_to(root))
+              for path in root.rglob('*')
+              if path.is_file()
+          }
+          assert actual == expected, (sorted(actual), sorted(expected))
+          for relative in expected:
+              data = (root / relative).read_bytes()
+              assert data, relative
+          print({'verified_files': len(expected)})
+          PY
+
+      - name: Publish source files through Contents API
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+          GH_BRANCH: work/z2f-concrete-native-gpu-execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          token = os.environ['GH_TOKEN']
+          repository = os.environ['GH_REPOSITORY']
+          branch = os.environ['GH_BRANCH']
+          root = Path('/tmp/z2f8a-payload')
+          paths = [
+              'cmake/native_platform_adapters.cmake',
+              'cmake/native_gpu_sdk_execution.cmake',
+              'docs/Z2F8A_CONCRETE_NATIVE_GPU_EXECUTION.md',
+              'src/native_gpu_sdk_execution.cpp',
+              'src/native_gpu_sdk_execution_vulkan.cpp',
+              'src/native_gpu_sdk_execution_metal.mm',
+              'src/native_gpu_sdk_execution_stub.cpp',
+              'src/native_gpu_sdk_execution_d3d12.cpp',
+              'src/native_gpu_sdk_execution_benchmark_main.cpp',
+              'src/native_gpu_sdk_execution.hpp',
+              'tests/native_gpu_sdk_execution_equivalence_tests.cpp',
+              'tests/native_gpu_sdk_platform_smoke_tests.cpp',
+              'tests/native_gpu_sdk_execution_tests.cpp',
+          ]
+
+          headers = {
+              'Accept': 'application/vnd.github+json',
+              'Authorization': f'Bearer {token}',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'zevryon-z2f8a-bootstrap',
+          }
+
+          def request(method, url, payload=None):
+              body = None if payload is None else json.dumps(payload).encode('utf-8')
+              req = urllib.request.Request(url, data=body, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(req) as response:
+                      return response.status, json.load(response)
+              except urllib.error.HTTPError as exc:
+                  if exc.code == 404:
+                      return 404, None
+                  detail = exc.read().decode('utf-8', errors='replace')
+                  raise RuntimeError(f'{method} {url}: HTTP {exc.code}: {detail}') from exc
+
+          changed = 0
+          skipped = 0
+          for path in paths:
+              quoted = urllib.parse.quote(path, safe='/')
+              url = f'https://api.github.com/repos/{repository}/contents/{quoted}?ref={urllib.parse.quote(branch, safe="")}'
+              status, current = request('GET', url)
+              current_sha = None
+              if status == 200:
+                  current_sha = current['sha']
+                  current_bytes = base64.b64decode(current['content'])
+                  new_bytes = (root / path).read_bytes()
+                  if current_bytes == new_bytes:
+                      skipped += 1
+                      print(f'unchanged {path}')
+                      continue
+              else:
+                  new_bytes = (root / path).read_bytes()
+
+              payload = {
+                  'message': f'Implement Z2F-8A: {path}',
+                  'content': base64.b64encode(new_bytes).decode('ascii'),
+                  'branch': branch,
+              }
+              if current_sha is not None:
+                  payload['sha'] = current_sha
+              put_url = f'https://api.github.com/repos/{repository}/contents/{quoted}'
+              request('PUT', put_url, payload)
+              changed += 1
+              print(f'published {path}')
+
+          print({'changed': changed, 'unchanged': skipped, 'total': len(paths)})
+          PY
