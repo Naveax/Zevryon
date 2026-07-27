@@ -1,3 +1,9 @@
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#endif
+
 #include "native_vulkan_wsi.hpp"
 #include "native_vulkan_wsi_context.hpp"
 
