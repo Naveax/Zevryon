@@ -7,10 +7,13 @@ on:
       - 'src/native_gpu_sdk_execution_d3d12.cpp'
       - 'src/native_gpu_sdk_execution.hpp'
       - 'src/native_gpu_sdk_execution.cpp'
+      - 'src/native_gpu_sdk_execution_benchmark_main.cpp'
+      - 'tests/native_gpu_sdk_execution_equivalence_tests.cpp'
+      - 'tests/native_gpu_sdk_platform_smoke_tests.cpp'
       - 'cmake/native_gpu_sdk_execution.cmake'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -18,6 +21,43 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: work/z2f-concrete-native-gpu-execution
+      - name: Apply exact enum-safety patch
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+
+          replacements = {
+              'tests/native_gpu_sdk_platform_smoke_tests.cpp': (
+                  '        command.kind = index;\n',
+                  '        command.kind = static_cast<NativePlatformCommandKind>(index);\n'),
+              'tests/native_gpu_sdk_execution_equivalence_tests.cpp': (
+                  '        command.kind = index % 11U;\n',
+                  '        command.kind = static_cast<NativePlatformCommandKind>(index % 11U);\n'),
+              'src/native_gpu_sdk_execution_benchmark_main.cpp': (
+                  '        command.kind = index % 11U;\n',
+                  '        command.kind = static_cast<NativePlatformCommandKind>(index % 11U);\n'),
+          }
+          changed = []
+          for relative, (old, new) in replacements.items():
+              path = Path(relative)
+              text = path.read_text(encoding='utf-8')
+              if new in text:
+                  continue
+              if text.count(old) != 1:
+                  raise SystemExit(f'exact patch precondition failed: {relative}')
+              path.write_text(text.replace(old, new), encoding='utf-8')
+              changed.append(relative)
+          print({'changed': changed})
+          '@ | python -
+          if (git diff --quiet) { exit 0 }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tests/native_gpu_sdk_platform_smoke_tests.cpp tests/native_gpu_sdk_execution_equivalence_tests.cpp src/native_gpu_sdk_execution_benchmark_main.cpp
+          git commit -m "Harden native GPU SDK command enum construction"
+          git push origin HEAD:work/z2f-concrete-native-gpu-execution
       - name: Install HarfBuzz through vcpkg
         shell: pwsh
         run: vcpkg install harfbuzz:x64-windows
