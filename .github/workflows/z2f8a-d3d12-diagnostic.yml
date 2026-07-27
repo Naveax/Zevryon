@@ -1,4 +1,4 @@
-name: z2f8a-d3d12-diagnostic
+name: z2f8a-native-diagnostics
 
 on:
   pull_request:
@@ -6,6 +6,7 @@ on:
       - '.github/workflows/z2f8a-d3d12-diagnostic.yml'
       - 'src/native_gpu_sdk_execution_d3d12.cpp'
       - 'src/native_gpu_sdk_execution_vulkan.cpp'
+      - 'src/native_gpu_sdk_execution_metal.mm'
       - 'src/native_gpu_sdk_execution.hpp'
       - 'src/native_gpu_sdk_execution.cpp'
       - 'src/native_gpu_sdk_execution_benchmark_main.cpp'
@@ -17,7 +18,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  d3d12:
     runs-on: windows-latest
     timeout-minutes: 35
     steps:
@@ -91,3 +92,21 @@ jobs:
             d3d12-sdk-build.log
             d3d12-sdk-smoke.log
           if-no-files-found: warn
+
+  macos-default:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure default macOS graph
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build default macOS graph with complete log
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 2>&1 | tee macos-default-build.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2f8a-macos-default-${{ github.sha }}
+          path: macos-default-build.log
+          if-no-files-found: error
