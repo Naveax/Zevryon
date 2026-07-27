@@ -46,6 +46,6 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add cmake/native_vulkan_wsi.cmake cmake/native_window_swapchain.cmake docs/Z2F8B2B_REAL_VULKAN_WSI.md src/native_gpu_sdk_execution_vulkan_wsi.cpp src/native_vulkan_wsi.hpp src/native_vulkan_wsi_context.hpp src/native_vulkan_wsi_stub.cpp src/native_window_swapchain_vulkan.cpp src/native_window_swapchain_vulkan_benchmark_main.cpp tests/native_vulkan_wsi_test_window.cpp tests/native_vulkan_wsi_test_window.hpp tests/native_window_swapchain_vulkan_tests.cpp
-          git rm -r .z2f8b2b .z2f8b2b-probe.txt
+          git rm -r .z2f8b2b .z2f8b2b-probe.txt .z2f8b2b-ready
           git commit -m 'Implement real Vulkan window-system integration'
           git push origin HEAD:work/z2f8b2b-real-vulkan-wsi
