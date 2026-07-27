@@ -25,15 +25,34 @@ jobs:
           else
             echo "missing=true" >> "$GITHUB_OUTPUT"
           fi
+      - name: Diagnose payload identity
+        if: steps.implementation.outputs.missing == 'true'
+        shell: bash
+        run: |
+          set -uo pipefail
+          {
+            for file in .z2f6/part*; do
+              printf '%s bytes=' "$file"
+              wc -c < "$file" | tr -d '\n'
+              printf ' blob='
+              git hash-object "$file"
+            done
+            cat .z2f6/part* | base64 --decode > /tmp/z2f6-payload.tar.gz
+            printf 'payload '
+            sha256sum /tmp/z2f6-payload.tar.gz
+            gzip -t /tmp/z2f6-payload.tar.gz && echo 'gzip=valid' || echo 'gzip=invalid'
+          } | tee z2f6-payload-diagnostic.txt
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.implementation.outputs.missing == 'true'
+        with:
+          name: z2f6-payload-diagnostic-${{ github.sha }}
+          path: z2f6-payload-diagnostic.txt
+          if-no-files-found: error
       - name: Materialize verified payload
         if: steps.implementation.outputs.missing == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          cat .z2f6/part* | base64 --decode > /tmp/z2f6-payload.tar.gz
-          echo "actual payload:"
-          sha256sum /tmp/z2f6-payload.tar.gz
-          gzip -t /tmp/z2f6-payload.tar.gz
           echo "85e75e3966e9b735a6b7ed22cc4aa66201f9b7a7434ec1d5fcf4a1665788bb82  /tmp/z2f6-payload.tar.gz" | sha256sum -c -
           tar -xzf /tmp/z2f6-payload.tar.gz
           python3 - <<'PY'
