@@ -185,6 +185,11 @@ int main() {
         window.get(), context, 640U, 480U, 1U, 1U);
     assert(api->configure(config, &error));
 
+    // The presenter must retain the exported COM graph independently. Closing
+    // the Z2F-8A owner after configuration must not create another device or
+    // invalidate the real swapchain, queue, back buffers, or resize path.
+    sdk->shutdown();
+
     NativeWindowSwapchainImage first_image;
     NativeWindowAcquireStatus acquire_status{};
     assert(api->acquire(1U, &first_image, &acquire_status, &error));
@@ -263,7 +268,6 @@ int main() {
     assert(snapshot.current_surface_bytes == 800ULL * 600ULL * 4ULL * 3ULL);
 
     api->shutdown();
-    sdk->shutdown();
     TestWindow::pump();
     return 0;
 }
