@@ -68,8 +68,8 @@ public:
         snapshot_.probe.flags = kNativeGpuSdkOffscreenSurface;
         std::uint32_t version = VK_API_VERSION_1_0;
 #if defined(VK_VERSION_1_1)
-        if (vkEnumerateInstanceVersion != nullptr) {
-            (void)vkEnumerateInstanceVersion(&version);
+        if (vkEnumerateInstanceVersion(&version) != VK_SUCCESS) {
+            version = VK_API_VERSION_1_0;
         }
 #endif
         snapshot_.probe.api_major = static_cast<std::uint16_t>(VK_API_VERSION_MAJOR(version));
