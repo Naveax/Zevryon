@@ -70,6 +70,8 @@ jobs:
                   path.parent.mkdir(parents=True, exist_ok=True)
                   path.write_bytes(source.read())
 
+          # The connected GitHub app publishes the permanent workflow separately.
+          Path('.github/workflows/z2-native-window-swapchain.yml').unlink()
           for part in parts:
               part.unlink()
           legacy = Path('.z2f8b1_payload.b64')
