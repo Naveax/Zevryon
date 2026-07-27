@@ -16,23 +16,27 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: work/z2f-bounded-native-damage-presentation
-      - name: Apply exact Z2F-6 source repairs
+      - name: Apply verified Z2F-6 source repairs
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
+
           path = Path('src/native_damage_presentation.cpp')
           text = path.read_text(encoding='utf-8')
-          old_threshold = '''        if (request.policy.full_redraw_threshold_permille != 0U &&
-              full_area != 0U &&
-              total_area * 1'000U >=
-                  full_area * request.policy.full_redraw_threshold_permille) {
-              staged.damage_rects.clear();
-              staged.damage_rects.push_back(surface_rect(request.frame->surface));
-              staged.full_redraw = 1U;
-              total_area = full_area;
-          }
-          '''
-          new_threshold = '''        bool collapse_to_full_redraw = false;
+
+          if 'bool collapse_to_full_redraw = false;' not in text:
+              threshold_pattern = re.compile(
+                  r"        if \(request\.policy\.full_redraw_threshold_permille != 0U &&\n"
+                  r"\s+full_area != 0U &&\n"
+                  r"\s+total_area \* 1'000U >=\n"
+                  r"\s+full_area \* request\.policy\.full_redraw_threshold_permille\) \{\n"
+                  r"\s+staged\.damage_rects\.clear\(\);\n"
+                  r"\s+staged\.damage_rects\.push_back\(surface_rect\(request\.frame->surface\)\);\n"
+                  r"\s+staged\.full_redraw = 1U;\n"
+                  r"\s+total_area = full_area;\n"
+                  r"\s+\}\n")
+              threshold_replacement = '''        bool collapse_to_full_redraw = false;
           if (!redraw_threshold_reached(
                   total_area,
                   full_area,
@@ -51,23 +55,23 @@ jobs:
               total_area = full_area;
           }
           '''
-          old_receipt = '''    if (receipt.status != NativePresentStatus::Presented) {
-              return receipt.ticket_id != 0U;
-          }
-          '''
-          new_receipt = '''    if (receipt.status != NativePresentStatus::Presented) {
+              text, count = threshold_pattern.subn(threshold_replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit(f'threshold replacement count={count}')
+
+          if 'return receipt.ticket_id != 0U;' in text:
+              receipt_pattern = re.compile(
+                  r"    if \(receipt\.status != NativePresentStatus::Presented\) \{\n"
+                  r"\s+return receipt\.ticket_id != 0U;\n"
+                  r"\s+\}\n")
+              receipt_replacement = '''    if (receipt.status != NativePresentStatus::Presented) {
               return false;
           }
           '''
-          changed = False
-          if old_threshold in text:
-              text = text.replace(old_threshold, new_threshold, 1)
-              changed = True
-          if old_receipt in text:
-              text = text.replace(old_receipt, new_receipt, 1)
-              changed = True
-          if not changed:
-              print('No source repair required')
+              text, count = receipt_pattern.subn(receipt_replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit(f'receipt replacement count={count}')
+
           path.write_text(text, encoding='utf-8')
           PY
       - name: Commit source repairs
