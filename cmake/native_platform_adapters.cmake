@@ -64,3 +64,6 @@ endif()
 
 # Z2F-8A binds concrete native SDK execution behind the certified adapter ABI.
 include("${CMAKE_CURRENT_LIST_DIR}/native_gpu_sdk_execution.cmake")
+
+# Z2F-8B1 freezes one-device window swapchain ownership and recreation.
+include("${CMAKE_CURRENT_LIST_DIR}/native_window_swapchain.cmake")
