@@ -1,22 +1,32 @@
 name: bootstrap-z2f6
 
 on:
-  push:
+  pull_request:
     branches:
-      - work/z2f-bounded-native-damage-presentation
+      - main
 
 permissions:
   contents: write
 
 jobs:
   publish:
-    if: github.event.head_commit.message == 'Bootstrap Z2F-6 payload'
+    if: github.event.pull_request.head.ref == 'work/z2f-bounded-native-damage-presentation'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: work/z2f-bounded-native-damage-presentation
+      - name: Check whether implementation exists
+        id: implementation
+        shell: bash
+        run: |
+          if [[ -f src/native_damage_presentation.cpp ]]; then
+            echo "missing=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "missing=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Materialize verified payload
+        if: steps.implementation.outputs.missing == 'true'
         run: |
           cat .z2f6/part* | base64 -d > /tmp/z2f6-payload.tar.gz
           echo "85e75e3966e9b735a6b7ed22cc4aa66201f9b7a7434ec1d5fcf4a1665788bb82  /tmp/z2f6-payload.tar.gz" | sha256sum -c -
@@ -30,11 +40,13 @@ jobs:
               path.write_text(text.rstrip() + '\n\n' + include + '\n', encoding='utf-8')
           PY
       - name: Commit implementation
+        if: steps.implementation.outputs.missing == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/native_damage_presentation.* tests/native_damage_presentation_* cmake/native_damage_presentation.cmake cmake/gpu_device_presentation.cmake docs/Z2F6_BOUNDED_NATIVE_DAMAGE_PRESENTATION.md
+          if git diff --cached --quiet; then
+            exit 0
+          fi
           git commit -m "Implement bounded native damage presentation"
           git push origin HEAD:work/z2f-bounded-native-damage-presentation
-
-# trigger-2
