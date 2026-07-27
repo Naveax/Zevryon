@@ -15,11 +15,18 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+      - name: Install HarfBuzz through vcpkg
+        shell: pwsh
+        run: vcpkg install harfbuzz:x64-windows
       - name: Configure Direct3D 12 diagnostic build
-        run: cmake -S . -B build -DBUILD_TESTING=ON
+        shell: pwsh
+        run: |
+          $toolchain = Join-Path $env:VCPKG_INSTALLATION_ROOT 'scripts\buildsystems\vcpkg.cmake'
+          cmake -S . -B build -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON -DCMAKE_TOOLCHAIN_FILE="$toolchain" -DVCPKG_TARGET_TRIPLET=x64-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build full Windows graph with complete log
         shell: pwsh
         run: |
