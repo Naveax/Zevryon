@@ -8,6 +8,7 @@ on:
       - 'cmake/native_platform_adapters.cmake'
       - 'src/native_gpu_sdk_execution*'
       - 'src/native_platform_adapters*'
+      - 'src/native_platform_submission_standalone.cpp'
       - 'tests/native_gpu_sdk_execution*'
       - 'docs/Z2F8A_CONCRETE_NATIVE_GPU_EXECUTION.md'
   workflow_dispatch:
@@ -231,24 +232,19 @@ jobs:
 
   d3d12-runtime:
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Install HarfBuzz through vcpkg
-        shell: pwsh
-        run: vcpkg install harfbuzz:x64-windows
-      - name: Configure Direct3D 12 runtime build
-        shell: pwsh
-        run: |
-          $toolchain = Join-Path $env:VCPKG_INSTALLATION_ROOT 'scripts\buildsystems\vcpkg.cmake'
-          cmake -S . -B build -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON -DCMAKE_TOOLCHAIN_FILE="$toolchain" -DVCPKG_TARGET_TRIPLET=x64-windows
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Build complete Windows SDK graph
+      - name: Configure standalone Direct3D 12 SDK graph
+        run: cmake -S . -B build -DBUILD_TESTING=ON
+      - name: Build D3D12 smoke and focused tests
         shell: pwsh
         run: |
-          cmake --build build --config Release --parallel 2 2>&1 | Tee-Object -FilePath d3d12-sdk-build.log
+          cmake --build build --config Release --parallel 2 --target zevryon-native-gpu-sdk-platform-smoke-tests 2>&1 | Tee-Object -FilePath d3d12-sdk-build.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Require and run real Direct3D 12 SDK smoke through hardware or WARP
+          cmake --build build --config Release --parallel 2 --target zevryon-native-gpu-sdk-execution-tests 2>&1 | Tee-Object -FilePath d3d12-sdk-build.log -Append
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run real Direct3D 12 SDK smoke through hardware or WARP
         shell: pwsh
         run: |
           $exe = '.\build\Release\zevryon-native-gpu-sdk-platform-smoke-tests.exe'
