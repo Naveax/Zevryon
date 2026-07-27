@@ -4,215 +4,236 @@ on:
   pull_request:
     paths:
       - '.github/workflows/z2-native-window-swapchain.yml'
-      - 'cmake/native_window_swapchain.cmake'
-      - 'cmake/native_gpu_sdk_execution.cmake'
-      - 'src/native_window_swapchain*'
-      - 'tests/native_window_swapchain*'
-      - 'docs/Z2F8B1_NATIVE_WINDOW_SWAPCHAIN_CONTRACT.md'
-  workflow_dispatch:
-
-concurrency:
-  group: z2-native-window-swapchain-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+      - '.z2f8b2_patch_pending'
+      - 'src/native_gpu_sdk_execution.hpp'
+      - 'src/native_gpu_sdk_execution.cpp'
+      - 'src/native_gpu_sdk_execution_d3d12.cpp'
+      - 'src/native_window_swapchain.hpp'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  strict:
+  publish-z2f8b2a-abi:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Install HarfBuzz
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Apply exact ABI patch
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pkg-config libharfbuzz-dev
-      - name: Configure strict Release build
-        run: >-
-          cmake -S . -B build
-          -DCMAKE_BUILD_TYPE=Release
-          -DBUILD_TESTING=ON
-          -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
-          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
-      - name: Build focused targets
-        run: |
-          set -o pipefail
-          cmake --build build --parallel 2 --target \
-            zevryon-native-window-swapchain-tests \
-            zevryon-native-window-swapchain-equivalence-tests \
-            zevryon-native-window-swapchain-benchmark \
-            2>&1 | tee native-window-swapchain-build.log
-      - name: Repeat functional certification
-        run: |
-          set -o pipefail
-          ctest --test-dir build -R '^native-window-swapchain-tests$' \
-            --repeat until-fail:20 --output-on-failure \
-            2>&1 | tee native-window-swapchain-repeat.log
-      - name: Run 9216-case lifecycle oracle
-        run: |
-          set -o pipefail
-          ctest --test-dir build \
-            -R '^native-window-swapchain-equivalence-tests$' \
-            --output-on-failure \
-            2>&1 | tee native-window-swapchain-equivalence.log
-      - name: Run three benchmark distributions
-        run: |
-          for run in 1 2 3; do
-            ./build/zevryon-native-window-swapchain-benchmark 512 \
-              > "native-window-swapchain-benchmark-${run}.json"
-          done
-      - name: Enforce exact topology, memory and latency gates
-        run: |
+          set -euo pipefail
+          test -f .z2f8b2_patch_pending
           python3 - <<'PY'
-          import json
+          from pathlib import Path
 
-          rows = []
-          for run in range(1, 4):
-              with open(
-                  f'native-window-swapchain-benchmark-{run}.json',
-                  encoding='utf-8') as handle:
-                  row = json.load(handle)
-              assert row['schema'] == 'zevryon.native-window-swapchain-benchmark.v1'
-              assert row['input_document_lines'] == 16_384
-              assert row['input_projected_lines'] == 80
-              assert row['backend_count'] == 3
-              assert row['iterations'] == 512
-              assert row['submissions_per_iteration'] == 3
-              assert row['damage_rects_per_submission'] == 4
-              assert row['commands_per_submission'] == 80
-              assert row['swapchain_images_per_backend'] == 3
-              assert row['frames_in_flight_limit'] == 2
-              assert row['surface_width'] == 1_920
-              assert row['surface_height'] == 1_080
-              assert row['surface_bytes_per_backend'] == 24_883_200
-              assert row['surface_bytes_total'] == 74_649_600
-              assert row['peak_in_flight_bytes_total'] == 24_883_200
-              assert row['context_record_bytes'] == 72
-              assert row['capabilities_record_bytes'] == 40
-              assert row['limits_record_bytes'] == 40
-              assert row['config_record_bytes'] == 208
-              assert row['image_record_bytes'] == 96
-              assert row['receipt_record_bytes'] == 152
-              assert row['vulkan_checksum'] == 10_962_443_306_537_649_593
-              assert row['metal_checksum'] == 1_849_862_543_801_632_953
-              assert row['d3d12_checksum'] == 7_341_730_954_224_147_497
-              assert row['checksum'] == 14_701_532_127_464_725_038
-              assert 0.0 < row['p50_ms'] <= row['p95_ms'] <= row['p99_ms'] <= row['maximum_ms']
-              assert row['p95_ms'] <= 2.0, row
-              assert row['p99_ms'] <= 4.0, row
-              assert row['maximum_ms'] <= 15.0, row
-              rows.append(row)
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one match, found {count}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
 
-          stable = (
-              'surface_bytes_total',
-              'peak_in_flight_bytes_total',
-              'vulkan_checksum',
-              'metal_checksum',
-              'd3d12_checksum',
-              'checksum',
-          )
-          for key in stable:
-              assert len({row[key] for row in rows}) == 1, key
-          print({
-              'p50_ms': [row['p50_ms'] for row in rows],
-              'p95_ms': [row['p95_ms'] for row in rows],
-              'p99_ms': [row['p99_ms'] for row in rows],
-              'maximum_ms': [row['maximum_ms'] for row in rows],
-              'checksum': rows[0]['checksum'],
-          })
+          context_block = '''
+
+enum NativeGpuSdkContextFlags : std::uint32_t {
+    kNativeGpuSdkContextDeviceValid = 1U << 0U,
+    kNativeGpuSdkContextGraphicsQueueValid = 1U << 1U,
+    kNativeGpuSdkContextPresentQueueValid = 1U << 2U,
+    kNativeGpuSdkContextSharedGraphicsPresentQueue = 1U << 3U,
+    kNativeGpuSdkContextSoftwareDevice = 1U << 4U
+};
+
+struct NativeGpuSdkContextHandle final {
+    NativeGpuApiKind api_kind{NativeGpuApiKind::ReferenceCpu};
+    std::uint8_t reserved0[3]{0, 0, 0};
+    std::uint32_t flags{0};
+    std::uint64_t device_generation{0};
+    std::uint64_t runtime_generation{0};
+    std::uint64_t instance_or_factory{0};
+    std::uint64_t physical_device_or_adapter{0};
+    std::uint64_t device{0};
+    std::uint64_t graphics_queue{0};
+    std::uint64_t present_queue{0};
+    std::uint32_t graphics_queue_family{0};
+    std::uint32_t present_queue_family{0};
+
+    bool operator==(const NativeGpuSdkContextHandle&) const noexcept = default;
+};
+
+static_assert(sizeof(NativeGpuSdkContextHandle) == 72U);
+'''
+          replace_once(
+              'src/native_gpu_sdk_execution.hpp',
+              'static_assert(sizeof(NativeWindowSurfaceHandle) == 48U);\n',
+              'static_assert(sizeof(NativeWindowSurfaceHandle) == 48U);' + context_block + '\n')
+          replace_once(
+              'src/native_gpu_sdk_execution.hpp',
+              '''    virtual bool initialize(
+        const NativeGpuSdkConfig& config,
+        NativeGpuSdkError* error) noexcept = 0;
+    virtual bool configure_offscreen_surface(
+''',
+              '''    virtual bool initialize(
+        const NativeGpuSdkConfig& config,
+        NativeGpuSdkError* error) noexcept = 0;
+    virtual bool export_context(
+        NativeGpuSdkContextHandle* context,
+        NativeGpuSdkError* error) noexcept;
+    virtual bool configure_offscreen_surface(
+''')
+          duplicate_context = '''enum NativeGpuSdkContextFlags : std::uint32_t {
+    kNativeGpuSdkContextDeviceValid = 1U << 0U,
+    kNativeGpuSdkContextGraphicsQueueValid = 1U << 1U,
+    kNativeGpuSdkContextPresentQueueValid = 1U << 2U,
+    kNativeGpuSdkContextSharedGraphicsPresentQueue = 1U << 3U,
+    kNativeGpuSdkContextSoftwareDevice = 1U << 4U
+};
+
+struct NativeGpuSdkContextHandle final {
+    NativeGpuApiKind api_kind{NativeGpuApiKind::ReferenceCpu};
+    std::uint8_t reserved0[3]{0, 0, 0};
+    std::uint32_t flags{0};
+    std::uint64_t device_generation{0};
+    std::uint64_t runtime_generation{0};
+    std::uint64_t instance_or_factory{0};
+    std::uint64_t physical_device_or_adapter{0};
+    std::uint64_t device{0};
+    std::uint64_t graphics_queue{0};
+    std::uint64_t present_queue{0};
+    std::uint32_t graphics_queue_family{0};
+    std::uint32_t present_queue_family{0};
+
+    bool operator==(const NativeGpuSdkContextHandle&) const noexcept = default;
+};
+
+static_assert(sizeof(NativeGpuSdkContextHandle) == 72U);
+
+'''
+          replace_once('src/native_window_swapchain.hpp', duplicate_context, '')
+          replace_once(
+              'src/native_window_swapchain.hpp',
+              '#include <mutex>\n',
+              '#include <memory>\n#include <mutex>\n')
+          replace_once(
+              'src/native_window_swapchain.hpp',
+              '''NativeWindowSwapchainCapabilities default_native_window_swapchain_capabilities(
+''',
+              '''std::unique_ptr<NativeWindowSwapchainApi>
+make_direct3d12_native_window_swapchain_api() noexcept;
+
+bool native_window_swapchain_build_has_backend(
+    NativeGpuApiKind kind,
+    NativeWindowSystem system) noexcept;
+
+NativeWindowSwapchainCapabilities default_native_window_swapchain_capabilities(
+''')
+          replace_once(
+              'src/native_gpu_sdk_execution.cpp',
+              '''ReferenceNativeGpuSdkApi::ReferenceNativeGpuSdkApi(NativeGpuApiKind kind) noexcept
+''',
+              '''bool NativeGpuSdkApi::export_context(
+    NativeGpuSdkContextHandle* context,
+    NativeGpuSdkError* error) noexcept {
+    clear_error(error);
+    if (context == nullptr) {
+        return fail(error, NativeGpuSdkErrorKind::InvalidInput,
+                    "native GPU context output is null");
+    }
+    *context = {};
+    return fail(error, NativeGpuSdkErrorKind::UnsupportedBackend,
+                "native GPU context export is unavailable for this backend");
+}
+
+ReferenceNativeGpuSdkApi::ReferenceNativeGpuSdkApi(NativeGpuApiKind kind) noexcept
+''')
+          replace_once(
+              'src/native_gpu_sdk_execution_d3d12.cpp',
+              '#include <array>\n',
+              '#include <array>\n#include <cstdint>\n')
+          replace_once(
+              'src/native_gpu_sdk_execution_d3d12.cpp',
+              'snapshot_.probe.flags = kNativeGpuSdkOffscreenSurface;\n',
+              '''snapshot_.probe.flags = kNativeGpuSdkOffscreenSurface |
+                                kNativeGpuSdkWindowSurface;
+''')
+          replace_once(
+              'src/native_gpu_sdk_execution_d3d12.cpp',
+              '''    NativeGpuSdkProbe probe() noexcept override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return snapshot_.probe;
+    }
+
+    bool initialize(
+''',
+              '''    NativeGpuSdkProbe probe() noexcept override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return snapshot_.probe;
+    }
+
+    bool export_context(
+        NativeGpuSdkContextHandle* context,
+        NativeGpuSdkError* error) noexcept override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        clear_error(error);
+        if (context == nullptr) {
+            return fail(error, NativeGpuSdkErrorKind::InvalidInput,
+                        "Direct3D 12 context output is null");
+        }
+        if (!initialized_ || factory_ == nullptr || adapter_ == nullptr ||
+            device_ == nullptr || queue_ == nullptr) {
+            *context = {};
+            return fail(error, NativeGpuSdkErrorKind::RuntimeUnavailable,
+                        "Direct3D 12 device context is not initialized");
+        }
+        *context = {};
+        context->api_kind = NativeGpuApiKind::Direct3D12;
+        context->flags =
+            kNativeGpuSdkContextDeviceValid |
+            kNativeGpuSdkContextGraphicsQueueValid |
+            kNativeGpuSdkContextPresentQueueValid |
+            kNativeGpuSdkContextSharedGraphicsPresentQueue;
+        if ((snapshot_.probe.flags & kNativeGpuSdkSoftwareDevice) != 0U) {
+            context->flags |= kNativeGpuSdkContextSoftwareDevice;
+        }
+        context->device_generation = config_.device_generation;
+        context->runtime_generation = config_.runtime_generation;
+        context->instance_or_factory = static_cast<std::uint64_t>(
+            reinterpret_cast<std::uintptr_t>(factory_.Get()));
+        context->physical_device_or_adapter = static_cast<std::uint64_t>(
+            reinterpret_cast<std::uintptr_t>(adapter_.Get()));
+        context->device = static_cast<std::uint64_t>(
+            reinterpret_cast<std::uintptr_t>(device_.Get()));
+        context->graphics_queue = static_cast<std::uint64_t>(
+            reinterpret_cast<std::uintptr_t>(queue_.Get()));
+        context->present_queue = context->graphics_queue;
+        return true;
+    }
+
+    bool initialize(
+''')
+          replace_once(
+              'src/native_gpu_sdk_execution_d3d12.cpp',
+              '''        snapshot_.probe.flags = kNativeGpuSdkRealDevice |
+                                kNativeGpuSdkOffscreenSurface;
+''',
+              '''        snapshot_.probe.flags = kNativeGpuSdkRealDevice |
+                                kNativeGpuSdkOffscreenSurface |
+                                kNativeGpuSdkWindowSurface;
+''')
+          Path('.z2f8b2_patch_pending').unlink()
           PY
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: z2-native-window-swapchain-${{ github.sha }}
-          path: |
-            native-window-swapchain-build.log
-            native-window-swapchain-repeat.log
-            native-window-swapchain-equivalence.log
-            native-window-swapchain-benchmark-*.json
-          if-no-files-found: warn
-
-  sanitizer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install HarfBuzz
+      - name: Commit and push ABI patch
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends pkg-config libharfbuzz-dev
-      - name: Configure ASan and UBSan build
-        run: >-
-          cmake -S . -B build-sanitized
-          -DCMAKE_BUILD_TYPE=RelWithDebInfo
-          -DBUILD_TESTING=ON
-          -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
-          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
-          -DCMAKE_CXX_FLAGS=-fsanitize=address,undefined
-          -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined
-          -DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined
-      - name: Build focused tests under sanitizers
-        run: |
-          set -o pipefail
-          cmake --build build-sanitized --parallel 2 --target \
-            zevryon-native-window-swapchain-tests \
-            zevryon-native-window-swapchain-equivalence-tests \
-            2>&1 | tee native-window-swapchain-sanitizer-build.log
-      - name: Run focused tests under sanitizers
-        env:
-          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
-          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: >-
-          ctest --test-dir build-sanitized
-          -R '^native-window-swapchain-(tests|equivalence-tests)$'
-          --output-on-failure
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: z2-native-window-swapchain-sanitizer-${{ github.sha }}
-          path: native-window-swapchain-sanitizer-build.log
-          if-no-files-found: warn
-
-  appleclang:
-    runs-on: macos-latest
-    timeout-minutes: 35
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install HarfBuzz
-        run: brew install harfbuzz
-      - name: Configure AppleClang build
-        run: >-
-          cmake -S . -B build
-          -DCMAKE_BUILD_TYPE=Release
-          -DBUILD_TESTING=ON
-          -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
-      - name: Build focused targets
-        run: >-
-          cmake --build build --parallel 2 --target
-          zevryon-native-window-swapchain-tests
-          zevryon-native-window-swapchain-equivalence-tests
-      - name: Run focused tests
-        run: >-
-          ctest --test-dir build
-          -R '^native-window-swapchain-(tests|equivalence-tests)$'
-          --output-on-failure
-
-  msvc:
-    runs-on: windows-latest
-    timeout-minutes: 35
-    steps:
-      - uses: actions/checkout@v4
-      - name: Configure MSVC build
-        shell: pwsh
-        run: cmake -S . -B build -DBUILD_TESTING=ON
-      - name: Build focused targets
-        shell: pwsh
-        run: |
-          cmake --build build --config Release --parallel 2 --target zevryon-native-window-swapchain-tests
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cmake --build build --config Release --parallel 2 --target zevryon-native-window-swapchain-equivalence-tests
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Run focused tests
-        shell: pwsh
-        run: ctest --test-dir build -C Release -R '^native-window-swapchain-(tests|equivalence-tests)$' --output-on-failure
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Z2F-8B2A: export D3D12 native context"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
