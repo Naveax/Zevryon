@@ -63,7 +63,8 @@ NativePlatformSubmission make_submission(
     submission.encoded_checksum = 5678U + frame_id;
     for (std::uint32_t index = 0U; index < 12U; ++index) {
         NativePlatformCommandRecord command;
-        command.kind = index;
+        command.kind = static_cast<NativePlatformCommandKind>(
+            index % (static_cast<std::uint32_t>(NativePlatformCommandKind::Present) + 1U));
         command.source_index = index;
         command.auxiliary_index = index % 3U;
         command.value0 = frame_id;
@@ -174,9 +175,10 @@ void certify_reference_kind(NativeGpuApiKind kind) {
         &acquire_status,
         &api_error));
     assert(acquire_status == NativeAcquireStatus::Acquired);
-    submission = make_submission(kind, surface, image, 21U, 3U);
+    NativePlatformSubmission lost_submission = make_submission(
+        kind, surface, image, 21U, 3U);
     assert(!driver.submit_and_present(
-        submission, &signal, &checksum, &present_status, &api_error));
+        lost_submission, &signal, &checksum, &present_status, &api_error));
     assert(api_error.kind == NativeGpuApiErrorKind::DeviceLost);
 
     driver.shutdown();
