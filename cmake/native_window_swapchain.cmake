@@ -113,3 +113,6 @@ if(TARGET zevryon-native-gpu-sdk-execution)
     endif()
   endif()
 endif()
+
+# Z2F-8B2B binds real Vulkan WSI to the retained single-device context.
+include("${CMAKE_CURRENT_LIST_DIR}/native_vulkan_wsi.cmake")
