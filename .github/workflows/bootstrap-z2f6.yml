@@ -27,8 +27,13 @@ jobs:
           fi
       - name: Materialize verified payload
         if: steps.implementation.outputs.missing == 'true'
+        shell: bash
         run: |
-          cat .z2f6/part* | base64 -d > /tmp/z2f6-payload.tar.gz
+          set -euo pipefail
+          cat .z2f6/part* | base64 --decode > /tmp/z2f6-payload.tar.gz
+          echo "actual payload:"
+          sha256sum /tmp/z2f6-payload.tar.gz
+          gzip -t /tmp/z2f6-payload.tar.gz
           echo "85e75e3966e9b735a6b7ed22cc4aa66201f9b7a7434ec1d5fcf4a1665788bb82  /tmp/z2f6-payload.tar.gz" | sha256sum -c -
           tar -xzf /tmp/z2f6-payload.tar.gz
           python3 - <<'PY'
