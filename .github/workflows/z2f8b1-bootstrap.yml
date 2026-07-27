@@ -5,6 +5,7 @@ on:
     types: [opened, synchronize]
     paths:
       - '.z2f8b1_payload.b64'
+      - '.z2f8b1_payload.part*'
       - '.github/workflows/z2f8b1-bootstrap.yml'
 
 permissions:
@@ -43,8 +44,10 @@ jobs:
               "tests/native_window_swapchain_tests.cpp",
           }
 
-          payload = Path(".z2f8b1_payload.b64")
-          encoded = payload.read_text(encoding="utf-8").strip()
+          parts = sorted(Path('.').glob('.z2f8b1_payload.part*'))
+          if len(parts) != 5:
+              raise SystemExit(f"expected 5 payload chunks, found {len(parts)}")
+          encoded = ''.join(part.read_text(encoding='utf-8') for part in parts)
           raw = base64.b64decode(encoded, validate=True)
           actual_sha = hashlib.sha256(raw).hexdigest()
           if actual_sha != expected_sha:
@@ -67,7 +70,11 @@ jobs:
                   path.parent.mkdir(parents=True, exist_ok=True)
                   path.write_bytes(source.read())
 
-          payload.unlink()
+          for part in parts:
+              part.unlink()
+          legacy = Path('.z2f8b1_payload.b64')
+          if legacy.exists():
+              legacy.unlink()
           print({"sha256": actual_sha, "members": sorted(expected)})
           PY
       - name: Commit published sources
