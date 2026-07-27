@@ -1,5 +1,11 @@
 #pragma once
 
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#endif
+
 #include "native_gpu_sdk_execution.hpp"
 
 #include <atomic>
