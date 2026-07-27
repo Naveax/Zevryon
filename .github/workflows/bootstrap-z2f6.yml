@@ -36,3 +36,5 @@ jobs:
           git add src/native_damage_presentation.* tests/native_damage_presentation_* cmake/native_damage_presentation.cmake cmake/gpu_device_presentation.cmake docs/Z2F6_BOUNDED_NATIVE_DAMAGE_PRESENTATION.md
           git commit -m "Implement bounded native damage presentation"
           git push origin HEAD:work/z2f-bounded-native-damage-presentation
+
+# trigger-2
