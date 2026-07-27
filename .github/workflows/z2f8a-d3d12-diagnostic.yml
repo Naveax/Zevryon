@@ -20,16 +20,23 @@ jobs:
       - uses: actions/checkout@v4
       - name: Configure Direct3D 12 diagnostic build
         run: cmake -S . -B build -DBUILD_TESTING=ON
-      - name: Build SDK targets with complete log
+      - name: Build full Windows graph with complete log
         shell: pwsh
         run: |
-          cmake --build build --config Release --parallel 2 --target `
-            zevryon-native-gpu-sdk-platform-smoke-tests `
-            zevryon-native-gpu-sdk-execution-tests 2>&1 | Tee-Object -FilePath d3d12-sdk-build.log
+          cmake --build build --config Release --parallel 2 2>&1 | Tee-Object -FilePath d3d12-sdk-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Require and run D3D12 smoke executable
+        shell: pwsh
+        run: |
+          $exe = '.\build\Release\zevryon-native-gpu-sdk-platform-smoke-tests.exe'
+          if (-not (Test-Path $exe)) { throw "D3D12 smoke executable was not generated" }
+          & $exe | Tee-Object -FilePath d3d12-sdk-smoke.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: z2f8a-d3d12-diagnostic-${{ github.sha }}
-          path: d3d12-sdk-build.log
-          if-no-files-found: error
+          path: |
+            d3d12-sdk-build.log
+            d3d12-sdk-smoke.log
+          if-no-files-found: warn
