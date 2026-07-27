@@ -1,0 +1,201 @@
+name: z2-native-damage-presentation
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-native-damage-presentation.yml'
+      - 'cmake/native_damage_presentation.cmake'
+      - 'cmake/gpu_device_presentation.cmake'
+      - 'src/native_damage_presentation.*'
+      - 'src/gpu_device_presentation.*'
+      - 'src/gpu_atlas_frame_submission.*'
+      - 'tests/native_damage_presentation_tests.cpp'
+      - 'tests/native_damage_presentation_equivalence_tests.cpp'
+      - 'docs/Z2F6_BOUNDED_NATIVE_DAMAGE_PRESENTATION.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-native-damage-presentation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  strict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libharfbuzz-dev
+      - name: Configure strict Release build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+      - name: Build focused targets
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target \
+            zevryon-native-damage-presentation-tests \
+            zevryon-native-damage-presentation-equivalence-tests \
+            zevryon-native-damage-presentation-benchmark \
+            zevryon-gpu-device-presentation-tests \
+            2>&1 | tee native-damage-build.log
+      - name: Repeat functional certification
+        run: |
+          set -o pipefail
+          ctest --test-dir build -R '^native-damage-presentation-tests$' \
+            --repeat until-fail:20 --output-on-failure \
+            2>&1 | tee native-damage-repeat.log
+      - name: Run 9216-case damage and command oracle
+        run: |
+          set -o pipefail
+          ctest --test-dir build -R '^native-damage-presentation-equivalence-tests$' \
+            --output-on-failure 2>&1 | tee native-damage-equivalence.log
+      - name: Run three independent benchmark distributions
+        run: |
+          for run in 1 2 3; do
+            ./build/zevryon-native-damage-presentation-benchmark \
+              > "native-damage-benchmark-${run}.json"
+          done
+      - name: Enforce exact topology, memory and latency gates
+        run: |
+          python3 - <<'PY'
+          import json
+
+          rows = []
+          for run in range(1, 4):
+              with open(f'native-damage-benchmark-{run}.json', encoding='utf-8') as handle:
+                  row = json.load(handle)
+              assert row['schema'] == 'zevryon.native-damage-presentation-benchmark.v1'
+              assert row['input_document_lines'] == 16_384
+              assert row['input_projected_lines'] == 80
+              assert row['input_frame_commands'] == 68
+              assert row['input_draw_instances'] == 310
+              assert row['cold_damage_rects'] == 1
+              assert row['cold_native_commands'] == 71
+              assert row['hot_damage_rects'] == 0
+              assert row['hot_native_commands'] == 0
+              assert row['partial_damage_rects'] == 4
+              assert row['partial_native_commands'] == 17
+              assert row['partial_culled_commands'] == 58
+              assert row['partial_duplicated_commands'] == 1
+              assert row['cold_present_status'] == 0
+              assert row['hot_present_status'] == 1
+              assert row['partial_present_status'] == 0
+              assert row['cold_signal_fence'] == 4
+              assert row['partial_signal_fence'] == 5
+              assert row['submitted_frames'] == 2
+              assert row['skipped_frames'] == 1
+              assert row['retired_frames'] == 1
+              assert row['in_flight_frames'] == 1
+              assert row['scheduler_current_bytes'] == 288
+              assert row['scheduler_peak_bytes'] == 288
+              assert row['scheduler_hard_limit_bytes'] == 512
+              assert row['cold_retained_bytes'] == 4_976
+              assert row['hot_retained_bytes'] == 3_808
+              assert row['partial_retained_bytes'] == 4_208
+              assert row['damage_rect_bytes'] == 32
+              assert row['footprint_bytes'] == 56
+              assert row['command_record_bytes'] == 16
+              assert row['present_receipt_bytes'] == 88
+              assert row['in_flight_record_bytes'] == 96
+              assert row['checksum'] == 4_778_015_303_960_727_539
+              assert 0.0 < row['p50_ms'] <= row['p95_ms'] <= row['p99_ms'] <= row['maximum_ms']
+              assert row['p95_ms'] <= 3.0, row
+              assert row['p99_ms'] <= 6.0, row
+              assert row['maximum_ms'] <= 20.0, row
+              rows.append(row)
+          stable = (
+              'cold_damage_rects', 'cold_native_commands',
+              'hot_damage_rects', 'hot_native_commands',
+              'partial_damage_rects', 'partial_native_commands',
+              'scheduler_current_bytes', 'scheduler_peak_bytes',
+              'cold_retained_bytes', 'hot_retained_bytes',
+              'partial_retained_bytes', 'checksum')
+          for key in stable:
+              assert len({row[key] for row in rows}) == 1, key
+          print({
+              'p50_ms': [row['p50_ms'] for row in rows],
+              'p95_ms': [row['p95_ms'] for row in rows],
+              'p99_ms': [row['p99_ms'] for row in rows],
+              'maximum_ms': [row['maximum_ms'] for row in rows],
+              'checksum': rows[0]['checksum'],
+          })
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-native-damage-presentation-${{ github.sha }}
+          path: |
+            native-damage-build.log
+            native-damage-repeat.log
+            native-damage-equivalence.log
+            native-damage-benchmark-*.json
+          if-no-files-found: warn
+
+  sanitizer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libharfbuzz-dev
+      - name: Configure ASan and UBSan build
+        run: >-
+          cmake -S . -B build-sanitized
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+          -DCMAKE_CXX_FLAGS=-fsanitize=address,undefined
+          -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined
+          -DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined
+      - name: Build focused tests under sanitizers
+        run: |
+          set -o pipefail
+          cmake --build build-sanitized --parallel 2 --target \
+            zevryon-native-damage-presentation-tests \
+            zevryon-native-damage-presentation-equivalence-tests \
+            2>&1 | tee native-damage-sanitizer-build.log
+      - name: Run focused tests under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build-sanitized -R '^native-damage-presentation-(tests|equivalence-tests)$' --output-on-failure
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-native-damage-presentation-sanitizer-${{ github.sha }}
+          path: native-damage-sanitizer-build.log
+          if-no-files-found: warn
+
+  appleclang:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz
+        run: brew install harfbuzz
+      - name: Configure AppleClang Release build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+      - name: Build and run focused targets
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target \
+            zevryon-native-damage-presentation-tests \
+            zevryon-native-damage-presentation-equivalence-tests \
+            zevryon-native-damage-presentation-benchmark \
+            2>&1 | tee apple-native-damage-build.log
+          ctest --test-dir build -R '^native-damage-presentation-(tests|equivalence-tests)$' --output-on-failure
+          ./build/zevryon-native-damage-presentation-benchmark > apple-native-damage-benchmark.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-native-damage-presentation-appleclang-${{ github.sha }}
+          path: |
+            apple-native-damage-build.log
+            apple-native-damage-benchmark.json
+          if-no-files-found: warn
