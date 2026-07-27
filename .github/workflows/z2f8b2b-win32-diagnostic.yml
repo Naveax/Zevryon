@@ -5,42 +5,40 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  win32-vulkan-compile:
+  patch-win32-header-order:
     if: github.head_ref == 'work/z2f8b2b-real-vulkan-wsi'
-    runs-on: windows-latest
-    timeout-minutes: 55
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Vulkan SDK
-        shell: pwsh
-        run: |
-          choco install vulkan-sdk --version=1.4.350 -y --no-progress
-          Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
-          refreshenv
-          "VULKAN_SDK=$env:VULKAN_SDK" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "$env:VULKAN_SDK\Bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-      - name: Configure
-        shell: pwsh
-        run: cmake -S . -B build -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=OFF
-      - name: Build with full diagnostics
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          cmake --build build --config Release --parallel 2 --target zevryon-native-window-swapchain-vulkan-tests 2>&1 | Tee-Object -FilePath vulkan-wsi-win32-build.log
-          "exit_code=$LASTEXITCODE" | Out-File -FilePath vulkan-wsi-win32-exit.txt
-      - uses: actions/upload-artifact@v4
         with:
-          name: z2f8b2b-win32-diagnostic-${{ github.sha }}
-          path: |
-            vulkan-wsi-win32-build.log
-            vulkan-wsi-win32-exit.txt
-          if-no-files-found: error
-      - name: Preserve failure status
-        shell: pwsh
+          ref: work/z2f8b2b-real-vulkan-wsi
+          fetch-depth: 0
+      - name: Move NOMINMAX before all Vulkan includes
         run: |
-          $line = Get-Content vulkan-wsi-win32-exit.txt
-          $code = [int]($line -replace 'exit_code=', '')
-          if ($code -ne 0) { exit $code }
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/native_gpu_sdk_execution_vulkan_wsi.cpp')
+          text = path.read_text(encoding='utf-8')
+          prefix = '#include "native_vulkan_wsi.hpp"\n#include "native_vulkan_wsi_context.hpp"\n'
+          replacement = '''#if defined(_WIN32)\n#ifndef NOMINMAX\n#define NOMINMAX\n#endif\n#endif\n\n#include "native_vulkan_wsi.hpp"\n#include "native_vulkan_wsi_context.hpp"\n'''
+          if text.startswith(replacement):
+              raise SystemExit(0)
+          if not text.startswith(prefix):
+              raise SystemExit('unexpected Vulkan WSI source prefix')
+          text = replacement + text[len(prefix):]
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit exact source repair
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git diff --quiet -- src/native_gpu_sdk_execution_vulkan_wsi.cpp; then
+            exit 0
+          fi
+          git add src/native_gpu_sdk_execution_vulkan_wsi.cpp
+          git commit -m 'Fix Win32 Vulkan header ordering'
+          git push origin HEAD:work/z2f8b2b-real-vulkan-wsi
