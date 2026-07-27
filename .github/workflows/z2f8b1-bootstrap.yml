@@ -1,0 +1,82 @@
+name: z2f8b1-bootstrap
+
+on:
+  pull_request:
+    types: [opened]
+    paths:
+      - '.z2f8b1_payload.b64'
+      - '.github/workflows/z2f8b1-bootstrap.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Verify and publish exact Z2F-8B1 payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64
+          import hashlib
+          import io
+          import tarfile
+
+          expected_sha = "b421291bf036d38837a6f7195046833fa8947fe28286111b871ca8ac4863060f"
+          expected = {
+              ".github/workflows/z2-native-window-swapchain.yml",
+              "cmake/native_platform_adapters.cmake",
+              "cmake/native_window_swapchain.cmake",
+              "docs/Z2F8B1_NATIVE_WINDOW_SWAPCHAIN_CONTRACT.md",
+              "src/native_window_swapchain.cpp",
+              "src/native_window_swapchain.hpp",
+              "src/native_window_swapchain_benchmark_main.cpp",
+              "tests/native_window_swapchain_equivalence_tests.cpp",
+              "tests/native_window_swapchain_tests.cpp",
+          }
+
+          payload = Path(".z2f8b1_payload.b64")
+          encoded = payload.read_text(encoding="utf-8").strip()
+          raw = base64.b64decode(encoded, validate=True)
+          actual_sha = hashlib.sha256(raw).hexdigest()
+          if actual_sha != expected_sha:
+              raise SystemExit(f"payload SHA mismatch: {actual_sha}")
+
+          with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as archive:
+              members = archive.getmembers()
+              names = {member.name for member in members}
+              if names != expected:
+                  raise SystemExit(
+                      f"payload members mismatch: missing={sorted(expected - names)}, "
+                      f"extra={sorted(names - expected)}")
+              for member in members:
+                  path = Path(member.name)
+                  if not member.isfile() or path.is_absolute() or ".." in path.parts:
+                      raise SystemExit(f"unsafe payload member: {member.name}")
+                  source = archive.extractfile(member)
+                  if source is None:
+                      raise SystemExit(f"unreadable payload member: {member.name}")
+                  path.parent.mkdir(parents=True, exist_ok=True)
+                  path.write_bytes(source.read())
+
+          payload.unlink()
+          print({"sha256": actual_sha, "members": sorted(expected)})
+          PY
+      - name: Commit published sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Z2F-8B1: native window swapchain contract"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
