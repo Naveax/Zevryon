@@ -61,3 +61,6 @@ if(TARGET zevryon-gpu-device-presentation)
       COMMAND zevryon-native-damage-presentation-equivalence-tests)
   endif()
 endif()
+
+# Z2F-7 binds API-specific adapters behind the certified native command ABI.
+include("${CMAKE_CURRENT_LIST_DIR}/native_platform_adapters.cmake")
