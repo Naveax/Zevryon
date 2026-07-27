@@ -28,28 +28,17 @@ jobs:
       - name: Publish permanent implementation
         shell: bash
         run: |
-          set -o pipefail
-          {
-            set -eux
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add \
-              .github/workflows/z2-native-platform-adapters.yml \
-              cmake/native_platform_adapters.cmake \
-              cmake/native_damage_presentation.cmake \
-              docs/Z2F7_NATIVE_PLATFORM_ADAPTERS.md \
-              src/native_platform_adapters.hpp \
-              src/native_platform_adapters.cpp \
-              src/native_platform_adapters_benchmark_main.cpp \
-              tests/native_platform_adapters_tests.cpp \
-              tests/native_platform_adapters_equivalence_tests.cpp
-            git status --short
-            git commit -m "Implement native platform adapter contract"
-            git push origin HEAD:work/z2f-native-platform-adapters
-          } 2>&1 | tee /tmp/z2f7-publication.log
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: z2f7-publication-${{ github.sha }}
-          path: /tmp/z2f7-publication.log
-          if-no-files-found: warn
+          set -euxo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            cmake/native_platform_adapters.cmake \
+            cmake/native_damage_presentation.cmake \
+            docs/Z2F7_NATIVE_PLATFORM_ADAPTERS.md \
+            src/native_platform_adapters.hpp \
+            src/native_platform_adapters.cpp \
+            src/native_platform_adapters_benchmark_main.cpp \
+            tests/native_platform_adapters_tests.cpp \
+            tests/native_platform_adapters_equivalence_tests.cpp
+          git commit -m "Implement native platform adapter contract"
+          git push origin HEAD:work/z2f-native-platform-adapters
