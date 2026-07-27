@@ -61,3 +61,5 @@ if(TARGET zevryon-gpu-atlas-frame-submission)
       COMMAND zevryon-gpu-device-presentation-equivalence-tests)
   endif()
 endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/native_damage_presentation.cmake")
