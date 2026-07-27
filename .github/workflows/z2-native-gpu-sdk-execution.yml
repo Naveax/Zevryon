@@ -1,0 +1,261 @@
+name: z2-native-gpu-sdk-execution
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-native-gpu-sdk-execution.yml'
+      - 'cmake/native_gpu_sdk_execution.cmake'
+      - 'cmake/native_platform_adapters.cmake'
+      - 'src/native_gpu_sdk_execution*'
+      - 'src/native_platform_adapters*'
+      - 'src/native_platform_submission_standalone.cpp'
+      - 'tests/native_gpu_sdk_execution*'
+      - 'docs/Z2F8A_CONCRETE_NATIVE_GPU_EXECUTION.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-native-gpu-sdk-execution-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  strict-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libharfbuzz-dev
+      - name: Configure strict reference build
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build focused targets
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target \
+            zevryon-native-gpu-sdk-execution-tests \
+            zevryon-native-gpu-sdk-execution-equivalence-tests \
+            zevryon-native-gpu-sdk-execution-benchmark \
+            zevryon-native-platform-adapters-tests \
+            2>&1 | tee native-gpu-sdk-build.log
+      - name: Repeat functional certification
+        run: |
+          set -o pipefail
+          ctest --test-dir build -R '^native-gpu-sdk-execution-tests$' \
+            --repeat until-fail:20 --output-on-failure \
+            2>&1 | tee native-gpu-sdk-repeat.log
+      - name: Run 9216-case execution oracle
+        run: |
+          set -o pipefail
+          ctest --test-dir build -R '^native-gpu-sdk-execution-equivalence-tests$' \
+            --output-on-failure 2>&1 | tee native-gpu-sdk-equivalence.log
+      - name: Run three benchmark distributions
+        run: |
+          for run in 1 2 3; do
+            ./build/zevryon-native-gpu-sdk-execution-benchmark 512 \
+              > "native-gpu-sdk-benchmark-${run}.json"
+          done
+      - name: Enforce exact topology, memory and latency gates
+        run: |
+          python3 - <<'PY'
+          import json
+
+          rows = []
+          for run in range(1, 4):
+              with open(f'native-gpu-sdk-benchmark-{run}.json', encoding='utf-8') as handle:
+                  row = json.load(handle)
+              assert row['schema'] == 'zevryon.native-gpu-sdk-execution-benchmark.v1'
+              assert row['input_document_lines'] == 16_384
+              assert row['input_projected_lines'] == 80
+              assert row['input_frame_commands'] == 68
+              assert row['input_native_commands'] == 71
+              assert row['input_platform_commands'] == 80
+              assert row['input_draw_instances'] == 310
+              assert row['backend_count'] == 3
+              assert row['submissions_per_iteration'] == 3
+              assert row['commands_per_submission'] == 80
+              assert row['barriers_per_submission'] == 2
+              assert row['descriptors_per_submission'] == 3
+              assert row['offscreen_images_per_backend'] == 3
+              assert row['device_local_bytes_per_backend'] == 691_200
+              assert row['device_local_bytes_total'] == 2_073_600
+              assert row['staging_hard_limit_bytes'] == 4_194_304
+              assert row['window_handle_bytes'] == 48
+              assert row['limits_record_bytes'] == 48
+              assert row['config_record_bytes'] == 120
+              assert row['probe_record_bytes'] == 64
+              assert row['receipt_record_bytes'] == 88
+              assert row['vulkan_checksum'] == 7_343_614_157_945_049_271
+              assert row['metal_checksum'] == 4_960_911_055_145_951_336
+              assert row['d3d12_checksum'] == 3_981_847_620_083_548_284
+              assert row['checksum'] == 5_412_896_378_037_194_527
+              assert 0.0 < row['p50_ms'] <= row['p95_ms'] <= row['p99_ms'] <= row['maximum_ms']
+              assert row['p95_ms'] <= 2.0, row
+              assert row['p99_ms'] <= 4.0, row
+              assert row['maximum_ms'] <= 15.0, row
+              rows.append(row)
+          stable = (
+              'commands_per_submission', 'barriers_per_submission',
+              'descriptors_per_submission', 'device_local_bytes_total',
+              'vulkan_checksum', 'metal_checksum', 'd3d12_checksum', 'checksum')
+          for key in stable:
+              assert len({row[key] for row in rows}) == 1, key
+          print({
+              'p50_ms': [row['p50_ms'] for row in rows],
+              'p95_ms': [row['p95_ms'] for row in rows],
+              'p99_ms': [row['p99_ms'] for row in rows],
+              'maximum_ms': [row['maximum_ms'] for row in rows],
+              'checksum': rows[0]['checksum'],
+          })
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-native-gpu-sdk-execution-${{ github.sha }}
+          path: |
+            native-gpu-sdk-build.log
+            native-gpu-sdk-repeat.log
+            native-gpu-sdk-equivalence.log
+            native-gpu-sdk-benchmark-*.json
+          if-no-files-found: warn
+
+  sanitizer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libharfbuzz-dev
+      - name: Configure ASan and UBSan reference build
+        run: >-
+          cmake -S . -B build-sanitized
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+          -DCMAKE_CXX_FLAGS=-fsanitize=address,undefined
+          -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined
+          -DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined
+      - name: Build focused tests under sanitizers
+        run: |
+          set -o pipefail
+          cmake --build build-sanitized --parallel 2 --target \
+            zevryon-native-gpu-sdk-execution-tests \
+            zevryon-native-gpu-sdk-execution-equivalence-tests \
+            2>&1 | tee native-gpu-sdk-sanitizer-build.log
+      - name: Run focused tests under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: >-
+          ctest --test-dir build-sanitized
+          -R '^native-gpu-sdk-execution-(tests|equivalence-tests)$'
+          --output-on-failure
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-native-gpu-sdk-execution-sanitizer-${{ github.sha }}
+          path: native-gpu-sdk-sanitizer-build.log
+          if-no-files-found: warn
+
+  vulkan-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vulkan and HarfBuzz
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libharfbuzz-dev libvulkan-dev mesa-vulkan-drivers vulkan-tools
+      - name: Configure Vulkan runtime build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+      - name: Build Vulkan smoke and focused tests
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target \
+            zevryon-native-gpu-sdk-platform-smoke-tests \
+            zevryon-native-gpu-sdk-execution-tests \
+            2>&1 | tee vulkan-sdk-build.log
+      - name: Run real Vulkan SDK smoke through lavapipe
+        run: |
+          export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name '*lvp*.json' -print -quit)"
+          test -n "$VK_ICD_FILENAMES"
+          vulkaninfo --summary > vulkan-info.txt
+          ./build/zevryon-native-gpu-sdk-platform-smoke-tests | tee vulkan-sdk-smoke.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-native-gpu-sdk-vulkan-${{ github.sha }}
+          path: |
+            vulkan-sdk-build.log
+            vulkan-sdk-smoke.log
+            vulkan-info.txt
+          if-no-files-found: warn
+
+  metal-runtime:
+    runs-on: macos-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install HarfBuzz
+        run: brew install harfbuzz
+      - name: Configure Metal runtime build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+      - name: Build Metal smoke and focused tests
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target \
+            zevryon-native-gpu-sdk-platform-smoke-tests \
+            zevryon-native-gpu-sdk-execution-tests \
+            2>&1 | tee metal-sdk-build.log
+      - name: Run real Metal SDK smoke
+        run: ./build/zevryon-native-gpu-sdk-platform-smoke-tests | tee metal-sdk-smoke.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-native-gpu-sdk-metal-${{ github.sha }}
+          path: |
+            metal-sdk-build.log
+            metal-sdk-smoke.log
+          if-no-files-found: warn
+
+  d3d12-runtime:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure standalone Direct3D 12 SDK graph
+        run: cmake -S . -B build -DBUILD_TESTING=ON
+      - name: Build D3D12 smoke and focused tests
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel 2 --target zevryon-native-gpu-sdk-platform-smoke-tests 2>&1 | Tee-Object -FilePath d3d12-sdk-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build build --config Release --parallel 2 --target zevryon-native-gpu-sdk-execution-tests 2>&1 | Tee-Object -FilePath d3d12-sdk-build.log -Append
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run real Direct3D 12 SDK smoke through hardware or WARP
+        shell: pwsh
+        run: |
+          $exe = '.\build\Release\zevryon-native-gpu-sdk-platform-smoke-tests.exe'
+          if (-not (Test-Path $exe)) { throw "D3D12 smoke executable was not generated" }
+          & $exe | Tee-Object -FilePath d3d12-sdk-smoke.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-native-gpu-sdk-d3d12-${{ github.sha }}
+          path: |
+            d3d12-sdk-build.log
+            d3d12-sdk-smoke.log
+          if-no-files-found: warn

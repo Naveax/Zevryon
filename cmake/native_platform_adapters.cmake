@@ -61,3 +61,6 @@ if(TARGET zevryon-native-damage-presentation)
       COMMAND zevryon-native-platform-adapters-equivalence-tests)
   endif()
 endif()
+
+# Z2F-8A binds concrete native SDK execution behind the certified adapter ABI.
+include("${CMAKE_CURRENT_LIST_DIR}/native_gpu_sdk_execution.cmake")
