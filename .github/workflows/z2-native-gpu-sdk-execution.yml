@@ -237,10 +237,12 @@ jobs:
       - name: Configure Direct3D 12 runtime build
         run: cmake -S . -B build -DBUILD_TESTING=ON
       - name: Build Direct3D 12 smoke and focused tests
-        run: >-
-          cmake --build build --config Release --parallel 2 --target
-          zevryon-native-gpu-sdk-platform-smoke-tests
-          zevryon-native-gpu-sdk-execution-tests
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel 2 --target zevryon-native-gpu-sdk-platform-smoke-tests 2>&1 | Tee-Object -FilePath d3d12-sdk-build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build build --config Release --parallel 2 --target zevryon-native-gpu-sdk-execution-tests 2>&1 | Tee-Object -FilePath d3d12-sdk-build.log -Append
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run real Direct3D 12 SDK smoke through hardware or WARP
         shell: pwsh
         run: .\build\Release\zevryon-native-gpu-sdk-platform-smoke-tests.exe | Tee-Object -FilePath d3d12-sdk-smoke.log
@@ -248,5 +250,7 @@ jobs:
         if: always()
         with:
           name: z2-native-gpu-sdk-d3d12-${{ github.sha }}
-          path: d3d12-sdk-smoke.log
+          path: |
+            d3d12-sdk-build.log
+            d3d12-sdk-smoke.log
           if-no-files-found: warn
