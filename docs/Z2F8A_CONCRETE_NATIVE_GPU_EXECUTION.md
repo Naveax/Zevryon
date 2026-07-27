@@ -32,6 +32,22 @@ header exposes only stable C++ records:
 therefore consume the concrete SDK driver without changing the upper
 compositor pipeline.
 
+## Build-graph isolation
+
+Concrete device execution depends on the stable Z2F-7 submission ABI, not on
+font discovery or shaping. When the complete text-to-adapter graph exists,
+Z2F-8A links to `zevryon-native-platform-adapters`. When that graph is absent,
+a compact standalone translation unit provides only the
+`NativePlatformSubmission` allocator and reset lifecycle required by the SDK
+boundary.
+
+This dual construction has the same public records and execution behavior. It
+allows Direct3D 12 device, command-list and WARP certification on a default
+Windows build without installing HarfBuzz, while Linux and macOS certification
+continue to exercise the complete text-to-adapter chain. The standalone path
+must not implement platform-command compilation or duplicate Z2F-7 adapter
+logic.
+
 ## Vulkan execution
 
 When Vulkan is available, the backend creates:
@@ -113,12 +129,13 @@ barriers and three descriptors per submission. It fixes record sizes, image
 memory, command topology and per-backend checksums independently of host GPU
 hardware.
 
-Separate platform smoke tests compile the complete text-to-adapter dependency
-chain and exercise a real native queue submission plus fence completion:
+Separate platform smoke tests exercise real native queue submission plus fence
+completion:
 
-- Mesa Vulkan/lavapipe on Linux hosted CI;
-- Metal on macOS hosted CI;
-- D3D12 hardware or WARP on Windows hosted CI.
+- Mesa Vulkan/lavapipe on Linux hosted CI with the complete adapter graph;
+- Metal on macOS hosted CI with the complete adapter graph;
+- D3D12 hardware or WARP on Windows hosted CI through the standalone stable-ABI
+  build path.
 
 ## Explicit boundary
 
