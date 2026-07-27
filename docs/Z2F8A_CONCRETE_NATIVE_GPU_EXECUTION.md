@@ -113,7 +113,8 @@ barriers and three descriptors per submission. It fixes record sizes, image
 memory, command topology and per-backend checksums independently of host GPU
 hardware.
 
-Separate platform smoke tests exercise the real SDK path:
+Separate platform smoke tests compile the complete text-to-adapter dependency
+chain and exercise a real native queue submission plus fence completion:
 
 - Mesa Vulkan/lavapipe on Linux hosted CI;
 - Metal on macOS hosted CI;
