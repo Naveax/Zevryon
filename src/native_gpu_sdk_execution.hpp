@@ -51,6 +51,34 @@ struct NativeWindowSurfaceHandle final {
 
 static_assert(sizeof(NativeWindowSurfaceHandle) == 48U);
 
+enum NativeGpuSdkContextFlags : std::uint32_t {
+    kNativeGpuSdkContextDeviceValid = 1U << 0U,
+    kNativeGpuSdkContextGraphicsQueueValid = 1U << 1U,
+    kNativeGpuSdkContextPresentQueueValid = 1U << 2U,
+    kNativeGpuSdkContextSharedGraphicsPresentQueue = 1U << 3U,
+    kNativeGpuSdkContextSoftwareDevice = 1U << 4U
+};
+
+struct NativeGpuSdkContextHandle final {
+    NativeGpuApiKind api_kind{NativeGpuApiKind::ReferenceCpu};
+    std::uint8_t reserved0[3]{0, 0, 0};
+    std::uint32_t flags{0};
+    std::uint64_t device_generation{0};
+    std::uint64_t runtime_generation{0};
+    std::uint64_t instance_or_factory{0};
+    std::uint64_t physical_device_or_adapter{0};
+    std::uint64_t device{0};
+    std::uint64_t graphics_queue{0};
+    std::uint64_t present_queue{0};
+    std::uint32_t graphics_queue_family{0};
+    std::uint32_t present_queue_family{0};
+
+    bool operator==(const NativeGpuSdkContextHandle&) const noexcept = default;
+};
+
+static_assert(sizeof(NativeGpuSdkContextHandle) == 72U);
+
+
 struct NativeGpuSdkLimits final {
     std::uint32_t maximum_swapchain_images{0};
     std::uint32_t maximum_frames_in_flight{0};
@@ -182,6 +210,9 @@ public:
     virtual bool initialize(
         const NativeGpuSdkConfig& config,
         NativeGpuSdkError* error) noexcept = 0;
+    virtual bool export_context(
+        NativeGpuSdkContextHandle* context,
+        NativeGpuSdkError* error) noexcept;
     virtual bool configure_offscreen_surface(
         const GpuSurfaceDescriptor& surface,
         std::uint32_t image_count,

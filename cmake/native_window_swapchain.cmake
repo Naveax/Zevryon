@@ -1,11 +1,30 @@
 if(TARGET zevryon-native-gpu-sdk-execution)
+  set(
+    ZEVRYON_NATIVE_WINDOW_SWAPCHAIN_SOURCES
+    src/native_window_swapchain.cpp
+    src/native_window_swapchain_stub.cpp)
+
+  if(WIN32)
+    list(APPEND
+      ZEVRYON_NATIVE_WINDOW_SWAPCHAIN_SOURCES
+      src/native_window_swapchain_d3d12.cpp)
+  endif()
+
   add_library(
     zevryon-native-window-swapchain STATIC
-    src/native_window_swapchain.cpp)
+    ${ZEVRYON_NATIVE_WINDOW_SWAPCHAIN_SOURCES})
   target_include_directories(zevryon-native-window-swapchain PUBLIC src)
   target_link_libraries(
     zevryon-native-window-swapchain
     PUBLIC zevryon-native-gpu-sdk-execution)
+  if(WIN32)
+    target_compile_definitions(
+      zevryon-native-window-swapchain
+      PRIVATE ZEVRYON_HAS_D3D12_WINDOW_SWAPCHAIN=1)
+    target_link_libraries(
+      zevryon-native-window-swapchain
+      PRIVATE d3d12 dxgi dxguid user32)
+  endif()
   zevryon_options(zevryon-native-window-swapchain)
 
   add_executable(
@@ -16,9 +35,23 @@ if(TARGET zevryon-native-gpu-sdk-execution)
     PRIVATE zevryon-native-window-swapchain)
   zevryon_options(zevryon-native-window-swapchain-benchmark)
 
+  if(WIN32)
+    add_executable(
+      zevryon-native-window-swapchain-d3d12-benchmark
+      src/native_window_swapchain_d3d12_benchmark_main.cpp)
+    target_link_libraries(
+      zevryon-native-window-swapchain-d3d12-benchmark
+      PRIVATE zevryon-native-window-swapchain)
+    zevryon_options(zevryon-native-window-swapchain-d3d12-benchmark)
+  endif()
+
   if(MSVC)
     target_compile_options(
       zevryon-native-window-swapchain-benchmark PRIVATE /UNDEBUG)
+    if(TARGET zevryon-native-window-swapchain-d3d12-benchmark)
+      target_compile_options(
+        zevryon-native-window-swapchain-d3d12-benchmark PRIVATE /UNDEBUG)
+    endif()
   else()
     target_compile_options(
       zevryon-native-window-swapchain-benchmark PRIVATE -UNDEBUG)
@@ -41,11 +74,25 @@ if(TARGET zevryon-native-gpu-sdk-execution)
       PRIVATE zevryon-native-window-swapchain)
     zevryon_options(zevryon-native-window-swapchain-equivalence-tests)
 
+    if(WIN32)
+      add_executable(
+        zevryon-native-window-swapchain-d3d12-tests
+        tests/native_window_swapchain_d3d12_tests.cpp)
+      target_link_libraries(
+        zevryon-native-window-swapchain-d3d12-tests
+        PRIVATE zevryon-native-window-swapchain)
+      zevryon_options(zevryon-native-window-swapchain-d3d12-tests)
+    endif()
+
     if(MSVC)
       target_compile_options(
         zevryon-native-window-swapchain-tests PRIVATE /UNDEBUG)
       target_compile_options(
         zevryon-native-window-swapchain-equivalence-tests PRIVATE /UNDEBUG)
+      if(TARGET zevryon-native-window-swapchain-d3d12-tests)
+        target_compile_options(
+          zevryon-native-window-swapchain-d3d12-tests PRIVATE /UNDEBUG)
+      endif()
     else()
       target_compile_options(
         zevryon-native-window-swapchain-tests PRIVATE -UNDEBUG)
@@ -59,5 +106,10 @@ if(TARGET zevryon-native-gpu-sdk-execution)
     add_test(
       NAME native-window-swapchain-equivalence-tests
       COMMAND zevryon-native-window-swapchain-equivalence-tests)
+    if(TARGET zevryon-native-window-swapchain-d3d12-tests)
+      add_test(
+        NAME native-window-swapchain-d3d12-tests
+        COMMAND zevryon-native-window-swapchain-d3d12-tests)
+    endif()
   endif()
 endif()

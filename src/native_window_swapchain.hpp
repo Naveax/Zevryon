@@ -5,38 +5,12 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <span>
 #include <string>
 
 namespace zevryon::text {
-
-enum NativeGpuSdkContextFlags : std::uint32_t {
-    kNativeGpuSdkContextDeviceValid = 1U << 0U,
-    kNativeGpuSdkContextGraphicsQueueValid = 1U << 1U,
-    kNativeGpuSdkContextPresentQueueValid = 1U << 2U,
-    kNativeGpuSdkContextSharedGraphicsPresentQueue = 1U << 3U,
-    kNativeGpuSdkContextSoftwareDevice = 1U << 4U
-};
-
-struct NativeGpuSdkContextHandle final {
-    NativeGpuApiKind api_kind{NativeGpuApiKind::ReferenceCpu};
-    std::uint8_t reserved0[3]{0, 0, 0};
-    std::uint32_t flags{0};
-    std::uint64_t device_generation{0};
-    std::uint64_t runtime_generation{0};
-    std::uint64_t instance_or_factory{0};
-    std::uint64_t physical_device_or_adapter{0};
-    std::uint64_t device{0};
-    std::uint64_t graphics_queue{0};
-    std::uint64_t present_queue{0};
-    std::uint32_t graphics_queue_family{0};
-    std::uint32_t present_queue_family{0};
-
-    bool operator==(const NativeGpuSdkContextHandle&) const noexcept = default;
-};
-
-static_assert(sizeof(NativeGpuSdkContextHandle) == 72U);
 
 enum NativeWindowSwapchainCapabilityFlags : std::uint32_t {
     kNativeWindowSwapchainWindowSurface = 1U << 0U,
@@ -323,6 +297,13 @@ private:
     NativeWindowAcquireStatus next_acquire_status_{NativeWindowAcquireStatus::Acquired};
     NativeWindowPresentStatus next_present_status_{NativeWindowPresentStatus::Presented};
 };
+
+std::unique_ptr<NativeWindowSwapchainApi>
+make_direct3d12_native_window_swapchain_api() noexcept;
+
+bool native_window_swapchain_build_has_backend(
+    NativeGpuApiKind kind,
+    NativeWindowSystem system) noexcept;
 
 NativeWindowSwapchainCapabilities default_native_window_swapchain_capabilities(
     NativeGpuApiKind kind,

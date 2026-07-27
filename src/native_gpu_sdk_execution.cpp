@@ -175,6 +175,19 @@ const char* native_gpu_sdk_error_kind_name(NativeGpuSdkErrorKind kind) noexcept 
     return "unknown";
 }
 
+bool NativeGpuSdkApi::export_context(
+    NativeGpuSdkContextHandle* context,
+    NativeGpuSdkError* error) noexcept {
+    clear_error(error);
+    if (context == nullptr) {
+        return fail(error, NativeGpuSdkErrorKind::InvalidInput,
+                    "native GPU context output is null");
+    }
+    *context = {};
+    return fail(error, NativeGpuSdkErrorKind::UnsupportedBackend,
+                "native GPU context export is unavailable for this backend");
+}
+
 ReferenceNativeGpuSdkApi::ReferenceNativeGpuSdkApi(NativeGpuApiKind kind) noexcept
     : kind_(kind) {
     snapshot_.probe.api_kind = kind;
