@@ -77,7 +77,7 @@ jobs:
             & .\build\Release\zevryon-native-window-swapchain-d3d12-benchmark.exe *> "d3d12-window-benchmark-$_.txt"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
-      - name: Enforce real surface, memory and latency gates
+      - name: Enforce exact presentation, memory and latency gates
         shell: pwsh
         run: |
           $rows = @()
@@ -89,18 +89,20 @@ jobs:
               }
             }
             if ([int64]$values['iterations'] -ne 256) { throw $values }
-            if ([int64]$values['samples'] -le 0) { throw $values }
-            if (([int64]$values['presented'] + [int64]$values['occluded']) -ne 256) { throw $values }
+            if ([int64]$values['samples'] -ne 256) { throw $values }
+            if ([int64]$values['presented'] -ne 256) { throw $values }
+            if ([int64]$values['occluded'] -ne 0) { throw $values }
             if ([int64]$values['surface_bytes'] -ne 2764800) { throw $values }
             if ([int64]$values['peak_in_flight_bytes'] -ne 921600) { throw $values }
+            if ([uint64]$values['checksum'] -ne 16792613520493277315) { throw $values }
             $p50 = [double]::Parse($values['p50_ms'], [Globalization.CultureInfo]::InvariantCulture)
             $p95 = [double]::Parse($values['p95_ms'], [Globalization.CultureInfo]::InvariantCulture)
             $p99 = [double]::Parse($values['p99_ms'], [Globalization.CultureInfo]::InvariantCulture)
             $maximum = [double]::Parse($values['max_ms'], [Globalization.CultureInfo]::InvariantCulture)
             if (-not (0.0 -lt $p50 -and $p50 -le $p95 -and $p95 -le $p99 -and $p99 -le $maximum)) { throw $values }
-            if ($p95 -gt 40.0) { throw $values }
-            if ($p99 -gt 80.0) { throw $values }
-            if ($maximum -gt 250.0) { throw $values }
+            if ($p95 -gt 20.0) { throw $values }
+            if ($p99 -gt 20.0) { throw $values }
+            if ($maximum -gt 40.0) { throw $values }
             $rows += [pscustomobject]@{
               samples = [int64]$values['samples']
               presented = [int64]$values['presented']
