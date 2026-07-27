@@ -780,15 +780,24 @@ bool build_native_command_buffer(
             set_build_error(error, NativeCommandBuildErrorKind::DamageLimitExceeded, "damage area limit exceeded");
             return false;
         }
-        if (request.policy.full_redraw_threshold_permille != 0U &&
-            full_area != 0U &&
-            total_area * 1'000U >=
-                full_area * request.policy.full_redraw_threshold_permille) {
-            staged.damage_rects.clear();
-            staged.damage_rects.push_back(surface_rect(request.frame->surface));
-            staged.full_redraw = 1U;
-            total_area = full_area;
-        }
+        bool collapse_to_full_redraw = false;
+if (!redraw_threshold_reached(
+        total_area,
+        full_area,
+        request.policy.full_redraw_threshold_permille,
+        &collapse_to_full_redraw)) {
+    set_build_error(
+        error,
+        NativeCommandBuildErrorKind::ArithmeticOverflow,
+        "full-redraw threshold overflow");
+    return false;
+}
+if (collapse_to_full_redraw) {
+    staged.damage_rects.clear();
+    staged.damage_rects.push_back(surface_rect(request.frame->surface));
+    staged.full_redraw = 1U;
+    total_area = full_area;
+}
 
         if (!staged.damage_rects.empty()) {
             staged.commands.push_back({NativeCommandKind::BeginRenderPass, 0U, 0U, 0U});
@@ -1379,8 +1388,8 @@ bool native_present_receipt_is_current(
     const NativePresentReceipt& receipt) noexcept {
     std::lock_guard<std::mutex> lock(scheduler.mutex_);
     if (receipt.status != NativePresentStatus::Presented) {
-        return receipt.ticket_id != 0U;
-    }
+    return false;
+}
     if (receipt.image.device_generation != scheduler.config_.device_generation ||
         receipt.image.surface_id != scheduler.surface_.surface_id ||
         receipt.image.surface_generation != scheduler.surface_.generation_id) {
