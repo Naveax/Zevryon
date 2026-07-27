@@ -1,0 +1,46 @@
+name: z2f8b2b-win32-diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  win32-vulkan-compile:
+    if: github.head_ref == 'work/z2f8b2b-real-vulkan-wsi'
+    runs-on: windows-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vulkan SDK
+        shell: pwsh
+        run: |
+          choco install vulkan-sdk --version=1.4.350 -y --no-progress
+          Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
+          refreshenv
+          "VULKAN_SDK=$env:VULKAN_SDK" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "$env:VULKAN_SDK\Bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: Configure
+        shell: pwsh
+        run: cmake -S . -B build -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=OFF
+      - name: Build with full diagnostics
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          cmake --build build --config Release --parallel 2 --target zevryon-native-window-swapchain-vulkan-tests 2>&1 | Tee-Object -FilePath vulkan-wsi-win32-build.log
+          "exit_code=$LASTEXITCODE" | Out-File -FilePath vulkan-wsi-win32-exit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: z2f8b2b-win32-diagnostic-${{ github.sha }}
+          path: |
+            vulkan-wsi-win32-build.log
+            vulkan-wsi-win32-exit.txt
+          if-no-files-found: error
+      - name: Preserve failure status
+        shell: pwsh
+        run: |
+          $line = Get-Content vulkan-wsi-win32-exit.txt
+          $code = [int]($line -replace 'exit_code=', '')
+          if ($code -ne 0) { exit $code }
