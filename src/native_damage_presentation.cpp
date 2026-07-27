@@ -41,6 +41,45 @@ bool checked_mul_u64(
     return true;
 }
 
+bool redraw_threshold_reached(
+    std::uint64_t total_area,
+    std::uint64_t full_area,
+    std::uint32_t threshold_permille,
+    bool* reached) noexcept {
+    if (reached == nullptr || threshold_permille > 1'000U) {
+        return false;
+    }
+    if (threshold_permille == 0U || full_area == 0U) {
+        *reached = false;
+        return true;
+    }
+    const std::uint64_t quotient = full_area / 1'000U;
+    const std::uint64_t remainder = full_area % 1'000U;
+    std::uint64_t quotient_part = 0U;
+    std::uint64_t remainder_part = 0U;
+    if (!checked_mul_u64(
+            quotient,
+            threshold_permille,
+            &quotient_part) ||
+        !checked_mul_u64(
+            remainder,
+            threshold_permille,
+            &remainder_part)) {
+        return false;
+    }
+    const std::uint64_t rounded_remainder =
+        (remainder_part + 999U) / 1'000U;
+    std::uint64_t threshold_area = 0U;
+    if (!checked_add_u64(
+            quotient_part,
+            rounded_remainder,
+            &threshold_area)) {
+        return false;
+    }
+    *reached = total_area >= threshold_area;
+    return true;
+}
+
 bool checked_add_i64_u64(
     std::int64_t start,
     std::uint64_t size,
