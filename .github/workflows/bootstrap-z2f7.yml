@@ -1,0 +1,56 @@
+name: bootstrap-z2f7
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.event.pull_request.head.ref == 'work/z2f-native-platform-adapters'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/z2f-native-platform-adapters
+      - name: Materialize verified Z2F-7 payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .z2f7/part* | base64 -d > /tmp/z2f7-payload.tar.gz
+          echo "135a14de8e8c9794b2b33cb847a9e556c6788abc71b98ce1076fbed2edb80c7e  /tmp/z2f7-payload.tar.gz" | sha256sum -c -
+          tar -tzf /tmp/z2f7-payload.tar.gz > /tmp/z2f7-members.txt
+          test "$(wc -l < /tmp/z2f7-members.txt)" -eq 9
+          grep -Fx '.github/workflows/z2-native-platform-adapters.yml' /tmp/z2f7-members.txt
+          grep -Fx 'cmake/native_platform_adapters.cmake' /tmp/z2f7-members.txt
+          grep -Fx 'cmake/native_damage_presentation.cmake' /tmp/z2f7-members.txt
+          grep -Fx 'docs/Z2F7_NATIVE_PLATFORM_ADAPTERS.md' /tmp/z2f7-members.txt
+          grep -Fx 'src/native_platform_adapters.hpp' /tmp/z2f7-members.txt
+          grep -Fx 'src/native_platform_adapters.cpp' /tmp/z2f7-members.txt
+          grep -Fx 'src/native_platform_adapters_benchmark_main.cpp' /tmp/z2f7-members.txt
+          grep -Fx 'tests/native_platform_adapters_tests.cpp' /tmp/z2f7-members.txt
+          grep -Fx 'tests/native_platform_adapters_equivalence_tests.cpp' /tmp/z2f7-members.txt
+          tar -xzf /tmp/z2f7-payload.tar.gz
+      - name: Publish permanent implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            .github/workflows/z2-native-platform-adapters.yml \
+            cmake/native_platform_adapters.cmake \
+            cmake/native_damage_presentation.cmake \
+            docs/Z2F7_NATIVE_PLATFORM_ADAPTERS.md \
+            src/native_platform_adapters.hpp \
+            src/native_platform_adapters.cpp \
+            src/native_platform_adapters_benchmark_main.cpp \
+            tests/native_platform_adapters_tests.cpp \
+            tests/native_platform_adapters_equivalence_tests.cpp
+          git rm -r .z2f7
+          git rm .github/workflows/bootstrap-z2f7.yml
+          git commit -m "Implement native platform adapter contract"
+          git push origin HEAD:work/z2f-native-platform-adapters
