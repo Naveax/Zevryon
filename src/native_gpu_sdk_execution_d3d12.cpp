@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -71,7 +72,8 @@ public:
         snapshot_.probe.api_kind = NativeGpuApiKind::Direct3D12;
         snapshot_.probe.availability = NativeGpuSdkAvailability::CompileOnly;
         snapshot_.probe.api_major = 12U;
-        snapshot_.probe.flags = kNativeGpuSdkOffscreenSurface;
+        snapshot_.probe.flags = kNativeGpuSdkOffscreenSurface |
+                                kNativeGpuSdkWindowSurface;
     }
 
     ~Direct3D12NativeGpuSdkApi() override { shutdown(); }
@@ -83,6 +85,45 @@ public:
     NativeGpuSdkProbe probe() noexcept override {
         std::lock_guard<std::mutex> lock(mutex_);
         return snapshot_.probe;
+    }
+
+    bool export_context(
+        NativeGpuSdkContextHandle* context,
+        NativeGpuSdkError* error) noexcept override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        clear_error(error);
+        if (context == nullptr) {
+            return fail(error, NativeGpuSdkErrorKind::InvalidInput,
+                        "Direct3D 12 context output is null");
+        }
+        if (!initialized_ || factory_ == nullptr || adapter_ == nullptr ||
+            device_ == nullptr || queue_ == nullptr) {
+            *context = {};
+            return fail(error, NativeGpuSdkErrorKind::RuntimeUnavailable,
+                        "Direct3D 12 device context is not initialized");
+        }
+        *context = {};
+        context->api_kind = NativeGpuApiKind::Direct3D12;
+        context->flags =
+            kNativeGpuSdkContextDeviceValid |
+            kNativeGpuSdkContextGraphicsQueueValid |
+            kNativeGpuSdkContextPresentQueueValid |
+            kNativeGpuSdkContextSharedGraphicsPresentQueue;
+        if ((snapshot_.probe.flags & kNativeGpuSdkSoftwareDevice) != 0U) {
+            context->flags |= kNativeGpuSdkContextSoftwareDevice;
+        }
+        context->device_generation = config_.device_generation;
+        context->runtime_generation = config_.runtime_generation;
+        context->instance_or_factory = static_cast<std::uint64_t>(
+            reinterpret_cast<std::uintptr_t>(factory_.Get()));
+        context->physical_device_or_adapter = static_cast<std::uint64_t>(
+            reinterpret_cast<std::uintptr_t>(adapter_.Get()));
+        context->device = static_cast<std::uint64_t>(
+            reinterpret_cast<std::uintptr_t>(device_.Get()));
+        context->graphics_queue = static_cast<std::uint64_t>(
+            reinterpret_cast<std::uintptr_t>(queue_.Get()));
+        context->present_queue = context->graphics_queue;
+        return true;
     }
 
     bool initialize(
@@ -206,7 +247,8 @@ public:
         snapshot_.config = config;
         snapshot_.probe.availability = NativeGpuSdkAvailability::RuntimeReady;
         snapshot_.probe.flags = kNativeGpuSdkRealDevice |
-                                kNativeGpuSdkOffscreenSurface;
+                                kNativeGpuSdkOffscreenSurface |
+                                kNativeGpuSdkWindowSurface;
         if (software_device) {
             snapshot_.probe.flags |= kNativeGpuSdkSoftwareDevice;
         }
