@@ -1,0 +1,51 @@
+name: bootstrap-z2f8b2b
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: github.head_ref == 'work/z2f8b2b-real-vulkan-wsi'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/z2f8b2b-real-vulkan-wsi
+          fetch-depth: 0
+      - name: Verify and extract payload
+        run: |
+          set -euo pipefail
+          cat .z2f8b2b/part* | base64 -d > /tmp/z2f8b2b.tar.gz
+          echo 'b13afc6e69c700f79de6487778b06f74099be85ba1af940e638cc7d99d2cb20a  /tmp/z2f8b2b.tar.gz' | sha256sum -c -
+          tar -tzf /tmp/z2f8b2b.tar.gz | sed '/\/$/d' | sort > /tmp/actual-members.txt
+          cat > /tmp/expected-members.txt <<'MEMBERS'
+          cmake/native_vulkan_wsi.cmake
+          cmake/native_window_swapchain.cmake
+          docs/Z2F8B2B_REAL_VULKAN_WSI.md
+          src/native_gpu_sdk_execution_vulkan_wsi.cpp
+          src/native_vulkan_wsi.hpp
+          src/native_vulkan_wsi_context.hpp
+          src/native_vulkan_wsi_stub.cpp
+          src/native_window_swapchain_vulkan.cpp
+          src/native_window_swapchain_vulkan_benchmark_main.cpp
+          tests/native_vulkan_wsi_test_window.cpp
+          tests/native_vulkan_wsi_test_window.hpp
+          tests/native_window_swapchain_vulkan_tests.cpp
+          MEMBERS
+          sort -o /tmp/expected-members.txt /tmp/expected-members.txt
+          diff -u /tmp/expected-members.txt /tmp/actual-members.txt
+          tar -xzf /tmp/z2f8b2b.tar.gz
+      - name: Publish implementation
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cmake/native_vulkan_wsi.cmake cmake/native_window_swapchain.cmake docs/Z2F8B2B_REAL_VULKAN_WSI.md src/native_gpu_sdk_execution_vulkan_wsi.cpp src/native_vulkan_wsi.hpp src/native_vulkan_wsi_context.hpp src/native_vulkan_wsi_stub.cpp src/native_window_swapchain_vulkan.cpp src/native_window_swapchain_vulkan_benchmark_main.cpp tests/native_vulkan_wsi_test_window.cpp tests/native_vulkan_wsi_test_window.hpp tests/native_window_swapchain_vulkan_tests.cpp
+          git rm -r .z2f8b2b .z2f8b2b-probe.txt
+          git commit -m 'Implement real Vulkan window-system integration'
+          git push origin HEAD:work/z2f8b2b-real-vulkan-wsi
