@@ -48,7 +48,7 @@ NativePlatformSubmission make_submission(
     submission.encoded_checksum = 0xA1B2C3D4U;
     for (std::uint32_t index = 0U; index < 8U; ++index) {
         NativePlatformCommandRecord command;
-        command.kind = index;
+        command.kind = static_cast<NativePlatformCommandKind>(index);
         command.source_index = index;
         command.value0 = submission.frame_id;
         command.value1 = submission.ticket_id;

@@ -61,7 +61,7 @@ NativePlatformSubmission submission_for(
     const std::uint32_t command_count = 8U + std::popcount(mask);
     for (std::uint32_t index = 0U; index < command_count; ++index) {
         NativePlatformCommandRecord command;
-        command.kind = index % 11U;
+        command.kind = static_cast<NativePlatformCommandKind>(index % 11U);
         command.source_index = index;
         command.auxiliary_index = mask & 3U;
         command.flags = variant;

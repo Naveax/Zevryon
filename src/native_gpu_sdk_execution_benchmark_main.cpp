@@ -68,7 +68,7 @@ NativePlatformSubmission make_submission(
                                   (static_cast<std::uint64_t>(kind) << 56U);
     for (std::uint32_t index = 0U; index < 80U; ++index) {
         NativePlatformCommandRecord command;
-        command.kind = index % 11U;
+        command.kind = static_cast<NativePlatformCommandKind>(index % 11U);
         command.source_index = index;
         command.auxiliary_index = index % 4U;
         command.flags = index & 1U;
