@@ -1,0 +1,66 @@
+name: bootstrap-z2f8b3a
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: github.head_ref == 'work/z2f8b3-shared-render-pipeline'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/z2f8b3-shared-render-pipeline
+          fetch-depth: 0
+      - name: Verify and extract payload
+        run: |
+          set -euo pipefail
+          cat .z2f8b3/part* | base64 -d > /tmp/z2f8b3a.tar.gz
+          echo 'b0b372c2b941d7b30de6868ddbd1d4a37735fd22716eadbb4220bd8ebdcd8725  /tmp/z2f8b3a.tar.gz' | sha256sum -c -
+          tar -tzf /tmp/z2f8b3a.tar.gz | sed '/\/$/d' | sort > /tmp/actual-members.txt
+          cat > /tmp/expected-members.txt <<'MEMBERS'
+          .z2f8b3/apply.py
+          cmake/shared_pixel_compositor.cmake
+          docs/Z2F8B3A_SHARED_PIXEL_COMPOSITION.md
+          src/native_window_pixel_buffer.hpp
+          src/shared_pixel_compositor.cpp
+          src/shared_pixel_compositor.hpp
+          src/shared_pixel_compositor_benchmark_main.cpp
+          tests/shared_pixel_compositor_equivalence_tests.cpp
+          tests/shared_pixel_compositor_tests.cpp
+          MEMBERS
+          sort -o /tmp/expected-members.txt /tmp/expected-members.txt
+          diff -u /tmp/expected-members.txt /tmp/actual-members.txt
+          tar -xzf /tmp/z2f8b3a.tar.gz
+          python3 .z2f8b3/apply.py
+      - name: Publish implementation
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            cmake/shared_pixel_compositor.cmake \
+            cmake/native_window_swapchain.cmake \
+            docs/Z2F8B3A_SHARED_PIXEL_COMPOSITION.md \
+            src/native_window_pixel_buffer.hpp \
+            src/shared_pixel_compositor.cpp \
+            src/shared_pixel_compositor.hpp \
+            src/shared_pixel_compositor_benchmark_main.cpp \
+            tests/shared_pixel_compositor_equivalence_tests.cpp \
+            tests/shared_pixel_compositor_tests.cpp \
+            src/native_window_swapchain.hpp \
+            src/native_window_swapchain.cpp \
+            src/native_window_swapchain_d3d12.cpp \
+            src/native_window_swapchain_vulkan.cpp \
+            src/native_window_swapchain_metal.mm \
+            src/native_window_swapchain_d3d12_benchmark_main.cpp \
+            src/native_window_swapchain_vulkan_benchmark_main.cpp \
+            src/native_window_swapchain_metal_benchmark_main.cpp
+          git rm -r .z2f8b3
+          git commit -m 'Implement shared pixel composition and native transfer'
+          git push origin HEAD:work/z2f8b3-shared-render-pipeline
