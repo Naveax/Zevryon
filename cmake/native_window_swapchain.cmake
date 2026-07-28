@@ -1,6 +1,7 @@
 if(TARGET zevryon-native-gpu-sdk-execution)
   # Pixel-view validation is independent from the optional compositor and
-  # platform presenter libraries, keeping minimal native graphs link-complete.
+  # platform presenter libraries. D3D12, Vulkan and Metal minimal graphs
+  # therefore remain link-complete without introducing dependency cycles.
   add_library(
     zevryon-native-window-pixel-buffer STATIC
     src/native_window_pixel_buffer.cpp)
