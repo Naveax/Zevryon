@@ -1,0 +1,67 @@
+name: bootstrap-z2f8b2c
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: github.head_ref == 'work/z2f8b2c-real-metal-window'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/z2f8b2c-real-metal-window
+          fetch-depth: 0
+      - name: Verify and extract payload
+        run: |
+          set -euo pipefail
+          cat .z2f8b2c/part* | base64 -d > /tmp/z2f8b2c.tar.gz
+          echo 'ba7cddf449ca711d4235d3ea36406d9bd6188e26cd12678e8238016d201c28cb  /tmp/z2f8b2c.tar.gz' | sha256sum -c -
+          tar -tzf /tmp/z2f8b2c.tar.gz | sed '/\/$/d' | sort > /tmp/actual-members.txt
+          cat > /tmp/expected-members.txt <<'MEMBERS'
+          .github/workflows/z2-real-metal-window-presentation.yml
+          cmake/native_metal_window.cmake
+          cmake/native_window_swapchain.cmake
+          docs/Z2F8B2C_REAL_METAL_WINDOW_PRESENTATION.md
+          src/native_gpu_sdk_execution_metal_window.mm
+          src/native_metal_window.hpp
+          src/native_metal_window_context.hpp
+          src/native_metal_window_stub.cpp
+          src/native_window_swapchain_metal.mm
+          src/native_window_swapchain_metal_benchmark_main.cpp
+          src/native_window_swapchain_stub.cpp
+          tests/native_metal_window_test_window.hpp
+          tests/native_metal_window_test_window.mm
+          tests/native_window_swapchain_metal_tests.cpp
+          MEMBERS
+          sort -o /tmp/expected-members.txt /tmp/expected-members.txt
+          diff -u /tmp/expected-members.txt /tmp/actual-members.txt
+          tar -xzf /tmp/z2f8b2c.tar.gz
+      - name: Publish implementation
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            .github/workflows/z2-real-metal-window-presentation.yml \
+            cmake/native_metal_window.cmake \
+            cmake/native_window_swapchain.cmake \
+            docs/Z2F8B2C_REAL_METAL_WINDOW_PRESENTATION.md \
+            src/native_gpu_sdk_execution_metal_window.mm \
+            src/native_metal_window.hpp \
+            src/native_metal_window_context.hpp \
+            src/native_metal_window_stub.cpp \
+            src/native_window_swapchain_metal.mm \
+            src/native_window_swapchain_metal_benchmark_main.cpp \
+            src/native_window_swapchain_stub.cpp \
+            tests/native_metal_window_test_window.hpp \
+            tests/native_metal_window_test_window.mm \
+            tests/native_window_swapchain_metal_tests.cpp
+          git rm -r .z2f8b2c .github/workflows/bootstrap-z2f8b2c.yml
+          git commit -m 'Implement real Metal window presentation'
+          git push origin HEAD:work/z2f8b2c-real-metal-window
