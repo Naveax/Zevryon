@@ -2,7 +2,7 @@ name: bootstrap-z2f8b3a
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, synchronize]
     branches: [main]
 
 permissions:
