@@ -1,0 +1,77 @@
+name: patch-z2f8b3a-link
+
+on:
+  pull_request:
+    types: [synchronize]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.head_ref == 'work/z2f8b3-shared-render-pipeline'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/z2f8b3-shared-render-pipeline
+          fetch-depth: 0
+      - name: Move pixel validation into the always-linked swapchain library
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          compositor = Path('src/shared_pixel_compositor.cpp')
+          text = compositor.read_text(encoding='utf-8')
+          block = '''bool native_window_pixel_buffer_valid(
+              const NativeWindowPixelBufferView& view,
+              const GpuSurfaceDescriptor& surface) noexcept {
+              if (view.empty()) {
+                  return true;
+              }
+              if (view.width != surface.width ||
+                  view.height != surface.height ||
+                  view.format != surface.format ||
+                  view.premultiplied_alpha != surface.premultiplied_alpha ||
+                  view.row_bytes < view.width * 4U ||
+                  (view.row_bytes % 4U) != 0U) {
+                  return false;
+              }
+              std::uint64_t required = 0U;
+              return checked_mul(view.row_bytes, view.height, &required) &&
+                  required == view.bytes.size();
+          }
+
+          '''
+          if block in text:
+              compositor.write_text(text.replace(block, '', 1), encoding='utf-8')
+          elif 'bool native_window_pixel_buffer_valid(' in text:
+              raise SystemExit('unexpected pixel validation definition')
+
+          cmake = Path('cmake/native_window_swapchain.cmake')
+          text = cmake.read_text(encoding='utf-8')
+          old = '''    src/native_window_swapchain.cpp
+              src/native_window_swapchain_stub.cpp)'''
+          new = '''    src/native_window_swapchain.cpp
+              src/native_window_pixel_buffer.cpp
+              src/native_window_swapchain_stub.cpp)'''
+          if old in text:
+              cmake.write_text(text.replace(old, new, 1), encoding='utf-8')
+          elif 'src/native_window_pixel_buffer.cpp' not in text:
+              raise SystemExit('unexpected native window source list')
+
+          source = Path('src/native_window_pixel_buffer.cpp')
+          source.write_text('''#include "native_window_swapchain.hpp"\n\n#include <limits>\n\nnamespace zevryon::text {\n\nbool native_window_pixel_buffer_valid(\n    const NativeWindowPixelBufferView& view,\n    const GpuSurfaceDescriptor& surface) noexcept {\n    if (view.empty()) {\n        return true;\n    }\n    const std::uint64_t width = view.width;\n    if (width > (std::numeric_limits<std::uint32_t>::max)() / 4U) {\n        return false;\n    }\n    const std::uint32_t minimum_row_bytes = view.width * 4U;\n    if (view.width != surface.width ||\n        view.height != surface.height ||\n        view.format != surface.format ||\n        view.premultiplied_alpha != surface.premultiplied_alpha ||\n        view.row_bytes < minimum_row_bytes ||\n        (view.row_bytes % 4U) != 0U) {\n        return false;\n    }\n    const std::uint64_t row_bytes = view.row_bytes;\n    const std::uint64_t height = view.height;\n    if (height != 0U &&\n        row_bytes > (std::numeric_limits<std::uint64_t>::max)() / height) {\n        return false;\n    }\n    return row_bytes * height == view.bytes.size();\n}\n\n} // namespace zevryon::text\n''', encoding='utf-8')
+          PY
+      - name: Commit exact link-graph repair
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git diff --quiet; then
+            exit 0
+          fi
+          git add cmake/native_window_swapchain.cmake src/native_window_pixel_buffer.cpp src/shared_pixel_compositor.cpp
+          git commit -m 'Make native pixel validation always linkable'
+          git push origin HEAD:work/z2f8b3-shared-render-pipeline
