@@ -20,10 +20,87 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  patch-metal-upload:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.patch.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/z2f8b3-shared-render-pipeline
+          fetch-depth: 0
+      - id: patch
+        name: Reuse bounded Metal upload buffers
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/native_window_swapchain_metal.mm')
+          s = p.read_text(encoding='utf-8')
+          if 'newBufferWithBytes:request.pixel_buffer.bytes.data()' not in s:
+              raise SystemExit(0)
+          s = s.replace('#include <cstdint>\n#include <limits>\n', '#include <cstdint>\n#include <cstring>\n#include <limits>\n', 1)
+          old = '''                id<MTLBuffer> upload = [context_->device
+                    newBufferWithBytes:request.pixel_buffer.bytes.data()
+                    length:request.pixel_buffer.bytes.size()
+                    options:MTLResourceStorageModeShared];
+                if (upload == nil) {
+                    return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                                "Metal pixel upload buffer creation failed");
+                }
+'''
+          new = '''                const NSUInteger upload_size = static_cast<NSUInteger>(
+                    request.pixel_buffer.bytes.size());
+                if (slot.upload_buffer == nil ||
+                    slot.upload_buffer.length < upload_size) {
+                    slot.upload_buffer = [context_->device
+                        newBufferWithLength:upload_size
+                        options:MTLResourceStorageModeShared];
+                }
+                if (slot.upload_buffer == nil ||
+                    slot.upload_buffer.contents == nullptr) {
+                    return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                                "Metal pixel upload buffer creation failed");
+                }
+                std::memcpy(
+                    slot.upload_buffer.contents,
+                    request.pixel_buffer.bytes.data(),
+                    request.pixel_buffer.bytes.size());
+'''
+          if old not in s:
+              raise SystemExit('Metal allocation precondition changed')
+          s = s.replace(old, new, 1)
+          s = s.replace('[blit copyFromBuffer:upload', '[blit copyFromBuffer:slot.upload_buffer', 1)
+          s = s.replace('                slot.upload_buffer = upload;\n', '', 1)
+          for fn in ('release_acquired_slot_locked', 'clear_in_flight_slot_locked'):
+              start = s.index('    void ' + fn)
+              end = s.index('    }\n', start)
+              body = s[start:end]
+              if '        slot.upload_buffer = nil;\n' not in body:
+                  raise SystemExit(fn + ' cleanup precondition changed')
+              body = body.replace('        slot.upload_buffer = nil;\n', '', 1)
+              s = s[:start] + body + s[end:]
+          p.write_text(s, encoding='utf-8')
+          PY
+          if git diff --quiet -- src/native_window_swapchain_metal.mm; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish optimized Metal transfer
+        if: steps.patch.outputs.changed == 'true'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/native_window_swapchain_metal.mm
+          git commit -m 'Reuse Metal full-frame upload buffers'
+          git push origin HEAD:work/z2f8b3-shared-render-pipeline
+
   real-metal-window:
+    needs: patch-metal-upload
+    if: needs.patch-metal-upload.outputs.changed != 'true'
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
