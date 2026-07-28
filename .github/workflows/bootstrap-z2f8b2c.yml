@@ -2,7 +2,7 @@ name: bootstrap-z2f8b2c
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, synchronize]
     branches: [main]
 
 permissions:
@@ -62,6 +62,6 @@ jobs:
             tests/native_metal_window_test_window.hpp \
             tests/native_metal_window_test_window.mm \
             tests/native_window_swapchain_metal_tests.cpp
-          git rm -r .z2f8b2c .github/workflows/bootstrap-z2f8b2c.yml
+          git rm -r .z2f8b2c
           git commit -m 'Implement real Metal window presentation'
           git push origin HEAD:work/z2f8b2c-real-metal-window
