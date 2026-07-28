@@ -105,6 +105,28 @@ int main(int argc, char** argv) {
     }
     owner->shutdown();
 
+    constexpr std::uint32_t width = 640U;
+    constexpr std::uint32_t height = 360U;
+    std::vector<std::byte> pixels(
+        static_cast<std::size_t>(width) * height * 4U);
+    for (std::uint32_t y = 0U; y < height; ++y) {
+        for (std::uint32_t x = 0U; x < width; ++x) {
+            const std::size_t offset =
+                (static_cast<std::size_t>(y) * width + x) * 4U;
+            pixels[offset + 0U] = static_cast<std::byte>((x + y) & 0xFFU);
+            pixels[offset + 1U] = static_cast<std::byte>((x * 3U) & 0xFFU);
+            pixels[offset + 2U] = static_cast<std::byte>((y * 5U) & 0xFFU);
+            pixels[offset + 3U] = std::byte{0xFF};
+        }
+    }
+    NativeWindowPixelBufferView pixel_view;
+    pixel_view.bytes = pixels;
+    pixel_view.width = width;
+    pixel_view.height = height;
+    pixel_view.row_bytes = width * 4U;
+    pixel_view.format = GpuSurfaceFormat::Bgra8Unorm;
+    pixel_view.premultiplied_alpha = 1U;
+
     std::vector<double> samples;
     samples.reserve(iterations);
     std::uint64_t checksum = kFnvOffset;
@@ -149,6 +171,7 @@ int main(int argc, char** argv) {
             (static_cast<std::uint64_t>(index) * 0x9E3779B97F4A7C15ULL);
         request.command_count = 1U;
         request.flags = kNativeWindowPresentFullRedraw;
+        request.pixel_buffer = pixel_view;
         NativeWindowPresentReceipt receipt;
         if (!presenter->present(request, &receipt, &error)) {
             std::cerr << error.message << '\n';

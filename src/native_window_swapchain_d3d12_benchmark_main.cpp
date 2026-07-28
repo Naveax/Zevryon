@@ -87,6 +87,26 @@ int main() {
     constexpr std::uint32_t height = 360U;
     constexpr std::uint64_t iterations = 256U;
 
+    std::vector<std::byte> pixels(
+        static_cast<std::size_t>(width) * height * 4U);
+    for (std::uint32_t y = 0U; y < height; ++y) {
+        for (std::uint32_t x = 0U; x < width; ++x) {
+            const std::size_t offset =
+                (static_cast<std::size_t>(y) * width + x) * 4U;
+            pixels[offset + 0U] = static_cast<std::byte>((x + y) & 0xFFU);
+            pixels[offset + 1U] = static_cast<std::byte>((x * 3U) & 0xFFU);
+            pixels[offset + 2U] = static_cast<std::byte>((y * 5U) & 0xFFU);
+            pixels[offset + 3U] = std::byte{0xFF};
+        }
+    }
+    NativeWindowPixelBufferView pixel_view;
+    pixel_view.bytes = pixels;
+    pixel_view.width = width;
+    pixel_view.height = height;
+    pixel_view.row_bytes = width * 4U;
+    pixel_view.format = GpuSurfaceFormat::Bgra8Unorm;
+    pixel_view.premultiplied_alpha = 1U;
+
     BenchmarkWindow window;
     assert(window.get() != nullptr);
 
@@ -155,6 +175,7 @@ int main() {
         request.command_checksum = 0xD312000000000000ULL ^ iteration;
         request.command_count = 80U;
         request.flags = kNativeWindowPresentFullRedraw;
+        request.pixel_buffer = pixel_view;
         NativeWindowPresentReceipt receipt;
         assert(api->present(request, &receipt, &error));
         assert(receipt.status == NativeWindowPresentStatus::Presented ||

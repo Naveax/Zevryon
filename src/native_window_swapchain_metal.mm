@@ -253,6 +253,7 @@ public:
             ImageSlot& slot = slots_[index];
             slot.drawable = drawable;
             slot.texture = texture;
+            slot.upload_buffer = nil;
             slot.command_buffer = nil;
             slot.acquired = 1U;
             slot.in_flight = 0U;
@@ -330,6 +331,11 @@ public:
                             "Metal present damage rectangle is outside the surface");
             }
         }
+        if (!native_window_pixel_buffer_valid(
+                request.pixel_buffer, snapshot_.config.surface)) {
+            return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
+                        "Metal pixel buffer does not match the drawable surface");
+        }
         if ((request.flags & kNativeWindowPresentAllowTearing) != 0U) {
             return fail(error, NativeWindowSwapchainErrorKind::UnsupportedPresentMode,
                         "Metal CAMetalLayer does not expose explicit tearing control");
@@ -365,23 +371,55 @@ public:
                 return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
                             "Metal presentation command buffer creation failed");
             }
-            MTLRenderPassDescriptor* pass =
-                [MTLRenderPassDescriptor renderPassDescriptor];
-            pass.colorAttachments[0].texture = slot.texture;
-            pass.colorAttachments[0].loadAction = MTLLoadActionClear;
-            pass.colorAttachments[0].storeAction = MTLStoreActionStore;
-            pass.colorAttachments[0].clearColor = MTLClearColorMake(
-                static_cast<double>((request.command_checksum >> 0U) & 0xFFU) / 255.0,
-                static_cast<double>((request.command_checksum >> 8U) & 0xFFU) / 255.0,
-                static_cast<double>((request.command_checksum >> 16U) & 0xFFU) / 255.0,
-                1.0);
-            id<MTLRenderCommandEncoder> encoder =
-                [command_buffer renderCommandEncoderWithDescriptor:pass];
-            if (encoder == nil) {
-                return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
-                            "Metal presentation render encoder creation failed");
+            if (!request.pixel_buffer.empty()) {
+                id<MTLBuffer> upload = [context_->device
+                    newBufferWithBytes:request.pixel_buffer.bytes.data()
+                    length:request.pixel_buffer.bytes.size()
+                    options:MTLResourceStorageModeShared];
+                if (upload == nil) {
+                    return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                                "Metal pixel upload buffer creation failed");
+                }
+                id<MTLBlitCommandEncoder> blit =
+                    [command_buffer blitCommandEncoder];
+                if (blit == nil) {
+                    return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                                "Metal pixel blit encoder creation failed");
+                }
+                [blit copyFromBuffer:upload
+                        sourceOffset:0U
+                   sourceBytesPerRow:request.pixel_buffer.row_bytes
+                 sourceBytesPerImage:static_cast<NSUInteger>(
+                     request.pixel_buffer.row_bytes) *
+                     request.pixel_buffer.height
+                          sourceSize:MTLSizeMake(
+                              request.pixel_buffer.width,
+                              request.pixel_buffer.height, 1U)
+                           toTexture:slot.texture
+                    destinationSlice:0U
+                    destinationLevel:0U
+                   destinationOrigin:MTLOriginMake(0U, 0U, 0U)];
+                [blit endEncoding];
+                slot.upload_buffer = upload;
+            } else {
+                MTLRenderPassDescriptor* pass =
+                    [MTLRenderPassDescriptor renderPassDescriptor];
+                pass.colorAttachments[0].texture = slot.texture;
+                pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+                pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+                pass.colorAttachments[0].clearColor = MTLClearColorMake(
+                    static_cast<double>((request.command_checksum >> 0U) & 0xFFU) / 255.0,
+                    static_cast<double>((request.command_checksum >> 8U) & 0xFFU) / 255.0,
+                    static_cast<double>((request.command_checksum >> 16U) & 0xFFU) / 255.0,
+                    1.0);
+                id<MTLRenderCommandEncoder> encoder =
+                    [command_buffer renderCommandEncoderWithDescriptor:pass];
+                if (encoder == nil) {
+                    return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                                "Metal presentation render encoder creation failed");
+                }
+                [encoder endEncoding];
             }
-            [encoder endEncoding];
             [command_buffer presentDrawable:slot.drawable];
 
             const std::uint64_t signal = next_fence_value_++;
@@ -468,6 +506,7 @@ private:
         NativeWindowSwapchainImage image;
         id<CAMetalDrawable> drawable{nil};
         id<MTLTexture> texture{nil};
+        id<MTLBuffer> upload_buffer{nil};
         id<MTLCommandBuffer> command_buffer{nil};
         std::uint64_t fence_value{0U};
         std::uint8_t acquired{0U};
@@ -598,7 +637,7 @@ private:
         @autoreleasepool {
             layer.device = retained->device;
             layer.pixelFormat = map_format(config.surface.format);
-            layer.framebufferOnly = YES;
+            layer.framebufferOnly = NO;
             layer.opaque = YES;
             layer.presentsWithTransaction = NO;
             layer.allowsNextDrawableTimeout = YES;
@@ -665,6 +704,7 @@ private:
     void release_acquired_slot_locked(ImageSlot& slot) noexcept {
         slot.drawable = nil;
         slot.texture = nil;
+        slot.upload_buffer = nil;
         slot.command_buffer = nil;
         slot.acquired = 0U;
         slot.in_flight = 0U;
@@ -676,6 +716,7 @@ private:
     void clear_in_flight_slot_locked(ImageSlot& slot) noexcept {
         slot.drawable = nil;
         slot.texture = nil;
+        slot.upload_buffer = nil;
         slot.command_buffer = nil;
         slot.acquired = 0U;
         slot.in_flight = 0U;
@@ -687,6 +728,7 @@ private:
         for (ImageSlot& slot : slots_) {
             slot.drawable = nil;
             slot.texture = nil;
+            slot.upload_buffer = nil;
             slot.command_buffer = nil;
             slot.image = {};
             slot.fence_value = 0U;

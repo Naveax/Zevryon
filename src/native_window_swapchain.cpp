@@ -511,6 +511,11 @@ bool ReferenceNativeWindowSwapchainApi::present(
                         "present damage rectangle is outside the surface");
         }
     }
+    if (!native_window_pixel_buffer_valid(
+            request.pixel_buffer, snapshot_.config.surface)) {
+        return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
+                    "present pixel buffer does not match the configured surface");
+    }
     if ((request.flags & kNativeWindowPresentAllowTearing) != 0U &&
         ((snapshot_.config.flags & kNativeWindowSwapchainAllowTearing) == 0U ||
          snapshot_.config.present_mode != NativePresentMode::Immediate)) {

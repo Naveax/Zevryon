@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -291,6 +292,11 @@ public:
                             "Direct3D 12 dirty rectangle is outside the surface");
             }
         }
+        if (!native_window_pixel_buffer_valid(
+                request.pixel_buffer, snapshot_.config.surface)) {
+            return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
+                        "Direct3D 12 pixel buffer does not match the surface");
+        }
         if ((request.flags & kNativeWindowPresentAllowTearing) != 0U &&
             ((snapshot_.config.flags & kNativeWindowSwapchainAllowTearing) == 0U ||
              snapshot_.config.present_mode != NativePresentMode::Immediate)) {
@@ -333,23 +339,101 @@ public:
                         "ID3D12GraphicsCommandList::Reset failed", result);
         }
 
-        D3D12_RESOURCE_BARRIER to_render{};
-        to_render.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        to_render.Transition.pResource = slot.resource.Get();
-        to_render.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-        to_render.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-        to_render.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        slot.command_list->ResourceBarrier(1U, &to_render);
-        const FLOAT color[4] = {
-            static_cast<FLOAT>((request.command_checksum >> 0U) & 0xFFU) / 255.0F,
-            static_cast<FLOAT>((request.command_checksum >> 8U) & 0xFFU) / 255.0F,
-            static_cast<FLOAT>((request.command_checksum >> 16U) & 0xFFU) / 255.0F,
-            1.0F};
-        slot.command_list->ClearRenderTargetView(slot.rtv, color, 0U, nullptr);
-        D3D12_RESOURCE_BARRIER to_present = to_render;
-        to_present.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        to_present.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-        slot.command_list->ResourceBarrier(1U, &to_present);
+        if (!request.pixel_buffer.empty()) {
+            const UINT row_pitch = static_cast<UINT>(
+                (request.pixel_buffer.row_bytes +
+                 D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1U) &
+                ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1U));
+            const std::uint64_t upload_bytes =
+                static_cast<std::uint64_t>(row_pitch) *
+                request.pixel_buffer.height;
+            D3D12_HEAP_PROPERTIES heap{};
+            heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+            D3D12_RESOURCE_DESC description{};
+            description.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            description.Width = upload_bytes;
+            description.Height = 1U;
+            description.DepthOrArraySize = 1U;
+            description.MipLevels = 1U;
+            description.SampleDesc.Count = 1U;
+            description.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            ComPtr<ID3D12Resource> upload;
+            result = device_->CreateCommittedResource(
+                &heap, D3D12_HEAP_FLAG_NONE, &description,
+                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                IID_PPV_ARGS(&upload));
+            if (FAILED(result)) {
+                return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                            "Direct3D 12 pixel upload allocation failed", result);
+            }
+            void* mapped = nullptr;
+            result = upload->Map(0U, nullptr, &mapped);
+            if (FAILED(result) || mapped == nullptr) {
+                return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                            "Direct3D 12 pixel upload mapping failed", result);
+            }
+            auto* destination = static_cast<std::byte*>(mapped);
+            for (std::uint32_t row = 0U;
+                 row < request.pixel_buffer.height; ++row) {
+                std::memcpy(
+                    destination + static_cast<std::size_t>(row) * row_pitch,
+                    request.pixel_buffer.bytes.data() +
+                        static_cast<std::size_t>(row) *
+                            request.pixel_buffer.row_bytes,
+                    request.pixel_buffer.row_bytes);
+            }
+            upload->Unmap(0U, nullptr);
+            slot.upload = upload;
+
+            D3D12_RESOURCE_BARRIER to_copy{};
+            to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            to_copy.Transition.pResource = slot.resource.Get();
+            to_copy.Transition.Subresource =
+                D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            to_copy.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+            to_copy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+            slot.command_list->ResourceBarrier(1U, &to_copy);
+
+            D3D12_TEXTURE_COPY_LOCATION source{};
+            source.pResource = upload.Get();
+            source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            source.PlacedFootprint.Footprint.Format =
+                map_format(snapshot_.config.surface.format);
+            source.PlacedFootprint.Footprint.Width = request.pixel_buffer.width;
+            source.PlacedFootprint.Footprint.Height = request.pixel_buffer.height;
+            source.PlacedFootprint.Footprint.Depth = 1U;
+            source.PlacedFootprint.Footprint.RowPitch = row_pitch;
+            D3D12_TEXTURE_COPY_LOCATION destination_location{};
+            destination_location.pResource = slot.resource.Get();
+            destination_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            destination_location.SubresourceIndex = 0U;
+            slot.command_list->CopyTextureRegion(
+                &destination_location, 0U, 0U, 0U, &source, nullptr);
+
+            D3D12_RESOURCE_BARRIER to_present = to_copy;
+            to_present.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+            to_present.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+            slot.command_list->ResourceBarrier(1U, &to_present);
+        } else {
+            D3D12_RESOURCE_BARRIER to_render{};
+            to_render.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            to_render.Transition.pResource = slot.resource.Get();
+            to_render.Transition.Subresource =
+                D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            to_render.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+            to_render.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+            slot.command_list->ResourceBarrier(1U, &to_render);
+            const FLOAT color[4] = {
+                static_cast<FLOAT>((request.command_checksum >> 0U) & 0xFFU) / 255.0F,
+                static_cast<FLOAT>((request.command_checksum >> 8U) & 0xFFU) / 255.0F,
+                static_cast<FLOAT>((request.command_checksum >> 16U) & 0xFFU) / 255.0F,
+                1.0F};
+            slot.command_list->ClearRenderTargetView(slot.rtv, color, 0U, nullptr);
+            D3D12_RESOURCE_BARRIER to_present = to_render;
+            to_present.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+            to_present.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+            slot.command_list->ResourceBarrier(1U, &to_present);
+        }
         result = slot.command_list->Close();
         if (FAILED(result)) {
             return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
@@ -463,6 +547,7 @@ public:
                 slot.fence_value <= completed_fence_value) {
                 slot.in_flight = 0U;
                 slot.fence_value = 0U;
+                slot.upload.Reset();
                 snapshot_.in_flight_frame_count -= 1U;
                 snapshot_.current_in_flight_bytes -= bytes_per_image;
             }
@@ -502,6 +587,7 @@ public:
 private:
     struct ImageSlot final {
         ComPtr<ID3D12Resource> resource;
+        ComPtr<ID3D12Resource> upload;
         ComPtr<ID3D12CommandAllocator> allocator;
         ComPtr<ID3D12GraphicsCommandList> command_list;
         D3D12_CPU_DESCRIPTOR_HANDLE rtv{};
@@ -846,6 +932,7 @@ private:
     void release_image_resources_locked() noexcept {
         for (ImageSlot& slot : images_) {
             slot.resource.Reset();
+            slot.upload.Reset();
             slot.allocator.Reset();
             slot.command_list.Reset();
             slot.rtv = {};
