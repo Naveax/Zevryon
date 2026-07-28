@@ -1,8 +1,16 @@
 if(TARGET zevryon-native-gpu-sdk-execution)
+  add_library(
+    zevryon-native-window-pixel-buffer STATIC
+    src/native_window_pixel_buffer.cpp)
+  target_include_directories(zevryon-native-window-pixel-buffer PUBLIC src)
+  target_link_libraries(
+    zevryon-native-window-pixel-buffer
+    PUBLIC zevryon-native-gpu-sdk-execution)
+  zevryon_options(zevryon-native-window-pixel-buffer)
+
   set(
     ZEVRYON_NATIVE_WINDOW_SWAPCHAIN_SOURCES
     src/native_window_swapchain.cpp
-    src/native_window_pixel_buffer.cpp
     src/native_window_swapchain_stub.cpp)
 
   if(WIN32)
@@ -17,7 +25,9 @@ if(TARGET zevryon-native-gpu-sdk-execution)
   target_include_directories(zevryon-native-window-swapchain PUBLIC src)
   target_link_libraries(
     zevryon-native-window-swapchain
-    PUBLIC zevryon-native-gpu-sdk-execution)
+    PUBLIC
+      zevryon-native-gpu-sdk-execution
+      zevryon-native-window-pixel-buffer)
   if(WIN32)
     target_compile_definitions(
       zevryon-native-window-swapchain
