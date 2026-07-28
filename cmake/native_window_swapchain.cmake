@@ -22,8 +22,7 @@ if(TARGET zevryon-native-gpu-sdk-execution)
       zevryon-native-window-swapchain
       PRIVATE ZEVRYON_HAS_D3D12_WINDOW_SWAPCHAIN=1)
     target_link_libraries(
-      zevryon-native-window-swapchain
-      PRIVATE d3d12 dxgi dxguid user32)
+      zevryon-native-window-swapchain PRIVATE d3d12 dxgi dxguid user32)
   endif()
   zevryon_options(zevryon-native-window-swapchain)
 
@@ -116,3 +115,6 @@ endif()
 
 # Z2F-8B2B binds real Vulkan WSI to the retained single-device context.
 include("${CMAKE_CURRENT_LIST_DIR}/native_vulkan_wsi.cmake")
+
+# Z2F-8B2C binds real CAMetalLayer presentation to one retained Metal graph.
+include("${CMAKE_CURRENT_LIST_DIR}/native_metal_window.cmake")
