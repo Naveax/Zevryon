@@ -34,10 +34,12 @@ jobs:
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
       - name: Build focused targets
         run: |
+          set -o pipefail
           cmake --build build --parallel 2 --target \
             zevryon-shared-pixel-compositor-tests \
             zevryon-shared-pixel-compositor-equivalence-tests \
-            zevryon-shared-pixel-compositor-benchmark
+            zevryon-shared-pixel-compositor-benchmark \
+            2>&1 | tee shared-pixel-build.log
       - name: Repeat functional certification
         run: for run in $(seq 1 20); do ./build/zevryon-shared-pixel-compositor-tests; done
       - name: Run 4096-case independent oracle
@@ -96,7 +98,9 @@ jobs:
         if: always()
         with:
           name: z2-shared-pixel-composition-${{ github.sha }}
-          path: shared-pixel-benchmark-*.txt
+          path: |
+            shared-pixel-build.log
+            shared-pixel-benchmark-*.txt
           if-no-files-found: warn
 
   appleclang:
