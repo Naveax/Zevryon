@@ -23,7 +23,7 @@ permissions:
   contents: write
 
 jobs:
-  patch-metal-upload:
+  patch_metal_upload:
     runs-on: ubuntu-latest
     outputs:
       changed: ${{ steps.patch.outputs.changed }}
@@ -99,8 +99,8 @@ jobs:
           git push origin HEAD:work/z2f8b3-shared-render-pipeline
 
   real-metal-window:
-    needs: patch-metal-upload
-    if: needs.patch-metal-upload.outputs.changed != 'true'
+    needs: patch_metal_upload
+    if: needs.patch_metal_upload.outputs.changed != 'true'
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
