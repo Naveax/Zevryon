@@ -2,6 +2,7 @@ if(TARGET zevryon-native-gpu-sdk-execution)
   set(
     ZEVRYON_NATIVE_WINDOW_SWAPCHAIN_SOURCES
     src/native_window_swapchain.cpp
+    src/native_window_pixel_buffer.cpp
     src/native_window_swapchain_stub.cpp)
 
   if(WIN32)

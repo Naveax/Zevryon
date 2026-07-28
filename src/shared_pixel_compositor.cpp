@@ -710,25 +710,6 @@ void draw_glyph_batch(
 
 } // namespace
 
-bool native_window_pixel_buffer_valid(
-    const NativeWindowPixelBufferView& view,
-    const GpuSurfaceDescriptor& surface) noexcept {
-    if (view.empty()) {
-        return true;
-    }
-    if (view.width != surface.width ||
-        view.height != surface.height ||
-        view.format != surface.format ||
-        view.premultiplied_alpha != surface.premultiplied_alpha ||
-        view.row_bytes < view.width * 4U ||
-        (view.row_bytes % 4U) != 0U) {
-        return false;
-    }
-    std::uint64_t required = 0U;
-    return checked_mul(view.row_bytes, view.height, &required) &&
-        required == view.bytes.size();
-}
-
 SharedCompositedFrame::SharedCompositedFrame(
     std::pmr::memory_resource* resource)
     : pixels(resource) {}
