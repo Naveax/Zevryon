@@ -1,12 +1,15 @@
 if(TARGET zevryon-gpu-atlas-frame-submission AND
-   TARGET zevryon-native-window-swapchain)
+   TARGET zevryon-native-window-swapchain AND
+   TARGET zevryon-native-window-pixel-buffer)
   add_library(
     zevryon-shared-pixel-compositor STATIC
     src/shared_pixel_compositor.cpp)
   target_include_directories(zevryon-shared-pixel-compositor PUBLIC src)
   target_link_libraries(
     zevryon-shared-pixel-compositor
-    PUBLIC zevryon-gpu-atlas-frame-submission)
+    PUBLIC
+      zevryon-gpu-atlas-frame-submission
+      zevryon-native-window-pixel-buffer)
   zevryon_options(zevryon-shared-pixel-compositor)
 
   target_link_libraries(
