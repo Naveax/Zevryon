@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -253,7 +254,6 @@ public:
             ImageSlot& slot = slots_[index];
             slot.drawable = drawable;
             slot.texture = texture;
-            slot.upload_buffer = nil;
             slot.command_buffer = nil;
             slot.acquired = 1U;
             slot.in_flight = 0U;
@@ -372,21 +372,30 @@ public:
                             "Metal presentation command buffer creation failed");
             }
             if (!request.pixel_buffer.empty()) {
-                id<MTLBuffer> upload = [context_->device
-                    newBufferWithBytes:request.pixel_buffer.bytes.data()
-                    length:request.pixel_buffer.bytes.size()
-                    options:MTLResourceStorageModeShared];
-                if (upload == nil) {
+                const NSUInteger upload_size = static_cast<NSUInteger>(
+                    request.pixel_buffer.bytes.size());
+                if (slot.upload_buffer == nil ||
+                    slot.upload_buffer.length < upload_size) {
+                    slot.upload_buffer = [context_->device
+                        newBufferWithLength:upload_size
+                        options:MTLResourceStorageModeShared];
+                }
+                if (slot.upload_buffer == nil ||
+                    slot.upload_buffer.contents == nullptr) {
                     return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
                                 "Metal pixel upload buffer creation failed");
                 }
+                std::memcpy(
+                    slot.upload_buffer.contents,
+                    request.pixel_buffer.bytes.data(),
+                    request.pixel_buffer.bytes.size());
                 id<MTLBlitCommandEncoder> blit =
                     [command_buffer blitCommandEncoder];
                 if (blit == nil) {
                     return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
                                 "Metal pixel blit encoder creation failed");
                 }
-                [blit copyFromBuffer:upload
+                [blit copyFromBuffer:slot.upload_buffer
                         sourceOffset:0U
                    sourceBytesPerRow:request.pixel_buffer.row_bytes
                  sourceBytesPerImage:static_cast<NSUInteger>(
@@ -400,7 +409,6 @@ public:
                     destinationLevel:0U
                    destinationOrigin:MTLOriginMake(0U, 0U, 0U)];
                 [blit endEncoding];
-                slot.upload_buffer = upload;
             } else {
                 MTLRenderPassDescriptor* pass =
                     [MTLRenderPassDescriptor renderPassDescriptor];
@@ -704,7 +712,6 @@ private:
     void release_acquired_slot_locked(ImageSlot& slot) noexcept {
         slot.drawable = nil;
         slot.texture = nil;
-        slot.upload_buffer = nil;
         slot.command_buffer = nil;
         slot.acquired = 0U;
         slot.in_flight = 0U;
@@ -716,7 +723,6 @@ private:
     void clear_in_flight_slot_locked(ImageSlot& slot) noexcept {
         slot.drawable = nil;
         slot.texture = nil;
-        slot.upload_buffer = nil;
         slot.command_buffer = nil;
         slot.acquired = 0U;
         slot.in_flight = 0U;
