@@ -1,0 +1,104 @@
+name: z2-real-metal-window-presentation
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-real-metal-window-presentation.yml'
+      - 'cmake/native_metal_window.cmake'
+      - 'cmake/native_window_swapchain.cmake'
+      - 'src/native_metal_window*'
+      - 'src/native_gpu_sdk_execution_metal_window.mm'
+      - 'src/native_window_swapchain_metal*'
+      - 'src/native_window_swapchain_stub.cpp'
+      - 'tests/native_metal_window_test_window*'
+      - 'tests/native_window_swapchain_metal_tests.cpp'
+      - 'docs/Z2F8B2C_REAL_METAL_WINDOW_PRESENTATION.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-real-metal-window-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  real-metal-window:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure strict Metal window build
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=OFF
+      - name: Build focused targets
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target \
+            zevryon-native-window-swapchain-metal-tests \
+            zevryon-native-window-swapchain-metal-benchmark \
+            zevryon-native-window-swapchain-tests \
+            zevryon-native-gpu-sdk-platform-smoke-tests \
+            2>&1 | tee metal-window-build.log
+      - name: Repeat real NSWindow and CAMetalLayer lifecycle
+        run: |
+          set -o pipefail
+          for run in $(seq 1 10); do
+            ./build/zevryon-native-window-swapchain-metal-tests
+          done 2>&1 | tee metal-window-repeat.log
+      - name: Run three real-present benchmark distributions
+        run: |
+          for run in 1 2 3; do
+            ./build/zevryon-native-window-swapchain-metal-benchmark 256 \
+              > "metal-window-benchmark-${run}.txt"
+          done
+      - name: Enforce exact topology, memory and latency gates
+        run: |
+          python3 - <<'PY'
+          def load(path):
+              row = {}
+              with open(path, encoding='utf-8') as handle:
+                  for line in handle:
+                      key, value = line.strip().split('=', 1)
+                      row[key] = value
+              return row
+
+          rows = [load(f'metal-window-benchmark-{run}.txt') for run in range(1, 4)]
+          for row in rows:
+              assert row['schema'] == 'zevryon.native-metal-window-benchmark.v1'
+              assert int(row['iterations']) == 256
+              assert int(row['samples']) == 256
+              assert int(row['presented']) == 256
+              assert int(row['occluded']) == 0
+              assert int(row['out_of_date']) == 0
+              assert int(row['surface_bytes']) == 2_764_800
+              assert int(row['peak_in_flight_bytes']) == 921_600
+              assert int(row['checksum']) == 10_650_008_797_323_403_583
+              p50 = float(row['p50_ms'])
+              p95 = float(row['p95_ms'])
+              p99 = float(row['p99_ms'])
+              maximum = float(row['max_ms'])
+              assert 0.0 < p50 <= p95 <= p99 <= maximum
+              assert p95 <= 20.0, row
+              assert p99 <= 25.0, row
+              assert maximum <= 50.0, row
+          print({
+              'p50_ms': [float(row['p50_ms']) for row in rows],
+              'p95_ms': [float(row['p95_ms']) for row in rows],
+              'p99_ms': [float(row['p99_ms']) for row in rows],
+              'maximum_ms': [float(row['max_ms']) for row in rows],
+              'checksum': int(rows[0]['checksum']),
+          })
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-real-metal-window-${{ github.sha }}
+          path: |
+            metal-window-build.log
+            metal-window-repeat.log
+            metal-window-benchmark-*.txt
+          if-no-files-found: warn
