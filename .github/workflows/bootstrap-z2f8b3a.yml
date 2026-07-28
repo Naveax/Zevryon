@@ -17,6 +17,33 @@ jobs:
         with:
           ref: work/z2f8b3-shared-render-pipeline
           fetch-depth: 0
+      - name: Capture payload diagnostics
+        run: |
+          set +e
+          {
+            echo 'sizes'
+            wc -c .z2f8b3/part*
+            echo 'part_sha256'
+            sha256sum .z2f8b3/part*
+            echo 'combined_base64_sha256'
+            cat .z2f8b3/part* | sha256sum
+            cat .z2f8b3/part* | base64 -d > /tmp/z2f8b3a.tar.gz
+            echo "base64_exit=$?"
+            echo 'decoded_tar_size'
+            wc -c /tmp/z2f8b3a.tar.gz
+            echo 'decoded_tar_sha256'
+            sha256sum /tmp/z2f8b3a.tar.gz
+            echo 'members'
+            tar -tzf /tmp/z2f8b3a.tar.gz
+            echo "tar_exit=$?"
+          } > /tmp/z2f8b3a-diagnostic.txt 2>&1
+          cat /tmp/z2f8b3a-diagnostic.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2f8b3a-payload-diagnostic-${{ github.sha }}
+          path: /tmp/z2f8b3a-diagnostic.txt
+          if-no-files-found: error
       - name: Verify and extract payload
         run: |
           set -euo pipefail
