@@ -72,3 +72,5 @@ endif()
 
 # Z2F-8B3B2B binds the shared packet to retained Vulkan compute execution.
 include("${CMAKE_CURRENT_LIST_DIR}/native_vulkan_shader_execution.cmake")
+# Z2F-8B3B2C binds the shared packet to retained Metal compute execution.
+include("${CMAKE_CURRENT_LIST_DIR}/native_metal_shader_execution.cmake")
