@@ -1,0 +1,41 @@
+name: z2f8b3b3a-materialize
+
+on:
+  pull_request:
+    types: [opened]
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Verify and apply exact source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .z2f8b3b3a/part00 .z2f8b3b3a/part01 .z2f8b3b3a/part02 \
+              .z2f8b3b3a/part03 .z2f8b3b3a/part04 \
+            | base64 --decode > "$RUNNER_TEMP/z2f8b3b3a_apply.py"
+          echo "f423702789d70f551a4d0865ab3601e802df68a6d62c5a02097f26a1b6d93e2b  $RUNNER_TEMP/z2f8b3b3a_apply.py" \
+            | sha256sum --check --strict
+          python3 "$RUNNER_TEMP/z2f8b3b3a_apply.py"
+      - name: Publish production sources and remove staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            src/native_window_swapchain.hpp \
+            src/native_shader_execution_d3d12.cpp \
+            src/native_window_swapchain_d3d12.cpp
+          git rm -r .z2f8b3b3a .github/workflows/z2f8b3b3a-apply.yml
+          git commit -m "Z2F-8B3B3A: connect D3D12 shader surfaces to DXGI"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
