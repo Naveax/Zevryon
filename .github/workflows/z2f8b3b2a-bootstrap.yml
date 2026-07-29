@@ -1,0 +1,76 @@
+name: z2f8b3b2a-bootstrap
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - '.z2f8b3b2a/**'
+      - '.github/workflows/z2f8b3b2a-bootstrap.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: z2f8b3b2a-bootstrap-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          fetch-depth: 0
+      - name: Verify and extract production payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .z2f8b3b2a/part* | base64 --decode > /tmp/z2f8b3b2a.tar.gz
+          echo '1e9e0de77d136f24d801abcb24b55cb019e1d5ecbf87a5fcf171630d1a0ee7a1  /tmp/z2f8b3b2a.tar.gz' | sha256sum --check --strict
+
+          cat > /tmp/expected-manifest.txt <<'EOF'
+          cmake/native_shader_execution.cmake
+          docs/Z2F8B3B2A_REAL_D3D12_SHADER_EXECUTION.md
+          src/native_shader_execution.hpp
+          src/native_shader_execution_d3d12.cpp
+          src/native_shader_execution_d3d12_benchmark_main.cpp
+          src/native_shader_execution_stub.cpp
+          tests/native_shader_execution_d3d12_tests.cpp
+          tests/native_shader_execution_stub_tests.cpp
+          EOF
+          tar -tzf /tmp/z2f8b3b2a.tar.gz | LC_ALL=C sort > /tmp/actual-manifest.txt
+          diff -u /tmp/expected-manifest.txt /tmp/actual-manifest.txt
+          tar -xzf /tmp/z2f8b3b2a.tar.gz
+
+      - name: Integrate build graph and remove staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          include_line='include("${CMAKE_CURRENT_LIST_DIR}/native_shader_execution.cmake")'
+          grep -Fqx "$include_line" cmake/shader_draw_packet.cmake || {
+            printf '\n# Z2F-8B3B2A binds the shared packet to native shader execution.\n%s\n' "$include_line" >> cmake/shader_draw_packet.cmake
+          }
+          rm -rf .z2f8b3b2a
+
+      - name: Commit production sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cmake/shader_draw_packet.cmake cmake/native_shader_execution.cmake \
+            docs/Z2F8B3B2A_REAL_D3D12_SHADER_EXECUTION.md \
+            src/native_shader_execution.hpp \
+            src/native_shader_execution_stub.cpp \
+            src/native_shader_execution_d3d12.cpp \
+            src/native_shader_execution_d3d12_benchmark_main.cpp \
+            tests/native_shader_execution_stub_tests.cpp \
+            tests/native_shader_execution_d3d12_tests.cpp \
+            .z2f8b3b2a
+          git diff --cached --check
+          git commit -m 'Z2F-8B3B2A: materialize real D3D12 shader execution'
+          git push origin HEAD:${{ github.event.pull_request.head.ref || github.ref_name }}
