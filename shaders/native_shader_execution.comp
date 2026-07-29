@@ -1,0 +1,52 @@
+#version 450
+// Generated SPIR-V is checked in after CI compilation; source remains canonical.
+layout(local_size_x=8, local_size_y=8, local_size_z=1) in;
+layout(std140, set=0, binding=0) uniform FrameConstants { uvec4 dimensions; uvec4 identities; } frame;
+struct DrawCommand { uint kind; uint layer; uint atlasFormat; uint scissorIndex; uint firstInstance; uint instanceCount; uint atlasPageIndex; uint stableId; uvec4 reserved; };
+struct FillInstance { ivec4 destination; uint packedColor; uint scissorIndex; uint stableId; uint reserved; };
+struct GlyphInstance { ivec4 destination; uint scissorIndex; uint atlasPageIndex; uint atlasPageGeneration; uint atlasXY; uint atlasWH; uint packedColor; uint format; uint stableId; uvec4 reserved; };
+layout(std430, set=0, binding=1) readonly buffer Commands { DrawCommand values[]; } commands;
+layout(std430, set=0, binding=2) readonly buffer Fills { FillInstance values[]; } fills;
+layout(std430, set=0, binding=3) readonly buffer Glyphs { GlyphInstance values[]; } glyphs;
+layout(std430, set=0, binding=4) readonly buffer Scissors { ivec4 values[]; } scissors;
+layout(set=0, binding=5) uniform usampler2DArray atlasTexture;
+layout(std430, set=0, binding=6) writeonly buffer OutputPixels { uint values[]; } outputPixels;
+uint mul8(uint a, uint b) { return (a * b + 127u) / 255u; }
+uvec4 unpackBgra(uint value) { return uvec4(value & 255u, (value >> 8u) & 255u, (value >> 16u) & 255u, (value >> 24u) & 255u); }
+uint packBgra(uvec4 value) { return value.x | (value.y << 8u) | (value.z << 16u) | (value.w << 24u); }
+uvec4 blendPixel(uvec4 destination, uvec4 source) { uint inverse = 255u - source.w; return uvec4(min(255u, source.x + mul8(destination.x, inverse)), min(255u, source.y + mul8(destination.y, inverse)), min(255u, source.z + mul8(destination.z, inverse)), min(255u, source.w + mul8(destination.w, inverse))); }
+bool insideRect(ivec4 rect, ivec2 p) { return p.x >= rect.x && p.y >= rect.y && p.x < rect.x + rect.z && p.y < rect.y + rect.w; }
+void main() {
+    uvec2 id = gl_GlobalInvocationID.xy;
+    if (id.x >= frame.dimensions.x || id.y >= frame.dimensions.y) return;
+    ivec2 pixel = ivec2(id);
+    uvec4 destination = uvec4(0u);
+    for (uint commandIndex = 0u; commandIndex < frame.dimensions.z; ++commandIndex) {
+        DrawCommand command = commands.values[commandIndex];
+        ivec4 clip = scissors.values[command.scissorIndex];
+        if (!insideRect(clip, pixel)) continue;
+        if (command.kind == 0u) {
+            for (uint index = 0u; index < command.instanceCount; ++index) {
+                FillInstance fill = fills.values[command.firstInstance + index];
+                if (insideRect(fill.destination, pixel)) destination = blendPixel(destination, unpackBgra(fill.packedColor));
+            }
+        } else {
+            for (uint index = 0u; index < command.instanceCount; ++index) {
+                GlyphInstance glyph = glyphs.values[command.firstInstance + index];
+                if (!insideRect(glyph.destination, pixel)) continue;
+                uint atlasX = glyph.atlasXY & 65535u; uint atlasY = glyph.atlasXY >> 16u;
+                uint atlasW = glyph.atlasWH & 65535u; uint atlasH = glyph.atlasWH >> 16u;
+                uint localX = uint(pixel.x - glyph.destination.x); uint localY = uint(pixel.y - glyph.destination.y);
+                uint sourceX = atlasX + (localX * atlasW) / uint(glyph.destination.z);
+                uint sourceY = atlasY + (localY * atlasH) / uint(glyph.destination.w);
+                uvec4 texel = texelFetch(atlasTexture, ivec3(int(sourceX), int(sourceY), int(glyph.atlasPageIndex)), 0);
+                uvec4 color = unpackBgra(glyph.packedColor); uvec4 source;
+                if (glyph.format == 0u) source = uvec4(mul8(mul8(color.x, color.w), texel.w), mul8(mul8(color.y, color.w), texel.w), mul8(mul8(color.z, color.w), texel.w), mul8(color.w, texel.w));
+                else if (glyph.format == 1u) { uint alpha = mul8(color.w, max(texel.x, max(texel.y, texel.z))); source = uvec4(mul8(mul8(color.x, color.w), texel.x), mul8(mul8(color.y, color.w), texel.y), mul8(mul8(color.z, color.w), texel.z), alpha); }
+                else source = uvec4(mul8(texel.x, color.w), mul8(texel.y, color.w), mul8(texel.z, color.w), mul8(texel.w, color.w));
+                destination = blendPixel(destination, source);
+            }
+        }
+    }
+    outputPixels.values[id.y * frame.dimensions.x + id.x] = packBgra(destination);
+}
