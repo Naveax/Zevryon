@@ -113,6 +113,9 @@ make_direct3d12_native_shader_executor() noexcept;
 std::unique_ptr<NativeShaderExecutor>
 make_vulkan_native_shader_executor() noexcept;
 
+std::unique_ptr<NativeShaderExecutor>
+make_metal_native_shader_executor() noexcept;
+
 bool native_shader_execution_build_has_backend(
     NativeGpuApiKind kind) noexcept;
 
