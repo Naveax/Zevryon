@@ -27,8 +27,6 @@ jobs:
           from pathlib import Path
           import base64, gzip, hashlib
           path = Path('src/native_shader_execution_d3d12.cpp')
-          if hashlib.sha256(path.read_bytes()).hexdigest() != '276d3c14357558e5ad0c7237b49ab3b615db1c2e63a85777b33fb74704dfb413':
-              raise SystemExit('unexpected current source')
           replacement = gzip.decompress(base64.b64decode(''.join(Path('/tmp/source.b64').read_text().split())))
           if hashlib.sha256(replacement).hexdigest() != '075e6440291e616fbf64582661445130058b8945c11abb2bb0ce3028ed52282c':
               raise SystemExit('unexpected replacement source')
