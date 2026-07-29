@@ -1,0 +1,122 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, r32ui) uniform readonly uimage2DArray Atlas;
+layout(set = 0, binding = 1, r32ui) uniform uimage2D Output;
+
+layout(push_constant) uniform PushConstants {
+    uvec4 a;
+    uvec4 b;
+    uvec4 c;
+    uvec4 d;
+    uvec4 e;
+    uvec4 f;
+} pc;
+
+uint channel_b(uint value) { return value & 255U; }
+uint channel_g(uint value) { return (value >> 8U) & 255U; }
+uint channel_r(uint value) { return (value >> 16U) & 255U; }
+uint channel_a(uint value) { return (value >> 24U) & 255U; }
+
+uint pack_bgra(uint b, uint g, uint r, uint a) {
+    return b | (g << 8U) | (r << 16U) | (a << 24U);
+}
+
+uint mul_u8(uint left, uint right) {
+    return (left * right + 127U) / 255U;
+}
+
+uint blend_channel(uint source, uint destination, uint source_alpha) {
+    uint inverse = 255U - source_alpha;
+    uint value = source * 255U + destination * inverse + 127U;
+    return min(255U, value / 255U);
+}
+
+uint blend_pixel(uint destination, uint source) {
+    uint alpha = channel_a(source);
+    return pack_bgra(
+        blend_channel(channel_b(source), channel_b(destination), alpha),
+        blend_channel(channel_g(source), channel_g(destination), alpha),
+        blend_channel(channel_r(source), channel_r(destination), alpha),
+        blend_channel(alpha, channel_a(destination), alpha));
+}
+
+uint premultiply_coverage(uint color, uint coverage) {
+    uint alpha = mul_u8(channel_a(color), coverage);
+    return pack_bgra(
+        mul_u8(channel_b(color), alpha),
+        mul_u8(channel_g(color), alpha),
+        mul_u8(channel_r(color), alpha),
+        alpha);
+}
+
+void main() {
+    uint surface_width = pc.a.x;
+    uint surface_height = pc.a.y;
+    uint operation = pc.a.z;
+    uvec2 local = gl_GlobalInvocationID.xy;
+
+    if (operation == 0U) {
+        if (local.x < surface_width && local.y < surface_height) {
+            imageStore(Output, ivec2(local), uvec4(0U));
+        }
+        return;
+    }
+
+    uint dispatch_width = pc.b.z;
+    uint dispatch_height = pc.b.w;
+    if (local.x >= dispatch_width || local.y >= dispatch_height) {
+        return;
+    }
+
+    uvec2 output_pixel = uvec2(pc.b.x + local.x, pc.b.y + local.y);
+    if (output_pixel.x >= surface_width || output_pixel.y >= surface_height) {
+        return;
+    }
+
+    uint composed = imageLoad(Output, ivec2(output_pixel)).r;
+    int destination_x = int(pc.c.x);
+    int destination_y = int(pc.c.y);
+    int destination_width = int(pc.c.z);
+    int destination_height = int(pc.c.w);
+
+    if (operation == 1U) {
+        composed = blend_pixel(composed, pc.e.y);
+    } else if (operation == 2U) {
+        uint local_x = uint(int(output_pixel.x) - destination_x);
+        uint local_y = uint(int(output_pixel.y) - destination_y);
+        uint source_x = pc.d.y + (local_x * pc.d.w) / uint(destination_width);
+        uint source_y = pc.d.z + (local_y * pc.e.x) / uint(destination_height);
+        uint texel = imageLoad(Atlas, ivec3(source_x, source_y, pc.d.x)).r;
+        uint color = pc.e.y;
+        uint format = pc.e.z;
+        uint source = 0U;
+        if (format == 0U) {
+            source = premultiply_coverage(color, channel_a(texel));
+        } else if (format == 1U) {
+            uint coverage_b = channel_b(texel);
+            uint coverage_g = channel_g(texel);
+            uint coverage_r = channel_r(texel);
+            uint modulation_alpha = channel_a(color);
+            uint alpha = mul_u8(
+                modulation_alpha,
+                max(coverage_b, max(coverage_g, coverage_r)));
+            source = pack_bgra(
+                mul_u8(mul_u8(channel_b(color), modulation_alpha), coverage_b),
+                mul_u8(mul_u8(channel_g(color), modulation_alpha), coverage_g),
+                mul_u8(mul_u8(channel_r(color), modulation_alpha), coverage_r),
+                alpha);
+        } else {
+            uint modulation_alpha = channel_a(color);
+            source = pack_bgra(
+                mul_u8(channel_b(texel), modulation_alpha),
+                mul_u8(channel_g(texel), modulation_alpha),
+                mul_u8(channel_r(texel), modulation_alpha),
+                mul_u8(channel_a(texel), modulation_alpha));
+        }
+        composed = blend_pixel(composed, source);
+    }
+
+    imageStore(Output, ivec2(output_pixel), uvec4(composed, 0U, 0U, 0U));
+}

@@ -1,0 +1,258 @@
+name: z2-real-vulkan-shader-execution
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-real-vulkan-shader-execution.yml'
+      - 'cmake/native_shader_execution.cmake'
+      - 'cmake/native_vulkan_shader_execution.cmake'
+      - 'shaders/native_shader_execution_vulkan.comp'
+      - 'tools/embed_spirv.py'
+      - 'src/native_shader_execution*'
+      - 'tests/native_shader_execution*'
+      - 'docs/Z2F8B3B2B_REAL_VULKAN_SHADER_EXECUTION.md'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-real-vulkan-shader-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  xcb-lavapipe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vulkan shader and XCB dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config python3 glslang-tools \
+            libharfbuzz-dev libvulkan-dev mesa-vulkan-drivers vulkan-tools \
+            libxcb1-dev libwayland-dev libwayland-bin wayland-protocols \
+            xvfb weston
+      - name: Select lavapipe ICD
+        run: |
+          icd="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' | head -n 1)"
+          test -n "$icd"
+          echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
+      - name: Configure strict Vulkan shader build
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+      - name: Build focused targets
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target \
+            zevryon-native-shader-execution-vulkan-tests \
+            zevryon-native-shader-execution-vulkan-benchmark \
+            zevryon-native-shader-execution-stub-tests \
+            zevryon-shader-draw-packet-tests \
+            zevryon-shader-draw-packet-equivalence-tests \
+            2>&1 | tee vulkan-shader-build.log
+      - name: Start Xvfb
+        run: |
+          Xvfb :99 -screen 0 1280x720x24 >xvfb.log 2>&1 &
+          echo $! > xvfb.pid
+          sleep 2
+          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+          echo "ZEVRYON_VULKAN_WSI_SYSTEM=xcb" >> "$GITHUB_ENV"
+      - name: Repeat real Vulkan shader lifecycle
+        run: |
+          set -o pipefail
+          for run in $(seq 1 10); do
+            ./build/zevryon-native-shader-execution-vulkan-tests
+          done 2>&1 | tee vulkan-shader-repeat.log
+      - name: Run three mapped-readback benchmark distributions
+        run: |
+          for run in 1 2 3; do
+            ./build/zevryon-native-shader-execution-vulkan-benchmark 32 \
+              > "vulkan-shader-benchmark-${run}.txt"
+          done
+      - name: Enforce topology, equivalence and latency gates
+        run: |
+          python3 - <<'PY'
+          def load(path):
+              values = {}
+              with open(path, encoding='utf-8') as handle:
+                  for line in handle:
+                      key, value = line.strip().split('=', 1)
+                      values[key] = value
+              return values
+
+          rows = [load(f'vulkan-shader-benchmark-{run}.txt') for run in range(1, 4)]
+          reference = int(rows[0]['reference_checksum'])
+          for row in rows:
+              assert row['schema'] == 'zevryon.vulkan-integer-shader-execution.v1'
+              assert int(row['iterations']) == 32
+              assert int(row['samples']) == 32
+              assert int(row['commands']) == 68
+              assert int(row['fill_instances']) == 65
+              assert int(row['glyph_instances']) == 240
+              assert int(row['resident_pages']) == 3
+              assert int(row['resident_atlas_bytes']) == 49152
+              assert int(row['output_surface_bytes']) == 921600
+              assert int(row['atlas_upload_batches']) == 1
+              assert int(row['atlas_reuses']) >= 32
+              assert int(row['software_device']) == 1
+              assert int(row['reference_checksum']) == reference
+              assert int(row['gpu_checksum']) == reference
+              p50 = float(row['p50_ms'])
+              p95 = float(row['p95_ms'])
+              p99 = float(row['p99_ms'])
+              maximum = float(row['max_ms'])
+              assert 0.0 < p50 <= p95 <= p99 <= maximum
+              assert p95 <= 120.0, row
+              assert p99 <= 180.0, row
+              assert maximum <= 300.0, row
+          print({
+              'checksum': reference,
+              'p50_ms': [float(row['p50_ms']) for row in rows],
+              'p95_ms': [float(row['p95_ms']) for row in rows],
+              'p99_ms': [float(row['p99_ms']) for row in rows],
+              'maximum_ms': [float(row['max_ms']) for row in rows],
+          })
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-real-vulkan-shader-xcb-${{ github.sha }}
+          path: |
+            vulkan-shader-build.log
+            vulkan-shader-repeat.log
+            vulkan-shader-benchmark-*.txt
+            xvfb.log
+          if-no-files-found: warn
+
+  wayland-lavapipe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vulkan shader and Wayland dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config python3 glslang-tools \
+            libharfbuzz-dev libvulkan-dev mesa-vulkan-drivers \
+            libxcb1-dev libwayland-dev libwayland-bin \
+            wayland-protocols weston
+      - name: Select lavapipe ICD
+        run: |
+          icd="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' | head -n 1)"
+          test -n "$icd"
+          echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
+      - name: Configure and build Wayland shader target
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+          cmake --build build --parallel 2 --target \
+            zevryon-native-shader-execution-vulkan-tests
+      - name: Start headless Weston
+        run: |
+          runtime="$RUNNER_TEMP/zevryon-shader-xdg"
+          mkdir -p "$runtime"
+          chmod 700 "$runtime"
+          echo "XDG_RUNTIME_DIR=$runtime" >> "$GITHUB_ENV"
+          echo "WAYLAND_DISPLAY=wayland-z2-shader" >> "$GITHUB_ENV"
+          echo "ZEVRYON_VULKAN_WSI_SYSTEM=wayland" >> "$GITHUB_ENV"
+          XDG_RUNTIME_DIR="$runtime" weston \
+            --backend=headless-backend.so \
+            --socket=wayland-z2-shader \
+            --idle-time=0 \
+            --log=weston.log &
+          for attempt in $(seq 1 30); do
+            test -S "$runtime/wayland-z2-shader" && exit 0
+            sleep 1
+          done
+          cat weston.log
+          exit 1
+      - name: Repeat real Wayland shader lifecycle
+        run: |
+          set -o pipefail
+          for run in $(seq 1 10); do
+            ./build/zevryon-native-shader-execution-vulkan-tests
+          done 2>&1 | tee vulkan-shader-wayland-repeat.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-real-vulkan-shader-wayland-${{ github.sha }}
+          path: |
+            vulkan-shader-wayland-repeat.log
+            weston.log
+          if-no-files-found: warn
+
+  sanitizer-xcb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config python3 glslang-tools \
+            libharfbuzz-dev libvulkan-dev mesa-vulkan-drivers \
+            libxcb1-dev libwayland-dev libwayland-bin \
+            wayland-protocols xvfb
+      - name: Configure sanitizer build
+        run: >-
+          cmake -S . -B build-sanitized -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=ON
+          -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build focused sanitizer target
+        run: >-
+          cmake --build build-sanitized --parallel 2 --target
+          zevryon-native-shader-execution-vulkan-tests
+      - name: Run real Vulkan shader path under sanitizers
+        env:
+          DISPLAY: :98
+          ZEVRYON_VULKAN_WSI_SYSTEM: xcb
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          icd="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' | head -n 1)"
+          export VK_ICD_FILENAMES="$icd"
+          Xvfb :98 -screen 0 1280x720x24 >xvfb-sanitizer.log 2>&1 &
+          sleep 2
+          ./build-sanitized/zevryon-native-shader-execution-vulkan-tests
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-real-vulkan-shader-sanitizer-${{ github.sha }}
+          path: xvfb-sanitizer.log
+          if-no-files-found: warn
+
+  windows-vulkan-sdk:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vulkan SDK
+        shell: pwsh
+        run: |
+          choco install vulkan-sdk --version=1.4.350 -y --no-progress
+          Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
+          refreshenv
+          "VULKAN_SDK=$env:VULKAN_SDK" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "$env:VULKAN_SDK\Bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: Configure Win32 Vulkan shader build
+        shell: pwsh
+        run: >-
+          cmake -S . -B build
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=OFF
+      - name: Compile Vulkan shader execution targets
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel 2 --target zevryon-native-shader-execution-vulkan-tests
+          cmake --build build --config Release --parallel 2 --target zevryon-native-shader-execution-vulkan-benchmark

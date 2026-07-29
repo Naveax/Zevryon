@@ -29,7 +29,8 @@ const char* native_shader_execution_error_kind_name(
 NativeShaderExecutionLimits default_native_shader_execution_limits(
     NativeGpuApiKind kind) noexcept {
     NativeShaderExecutionLimits limits{};
-    if (kind == NativeGpuApiKind::Direct3D12) {
+    if (kind == NativeGpuApiKind::Direct3D12 ||
+        kind == NativeGpuApiKind::Vulkan) {
         limits.maximum_commands = 512U;
         limits.maximum_fill_instances = 4096U;
         limits.maximum_glyph_instances = 65'536U;
@@ -50,14 +51,24 @@ make_direct3d12_native_shader_executor() noexcept {
 }
 #endif
 
+#if !defined(ZEVRYON_HAS_VULKAN_SHADER_EXECUTION)
+std::unique_ptr<NativeShaderExecutor>
+make_vulkan_native_shader_executor() noexcept {
+    return nullptr;
+}
+#endif
+
 bool native_shader_execution_build_has_backend(
     NativeGpuApiKind kind) noexcept {
+    bool available = false;
 #if defined(ZEVRYON_HAS_D3D12_SHADER_EXECUTION)
-    return kind == NativeGpuApiKind::Direct3D12;
-#else
-    (void)kind;
-    return false;
+    available = available || kind == NativeGpuApiKind::Direct3D12;
 #endif
+#if defined(ZEVRYON_HAS_VULKAN_SHADER_EXECUTION)
+    available = available || kind == NativeGpuApiKind::Vulkan;
+#endif
+    (void)kind;
+    return available;
 }
 
 } // namespace zevryon::text
