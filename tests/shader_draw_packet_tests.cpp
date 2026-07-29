@@ -1,12 +1,12 @@
 #include "shader_draw_packet.hpp"
 #include "shader_draw_packet_fixture.hpp"
 
-#include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <memory_resource>
+#include <vector>
 
 namespace {
 using namespace zevryon::text;
@@ -14,7 +14,7 @@ using namespace zevryon::text::test;
 
 void certify_cold_and_hot_packets() {
     ShaderPacketFixture fixture = make_shader_packet_fixture();
-    std::array<std::byte, 1U << 20U> storage{};
+    std::vector<std::byte> storage(1U << 20U);
     std::pmr::monotonic_buffer_resource resource(storage.data(), storage.size());
     GpuShaderPacket packet(&resource);
     ShaderPacketError error;
@@ -44,7 +44,7 @@ void certify_cold_and_hot_packets() {
     ShaderPacketFixture hot_fixture = fixture;
     hot_fixture.uploads.clear();
     hot_fixture.payload.clear();
-    std::array<std::byte, 1U << 18U> hot_storage{};
+    std::vector<std::byte> hot_storage(1U << 18U);
     std::pmr::monotonic_buffer_resource hot_resource(
         hot_storage.data(), hot_storage.size());
     GpuShaderPacket hot_packet(&hot_resource);
@@ -65,7 +65,7 @@ void certify_cold_and_hot_packets() {
 
 void certify_fail_closed_validation() {
     ShaderPacketFixture fixture = make_shader_packet_fixture();
-    std::array<std::byte, 1U << 20U> storage{};
+    std::vector<std::byte> storage(1U << 20U);
     std::pmr::monotonic_buffer_resource resource(storage.data(), storage.size());
     GpuShaderPacket packet(&resource);
     ShaderPacketError error;
@@ -99,7 +99,7 @@ void certify_fail_closed_validation() {
 
 void certify_residency_failure_atomicity() {
     ShaderPacketFixture fixture = make_shader_packet_fixture();
-    std::array<std::byte, 1U << 20U> storage{};
+    std::vector<std::byte> storage(1U << 20U);
     std::pmr::monotonic_buffer_resource resource(storage.data(), storage.size());
     GpuShaderPacket packet(&resource);
     ShaderPacketError error;
