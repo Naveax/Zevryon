@@ -1,6 +1,10 @@
 name: z2f8b3b2a-command-dispatch-patch
 
 on:
+  pull_request:
+    types: [synchronize]
+    paths:
+      - '.github/workflows/z2f8b3b2a-command-dispatch-patch.yml'
   workflow_dispatch:
 
 permissions:
@@ -8,6 +12,7 @@ permissions:
 
 jobs:
   patch:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
