@@ -107,6 +107,93 @@ bool present_mode_available(
     return std::find(available.begin(), available.end(), mode) != available.end();
 }
 
+struct VulkanHostTransfer final {
+    VkDevice device{VK_NULL_HANDLE};
+    VkBuffer buffer{VK_NULL_HANDLE};
+    VkDeviceMemory memory{VK_NULL_HANDLE};
+
+    ~VulkanHostTransfer() {
+        if (buffer != VK_NULL_HANDLE && device != VK_NULL_HANDLE) {
+            vkDestroyBuffer(device, buffer, nullptr);
+        }
+        if (memory != VK_NULL_HANDLE && device != VK_NULL_HANDLE) {
+            vkFreeMemory(device, memory, nullptr);
+        }
+    }
+};
+
+bool create_host_transfer(
+    VulkanWsiSharedContext* context,
+    const NativeWindowPixelBufferView& pixels,
+    VulkanHostTransfer* output,
+    NativeWindowSwapchainError* error) noexcept {
+    if (context == nullptr || output == nullptr || pixels.empty()) {
+        return false;
+    }
+    output->device = context->device;
+    VkBufferCreateInfo buffer_info{};
+    buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_info.size = pixels.bytes.size();
+    buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VkResult result = vkCreateBuffer(
+        context->device, &buffer_info, nullptr, &output->buffer);
+    if (result != VK_SUCCESS) {
+        return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                    "Vulkan pixel staging buffer creation failed", result);
+    }
+    VkMemoryRequirements requirements{};
+    vkGetBufferMemoryRequirements(
+        context->device, output->buffer, &requirements);
+    VkPhysicalDeviceMemoryProperties properties{};
+    vkGetPhysicalDeviceMemoryProperties(
+        context->physical_device, &properties);
+    std::uint32_t memory_type = properties.memoryTypeCount;
+    for (std::uint32_t index = 0U;
+         index < properties.memoryTypeCount; ++index) {
+        const VkMemoryPropertyFlags flags =
+            properties.memoryTypes[index].propertyFlags;
+        if ((requirements.memoryTypeBits & (1U << index)) != 0U &&
+            (flags & (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) ==
+                (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+            memory_type = index;
+            break;
+        }
+    }
+    if (memory_type == properties.memoryTypeCount) {
+        return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                    "Vulkan exposes no coherent host-visible staging memory");
+    }
+    VkMemoryAllocateInfo allocation{};
+    allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocation.allocationSize = requirements.size;
+    allocation.memoryTypeIndex = memory_type;
+    result = vkAllocateMemory(
+        context->device, &allocation, nullptr, &output->memory);
+    if (result != VK_SUCCESS) {
+        return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                    "Vulkan pixel staging memory allocation failed", result);
+    }
+    result = vkBindBufferMemory(
+        context->device, output->buffer, output->memory, 0U);
+    if (result != VK_SUCCESS) {
+        return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                    "Vulkan pixel staging memory bind failed", result);
+    }
+    void* mapped = nullptr;
+    result = vkMapMemory(
+        context->device, output->memory, 0U, pixels.bytes.size(), 0U, &mapped);
+    if (result != VK_SUCCESS || mapped == nullptr) {
+        return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                    "Vulkan pixel staging memory map failed", result);
+    }
+    std::memcpy(mapped, pixels.bytes.data(), pixels.bytes.size());
+    vkUnmapMemory(context->device, output->memory);
+    return true;
+}
+
 class VulkanNativeWindowSwapchainApi final : public NativeWindowSwapchainApi {
 public:
     VulkanNativeWindowSwapchainApi() noexcept {
@@ -341,6 +428,11 @@ public:
                             "Vulkan present rectangle is outside the surface");
             }
         }
+        if (!native_window_pixel_buffer_valid(
+                request.pixel_buffer, snapshot_.config.surface)) {
+            return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
+                        "Vulkan pixel buffer does not match the surface");
+        }
         if ((request.flags & kNativeWindowPresentAllowTearing) != 0U &&
             snapshot_.config.present_mode != NativePresentMode::Immediate) {
             return fail(error, NativeWindowSwapchainErrorKind::UnsupportedPresentMode,
@@ -378,6 +470,12 @@ public:
                 return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
                             "vkResetCommandPool failed", result);
             }
+            VulkanHostTransfer transfer;
+            if (!request.pixel_buffer.empty() &&
+                !create_host_transfer(
+                    context_, request.pixel_buffer, &transfer, error)) {
+                return false;
+            }
             VkCommandBufferBeginInfo begin{};
             begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -394,25 +492,41 @@ public:
                     slot.image_handle,
                     &recorded_layout,
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-                VkClearColorValue clear{};
-                clear.float32[0] = static_cast<float>(
-                    (request.command_checksum >> 0U) & 0xFFU) / 255.0F;
-                clear.float32[1] = static_cast<float>(
-                    (request.command_checksum >> 8U) & 0xFFU) / 255.0F;
-                clear.float32[2] = static_cast<float>(
-                    (request.command_checksum >> 16U) & 0xFFU) / 255.0F;
-                clear.float32[3] = 1.0F;
-                VkImageSubresourceRange range{};
-                range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-                range.levelCount = 1U;
-                range.layerCount = 1U;
-                vkCmdClearColorImage(
-                    frame.command_buffer,
-                    slot.image_handle,
-                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    &clear,
-                    1U,
-                    &range);
+                if (!request.pixel_buffer.empty()) {
+                    VkBufferImageCopy copy{};
+                    copy.bufferOffset = 0U;
+                    copy.bufferRowLength = request.pixel_buffer.row_bytes / 4U;
+                    copy.bufferImageHeight = request.pixel_buffer.height;
+                    copy.imageSubresource.aspectMask =
+                        VK_IMAGE_ASPECT_COLOR_BIT;
+                    copy.imageSubresource.mipLevel = 0U;
+                    copy.imageSubresource.baseArrayLayer = 0U;
+                    copy.imageSubresource.layerCount = 1U;
+                    copy.imageExtent.width = request.pixel_buffer.width;
+                    copy.imageExtent.height = request.pixel_buffer.height;
+                    copy.imageExtent.depth = 1U;
+                    vkCmdCopyBufferToImage(
+                        frame.command_buffer, transfer.buffer,
+                        slot.image_handle,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1U, &copy);
+                } else {
+                    VkClearColorValue clear{};
+                    clear.float32[0] = static_cast<float>(
+                        (request.command_checksum >> 0U) & 0xFFU) / 255.0F;
+                    clear.float32[1] = static_cast<float>(
+                        (request.command_checksum >> 8U) & 0xFFU) / 255.0F;
+                    clear.float32[2] = static_cast<float>(
+                        (request.command_checksum >> 16U) & 0xFFU) / 255.0F;
+                    clear.float32[3] = 1.0F;
+                    VkImageSubresourceRange range{};
+                    range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                    range.levelCount = 1U;
+                    range.layerCount = 1U;
+                    vkCmdClearColorImage(
+                        frame.command_buffer, slot.image_handle,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        &clear, 1U, &range);
+                }
             }
             transition_image_locked(
                 frame.command_buffer,
@@ -449,6 +563,15 @@ public:
                             "vkQueueSubmit failed", result);
             }
             slot.layout = recorded_layout;
+            if (!request.pixel_buffer.empty()) {
+                result = vkWaitForFences(
+                    context_->device, 1U, &frame.fence,
+                    VK_TRUE, kFenceTimeoutNs);
+                if (result != VK_SUCCESS) {
+                    return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                                "Vulkan pixel transfer fence wait failed", result);
+                }
+            }
 
             VkPresentInfoKHR present{};
             present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;

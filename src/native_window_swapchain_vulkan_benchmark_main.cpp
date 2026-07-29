@@ -102,6 +102,24 @@ int main(int argc, char** argv) {
     const std::array<NativeDamageRect, 4U> damage{{
         {0, 0, 160U, 180U}, {160, 0, 160U, 180U},
         {320, 180, 160U, 180U}, {480, 180, 160U, 180U}}};
+    std::vector<std::byte> pixels(640U * 360U * 4U);
+    for (std::uint32_t y = 0U; y < 360U; ++y) {
+        for (std::uint32_t x = 0U; x < 640U; ++x) {
+            const std::size_t offset =
+                (static_cast<std::size_t>(y) * 640U + x) * 4U;
+            pixels[offset + 0U] = static_cast<std::byte>((x + y) & 0xFFU);
+            pixels[offset + 1U] = static_cast<std::byte>((x * 3U) & 0xFFU);
+            pixels[offset + 2U] = static_cast<std::byte>((y * 5U) & 0xFFU);
+            pixels[offset + 3U] = std::byte{0xFF};
+        }
+    }
+    NativeWindowPixelBufferView pixel_view;
+    pixel_view.bytes = pixels;
+    pixel_view.width = 640U;
+    pixel_view.height = 360U;
+    pixel_view.row_bytes = 640U * 4U;
+    pixel_view.format = GpuSurfaceFormat::Bgra8Unorm;
+    pixel_view.premultiplied_alpha = 1U;
     std::vector<double> samples;
     samples.reserve(iterations);
     std::uint64_t checksum = kOffset;
@@ -124,6 +142,7 @@ int main(int argc, char** argv) {
         request.ticket_id = index + 1U;
         request.command_checksum = 0xCAFE0000ULL + index;
         request.command_count = 80U;
+        request.pixel_buffer = pixel_view;
         NativeWindowPresentReceipt receipt;
         if (!presenter->present(request, &receipt, &error) ||
             !presenter->retire_completed(receipt.signal_fence_value, &error)) {
