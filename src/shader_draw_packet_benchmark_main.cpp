@@ -2,7 +2,6 @@
 #include "shader_draw_packet_fixture.hpp"
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -44,44 +43,52 @@ int main(int argc, char** argv) {
     hot_fixture.uploads.clear();
     hot_fixture.payload.clear();
 
-    std::array<std::byte, 1U << 20U> cold_storage{};
+    std::vector<std::byte> cold_storage(1U << 20U);
     std::pmr::monotonic_buffer_resource cold_resource(
         cold_storage.data(), cold_storage.size());
     GpuShaderPacket cold_packet(&cold_resource);
     ShaderPacketError error;
     if (!compile_gpu_shader_packet(cold_fixture.input(), &cold_packet, &error)) {
-        std::cerr << error.message << '\n';
+        std::cerr << "cold packet compile failed: kind="
+                  << static_cast<unsigned>(error.kind)
+                  << " message=" << error.message << '\n';
         return 1;
     }
     ShaderAtlasResidency atlas(8U, 1U << 20U);
     if (!atlas.apply_packet_uploads(cold_packet, &error)) {
-        std::cerr << error.message << '\n';
+        std::cerr << "cold atlas publication failed: kind="
+                  << static_cast<unsigned>(error.kind)
+                  << " message=" << error.message << '\n';
         return 1;
     }
 
     std::vector<double> samples;
     samples.reserve(static_cast<std::size_t>(iterations));
+    std::vector<std::byte> hot_storage(1U << 17U);
     std::uint64_t checksum_accumulator = 0U;
     std::uint64_t hot_packet_bytes = 0U;
     std::uint64_t hot_packet_checksum = 0U;
 
     for (std::uint64_t iteration = 0U; iteration < iterations; ++iteration) {
-        std::array<std::byte, 1U << 17U> storage{};
-        std::pmr::monotonic_buffer_resource resource(storage.data(), storage.size());
+        std::pmr::monotonic_buffer_resource resource(
+            hot_storage.data(), hot_storage.size());
         GpuShaderPacket packet(&resource);
         const auto start = Clock::now();
         const bool compiled = compile_gpu_shader_packet(
             hot_fixture.input(2U, 7U), &packet, &error);
         const auto stop = Clock::now();
         if (!compiled) {
-            std::cerr << error.message << '\n';
+            std::cerr << "hot packet compile failed at iteration " << iteration
+                      << ": kind=" << static_cast<unsigned>(error.kind)
+                      << " message=" << error.message << '\n';
             return 1;
         }
         atlas.mark_packet_pages_used(packet);
         hot_packet_bytes = packet.header.packet_bytes;
         hot_packet_checksum = packet.header.packet_checksum;
         checksum_accumulator ^= packet.header.packet_checksum + iteration;
-        samples.push_back(std::chrono::duration<double, std::milli>(stop - start).count());
+        samples.push_back(
+            std::chrono::duration<double, std::milli>(stop - start).count());
     }
 
     std::sort(samples.begin(), samples.end());
