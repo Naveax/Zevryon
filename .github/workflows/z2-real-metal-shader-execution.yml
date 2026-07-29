@@ -1,0 +1,110 @@
+name: z2-real-metal-shader-execution
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2-real-metal-shader-execution.yml'
+      - 'cmake/native_metal_shader_execution.cmake'
+      - 'cmake/native_shader_execution.cmake'
+      - 'docs/Z2F8B3B2C_REAL_METAL_SHADER_EXECUTION.md'
+      - 'shaders/native_shader_execution_metal.metal'
+      - 'src/native_shader_execution.hpp'
+      - 'src/native_shader_execution_stub.cpp'
+      - 'src/native_shader_execution_metal.mm'
+      - 'src/native_shader_execution_metal_benchmark_main.cpp'
+      - 'tests/native_shader_execution_metal_tests.cpp'
+      - 'tools/embed_binary.py'
+  workflow_dispatch:
+
+concurrency:
+  group: z2-real-metal-shader-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  real-metal-shader:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure strict Metal shader build
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=OFF
+      - name: Build focused targets
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2 --target \
+            zevryon-native-shader-execution-metal-tests \
+            zevryon-native-shader-execution-metal-benchmark \
+            zevryon-native-shader-execution-stub-tests \
+            zevryon-shader-draw-packet-tests \
+            zevryon-shader-draw-packet-equivalence-tests \
+            2>&1 | tee metal-shader-build.log
+      - name: Repeat real Metal GPU readback lifecycle
+        run: |
+          set -o pipefail
+          for run in $(seq 1 10); do
+            ./build/zevryon-native-shader-execution-metal-tests
+          done 2>&1 | tee metal-shader-repeat.log
+      - name: Run three real GPU benchmark distributions
+        run: |
+          for run in 1 2 3; do
+            ./build/zevryon-native-shader-execution-metal-benchmark 32 \
+              > "metal-shader-benchmark-${run}.txt"
+          done
+      - name: Enforce exact topology, equality and latency gates
+        run: |
+          python3 - <<'PY'
+          def load(path):
+              row = {}
+              with open(path, encoding='utf-8') as handle:
+                  for line in handle:
+                      key, value = line.strip().split('=', 1)
+                      row[key] = value
+              return row
+
+          rows = [load(f'metal-shader-benchmark-{run}.txt') for run in range(1, 4)]
+          for row in rows:
+              assert row['schema'] == 'zevryon.metal-integer-shader-execution.v1'
+              assert int(row['iterations']) == 32
+              assert int(row['samples']) == 32
+              assert int(row['commands']) == 68
+              assert int(row['fill_instances']) == 65
+              assert int(row['glyph_instances']) == 240
+              assert int(row['resident_pages']) == 3
+              assert int(row['resident_atlas_bytes']) == 49_152
+              assert int(row['output_surface_bytes']) == 921_600
+              assert int(row['atlas_upload_batches']) == 1
+              assert int(row['atlas_reuses']) >= 32
+              assert int(row['reference_checksum']) == 13_606_000_133_885_175_515
+              assert int(row['gpu_checksum']) == 13_606_000_133_885_175_515
+              p50 = float(row['p50_ms'])
+              p95 = float(row['p95_ms'])
+              p99 = float(row['p99_ms'])
+              maximum = float(row['max_ms'])
+              assert 0.0 < p50 <= p95 <= p99 <= maximum
+              assert p95 <= 30.0, row
+              assert p99 <= 40.0, row
+              assert maximum <= 60.0, row
+          print({
+              'p50_ms': [float(row['p50_ms']) for row in rows],
+              'p95_ms': [float(row['p95_ms']) for row in rows],
+              'p99_ms': [float(row['p99_ms']) for row in rows],
+              'maximum_ms': [float(row['max_ms']) for row in rows],
+              'checksum': int(rows[0]['gpu_checksum']),
+          })
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-real-metal-shader-${{ github.sha }}
+          path: |
+            metal-shader-build.log
+            metal-shader-repeat.log
+            metal-shader-benchmark-*.txt
+          if-no-files-found: warn
