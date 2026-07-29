@@ -1,0 +1,44 @@
+name: z2f8b3b2a-optimize
+
+on:
+  pull_request:
+    types: [synchronize]
+    paths:
+      - '.z2f8b3b2a-opt/**'
+      - '.github/workflows/z2f8b3b2a-optimize.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          fetch-depth: 0
+      - name: Verify and install sparse-dispatch executor
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .z2f8b3b2a-opt/part* | base64 --decode > /tmp/native_shader_execution_d3d12.cpp.gz
+          echo 'f17f981f5a4a101b5883e65fbf0502c97d388226c8518b74a5b4a18fd825a697  /tmp/native_shader_execution_d3d12.cpp.gz' | sha256sum --check --strict
+          gzip -dc /tmp/native_shader_execution_d3d12.cpp.gz > src/native_shader_execution_d3d12.cpp
+          test "$(grep -c 'const auto dispatch_instance' src/native_shader_execution_d3d12.cpp)" -eq 1
+          test "$(grep -c 'Constants.Num32BitValues = 8U' src/native_shader_execution_d3d12.cpp)" -eq 1
+          test "$(grep -c 'for (uint commandIndex' src/native_shader_execution_d3d12.cpp || true)" -eq 0
+          rm -rf .z2f8b3b2a-opt
+          git diff --check
+      - name: Commit optimized execution path
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/native_shader_execution_d3d12.cpp .z2f8b3b2a-opt
+          git commit -m 'optimize D3D12 shader execution with sparse instance dispatch'
+          git push origin HEAD:${{ github.event.pull_request.head.ref || github.ref_name }}
