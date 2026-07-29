@@ -32,7 +32,11 @@ jobs:
           lines = []
           for line in body.splitlines():
               lines.append(line[10:] if line.startswith('          ') else line)
-          Path('/tmp/z2f8b3b3a_apply.py').write_text('\n'.join(lines) + '\n')
+          script = '\n'.join(lines) + '\n'
+          script = script.replace(
+              "raise SystemExit(f'{path}: expected one literal match, got {count}')",
+              "raise SystemExit(f'{path}: expected one literal match, got {count}: {old.splitlines()[0][:120]}')")
+          Path('/tmp/z2f8b3b3a_apply.py').write_text(script)
           PY
           python3 -m py_compile /tmp/z2f8b3b3a_apply.py
           python3 /tmp/z2f8b3b3a_apply.py
