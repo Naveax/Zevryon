@@ -34,6 +34,9 @@ jobs:
               lines.append(line[10:] if line.startswith('          ') else line)
           script = '\n'.join(lines) + '\n'
           script = script.replace(
+              "&source, nullptr);\n ''',",
+              "&source, nullptr);\n''',")
+          script = script.replace(
               "raise SystemExit(f'{path}: expected one literal match, got {count}')",
               "raise SystemExit(f'{path}: expected one literal match, got {count}: {old.splitlines()[0][:120]}')")
           Path('/tmp/z2f8b3b3a_apply.py').write_text(script)
