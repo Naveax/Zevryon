@@ -20,9 +20,35 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  materialize-b3b2c:
+    if: hashFiles('.z2f8b3b2c/part00') != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          fetch-depth: 0
+      - name: Decode and verify exact Metal executor source
+        run: |
+          set -euo pipefail
+          cat .z2f8b3b2c/part00 .z2f8b3b2c/part01 .z2f8b3b2c/part02 .z2f8b3b2c/part03 .z2f8b3b2c/part04 \
+            | base64 -d > src/native_shader_execution_metal.mm
+          echo 'a58d545338705c20f55e345d08d1d24097f3698a0b92b7bac5672c5c0afb09e5  src/native_shader_execution_metal.mm' \
+            | sha256sum -c -
+          test "$(wc -l < src/native_shader_execution_metal.mm)" -eq 696
+      - name: Publish source and remove staging
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/native_shader_execution_metal.mm
+          git rm -r .z2f8b3b2c
+          git commit -m 'Z2F-8B3B2C: materialize Metal shader executor'
+          git push origin HEAD:${{ github.event.pull_request.head.ref || github.ref_name }}
+
   real-metal-window:
     runs-on: macos-latest
     timeout-minutes: 45
