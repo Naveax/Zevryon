@@ -1,0 +1,434 @@
+name: z2f8b3b3a-apply
+
+on:
+  push:
+    branches: [work/z2f8b3b3a-direct-d3d12-shader-present]
+    paths: ['.github/workflows/z2f8b3b3a-apply.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply exact production patches
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one literal match, got {count}')
+              p.write_text(text.replace(old, new))
+
+          def regex_once(path, pattern, replacement):
+              p = Path(path)
+              text = p.read_text()
+              updated, count = re.subn(pattern, replacement, text, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one regex match, got {count}')
+              p.write_text(updated)
+
+          replace_once(
+              'src/native_window_swapchain.hpp',
+              '#include "native_gpu_sdk_execution.hpp"\n#include "native_window_pixel_buffer.hpp"',
+              '#include "native_gpu_sdk_execution.hpp"\n#include "native_shader_surface.hpp"\n#include "native_window_pixel_buffer.hpp"')
+          replace_once(
+              'src/native_window_swapchain.hpp',
+              '    NativeWindowPixelBufferView pixel_buffer;\n};',
+              '    NativeWindowPixelBufferView pixel_buffer;\n    NativeShaderSurfaceView shader_surface;\n};')
+
+          replace_once(
+              'src/native_shader_execution_d3d12.cpp',
+              '            kNativeShaderExecutionGpuReadback |\n            kNativeShaderExecutionRetainedContext;',
+              '            kNativeShaderExecutionGpuReadback |\n            kNativeShaderExecutionRetainedContext |\n            kNativeShaderExecutionDirectSurfaceExport;')
+          replace_once(
+              'src/native_shader_execution_d3d12.cpp',
+              '        if (snapshot_.configured == 0U || readback == nullptr ||\n',
+              '        if (snapshot_.configured == 0U ||\n')
+          replace_once(
+              'src/native_shader_execution_d3d12.cpp',
+              '''            D3D12_RESOURCE_BARRIER to_copy{};
+            to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            to_copy.Transition.pResource = output_texture_.Get();
+            to_copy.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            to_copy.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            to_copy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+            command_list_->ResourceBarrier(1U, &to_copy);
+            output_state_ = D3D12_RESOURCE_STATE_COPY_SOURCE;
+
+            D3D12_TEXTURE_COPY_LOCATION source{};
+            source.pResource = output_texture_.Get();
+            source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            source.SubresourceIndex = 0U;
+            D3D12_TEXTURE_COPY_LOCATION destination{};
+            destination.pResource = readback_buffer_.Get();
+            destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            destination.PlacedFootprint = readback_footprint_;
+            command_list_->CopyTextureRegion(&destination, 0U, 0U, 0U, &source, nullptr);
+''',
+              '''            if (readback != nullptr) {
+                D3D12_RESOURCE_BARRIER to_copy{};
+                to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                to_copy.Transition.pResource = output_texture_.Get();
+                to_copy.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                to_copy.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                to_copy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                command_list_->ResourceBarrier(1U, &to_copy);
+
+                D3D12_TEXTURE_COPY_LOCATION source{};
+                source.pResource = output_texture_.Get();
+                source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                source.SubresourceIndex = 0U;
+                D3D12_TEXTURE_COPY_LOCATION destination{};
+                destination.pResource = readback_buffer_.Get();
+                destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                destination.PlacedFootprint = readback_footprint_;
+                command_list_->CopyTextureRegion(
+                    &destination, 0U, 0U, 0U, &source, nullptr);
+
+                D3D12_RESOURCE_BARRIER to_shader = to_copy;
+                to_shader.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                to_shader.Transition.StateAfter =
+                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                command_list_->ResourceBarrier(1U, &to_shader);
+            } else {
+                D3D12_RESOURCE_BARRIER to_shader{};
+                to_shader.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                to_shader.Transition.pResource = output_texture_.Get();
+                to_shader.Transition.Subresource =
+                    D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                to_shader.Transition.StateBefore =
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                to_shader.Transition.StateAfter =
+                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                command_list_->ResourceBarrier(1U, &to_shader);
+            }
+            output_state_ = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+''')
+          regex_once(
+              'src/native_shader_execution_d3d12.cpp',
+              r'''            ShaderReadback candidate\{\};\n.*?            \*readback = std::move\(candidate\);\n''',
+              '''            if (readback != nullptr) {
+                ShaderReadback candidate{};
+                candidate.width = packet.header.surface_width;
+                candidate.height = packet.header.surface_height;
+                candidate.row_bytes = packet.header.surface_width * 4U;
+                std::uint64_t surface_bytes = 0U;
+                if (!checked_multiply(
+                        candidate.row_bytes, candidate.height, &surface_bytes) ||
+                    surface_bytes > config_.limits.maximum_readback_bytes ||
+                    surface_bytes > (std::numeric_limits<std::size_t>::max)()) {
+                    return fail(
+                        error,
+                        NativeShaderExecutionErrorKind::ResourceBudgetExceeded,
+                        "readback byte count exceeds the configured limit");
+                }
+                candidate.bgra.resize(static_cast<std::size_t>(surface_bytes));
+                void* mapped = nullptr;
+                D3D12_RANGE read_range{
+                    0U, static_cast<SIZE_T>(readback_total_bytes_)};
+                result = readback_buffer_->Map(0U, &read_range, &mapped);
+                if (FAILED(result) || mapped == nullptr) {
+                    return fail(
+                        error,
+                        NativeShaderExecutionErrorKind::ReadbackFailed,
+                        "readback buffer mapping failed",
+                        result);
+                }
+                const auto* source_bytes =
+                    static_cast<const std::byte*>(mapped) +
+                    static_cast<std::size_t>(readback_footprint_.Offset);
+                for (std::uint32_t row = 0U; row < candidate.height; ++row) {
+                    std::memcpy(
+                        candidate.bgra.data() +
+                            static_cast<std::size_t>(row) * candidate.row_bytes,
+                        source_bytes + static_cast<std::size_t>(row) *
+                            readback_footprint_.Footprint.RowPitch,
+                        candidate.row_bytes);
+                }
+                D3D12_RANGE write_range{0U, 0U};
+                readback_buffer_->Unmap(0U, &write_range);
+                candidate.checksum = shader_bytes_checksum(candidate.bgra);
+                *readback = std::move(candidate);
+            }
+''')
+          replace_once(
+              'src/native_shader_execution_d3d12.cpp',
+              '''            snapshot_.executions += 1U;
+            snapshot_.readbacks += 1U;
+            snapshot_.last_packet_checksum = packet.header.packet_checksum;
+            snapshot_.last_readback_checksum = readback->checksum;
+            const std::uint64_t transient =
+                static_cast<std::uint64_t>(commands.size()) * sizeof(D3dCommand) +
+                static_cast<std::uint64_t>(fills.size()) * sizeof(D3dFill) +
+                static_cast<std::uint64_t>(glyphs.size()) * sizeof(D3dGlyph) +
+                readback_total_bytes_;
+''',
+              '''            last_surface_ = {};
+            last_surface_.api_kind = NativeGpuApiKind::Direct3D12;
+            last_surface_.format = GpuSurfaceFormat::Bgra8Unorm;
+            last_surface_.state = NativeShaderSurfaceState::ShaderRead;
+            last_surface_.flags =
+                kNativeShaderSurfaceReady |
+                kNativeShaderSurfaceNonOwning |
+                kNativeShaderSurfacePremultipliedAlpha;
+            last_surface_.device_generation = config_.context.device_generation;
+            last_surface_.runtime_generation = config_.context.runtime_generation;
+            last_surface_.executor_generation = config_.executor_generation;
+            last_surface_.output_generation = output_generation_;
+            last_surface_.frame_id = packet.header.frame_id;
+            last_surface_.content_checksum = packet.header.packet_checksum;
+            last_surface_.native_resource = static_cast<std::uint64_t>(
+                reinterpret_cast<std::uintptr_t>(output_texture_.Get()));
+            last_surface_.width = packet.header.surface_width;
+            last_surface_.height = packet.header.surface_height;
+
+            snapshot_.executions += 1U;
+            snapshot_.last_packet_checksum = packet.header.packet_checksum;
+            if (readback != nullptr) {
+                snapshot_.readbacks += 1U;
+                snapshot_.last_readback_checksum = readback->checksum;
+            }
+            const std::uint64_t transient =
+                static_cast<std::uint64_t>(commands.size()) * sizeof(D3dCommand) +
+                static_cast<std::uint64_t>(fills.size()) * sizeof(D3dFill) +
+                static_cast<std::uint64_t>(glyphs.size()) * sizeof(D3dGlyph) +
+                (readback != nullptr ? readback_total_bytes_ : 0U);
+''')
+          replace_once(
+              'src/native_shader_execution_d3d12.cpp',
+              '''    NativeShaderExecutionSnapshot snapshot() const noexcept override {
+''',
+              '''    bool export_surface(
+        NativeShaderSurfaceView* surface,
+        NativeShaderExecutionError* error) noexcept override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        clear_error(error);
+        if (surface == nullptr) {
+            return fail(error, NativeShaderExecutionErrorKind::InvalidInput,
+                        "shader surface output is null");
+        }
+        if (!native_shader_surface_view_valid(last_surface_) ||
+            output_texture_ == nullptr) {
+            *surface = {};
+            return fail(error, NativeShaderExecutionErrorKind::StaleGeneration,
+                        "no completed Direct3D 12 shader surface is available");
+        }
+        *surface = last_surface_;
+        return true;
+    }
+
+    NativeShaderExecutionSnapshot snapshot() const noexcept override {
+''')
+          replace_once(
+              'src/native_shader_execution_d3d12.cpp',
+              '''        output_texture_ = std::move(output);
+        readback_buffer_ = std::move(readback);
+        readback_footprint_ = footprint;
+        readback_total_bytes_ = total;
+        output_width_ = width;
+        output_height_ = height;
+        output_state_ = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+''',
+              '''        if (next_output_generation_ ==
+            (std::numeric_limits<std::uint64_t>::max)()) {
+            return fail(error, NativeShaderExecutionErrorKind::ResourceAllocationFailed,
+                        "Direct3D 12 shader output generation overflowed");
+        }
+        output_texture_ = std::move(output);
+        readback_buffer_ = std::move(readback);
+        readback_footprint_ = footprint;
+        readback_total_bytes_ = total;
+        output_width_ = width;
+        output_height_ = height;
+        output_state_ = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        output_generation_ = next_output_generation_++;
+        last_surface_ = {};
+''')
+          replace_once(
+              'src/native_shader_execution_d3d12.cpp',
+              '''        output_width_ = 0U;
+        output_height_ = 0U;
+        readback_total_bytes_ = 0U;
+        output_state_ = D3D12_RESOURCE_STATE_COMMON;
+        next_fence_value_ = 1U;
+''',
+              '''        output_width_ = 0U;
+        output_height_ = 0U;
+        readback_total_bytes_ = 0U;
+        output_state_ = D3D12_RESOURCE_STATE_COMMON;
+        output_generation_ = 0U;
+        next_output_generation_ = 1U;
+        last_surface_ = {};
+        next_fence_value_ = 1U;
+''')
+          replace_once(
+              'src/native_shader_execution_d3d12.cpp',
+              '''    std::uint32_t output_width_{0U};
+    std::uint32_t output_height_{0U};
+    D3D12_RESOURCE_STATES output_state_{D3D12_RESOURCE_STATE_COMMON};
+''',
+              '''    std::uint32_t output_width_{0U};
+    std::uint32_t output_height_{0U};
+    D3D12_RESOURCE_STATES output_state_{D3D12_RESOURCE_STATE_COMMON};
+    std::uint64_t output_generation_{0U};
+    std::uint64_t next_output_generation_{1U};
+    NativeShaderSurfaceView last_surface_{};
+''')
+
+          replace_once(
+              'src/native_window_swapchain_d3d12.cpp',
+              '#include "native_window_swapchain.hpp"',
+              '#include "native_window_swapchain.hpp"\n#include "native_shader_surface_d3d12.hpp"')
+          replace_once(
+              'src/native_window_swapchain_d3d12.cpp',
+              '''        if (!native_window_pixel_buffer_valid(
+                request.pixel_buffer, snapshot_.config.surface)) {
+            return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
+                        "Direct3D 12 pixel buffer does not match the surface");
+        }
+''',
+              '''        const bool has_pixel_buffer = !request.pixel_buffer.empty();
+        const bool has_shader_surface = !request.shader_surface.empty();
+        if (has_pixel_buffer && has_shader_surface) {
+            return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
+                        "Direct3D 12 present cannot use CPU and shader surfaces together");
+        }
+        if (has_pixel_buffer && !native_window_pixel_buffer_valid(
+                request.pixel_buffer, snapshot_.config.surface)) {
+            return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
+                        "Direct3D 12 pixel buffer does not match the surface");
+        }
+        if (has_shader_surface &&
+            (!native_shader_surface_view_valid(request.shader_surface) ||
+             request.shader_surface.api_kind != NativeGpuApiKind::Direct3D12 ||
+             request.shader_surface.device_generation !=
+                 snapshot_.config.context.device_generation ||
+             request.shader_surface.runtime_generation !=
+                 snapshot_.config.context.runtime_generation ||
+             request.shader_surface.width != snapshot_.config.surface.width ||
+             request.shader_surface.height != snapshot_.config.surface.height ||
+             request.shader_surface.content_checksum != request.command_checksum)) {
+            return fail(error, NativeWindowSwapchainErrorKind::StaleGeneration,
+                        "Direct3D 12 shader surface is stale or incompatible");
+        }
+''')
+          replace_once(
+              'src/native_window_swapchain_d3d12.cpp',
+              '''        if (!request.pixel_buffer.empty()) {
+''',
+              '''        if (has_shader_surface) {
+            ID3D12Resource* raw_source = reinterpret_cast<ID3D12Resource*>(
+                static_cast<std::uintptr_t>(request.shader_surface.native_resource));
+            if (raw_source == nullptr) {
+                return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
+                            "Direct3D 12 shader surface resource is null");
+            }
+            raw_source->AddRef();
+            ComPtr<ID3D12Resource> source;
+            source.Attach(raw_source);
+            ComPtr<ID3D12Device> source_device;
+            result = source->GetDevice(IID_PPV_ARGS(&source_device));
+            if (FAILED(result) || source_device.Get() != device_.Get()) {
+                return fail(error, NativeWindowSwapchainErrorKind::StaleGeneration,
+                            "Direct3D 12 shader surface belongs to another device",
+                            result);
+            }
+            HRESULT resolver_error = S_OK;
+            if (!shader_resolver_.encode(
+                    slot.command_list.Get(),
+                    source.Get(),
+                    slot.resource.Get(),
+                    slot.rtv,
+                    snapshot_.config.surface.width,
+                    snapshot_.config.surface.height,
+                    &resolver_error)) {
+                return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                            "Direct3D 12 shader surface resolve failed",
+                            resolver_error);
+            }
+            slot.shader_surface = std::move(source);
+        } else if (has_pixel_buffer) {
+''')
+          replace_once(
+              'src/native_window_swapchain_d3d12.cpp',
+              '''        factory_ = std::move(new_factory);
+''',
+              '''        HRESULT resolver_result = S_OK;
+        if (!shader_resolver_.configure(
+                new_device.Get(),
+                map_format(config.surface.format),
+                &resolver_result)) {
+            release_image_resources_locked();
+            return fail(error, NativeWindowSwapchainErrorKind::SwapchainCreationFailed,
+                        "Direct3D 12 shader resolve pipeline creation failed",
+                        resolver_result);
+        }
+
+        factory_ = std::move(new_factory);
+''')
+          replace_once(
+              'src/native_window_swapchain_d3d12.cpp',
+              '''        ComPtr<ID3D12Resource> upload;
+        ComPtr<ID3D12CommandAllocator> allocator;
+''',
+              '''        ComPtr<ID3D12Resource> upload;
+        ComPtr<ID3D12Resource> shader_surface;
+        ComPtr<ID3D12CommandAllocator> allocator;
+''')
+          replace_once(
+              'src/native_window_swapchain_d3d12.cpp',
+              '''                slot.upload.Reset();
+                snapshot_.in_flight_frame_count -= 1U;
+''',
+              '''                slot.upload.Reset();
+                slot.shader_surface.Reset();
+                snapshot_.in_flight_frame_count -= 1U;
+''')
+          replace_once(
+              'src/native_window_swapchain_d3d12.cpp',
+              '''            slot.upload.Reset();
+            slot.allocator.Reset();
+''',
+              '''            slot.upload.Reset();
+            slot.shader_surface.Reset();
+            slot.allocator.Reset();
+''')
+          replace_once(
+              'src/native_window_swapchain_d3d12.cpp',
+              '''        destroy_swapchain_locked();
+        command_queue_context_.Reset();
+''',
+              '''        destroy_swapchain_locked();
+        shader_resolver_.reset();
+        command_queue_context_.Reset();
+''')
+          replace_once(
+              'src/native_window_swapchain_d3d12.cpp',
+              '''    ComPtr<ID3D12DescriptorHeap> rtv_heap_;
+    ComPtr<ID3D12Fence> fence_;
+''',
+              '''    ComPtr<ID3D12DescriptorHeap> rtv_heap_;
+    detail::D3D12ShaderSurfaceResolver shader_resolver_;
+    ComPtr<ID3D12Fence> fence_;
+''')
+          PY
+      - name: Commit patched production sources
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            src/native_window_swapchain.hpp \
+            src/native_shader_execution_d3d12.cpp \
+            src/native_window_swapchain_d3d12.cpp
+          git commit -m "Z2F-8B3B3A: connect D3D12 shader surfaces to DXGI"
+          git push origin HEAD:work/z2f8b3b3a-direct-d3d12-shader-present
