@@ -60,3 +60,6 @@ if(BUILD_TESTING)
     NAME shader-draw-packet-equivalence-tests
     COMMAND zevryon-shader-draw-packet-equivalence-tests)
 endif()
+
+# Z2F-8B3B2A binds the shared packet to native shader execution.
+include("${CMAKE_CURRENT_LIST_DIR}/native_shader_execution.cmake")
