@@ -73,7 +73,8 @@ void hash_value(std::uint64_t* hash, const T& value) noexcept {
 }
 
 void hash_text(std::uint64_t* hash, std::string_view text) noexcept {
-    for (const unsigned char byte : text) {
+    for (const char character : text) {
+        const auto byte = static_cast<unsigned char>(character);
         *hash ^= byte;
         *hash *= kFnvPrime;
     }
