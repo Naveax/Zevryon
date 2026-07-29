@@ -2,7 +2,7 @@ name: z2f8b3b2c-materialize
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, synchronize]
   workflow_dispatch:
 
 permissions:
