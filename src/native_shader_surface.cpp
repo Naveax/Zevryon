@@ -3,6 +3,8 @@
 
 namespace zevryon::text {
 
+// Validate only the cross-backend ownership and generation contract here;
+// backend-specific resource-state validation remains in each native presenter.
 bool native_shader_surface_view_valid(
     const NativeShaderSurfaceView& view) noexcept {
     const std::uint32_t required_flags =
