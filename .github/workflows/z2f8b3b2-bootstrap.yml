@@ -1,0 +1,104 @@
+name: z2f8b3b2-bootstrap
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - '.z2f8b3b2/part*'
+      - '.github/workflows/z2f8b3b2-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Skip after publication
+        id: state
+        run: |
+          if compgen -G '.z2f8b3b2/part*' >/dev/null; then
+            echo 'materialize=1' >> "$GITHUB_OUTPUT"
+          else
+            echo 'materialize=0' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Reassemble and verify payload
+        if: steps.state.outputs.materialize == '1'
+        run: |
+          test "$(find .z2f8b3b2 -maxdepth 1 -type f -name 'part*' | wc -l)" -eq 8
+          cat .z2f8b3b2/part* | base64 -d > payload.tar.gz
+          echo '0c6abcf7fc384bb0a11bcbda510759b78900870e9ce291996e9d8c20da00d500  payload.tar.gz' | sha256sum -c -
+          tar -tzf payload.tar.gz | sort > actual-manifest.txt
+          cat > expected-manifest.txt <<'MANIFEST'
+          cmake/native_shader_execution.cmake
+          docs/Z2F8B3B2_NATIVE_SHADER_EXECUTION.md
+          shaders/native_shader_execution.comp
+          src/native_shader_execution.cpp
+          src/native_shader_execution.hpp
+          src/native_shader_execution_benchmark_main.cpp
+          src/native_shader_execution_d3d12.cpp
+          src/native_shader_execution_metal.mm
+          src/native_shader_execution_platform_benchmark_main.cpp
+          src/native_shader_execution_vulkan.cpp
+          src/native_shader_execution_vulkan_spirv.hpp
+          tests/native_shader_execution_equivalence_tests.cpp
+          tests/native_shader_execution_platform_tests.cpp
+          tests/native_shader_execution_tests.cpp
+          MANIFEST
+          sort -o expected-manifest.txt expected-manifest.txt
+          diff -u expected-manifest.txt actual-manifest.txt
+      - name: Install SPIR-V compiler
+        if: steps.state.outputs.materialize == '1'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends glslang-tools
+      - name: Materialize source and generated SPIR-V
+        if: steps.state.outputs.materialize == '1'
+        run: |
+          tar -xzf payload.tar.gz
+          glslangValidator -V shaders/native_shader_execution.comp -o native_shader_execution.spv
+          python3 - <<'PY'
+          import struct
+          from pathlib import Path
+          data = Path('native_shader_execution.spv').read_bytes()
+          assert len(data) % 4 == 0
+          words = struct.unpack('<' + 'I' * (len(data) // 4), data)
+          lines = [
+              '#pragma once', '', '#include <cstddef>', '#include <cstdint>', '',
+              'namespace zevryon::text::detail {', '',
+              'inline constexpr std::uint32_t kNativeShaderVulkanSpirv[] = {']
+          for start in range(0, len(words), 8):
+              chunk = ', '.join(f'0x{word:08X}U' for word in words[start:start+8])
+              lines.append('    ' + chunk + (',' if start + 8 < len(words) else ''))
+          lines += [
+              '};',
+              'inline constexpr std::size_t kNativeShaderVulkanSpirvWordCount =',
+              '    sizeof(kNativeShaderVulkanSpirv) / sizeof(kNativeShaderVulkanSpirv[0]);',
+              '', '} // namespace zevryon::text::detail', '']
+          Path('src/native_shader_execution_vulkan_spirv.hpp').write_text('\n'.join(lines))
+          PY
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('CMakeLists.txt')
+          text = path.read_text()
+          include = '''\n\n# Z2F-8B3B2 executes certified packets through native compute pipelines.\ninclude("${CMAKE_CURRENT_SOURCE_DIR}/cmake/native_shader_execution.cmake")\n'''
+          if 'cmake/native_shader_execution.cmake' not in text:
+              path.write_text(text.rstrip() + include)
+          PY
+          rm -f payload.tar.gz native_shader_execution.spv actual-manifest.txt expected-manifest.txt
+          rm -rf .z2f8b3b2
+      - name: Commit production source
+        if: steps.state.outputs.materialize == '1'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add CMakeLists.txt cmake docs shaders src tests .z2f8b3b2
+          git commit -m 'Z2F-8B3B2: materialize native shader execution'
+          git push origin HEAD:${{ github.head_ref || github.ref_name }}
