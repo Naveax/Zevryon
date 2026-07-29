@@ -124,8 +124,12 @@ RWTexture2D<uint> Output : register(u0);
 cbuffer FrameConstants : register(b0) {
     uint SurfaceWidth;
     uint SurfaceHeight;
-    uint CommandCount;
-    uint Reserved;
+    uint Operation;
+    uint InstanceIndex;
+    uint DispatchOriginX;
+    uint DispatchOriginY;
+    uint DispatchWidth;
+    uint DispatchHeight;
 };
 uint channel_b(uint value) { return value & 255U; }
 uint channel_g(uint value) { return (value >> 8U) & 255U; }
@@ -164,66 +168,67 @@ uint premultiply_coverage(uint color, uint coverage) {
 }
 [numthreads(8, 8, 1)]
 void main(uint3 dispatchId : SV_DispatchThreadID) {
-    if (dispatchId.x >= SurfaceWidth || dispatchId.y >= SurfaceHeight) {
+    if (Operation == 0U) {
+        if (dispatchId.x < SurfaceWidth && dispatchId.y < SurfaceHeight) {
+            Output[dispatchId.xy] = 0U;
+        }
         return;
     }
-    int2 pixel = int2(dispatchId.xy);
-    uint composed = 0U;
-    for (uint commandIndex = 0U; commandIndex < CommandCount; ++commandIndex) {
-        CommandRecord command = Commands[commandIndex];
-        if (!inside_rect(pixel, command.scissorX, command.scissorY,
-                         command.scissorWidth, command.scissorHeight)) {
-            continue;
+    if (dispatchId.x >= DispatchWidth || dispatchId.y >= DispatchHeight) {
+        return;
+    }
+    uint2 outputPixel = uint2(
+        DispatchOriginX + dispatchId.x,
+        DispatchOriginY + dispatchId.y);
+    if (outputPixel.x >= SurfaceWidth || outputPixel.y >= SurfaceHeight) {
+        return;
+    }
+    int2 pixel = int2(outputPixel);
+    uint composed = Output[outputPixel];
+
+    if (Operation == 1U) {
+        FillRecord fill = Fills[InstanceIndex];
+        if (inside_rect(pixel, fill.x, fill.y, fill.width, fill.height)) {
+            composed = blend_pixel(composed, fill.color);
         }
-        if (command.kind == 0U) {
-            for (uint offset = 0U; offset < command.instanceCount; ++offset) {
-                FillRecord fill = Fills[command.firstInstance + offset];
-                if (inside_rect(pixel, fill.x, fill.y, fill.width, fill.height)) {
-                    composed = blend_pixel(composed, fill.color);
-                }
+    } else if (Operation == 2U) {
+        GlyphRecord glyph = Glyphs[InstanceIndex];
+        if (inside_rect(pixel, glyph.x, glyph.y, glyph.width, glyph.height)) {
+            uint localX = uint(pixel.x - glyph.x);
+            uint localY = uint(pixel.y - glyph.y);
+            uint sourceX = glyph.atlasX +
+                (localX * glyph.atlasWidth) / uint(glyph.width);
+            uint sourceY = glyph.atlasY +
+                (localY * glyph.atlasHeight) / uint(glyph.height);
+            uint texel = Atlas.Load(int4(sourceX, sourceY, glyph.atlasSlice, 0));
+            uint source = 0U;
+            if (glyph.format == 0U) {
+                source = premultiply_coverage(glyph.color, channel_a(texel));
+            } else if (glyph.format == 1U) {
+                uint coverageB = channel_b(texel);
+                uint coverageG = channel_g(texel);
+                uint coverageR = channel_r(texel);
+                uint modulationAlpha = channel_a(glyph.color);
+                uint alpha = mul_u8(
+                    modulationAlpha,
+                    max(coverageB, max(coverageG, coverageR)));
+                source = pack_bgra(
+                    mul_u8(mul_u8(channel_b(glyph.color), modulationAlpha), coverageB),
+                    mul_u8(mul_u8(channel_g(glyph.color), modulationAlpha), coverageG),
+                    mul_u8(mul_u8(channel_r(glyph.color), modulationAlpha), coverageR),
+                    alpha);
+            } else {
+                uint modulationAlpha = channel_a(glyph.color);
+                source = pack_bgra(
+                    mul_u8(channel_b(texel), modulationAlpha),
+                    mul_u8(channel_g(texel), modulationAlpha),
+                    mul_u8(channel_r(texel), modulationAlpha),
+                    mul_u8(channel_a(texel), modulationAlpha));
             }
-        } else {
-            for (uint offset = 0U; offset < command.instanceCount; ++offset) {
-                GlyphRecord glyph = Glyphs[command.firstInstance + offset];
-                if (!inside_rect(pixel, glyph.x, glyph.y, glyph.width, glyph.height)) {
-                    continue;
-                }
-                uint localX = uint(pixel.x - glyph.x);
-                uint localY = uint(pixel.y - glyph.y);
-                uint sourceX = glyph.atlasX +
-                    (localX * glyph.atlasWidth) / uint(glyph.width);
-                uint sourceY = glyph.atlasY +
-                    (localY * glyph.atlasHeight) / uint(glyph.height);
-                uint texel = Atlas.Load(int4(sourceX, sourceY, glyph.atlasSlice, 0));
-                uint source = 0U;
-                if (glyph.format == 0U) {
-                    source = premultiply_coverage(glyph.color, channel_a(texel));
-                } else if (glyph.format == 1U) {
-                    uint coverageB = channel_b(texel);
-                    uint coverageG = channel_g(texel);
-                    uint coverageR = channel_r(texel);
-                    uint modulationAlpha = channel_a(glyph.color);
-                    uint alpha = mul_u8(
-                        modulationAlpha,
-                        max(coverageB, max(coverageG, coverageR)));
-                    source = pack_bgra(
-                        mul_u8(mul_u8(channel_b(glyph.color), modulationAlpha), coverageB),
-                        mul_u8(mul_u8(channel_g(glyph.color), modulationAlpha), coverageG),
-                        mul_u8(mul_u8(channel_r(glyph.color), modulationAlpha), coverageR),
-                        alpha);
-                } else {
-                    uint modulationAlpha = channel_a(glyph.color);
-                    source = pack_bgra(
-                        mul_u8(channel_b(texel), modulationAlpha),
-                        mul_u8(channel_g(texel), modulationAlpha),
-                        mul_u8(channel_r(texel), modulationAlpha),
-                        mul_u8(channel_a(texel), modulationAlpha));
-                }
-                composed = blend_pixel(composed, source);
-            }
+            composed = blend_pixel(composed, source);
         }
     }
-    Output[dispatchId.xy] = composed;
+    Output[outputPixel] = composed;
 }
 )HLSL";
 
@@ -492,21 +497,82 @@ public:
             D3D12_GPU_DESCRIPTOR_HANDLE output_handle = gpu_start;
             output_handle.ptr += static_cast<UINT64>(descriptor_increment_) * 4U;
             command_list_->SetComputeRootDescriptorTable(1U, output_handle);
-            const std::array<std::uint32_t, 4U> constants{
+            const auto dispatch_barrier = [&]() {
+                D3D12_RESOURCE_BARRIER barrier{};
+                barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+                barrier.UAV.pResource = output_texture_.Get();
+                command_list_->ResourceBarrier(1U, &barrier);
+            };
+            const auto dispatch_instance = [&](
+                std::uint32_t operation,
+                std::uint32_t instance_index,
+                const ShaderRectI& destination,
+                const ShaderRectI& scissor) {
+                const std::int32_t x0 = std::max(destination.x, scissor.x);
+                const std::int32_t y0 = std::max(destination.y, scissor.y);
+                const std::int32_t x1 = std::min(
+                    destination.x + destination.width,
+                    scissor.x + scissor.width);
+                const std::int32_t y1 = std::min(
+                    destination.y + destination.height,
+                    scissor.y + scissor.height);
+                if (x1 <= x0 || y1 <= y0) {
+                    return;
+                }
+                const std::array<std::uint32_t, 8U> constants{
+                    packet.header.surface_width,
+                    packet.header.surface_height,
+                    operation,
+                    instance_index,
+                    static_cast<std::uint32_t>(x0),
+                    static_cast<std::uint32_t>(y0),
+                    static_cast<std::uint32_t>(x1 - x0),
+                    static_cast<std::uint32_t>(y1 - y0)};
+                command_list_->SetComputeRoot32BitConstants(
+                    2U, static_cast<UINT>(constants.size()), constants.data(), 0U);
+                command_list_->Dispatch(
+                    (constants[6] + 7U) / 8U,
+                    (constants[7] + 7U) / 8U,
+                    1U);
+                dispatch_barrier();
+            };
+
+            const std::array<std::uint32_t, 8U> clear_constants{
                 packet.header.surface_width,
                 packet.header.surface_height,
-                static_cast<std::uint32_t>(packet.commands.size()),
-                0U};
+                0U, 0U, 0U, 0U,
+                packet.header.surface_width,
+                packet.header.surface_height};
             command_list_->SetComputeRoot32BitConstants(
-                2U, static_cast<UINT>(constants.size()), constants.data(), 0U);
+                2U, static_cast<UINT>(clear_constants.size()),
+                clear_constants.data(), 0U);
             command_list_->Dispatch(
                 (packet.header.surface_width + 7U) / 8U,
                 (packet.header.surface_height + 7U) / 8U,
                 1U);
-            D3D12_RESOURCE_BARRIER uav{};
-            uav.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-            uav.UAV.pResource = output_texture_.Get();
-            command_list_->ResourceBarrier(1U, &uav);
+            dispatch_barrier();
+
+            for (const GpuShaderDrawCommand& draw_command : packet.commands) {
+                const ShaderRectI scissor =
+                    packet.scissors[draw_command.scissor_index].rect;
+                if (draw_command.kind == ShaderPrimitiveKind::Fill) {
+                    for (std::uint32_t offset = 0U;
+                         offset < draw_command.instance_count; ++offset) {
+                        const std::uint32_t index =
+                            draw_command.first_instance + offset;
+                        dispatch_instance(
+                            1U, index, packet.fills[index].destination, scissor);
+                    }
+                } else {
+                    for (std::uint32_t offset = 0U;
+                         offset < draw_command.instance_count; ++offset) {
+                        const std::uint32_t index =
+                            draw_command.first_instance + offset;
+                        dispatch_instance(
+                            2U, index, packet.glyphs[index].destination, scissor);
+                    }
+                }
+            }
             D3D12_RESOURCE_BARRIER to_copy{};
             to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
             to_copy.Transition.pResource = output_texture_.Get();
@@ -651,7 +717,7 @@ private:
         parameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
         parameters[2].Constants.ShaderRegister = 0U;
         parameters[2].Constants.RegisterSpace = 0U;
-        parameters[2].Constants.Num32BitValues = 4U;
+        parameters[2].Constants.Num32BitValues = 8U;
         parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
         D3D12_ROOT_SIGNATURE_DESC signature_desc{};
         signature_desc.NumParameters = static_cast<UINT>(parameters.size());
