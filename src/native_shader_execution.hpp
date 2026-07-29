@@ -1,6 +1,7 @@
 #pragma once
 
 #include "native_gpu_sdk_execution.hpp"
+#include "native_shader_surface.hpp"
 #include "shader_draw_packet.hpp"
 
 #include <cstdint>
@@ -13,7 +14,8 @@ enum NativeShaderExecutionCapabilityFlags : std::uint32_t {
     kNativeShaderExecutionIntegerComposition = 1U << 0U,
     kNativeShaderExecutionPersistentAtlas = 1U << 1U,
     kNativeShaderExecutionGpuReadback = 1U << 2U,
-    kNativeShaderExecutionRetainedContext = 1U << 3U
+    kNativeShaderExecutionRetainedContext = 1U << 3U,
+    kNativeShaderExecutionDirectSurfaceExport = 1U << 4U
 };
 
 struct NativeShaderExecutionLimits final {
@@ -100,6 +102,9 @@ public:
         const ShaderAtlasResidency& atlas,
         ShaderReadback* readback,
         NativeShaderExecutionError* error) noexcept = 0;
+    virtual bool export_surface(
+        NativeShaderSurfaceView* surface,
+        NativeShaderExecutionError* error) noexcept;
     virtual NativeShaderExecutionSnapshot snapshot() const noexcept = 0;
     virtual void shutdown() noexcept = 0;
 };
