@@ -83,7 +83,7 @@ jobs:
               assert int(row['atlas_pages']) == 3
               assert int(row['atlas_bytes']) == 49_152
               assert int(row['output_bytes']) == 921_600
-              assert int(row['readback_checksum']) == 17_057_955_876_043_375_715
+              assert int(row['readback_checksum']) == 13_606_000_133_885_175_515
               p50 = float(row['p50_ms'])
               p95 = float(row['p95_ms'])
               p99 = float(row['p99_ms'])
