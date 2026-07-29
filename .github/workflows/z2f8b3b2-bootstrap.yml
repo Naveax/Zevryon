@@ -63,6 +63,14 @@ jobs:
         if: steps.state.outputs.materialize == '1'
         run: |
           tar -xzf payload.tar.gz
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('shaders/native_shader_execution.comp')
+          text = path.read_text()
+          old = 'uint4 reserved;'
+          assert text.count(old) == 1
+          path.write_text(text.replace(old, 'uvec4 reserved;'))
+          PY
           glslangValidator -V shaders/native_shader_execution.comp -o native_shader_execution.spv
           python3 - <<'PY'
           import struct
