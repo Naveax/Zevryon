@@ -22,7 +22,6 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import textwrap
 
           source = Path('.github/workflows/z2f8b3b3a-apply.yml').read_text()
           start = "          python3 - <<'PY'\n"
@@ -30,7 +29,10 @@ jobs:
           if source.count(start) != 1 or source.count(end) != 1:
               raise SystemExit('exact patch script markers are missing or ambiguous')
           body = source.split(start, 1)[1].split(end, 1)[0]
-          Path('/tmp/z2f8b3b3a_apply.py').write_text(textwrap.dedent(body) + '\n')
+          lines = []
+          for line in body.splitlines():
+              lines.append(line[10:] if line.startswith('          ') else line)
+          Path('/tmp/z2f8b3b3a_apply.py').write_text('\n'.join(lines) + '\n')
           PY
           python3 -m py_compile /tmp/z2f8b3b3a_apply.py
           python3 /tmp/z2f8b3b3a_apply.py
