@@ -1080,7 +1080,7 @@ private:
             descriptor_heap_->GetCPUDescriptorHandleForHeapStart();
         const auto create_buffer_srv = [&](ID3D12Resource* resource,
                                            std::uint32_t count,
-                                           std::uint32_t stride) mutable {
+                                           std::uint32_t stride) {
             D3D12_SHADER_RESOURCE_VIEW_DESC desc{};
             desc.Format = DXGI_FORMAT_UNKNOWN;
             desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
