@@ -1,0 +1,38 @@
+name: z2f8b3b2a-command-dispatch-patch
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/z2f8b3b2a-real-d3d12-shader-execution
+          fetch-depth: 0
+      - name: Publish verified source
+        run: |
+          set -euo pipefail
+          cat .z2f8b3b2a-opt/part* > /tmp/source.b64
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64, gzip, hashlib
+          path = Path('src/native_shader_execution_d3d12.cpp')
+          if hashlib.sha256(path.read_bytes()).hexdigest() != '276d3c14357558e5ad0c7237b49ab3b615db1c2e63a85777b33fb74704dfb413':
+              raise SystemExit('unexpected current source')
+          replacement = gzip.decompress(base64.b64decode(''.join(Path('/tmp/source.b64').read_text().split())))
+          if hashlib.sha256(replacement).hexdigest() != '075e6440291e616fbf64582661445130058b8945c11abb2bb0ce3028ed52282c':
+              raise SystemExit('unexpected replacement source')
+          path.write_bytes(replacement)
+          PY
+          rm -rf .z2f8b3b2a-opt
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/native_shader_execution_d3d12.cpp .z2f8b3b2a-opt
+          git commit -m 'optimize D3D12 shader execution by command region'
+          git push origin HEAD:work/z2f8b3b2a-real-d3d12-shader-execution
