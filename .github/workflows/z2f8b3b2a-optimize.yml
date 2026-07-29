@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [synchronize]
     paths:
-      - '.z2f8b3b2a-opt/**'
+      - '.z2f8b3b2a-sparse.patch'
       - '.github/workflows/z2f8b3b2a-optimize.yml'
   workflow_dispatch:
 
@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 jobs:
-  materialize:
+  apply:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -21,201 +21,16 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
           fetch-depth: 0
-      - name: Apply exact sparse-dispatch transformation
+      - name: Apply exact sparse-dispatch patch
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('src/native_shader_execution_d3d12.cpp')
-          text = path.read_text(encoding='utf-8')
-
-          old_cbuffer = '''cbuffer FrameConstants : register(b0) {
-              uint SurfaceWidth;
-              uint SurfaceHeight;
-              uint CommandCount;
-              uint Reserved;
-          };'''
-          new_cbuffer = '''cbuffer FrameConstants : register(b0) {
-              uint SurfaceWidth;
-              uint SurfaceHeight;
-              uint Operation;
-              uint InstanceIndex;
-              uint DispatchOriginX;
-              uint DispatchOriginY;
-              uint DispatchWidth;
-              uint DispatchHeight;
-          };'''
-          if text.count(old_cbuffer) != 1:
-              raise SystemExit('unexpected frame-constant block')
-          text = text.replace(old_cbuffer, new_cbuffer)
-
-          shader_start = text.index('[numthreads(8, 8, 1)]\nvoid main')
-          shader_end = text.index('\n)HLSL";', shader_start)
-          if text[shader_start:shader_end].count('for (uint commandIndex') != 1:
-              raise SystemExit('unexpected legacy shader body')
-          new_shader = r'''[numthreads(8, 8, 1)]
-void main(uint3 dispatchId : SV_DispatchThreadID) {
-    if (Operation == 0U) {
-        if (dispatchId.x < SurfaceWidth && dispatchId.y < SurfaceHeight) {
-            Output[dispatchId.xy] = 0U;
-        }
-        return;
-    }
-    if (dispatchId.x >= DispatchWidth || dispatchId.y >= DispatchHeight) {
-        return;
-    }
-    uint2 outputPixel = uint2(
-        DispatchOriginX + dispatchId.x,
-        DispatchOriginY + dispatchId.y);
-    if (outputPixel.x >= SurfaceWidth || outputPixel.y >= SurfaceHeight) {
-        return;
-    }
-    int2 pixel = int2(outputPixel);
-    uint composed = Output[outputPixel];
-
-    if (Operation == 1U) {
-        FillRecord fill = Fills[InstanceIndex];
-        if (inside_rect(pixel, fill.x, fill.y, fill.width, fill.height)) {
-            composed = blend_pixel(composed, fill.color);
-        }
-    } else if (Operation == 2U) {
-        GlyphRecord glyph = Glyphs[InstanceIndex];
-        if (inside_rect(pixel, glyph.x, glyph.y, glyph.width, glyph.height)) {
-            uint localX = uint(pixel.x - glyph.x);
-            uint localY = uint(pixel.y - glyph.y);
-            uint sourceX = glyph.atlasX +
-                (localX * glyph.atlasWidth) / uint(glyph.width);
-            uint sourceY = glyph.atlasY +
-                (localY * glyph.atlasHeight) / uint(glyph.height);
-            uint texel = Atlas.Load(int4(sourceX, sourceY, glyph.atlasSlice, 0));
-            uint source = 0U;
-            if (glyph.format == 0U) {
-                source = premultiply_coverage(glyph.color, channel_a(texel));
-            } else if (glyph.format == 1U) {
-                uint coverageB = channel_b(texel);
-                uint coverageG = channel_g(texel);
-                uint coverageR = channel_r(texel);
-                uint modulationAlpha = channel_a(glyph.color);
-                uint alpha = mul_u8(
-                    modulationAlpha,
-                    max(coverageB, max(coverageG, coverageR)));
-                source = pack_bgra(
-                    mul_u8(mul_u8(channel_b(glyph.color), modulationAlpha), coverageB),
-                    mul_u8(mul_u8(channel_g(glyph.color), modulationAlpha), coverageG),
-                    mul_u8(mul_u8(channel_r(glyph.color), modulationAlpha), coverageR),
-                    alpha);
-            } else {
-                uint modulationAlpha = channel_a(glyph.color);
-                source = pack_bgra(
-                    mul_u8(channel_b(texel), modulationAlpha),
-                    mul_u8(channel_g(texel), modulationAlpha),
-                    mul_u8(channel_r(texel), modulationAlpha),
-                    mul_u8(channel_a(texel), modulationAlpha));
-            }
-            composed = blend_pixel(composed, source);
-        }
-    }
-    Output[outputPixel] = composed;
-}'''
-          text = text[:shader_start] + new_shader + text[shader_end:]
-
-          old_root = 'parameters[2].Constants.Num32BitValues = 4U;'
-          if text.count(old_root) != 1:
-              raise SystemExit('unexpected root-constant count')
-          text = text.replace(
-              old_root, 'parameters[2].Constants.Num32BitValues = 8U;')
-
-          dispatch_start = text.index(
-              '            const std::array<std::uint32_t, 4U> constants{')
-          dispatch_end = text.index(
-              '            D3D12_RESOURCE_BARRIER to_copy{};', dispatch_start)
-          new_dispatch = r'''            const auto dispatch_barrier = [&]() {
-                D3D12_RESOURCE_BARRIER barrier{};
-                barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
-                barrier.UAV.pResource = output_texture_.Get();
-                command_list_->ResourceBarrier(1U, &barrier);
-            };
-            const auto dispatch_instance = [&](
-                std::uint32_t operation,
-                std::uint32_t instance_index,
-                const ShaderRectI& destination,
-                const ShaderRectI& scissor) {
-                const std::int32_t x0 = std::max(destination.x, scissor.x);
-                const std::int32_t y0 = std::max(destination.y, scissor.y);
-                const std::int32_t x1 = std::min(
-                    destination.x + destination.width,
-                    scissor.x + scissor.width);
-                const std::int32_t y1 = std::min(
-                    destination.y + destination.height,
-                    scissor.y + scissor.height);
-                if (x1 <= x0 || y1 <= y0) {
-                    return;
-                }
-                const std::array<std::uint32_t, 8U> constants{
-                    packet.header.surface_width,
-                    packet.header.surface_height,
-                    operation,
-                    instance_index,
-                    static_cast<std::uint32_t>(x0),
-                    static_cast<std::uint32_t>(y0),
-                    static_cast<std::uint32_t>(x1 - x0),
-                    static_cast<std::uint32_t>(y1 - y0)};
-                command_list_->SetComputeRoot32BitConstants(
-                    2U, static_cast<UINT>(constants.size()), constants.data(), 0U);
-                command_list_->Dispatch(
-                    (constants[6] + 7U) / 8U,
-                    (constants[7] + 7U) / 8U,
-                    1U);
-                dispatch_barrier();
-            };
-
-            const std::array<std::uint32_t, 8U> clear_constants{
-                packet.header.surface_width,
-                packet.header.surface_height,
-                0U, 0U, 0U, 0U,
-                packet.header.surface_width,
-                packet.header.surface_height};
-            command_list_->SetComputeRoot32BitConstants(
-                2U, static_cast<UINT>(clear_constants.size()),
-                clear_constants.data(), 0U);
-            command_list_->Dispatch(
-                (packet.header.surface_width + 7U) / 8U,
-                (packet.header.surface_height + 7U) / 8U,
-                1U);
-            dispatch_barrier();
-
-            for (const GpuShaderDrawCommand& draw_command : packet.commands) {
-                const ShaderRectI scissor =
-                    packet.scissors[draw_command.scissor_index].rect;
-                if (draw_command.kind == ShaderPrimitiveKind::Fill) {
-                    for (std::uint32_t offset = 0U;
-                         offset < draw_command.instance_count; ++offset) {
-                        const std::uint32_t index =
-                            draw_command.first_instance + offset;
-                        dispatch_instance(
-                            1U, index, packet.fills[index].destination, scissor);
-                    }
-                } else {
-                    for (std::uint32_t offset = 0U;
-                         offset < draw_command.instance_count; ++offset) {
-                        const std::uint32_t index =
-                            draw_command.first_instance + offset;
-                        dispatch_instance(
-                            2U, index, packet.glyphs[index].destination, scissor);
-                    }
-                }
-            }
-'''
-          text = text[:dispatch_start] + new_dispatch + text[dispatch_end:]
-
-          if text.count('const auto dispatch_instance') != 1:
-              raise SystemExit('sparse dispatch was not published exactly once')
-          if 'for (uint commandIndex' in text:
-              raise SystemExit('legacy full-surface command scan remains')
-          path.write_text(text, encoding='utf-8')
-          PY
-          rm -rf .z2f8b3b2a-opt
+          git apply --check .z2f8b3b2a-sparse.patch
+          git apply .z2f8b3b2a-sparse.patch
+          test "$(grep -c 'const auto dispatch_instance' src/native_shader_execution_d3d12.cpp)" -eq 1
+          test "$(grep -c 'Constants.Num32BitValues = 8U' src/native_shader_execution_d3d12.cpp)" -eq 1
+          test "$(grep -c 'for (uint commandIndex' src/native_shader_execution_d3d12.cpp || true)" -eq 0
+          rm -rf .z2f8b3b2a-opt .z2f8b3b2a-sparse.patch
           git diff --check
       - name: Commit optimized execution path
         shell: bash
@@ -223,6 +38,6 @@ void main(uint3 dispatchId : SV_DispatchThreadID) {
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/native_shader_execution_d3d12.cpp .z2f8b3b2a-opt
+          git add src/native_shader_execution_d3d12.cpp .z2f8b3b2a-opt .z2f8b3b2a-sparse.patch
           git commit -m 'optimize D3D12 shader execution with sparse instance dispatch'
           git push origin HEAD:${{ github.event.pull_request.head.ref || github.ref_name }}
