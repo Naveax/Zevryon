@@ -309,3 +309,6 @@ if(BUILD_TESTING)
 endif()
 
 include(cmake/coretext_discovery.cmake)
+
+# Z2F-8B3B1 compiles bounded shader draw packets and persistent atlas updates.
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/shader_draw_packet.cmake")
