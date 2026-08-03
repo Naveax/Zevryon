@@ -10,6 +10,12 @@
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 
+// Windows exposes legacy SAL direction annotations as global macros. Keep the
+// resolver header from corrupting downstream enum members such as LineBreakClass::IN.
+#ifdef IN
+#undef IN
+#endif
+
 #include <array>
 #include <cstdint>
 
