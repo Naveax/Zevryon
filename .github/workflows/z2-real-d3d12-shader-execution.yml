@@ -31,12 +31,12 @@ jobs:
           set -euo pipefail
           git show \
             01271ebb6fada967ff9a47c005964f34cd537f15:.github/workflows/z2f8b3b3a-apply.yml \
-            > /tmp/z2f8b3b3a-original.yml
+            > .z2f8b3b3a-original.yml
           sed -n "/python3 - <<'PY'/,/^          PY$/p" \
-            /tmp/z2f8b3b3a-original.yml \
+            .z2f8b3b3a-original.yml \
             | sed '1d;$d;s/^          //' \
-            > /tmp/z2f8b3b3a_apply.py
-          test -s /tmp/z2f8b3b3a_apply.py
+            > .z2f8b3b3a_apply.py
+          test -s .z2f8b3b3a_apply.py
           python3 - <<'PY'
           from pathlib import Path
 
@@ -91,7 +91,7 @@ jobs:
           '''
           source_path.write_text(source_text[:first] + replacement + source_text[last:])
 
-          script_path = Path('/tmp/z2f8b3b3a_apply.py')
+          script_path = Path('.z2f8b3b3a_apply.py')
           script = script_path.read_text()
           call_start_marker = (
               "replace_once(\n"
@@ -110,8 +110,9 @@ jobs:
               "raise SystemExit(f'{path}: expected one literal match, got {count}: {old.splitlines()[0][:120]}')")
           script_path.write_text(script)
           PY
-          python3 -m py_compile /tmp/z2f8b3b3a_apply.py
-          python3 /tmp/z2f8b3b3a_apply.py
+          python3 -m py_compile .z2f8b3b3a_apply.py
+          python3 .z2f8b3b3a_apply.py
+          rm -f .z2f8b3b3a-original.yml .z2f8b3b3a_apply.py
       - name: Publish production sources and remove staging
         shell: bash
         run: |
