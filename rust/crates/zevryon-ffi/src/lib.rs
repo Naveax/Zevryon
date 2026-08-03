@@ -16,13 +16,11 @@ const _: [(); 1] = [(); (size_of::<ResourceLedger>() <= ZR_LEDGER_STORAGE_BYTES)
 const _: [(); 1] = [(); (align_of::<ResourceLedger>() <= ZR_LEDGER_STORAGE_ALIGN) as usize];
 
 fn storage_aligned(storage: *const ZrLedgerStorage) -> bool {
-    !storage.is_null()
-        && (storage as usize).is_multiple_of(align_of::<ResourceLedger>())
+    !storage.is_null() && (storage as usize).is_multiple_of(align_of::<ResourceLedger>())
 }
 
 fn snapshot_aligned(snapshot: *const ZrResourceSnapshot) -> bool {
-    !snapshot.is_null()
-        && (snapshot as usize).is_multiple_of(align_of::<ZrResourceSnapshot>())
+    !snapshot.is_null() && (snapshot as usize).is_multiple_of(align_of::<ZrResourceSnapshot>())
 }
 
 fn with_ledger<R>(
