@@ -5,9 +5,13 @@ on:
     paths:
       - '.github/workflows/z2-real-d3d12-shader-execution.yml'
       - 'cmake/native_shader_execution.cmake'
+      - 'cmake/native_window_swapchain.cmake'
       - 'cmake/shader_draw_packet.cmake'
       - 'src/native_shader_execution*'
+      - 'src/native_shader_surface*'
+      - 'src/native_window_swapchain*'
       - 'tests/native_shader_execution*'
+      - 'tests/native_shader_surface_d3d12_integration_tests.cpp'
       - 'docs/Z2F8B3B2A_REAL_D3D12_SHADER_EXECUTION.md'
   workflow_dispatch:
 
@@ -70,12 +74,17 @@ jobs:
         shell: pwsh
         run: |
           cmake --build build --config Release --parallel 2 --target zevryon-native-shader-execution-d3d12-tests
+          cmake --build build --config Release --parallel 2 --target zevryon-native-shader-surface-d3d12-integration-tests
           cmake --build build --config Release --parallel 2 --target zevryon-native-shader-execution-d3d12-benchmark
-      - name: Repeat real GPU readback certification
+      - name: Repeat real GPU readback and direct-present certification
         shell: pwsh
         run: |
           1..10 | ForEach-Object {
             ./build/Release/zevryon-native-shader-execution-d3d12-tests.exe
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          1..5 | ForEach-Object {
+            ./build/Release/zevryon-native-shader-surface-d3d12-integration-tests.exe
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
       - name: Run three benchmark distributions
