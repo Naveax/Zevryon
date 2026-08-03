@@ -1,0 +1,215 @@
+name: Z2R Rust shadow workload certification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: z2r1d-workloads-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  massivedoc-zenith-shadow-pair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest
+
+      - name: Install stable Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Report toolchains
+        run: |
+          c++ --version
+          cmake --version
+          python --version
+          rustc --version --verbose
+          cargo --version
+
+      - name: Test Z2R-1D manifest contract
+        run: python -m pytest -q tests/test_z2r1d_workload_certification.py
+
+      - name: Configure authoritative C++ baseline
+        run: >-
+          cmake -S . -B build-cpp
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DZEVRYON_RUST_LEDGER_SHADOW=OFF
+
+      - name: Build baseline workload targets
+        run: >-
+          cmake --build build-cpp --parallel 2
+          --target
+          zevryon-massivedoc
+          zevryon-zenith-layout
+          zevryon-zenith-hot
+
+      - name: Configure strict production Rust shadow
+        run: >-
+          cmake -S . -B build-shadow
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW_STRICT=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW_INTERVAL=64
+
+      - name: Build shadow workload and probe targets
+        run: >-
+          cmake --build build-shadow --parallel 2
+          --target
+          zevryon-massivedoc
+          zevryon-zenith-layout
+          zevryon-zenith-hot
+          zevryon-resource-ledger-tests
+
+      - name: Emit exact 36-class Rust shadow probe
+        run: |
+          mkdir -p evidence/z2r1d
+          build-shadow/zevryon-resource-ledger-tests \
+            --emit-rust-shadow-workload-probe \
+            > evidence/z2r1d/rust-shadow-workload-probe.json
+          python -m json.tool evidence/z2r1d/rust-shadow-workload-probe.json > /dev/null
+
+      - name: Run baseline MassiveDoc giant-record workload
+        run: >-
+          python scripts/massivedoc_benchmark.py
+          --binary build-cpp/zevryon-massivedoc
+          --logical-bytes 67108864
+          --records 65536
+          --segment-mib 16
+          --largest-record-limit-bytes 16777216
+          --giant-record-bytes 16777216
+          --work-dir "${{ runner.temp }}/z2r1d-baseline"
+          --output evidence/z2r1d/baseline-massivedoc.json
+
+      - name: Run Rust-shadow MassiveDoc giant-record workload
+        run: >-
+          python scripts/massivedoc_benchmark.py
+          --binary build-shadow/zevryon-massivedoc
+          --logical-bytes 67108864
+          --records 65536
+          --segment-mib 16
+          --largest-record-limit-bytes 16777216
+          --giant-record-bytes 16777216
+          --work-dir "${{ runner.temp }}/z2r1d-shadow"
+          --output evidence/z2r1d/shadow-massivedoc.json
+
+      - name: Run baseline checkpoint-aware global layout
+        run: >-
+          python scripts/zenith_global_benchmark.py
+          --binary build-cpp/zevryon-zenith-layout
+          --store "${{ runner.temp }}/z2r1d-baseline/store"
+          --layout-report "${{ runner.temp }}/z2r1d-baseline/layout-window-report.json"
+          --expected-record 32768
+          --output evidence/z2r1d/baseline-global-layout.json
+
+      - name: Run Rust-shadow checkpoint-aware global layout
+        run: >-
+          python scripts/zenith_global_benchmark.py
+          --binary build-shadow/zevryon-zenith-layout
+          --store "${{ runner.temp }}/z2r1d-shadow/store"
+          --layout-report "${{ runner.temp }}/z2r1d-shadow/layout-window-report.json"
+          --expected-record 32768
+          --output evidence/z2r1d/shadow-global-layout.json
+
+      - name: Run baseline ZENITH hot-scroll
+        run: >-
+          python scripts/zenith_hot_scroll_benchmark.py
+          --massivedoc-binary build-cpp/zevryon-massivedoc
+          --hot-binary build-cpp/zevryon-zenith-hot
+          --store "${{ runner.temp }}/z2r1d-baseline/store"
+          --layout-report "${{ runner.temp }}/z2r1d-baseline/layout-window-report.json"
+          --expected-record 32768
+          --queries 129
+          --stride-kib 16
+          --random-p95-ms 4.0
+          --adjacent-p95-ms 1.0
+          --max-source-bytes 65536
+          --output evidence/z2r1d/baseline-hot-scroll.json
+
+      - name: Run Rust-shadow ZENITH hot-scroll
+        run: >-
+          python scripts/zenith_hot_scroll_benchmark.py
+          --massivedoc-binary build-shadow/zevryon-massivedoc
+          --hot-binary build-shadow/zevryon-zenith-hot
+          --store "${{ runner.temp }}/z2r1d-shadow/store"
+          --layout-report "${{ runner.temp }}/z2r1d-shadow/layout-window-report.json"
+          --expected-record 32768
+          --queries 129
+          --stride-kib 16
+          --random-p95-ms 4.0
+          --adjacent-p95-ms 1.0
+          --max-source-bytes 65536
+          --output evidence/z2r1d/shadow-hot-scroll.json
+
+      - name: Build fail-closed Z2R-1D1 certification manifest
+        shell: bash
+        run: |
+          compiler="$(c++ --version | head -n 1)"
+          python scripts/z2r1d_workload_certification.py \
+            --probe evidence/z2r1d/rust-shadow-workload-probe.json \
+            --baseline-massivedoc evidence/z2r1d/baseline-massivedoc.json \
+            --shadow-massivedoc evidence/z2r1d/shadow-massivedoc.json \
+            --baseline-global-layout evidence/z2r1d/baseline-global-layout.json \
+            --shadow-global-layout evidence/z2r1d/shadow-global-layout.json \
+            --baseline-hot-scroll evidence/z2r1d/baseline-hot-scroll.json \
+            --shadow-hot-scroll evidence/z2r1d/shadow-hot-scroll.json \
+            --commit-sha "${{ github.sha }}" \
+            --compiler "$compiler" \
+            --build-type Release \
+            --runner-os "${{ runner.os }}" \
+            --rust-abi-version 1 \
+            --max-wall-time-ratio 2.0 \
+            --max-peak-pss-ratio 1.5 \
+            --output evidence/z2r1d/rust-shadow-certification-v1.json
+
+      - name: Publish certification summary
+        shell: bash
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          report = json.loads(
+              Path('evidence/z2r1d/rust-shadow-certification-v1.json').read_text()
+          )
+          print('## Z2R-1D1 Rust shadow workload certification')
+          print()
+          print(f"- Slice ready: `{report['slice_ready']}`")
+          print(f"- Promotion ready: `{report['promotion_ready']}`")
+          print(f"- Shadow mismatches: `{report['probe']['mismatches']}`")
+          print(f"- Manifest SHA-256: `{report['manifest_sha256']}`")
+          print()
+          print('| Workload | Wall ratio | Peak-PSS ratio | Passed |')
+          print('|---|---:|---:|---:|')
+          for item in report['workloads']:
+              peak = item['peak_pss_ratio']
+              peak_text = 'n/a' if peak is None else f'{peak:.4f}'
+              print(
+                  f"| {item['name']} | {item['wall_time_ratio']:.4f} | "
+                  f"{peak_text} | {item['passed']} |"
+              )
+          PY
+
+      - name: Upload Z2R-1D workload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: z2r1d-rust-shadow-workloads-${{ github.sha }}
+          path: evidence/z2r1d/
+          if-no-files-found: error
