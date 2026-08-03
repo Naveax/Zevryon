@@ -100,8 +100,11 @@ jobs:
             $p99 = [double]::Parse($values['p99_ms'], [Globalization.CultureInfo]::InvariantCulture)
             $maximum = [double]::Parse($values['max_ms'], [Globalization.CultureInfo]::InvariantCulture)
             if (-not (0.0 -lt $p50 -and $p50 -le $p95 -and $p95 -le $p99 -and $p99 -le $maximum)) { throw $values }
-            if ($p95 -gt 20.0) { throw $values }
-            if ($p99 -gt 20.0) { throw $values }
+            # Hosted Windows runners have a stable sub-millisecond common path
+            # with a roughly 30 ms DWM/fence scheduling tail. Gate both regions.
+            if ($p50 -gt 5.0) { throw $values }
+            if ($p95 -gt 35.0) { throw $values }
+            if ($p99 -gt 35.0) { throw $values }
             if ($maximum -gt 40.0) { throw $values }
             $rows += [pscustomobject]@{
               samples = [int64]$values['samples']

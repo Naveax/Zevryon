@@ -1,6 +1,7 @@
 set(
   ZEVRYON_NATIVE_SHADER_EXECUTION_SOURCES
-  src/native_shader_execution_stub.cpp)
+  src/native_shader_execution_stub.cpp
+  src/native_shader_surface.cpp)
 
 if(WIN32)
   list(APPEND

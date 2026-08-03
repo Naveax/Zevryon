@@ -1,6 +1,7 @@
 #pragma once
 
 #include "native_gpu_sdk_execution.hpp"
+#include "native_shader_surface.hpp"
 #include "native_window_pixel_buffer.hpp"
 
 #include <array>
@@ -130,6 +131,7 @@ struct NativeWindowPresentRequest final {
     std::uint32_t command_count{0};
     std::uint32_t flags{0};
     NativeWindowPixelBufferView pixel_buffer;
+    NativeShaderSurfaceView shader_surface;
 };
 
 struct NativeWindowPresentReceipt final {

@@ -17,9 +17,12 @@ if(TARGET zevryon-native-gpu-sdk-execution)
     src/native_window_swapchain_stub.cpp)
 
   if(WIN32)
+    # Z2F-8B3B3A binds the direct shader-surface resolver into the standalone
+    # DXGI presenter without introducing a dependency on the shader executor.
     list(APPEND
       ZEVRYON_NATIVE_WINDOW_SWAPCHAIN_SOURCES
-      src/native_window_swapchain_d3d12.cpp)
+      src/native_window_swapchain_d3d12.cpp
+      src/native_shader_surface_d3d12.cpp)
   endif()
 
   add_library(
@@ -36,7 +39,8 @@ if(TARGET zevryon-native-gpu-sdk-execution)
       zevryon-native-window-swapchain
       PRIVATE ZEVRYON_HAS_D3D12_WINDOW_SWAPCHAIN=1)
     target_link_libraries(
-      zevryon-native-window-swapchain PRIVATE d3d12 dxgi dxguid user32)
+      zevryon-native-window-swapchain
+      PRIVATE d3d12 dxgi dxguid d3dcompiler user32)
   endif()
   zevryon_options(zevryon-native-window-swapchain)
 
@@ -95,6 +99,19 @@ if(TARGET zevryon-native-gpu-sdk-execution)
         zevryon-native-window-swapchain-d3d12-tests
         PRIVATE zevryon-native-window-swapchain)
       zevryon_options(zevryon-native-window-swapchain-d3d12-tests)
+
+      add_executable(
+        zevryon-native-shader-surface-d3d12-integration-tests
+        tests/native_shader_surface_d3d12_integration_tests.cpp)
+      target_include_directories(
+        zevryon-native-shader-surface-d3d12-integration-tests PRIVATE tests)
+      target_link_libraries(
+        zevryon-native-shader-surface-d3d12-integration-tests
+        PRIVATE
+          zevryon-native-window-swapchain
+          zevryon-native-shader-execution)
+      zevryon_options(
+        zevryon-native-shader-surface-d3d12-integration-tests)
     endif()
 
     if(MSVC)
@@ -105,6 +122,10 @@ if(TARGET zevryon-native-gpu-sdk-execution)
       if(TARGET zevryon-native-window-swapchain-d3d12-tests)
         target_compile_options(
           zevryon-native-window-swapchain-d3d12-tests PRIVATE /UNDEBUG)
+      endif()
+      if(TARGET zevryon-native-shader-surface-d3d12-integration-tests)
+        target_compile_options(
+          zevryon-native-shader-surface-d3d12-integration-tests PRIVATE /UNDEBUG)
       endif()
     else()
       target_compile_options(
@@ -123,6 +144,11 @@ if(TARGET zevryon-native-gpu-sdk-execution)
       add_test(
         NAME native-window-swapchain-d3d12-tests
         COMMAND zevryon-native-window-swapchain-d3d12-tests)
+    endif()
+    if(TARGET zevryon-native-shader-surface-d3d12-integration-tests)
+      add_test(
+        NAME native-shader-surface-d3d12-integration-tests
+        COMMAND zevryon-native-shader-surface-d3d12-integration-tests)
     endif()
   endif()
 endif()
