@@ -1,4 +1,5 @@
 #include "native_window_swapchain.hpp"
+#include "native_shader_surface_d3d12.hpp"
 
 #if defined(ZEVRYON_HAS_D3D12_WINDOW_SWAPCHAIN)
 
@@ -291,13 +292,31 @@ public:
                 return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
                             "Direct3D 12 dirty rectangle is outside the surface");
             }
+        }        const bool has_pixel_buffer = !request.pixel_buffer.empty();
+        const bool has_shader_surface = !request.shader_surface.empty();
+        if (has_pixel_buffer && has_shader_surface) {
+  return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
+              "Direct3D 12 present cannot use CPU and shader surfaces together");
         }
-        if (!native_window_pixel_buffer_valid(
-                request.pixel_buffer, snapshot_.config.surface)) {
-            return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
-                        "Direct3D 12 pixel buffer does not match the surface");
+        if (has_pixel_buffer && !native_window_pixel_buffer_valid(
+      request.pixel_buffer, snapshot_.config.surface)) {
+  return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
+              "Direct3D 12 pixel buffer does not match the surface");
         }
-        if ((request.flags & kNativeWindowPresentAllowTearing) != 0U &&
+        if (has_shader_surface &&
+  (!native_shader_surface_view_valid(request.shader_surface) ||
+   request.shader_surface.api_kind != NativeGpuApiKind::Direct3D12 ||
+   request.shader_surface.device_generation !=
+       snapshot_.config.context.device_generation ||
+   request.shader_surface.runtime_generation !=
+       snapshot_.config.context.runtime_generation ||
+   request.shader_surface.width != snapshot_.config.surface.width ||
+   request.shader_surface.height != snapshot_.config.surface.height ||
+   request.shader_surface.content_checksum != request.command_checksum)) {
+  return fail(error, NativeWindowSwapchainErrorKind::StaleGeneration,
+              "Direct3D 12 shader surface is stale or incompatible");
+        }
+if ((request.flags & kNativeWindowPresentAllowTearing) != 0U &&
             ((snapshot_.config.flags & kNativeWindowSwapchainAllowTearing) == 0U ||
              snapshot_.config.present_mode != NativePresentMode::Immediate)) {
             return fail(error, NativeWindowSwapchainErrorKind::UnsupportedPresentMode,
@@ -339,7 +358,38 @@ public:
                         "ID3D12GraphicsCommandList::Reset failed", result);
         }
 
-        if (!request.pixel_buffer.empty()) {
+        if (has_shader_surface) {
+  ID3D12Resource* raw_source = reinterpret_cast<ID3D12Resource*>(
+      static_cast<std::uintptr_t>(request.shader_surface.native_resource));
+  if (raw_source == nullptr) {
+      return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
+                  "Direct3D 12 shader surface resource is null");
+  }
+  raw_source->AddRef();
+  ComPtr<ID3D12Resource> source;
+  source.Attach(raw_source);
+  ComPtr<ID3D12Device> source_device;
+  result = source->GetDevice(IID_PPV_ARGS(&source_device));
+  if (FAILED(result) || source_device.Get() != device_.Get()) {
+      return fail(error, NativeWindowSwapchainErrorKind::StaleGeneration,
+                  "Direct3D 12 shader surface belongs to another device",
+                  result);
+  }
+  HRESULT resolver_error = S_OK;
+  if (!shader_resolver_.encode(
+          slot.command_list.Get(),
+          source.Get(),
+          slot.resource.Get(),
+          slot.rtv,
+          snapshot_.config.surface.width,
+          snapshot_.config.surface.height,
+          &resolver_error)) {
+      return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                  "Direct3D 12 shader surface resolve failed",
+                  resolver_error);
+  }
+  slot.shader_surface = std::move(source);
+        } else if (has_pixel_buffer) {
             const UINT row_pitch = static_cast<UINT>(
                 (request.pixel_buffer.row_bytes +
                  D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1U) &
@@ -546,10 +596,10 @@ public:
             if (slot.in_flight != 0U &&
                 slot.fence_value <= completed_fence_value) {
                 slot.in_flight = 0U;
-                slot.fence_value = 0U;
-                slot.upload.Reset();
-                snapshot_.in_flight_frame_count -= 1U;
-                snapshot_.current_in_flight_bytes -= bytes_per_image;
+                slot.fence_value = 0U;                slot.upload.Reset();
+      slot.shader_surface.Reset();
+      snapshot_.in_flight_frame_count -= 1U;
+snapshot_.current_in_flight_bytes -= bytes_per_image;
             }
         }
         snapshot_.completed_fence_value = completed_fence_value;
@@ -566,6 +616,7 @@ public:
         NativeWindowSwapchainError ignored;
         (void)wait_for_gpu_locked(&ignored);
         destroy_swapchain_locked();
+        shader_resolver_.reset();
         command_queue_context_.Reset();
         device_.Reset();
         factory_.Reset();
@@ -588,6 +639,7 @@ private:
     struct ImageSlot final {
         ComPtr<ID3D12Resource> resource;
         ComPtr<ID3D12Resource> upload;
+        ComPtr<ID3D12Resource> shader_surface;
         ComPtr<ID3D12CommandAllocator> allocator;
         ComPtr<ID3D12GraphicsCommandList> command_list;
         D3D12_CPU_DESCRIPTOR_HANDLE rtv{};
@@ -856,6 +908,17 @@ private:
             rtv.ptr += rtv_increment;
         }
 
+        HRESULT resolver_result = S_OK;
+        if (!shader_resolver_.configure(
+      new_device.Get(),
+      map_format(config.surface.format),
+      &resolver_result)) {
+  release_image_resources_locked();
+  return fail(error, NativeWindowSwapchainErrorKind::SwapchainCreationFailed,
+              "Direct3D 12 shader resolve pipeline creation failed",
+              resolver_result);
+        }
+
         factory_ = std::move(new_factory);
         device_ = std::move(new_device);
         command_queue_context_ = std::move(new_queue);
@@ -931,10 +994,10 @@ private:
 
     void release_image_resources_locked() noexcept {
         for (ImageSlot& slot : images_) {
-            slot.resource.Reset();
-            slot.upload.Reset();
-            slot.allocator.Reset();
-            slot.command_list.Reset();
+            slot.resource.Reset();            slot.upload.Reset();
+  slot.shader_surface.Reset();
+  slot.allocator.Reset();
+slot.command_list.Reset();
             slot.rtv = {};
             slot.image = {};
             slot.fence_value = 0U;
@@ -964,6 +1027,7 @@ private:
     ID3D12CommandQueue* queue_{nullptr};
     ComPtr<IDXGISwapChain3> swapchain_;
     ComPtr<ID3D12DescriptorHeap> rtv_heap_;
+    detail::D3D12ShaderSurfaceResolver shader_resolver_;
     ComPtr<ID3D12Fence> fence_;
     HANDLE fence_event_{nullptr};
     std::array<ImageSlot, 16U> images_{};
