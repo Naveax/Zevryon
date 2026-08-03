@@ -1,0 +1,55 @@
+name: z2f8b3b3a-include-order
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2f8b3b3a-include-order.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: z2f8b3b3a-include-order-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  restore-include-order:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Restore macro-safe include order
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/native_window_swapchain_d3d12.cpp')
+          text = path.read_text()
+          old = (
+              '#include "native_shader_surface_d3d12.hpp"\n'
+              '#include "native_window_swapchain.hpp"\n')
+          new = (
+              '#include "native_window_swapchain.hpp"\n'
+              '#include "native_shader_surface_d3d12.hpp"\n')
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'expected one unsafe include block, got {count}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+      - name: Publish repair and remove this workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/z2f8b3b3a-include-order.yml
+          git add src/native_window_swapchain_d3d12.cpp
+          git commit -m "Restore Windows-safe D3D12 include order"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
