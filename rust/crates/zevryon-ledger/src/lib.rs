@@ -187,7 +187,9 @@ mod tests {
         assert!(ledger.record_physical_read(SOURCE_WINDOW, 65_536));
         assert!(ledger.record_physical_write(SOURCE_WINDOW, 4_096));
 
-        let snapshot = ledger.snapshot(SOURCE_WINDOW).expect("valid resource class");
+        let snapshot = ledger
+            .snapshot(SOURCE_WINDOW)
+            .expect("valid resource class");
         assert_eq!(snapshot.current_bytes, 100);
         assert_eq!(snapshot.peak_bytes, 100);
         assert_eq!(snapshot.reservations, 2);
