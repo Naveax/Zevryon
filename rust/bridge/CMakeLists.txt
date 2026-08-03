@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
-project(zevryon_rust_bridge LANGUAGES CXX)
+project(zevryon_rust_bridge LANGUAGES C CXX)
 
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -51,6 +54,40 @@ set_target_properties(
   zevryon-rust-ffi
   PROPERTIES IMPORTED_LOCATION "${ZEVRYON_RUST_FFI_LIBRARY}")
 
+function(zevryon_strict_options target)
+  if(MSVC)
+    target_compile_options(${target} PRIVATE /W4 /WX)
+  else()
+    target_compile_options(
+      ${target}
+      PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror)
+  endif()
+endfunction()
+
+function(zevryon_link_rust_runtime target)
+  target_link_libraries(${target} PRIVATE zevryon-rust-ffi)
+  add_dependencies(${target} zevryon-rust-ffi-build)
+
+  if(MSVC)
+    target_link_libraries(
+      ${target}
+      PRIVATE advapi32 bcrypt ntdll userenv ws2_32)
+  elseif(APPLE)
+    find_library(ZEVRYON_SECURITY_FRAMEWORK Security REQUIRED)
+    find_library(ZEVRYON_FOUNDATION_FRAMEWORK Foundation REQUIRED)
+    find_library(ZEVRYON_ICONV_LIBRARY iconv REQUIRED)
+    target_link_libraries(
+      ${target}
+      PRIVATE
+        "${ZEVRYON_SECURITY_FRAMEWORK}"
+        "${ZEVRYON_FOUNDATION_FRAMEWORK}"
+        "${ZEVRYON_ICONV_LIBRARY}")
+  else()
+    find_package(Threads REQUIRED)
+    target_link_libraries(${target} PRIVATE Threads::Threads dl m rt util)
+  endif()
+endfunction()
+
 add_library(zevryon-rust-ledger-bridge STATIC
   "${ZEVRYON_ROOT}/src/resource_ledger.cpp"
   "${ZEVRYON_ROOT}/src/rust_resource_ledger.cpp")
@@ -58,54 +95,34 @@ target_include_directories(
   zevryon-rust-ledger-bridge
   PUBLIC "${ZEVRYON_ROOT}/src")
 add_dependencies(zevryon-rust-ledger-bridge zevryon-rust-ffi-build)
-
+zevryon_strict_options(zevryon-rust-ledger-bridge)
 if(MSVC)
-  target_compile_options(
-    zevryon-rust-ledger-bridge PRIVATE /W4 /WX /permissive- /EHsc)
-else()
-  target_compile_options(
-    zevryon-rust-ledger-bridge
-    PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror)
+  target_compile_options(zevryon-rust-ledger-bridge PRIVATE /permissive- /EHsc)
 endif()
 
 add_executable(
   zevryon-rust-resource-ledger-tests
   "${ZEVRYON_ROOT}/tests/rust_resource_ledger_equivalence_tests.cpp")
 target_link_libraries(
-  zevryon-rust-resource-ledger-tests
-  PRIVATE zevryon-rust-ledger-bridge zevryon-rust-ffi)
-add_dependencies(zevryon-rust-resource-ledger-tests zevryon-rust-ffi-build)
-
+  zevryon-rust-resource-ledger-tests PRIVATE zevryon-rust-ledger-bridge)
+zevryon_link_rust_runtime(zevryon-rust-resource-ledger-tests)
+zevryon_strict_options(zevryon-rust-resource-ledger-tests)
 if(MSVC)
-  target_compile_options(
-    zevryon-rust-resource-ledger-tests PRIVATE /W4 /WX /permissive- /EHsc)
-  target_link_libraries(
-    zevryon-rust-resource-ledger-tests
-    PRIVATE advapi32 bcrypt ntdll userenv ws2_32)
-elseif(APPLE)
-  target_compile_options(
-    zevryon-rust-resource-ledger-tests
-    PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror)
-  find_library(ZEVRYON_SECURITY_FRAMEWORK Security REQUIRED)
-  find_library(ZEVRYON_FOUNDATION_FRAMEWORK Foundation REQUIRED)
-  find_library(ZEVRYON_ICONV_LIBRARY iconv REQUIRED)
-  target_link_libraries(
-    zevryon-rust-resource-ledger-tests
-    PRIVATE
-      "${ZEVRYON_SECURITY_FRAMEWORK}"
-      "${ZEVRYON_FOUNDATION_FRAMEWORK}"
-      "${ZEVRYON_ICONV_LIBRARY}")
-else()
-  target_compile_options(
-    zevryon-rust-resource-ledger-tests
-    PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror)
-  find_package(Threads REQUIRED)
-  target_link_libraries(
-    zevryon-rust-resource-ledger-tests
-    PRIVATE Threads::Threads dl m rt util)
+  target_compile_options(zevryon-rust-resource-ledger-tests PRIVATE /permissive- /EHsc)
 endif()
+
+add_executable(
+  zevryon-rust-c-abi-tests
+  "${ZEVRYON_ROOT}/tests/rust_ffi_c_abi_tests.c")
+target_include_directories(
+  zevryon-rust-c-abi-tests PRIVATE "${ZEVRYON_ROOT}/src")
+zevryon_link_rust_runtime(zevryon-rust-c-abi-tests)
+zevryon_strict_options(zevryon-rust-c-abi-tests)
 
 include(CTest)
 add_test(
   NAME rust-resource-ledger-equivalence
   COMMAND zevryon-rust-resource-ledger-tests)
+add_test(
+  NAME rust-c-abi-runtime
+  COMMAND zevryon-rust-c-abi-tests)
