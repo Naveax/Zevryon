@@ -2,17 +2,6 @@ name: Z2R-0 Rust core foundation
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - agent/z2r0-rust-core-foundation
-    paths:
-      - "rust/**"
-      - "src/rust_resource_ledger.*"
-      - "src/zevryon_rust_ffi.h"
-      - "src/resource_ledger.*"
-      - "tests/rust_resource_ledger_equivalence_tests.cpp"
-      - "tests/rust_ffi_c_abi_tests.c"
-      - ".github/workflows/z2r0-rust-core-foundation.yml"
   pull_request:
     paths:
       - "rust/**"
@@ -27,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: z2r0-rust-core-${{ github.ref }}
+  group: z2r0-rust-core-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
