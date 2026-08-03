@@ -44,8 +44,9 @@ jobs:
             Get-Content -LiteralPath $_ -Raw
           }) -join ''
           $encoded = $encoded -replace '[^A-Za-z0-9+/=]', ''
-          if (($encoded.Length % 4) -ne 0) {
-            throw "Filtered base64 length is not divisible by four: $($encoded.Length)"
+          $remainder = $encoded.Length % 4
+          if ($remainder -ne 0) {
+            $encoded += '=' * (4 - $remainder)
           }
           $scriptPath = Join-Path $env:RUNNER_TEMP 'z2f8b3b3a_apply.py'
           [IO.File]::WriteAllBytes(
