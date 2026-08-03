@@ -14,7 +14,7 @@ on:
       - 'src/grapheme_*'
       - 'src/script_*'
       - 'src/bidi_*'
-      - 'tests/z2r1d2_text_workload_probe.cpp'
+      - 'tests/z2r1d2_text_workload_probe_v2.cpp'
       - 'tests/test_z2r1d2_text_certification.py'
       - 'scripts/massivedoc_benchmark.py'
       - 'scripts/z2r1d2_run_text_workloads.py'
