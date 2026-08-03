@@ -1,9 +1,13 @@
+#include "ledger_memory_resource.hpp"
 #include "resource_ledger.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <memory_resource>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -18,6 +22,7 @@ bool require(bool condition, const std::string& message) {
 } // namespace
 
 int main() {
+    using zevryon::core::LedgerMemoryResource;
     using zevryon::core::ResourceClass;
     using zevryon::core::ResourceLedger;
 
@@ -99,7 +104,10 @@ int main() {
             "JSON exposes source window resource") ||
         !require(
             json.find("\"within_hard_limits\":true") != std::string::npos,
-            "JSON exposes hard-limit status")) {
+            "JSON exposes hard-limit status") ||
+        !require(
+            json.find("zevryon.rust-shadow-ledger.v1") != std::string::npos,
+            "JSON embeds the Rust shadow telemetry schema")) {
         return 1;
     }
 
@@ -117,6 +125,59 @@ int main() {
             "over-release fails closed")) {
         return 1;
     }
+
+    ResourceLedger production;
+    production.set_hard_limit(ResourceClass::LayoutFragment, 8'192U);
+    {
+        LedgerMemoryResource memory(
+            production,
+            ResourceClass::LayoutFragment,
+            std::pmr::get_default_resource());
+        std::pmr::vector<std::byte> bytes(&memory);
+        bytes.resize(2'048U);
+        if (!require(
+                production.snapshot(ResourceClass::LayoutFragment).current_bytes >= 2'048U,
+                "production PMR allocation is accounted")) {
+            return 1;
+        }
+    }
+    if (!require(
+            production.snapshot(ResourceClass::LayoutFragment).current_bytes == 0U,
+            "production PMR deallocation releases its reservation")) {
+        return 1;
+    }
+
+#if defined(ZEVRYON_RESOURCE_LEDGER_RUST_SHADOW)
+    if (!require(production.rust_shadow_enabled(), "production Rust shadow initializes") ||
+        !require(
+            production.rust_shadow_operations() >= 3U,
+            "production PMR path reaches the embedded Rust shadow") ||
+        !require(production.verify_rust_shadow(), "manual production shadow verification passes") ||
+        !require(production.rust_shadow_healthy(), "production shadow remains healthy") ||
+        !require(
+            production.rust_shadow_verifications() >= 1U,
+            "production shadow verification is counted") ||
+        !require(
+            production.rust_shadow_mismatches() == 0U,
+            "production shadow records no mismatch") ||
+        !require(
+            production.rust_shadow_json().find("\"enabled\":true") !=
+                std::string::npos,
+            "production telemetry reports the Rust shadow enabled")) {
+        return 1;
+    }
+#else
+    if (!require(!production.rust_shadow_enabled(), "default C++ build keeps Rust disabled") ||
+        !require(
+            production.rust_shadow_operations() == 0U,
+            "default C++ build has zero Rust operations") ||
+        !require(
+            production.rust_shadow_json().find("\"enabled\":false") !=
+                std::string::npos,
+            "default telemetry reports the Rust shadow disabled")) {
+        return 1;
+    }
+#endif
 
     std::cout << "Resource ledger tests passed\n";
     return 0;
