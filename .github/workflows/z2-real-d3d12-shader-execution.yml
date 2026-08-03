@@ -22,7 +22,6 @@ permissions:
 
 jobs:
   materialize-b3b3a:
-    if: github.event_name == 'pull_request' && hashFiles('.z2f8b3b3a/part00') != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -34,6 +33,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test -f .z2f8b3b3a/part00
           cat \
             .z2f8b3b3a/part00 \
             .z2f8b3b3a/part01 \
