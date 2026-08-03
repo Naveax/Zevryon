@@ -19,7 +19,8 @@ if(TARGET zevryon-native-gpu-sdk-execution)
   if(WIN32)
     list(APPEND
       ZEVRYON_NATIVE_WINDOW_SWAPCHAIN_SOURCES
-      src/native_window_swapchain_d3d12.cpp)
+      src/native_window_swapchain_d3d12.cpp
+      src/native_shader_surface_d3d12.cpp)
   endif()
 
   add_library(
@@ -36,7 +37,8 @@ if(TARGET zevryon-native-gpu-sdk-execution)
       zevryon-native-window-swapchain
       PRIVATE ZEVRYON_HAS_D3D12_WINDOW_SWAPCHAIN=1)
     target_link_libraries(
-      zevryon-native-window-swapchain PRIVATE d3d12 dxgi dxguid user32)
+      zevryon-native-window-swapchain
+      PRIVATE d3d12 dxgi dxguid d3dcompiler user32)
   endif()
   zevryon_options(zevryon-native-window-swapchain)
 
