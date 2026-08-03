@@ -42,7 +42,29 @@ struct NativeShaderSurfaceView final {
 };
 static_assert(sizeof(NativeShaderSurfaceView) == 72U);
 
-bool native_shader_surface_view_valid(
-    const NativeShaderSurfaceView& view) noexcept;
+// This cross-backend ABI validator is intentionally inline so native
+// presenters can validate exported views without linking the shader executor.
+// Backend-specific resource state and ownership checks remain in each
+// presenter implementation.
+inline bool native_shader_surface_view_valid(
+    const NativeShaderSurfaceView& view) noexcept {
+    const std::uint32_t required_flags =
+        kNativeShaderSurfaceReady |
+        kNativeShaderSurfaceNonOwning |
+        kNativeShaderSurfacePremultipliedAlpha;
+    return view.api_kind != NativeGpuApiKind::ReferenceCpu &&
+        view.format == GpuSurfaceFormat::Bgra8Unorm &&
+        view.state == NativeShaderSurfaceState::ShaderRead &&
+        (view.flags & required_flags) == required_flags &&
+        view.device_generation != 0U &&
+        view.runtime_generation != 0U &&
+        view.executor_generation != 0U &&
+        view.output_generation != 0U &&
+        view.frame_id != 0U &&
+        view.content_checksum != 0U &&
+        view.native_resource != 0U &&
+        view.width != 0U &&
+        view.height != 0U;
+}
 
 } // namespace zevryon::text
