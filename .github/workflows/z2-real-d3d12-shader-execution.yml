@@ -43,7 +43,7 @@ jobs:
           $encoded = ($parts | ForEach-Object {
             Get-Content -LiteralPath $_ -Raw
           }) -join ''
-          $encoded = $encoded -replace '[^A-Za-z0-9+/=]', ''
+          $encoded = $encoded -replace '[^A-Za-z0-9+/]', ''
           $remainder = $encoded.Length % 4
           if ($remainder -ne 0) {
             $encoded += '=' * (4 - $remainder)
