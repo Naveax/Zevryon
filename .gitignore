@@ -1,4 +1,6 @@
 build/
+build-rust*/
+rust/target/
 *.zmdoc
 *.zmds/
 *.bin
