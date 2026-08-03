@@ -1,0 +1,220 @@
+name: Z2R Rust Unicode text workload certification
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2r1d2-unicode-text-workloads.yml'
+      - 'CMakeLists.txt'
+      - 'cmake/rust_core.cmake'
+      - 'cmake/z2r1d2_text_probe.cmake'
+      - 'rust/**'
+      - 'src/resource_ledger.*'
+      - 'src/ledger_memory_resource.*'
+      - 'src/unicode_*'
+      - 'src/grapheme_*'
+      - 'src/script_*'
+      - 'src/bidi_*'
+      - 'tests/z2r1d2_text_workload_probe_v2.cpp'
+      - 'tests/test_z2r1d2_text_certification.py'
+      - 'scripts/massivedoc_benchmark.py'
+      - 'scripts/z2r1d2_run_text_workloads.py'
+      - 'scripts/z2r1d2_text_certification.py'
+  workflow_dispatch:
+
+concurrency:
+  group: z2r1d2-unicode-text-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  unicode-text-shadow-pair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - name: Report toolchains
+        run: |
+          cmake --version
+          c++ --version
+          rustc --version
+          cargo --version
+          python --version
+      - name: Test Z2R-1D2 certification contract
+        run: python -m pytest -q tests/test_z2r1d2_text_certification.py
+      - name: Fetch pinned Unicode 17 certification sources
+        run: |
+          python - <<'PY'
+          import hashlib
+          import urllib.request
+          from pathlib import Path
+
+          root = Path('evidence/ci/z2r1d2/ucd-17.0.0')
+          root.mkdir(parents=True, exist_ok=True)
+          sources = {
+              'Scripts.txt': (
+                  'https://www.unicode.org/Public/17.0.0/ucd/Scripts.txt',
+                  '9f5e50d3abaee7d6ce09480f325c706f485ae3240912527e651954d2d6b035bf',
+              ),
+              'ScriptExtensions.txt': (
+                  'https://www.unicode.org/Public/17.0.0/ucd/ScriptExtensions.txt',
+                  'ec2107e58825a1586acee8e0911ce18260394ac8b87e535ca325f1ccbeb06bc6',
+              ),
+              'PropertyValueAliases.txt': (
+                  'https://www.unicode.org/Public/17.0.0/ucd/PropertyValueAliases.txt',
+                  '64e9a5f76f7a1e8b5a47d6a1f9a26522a251208f5276bdfa1559dac7cf2e827a',
+              ),
+              'DerivedBidiClass.txt': (
+                  'https://www.unicode.org/Public/17.0.0/ucd/extracted/DerivedBidiClass.txt',
+                  '4867b4b7f0731ed1bfcd34cc6251211ff1542541fce0734b6fbda139ee80b3a4',
+              ),
+          }
+          for name, (url, expected_sha) in sources.items():
+              data = urllib.request.urlopen(url, timeout=60).read()
+              actual = hashlib.sha256(data).hexdigest()
+              if actual != expected_sha:
+                  raise RuntimeError(f'{name} SHA-256 mismatch: {actual} != {expected_sha}')
+              (root / name).write_bytes(data)
+
+          grapheme_url = (
+              'https://raw.githubusercontent.com/openjdk/jdk/'
+              '611f186cf3a47258116146d70e405ef483e65e2a/'
+              'src/java.base/share/data/unicodedata/auxiliary/'
+              'GraphemeBreakTest.txt'
+          )
+          data = urllib.request.urlopen(grapheme_url, timeout=60).read()
+          git_blob = hashlib.sha1(
+              b'blob ' + str(len(data)).encode('ascii') + b'\0' + data
+          ).hexdigest()
+          expected_blob = 'e1215547c58f959a0eec9928e1915901c168f6a9'
+          if git_blob != expected_blob:
+              raise RuntimeError(
+                  f'GraphemeBreakTest git-blob mismatch: {git_blob} != {expected_blob}'
+              )
+          if not data.startswith(b'# GraphemeBreakTest-17.0.0.txt'):
+              raise RuntimeError('unexpected GraphemeBreakTest Unicode version')
+          (root / 'GraphemeBreakTest-17.0.0.txt').write_bytes(data)
+          print(f'pinned Unicode source set ready at {root}')
+          PY
+      - name: Configure authoritative C++ baseline
+        run: >-
+          cmake -S . -B build-z2r1d2-baseline
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DCMAKE_PROJECT_INCLUDE=${{ github.workspace }}/cmake/z2r1d2_text_probe.cmake
+      - name: Build baseline text workload targets
+        run: >-
+          cmake --build build-z2r1d2-baseline --parallel 2 --target
+          zevryon-z2r1d2-text-probe
+          zevryon-unicode-benchmark
+          zevryon-grapheme-conformance
+          zevryon-grapheme-benchmark
+          zevryon-script-conformance
+          zevryon-script-run-benchmark
+          zevryon-bidi-conformance
+          zevryon-bidi-benchmark
+      - name: Configure strict production Rust shadow
+        run: >-
+          cmake -S . -B build-z2r1d2-shadow
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DCMAKE_PROJECT_INCLUDE=${{ github.workspace }}/cmake/z2r1d2_text_probe.cmake
+          -DZEVRYON_ENABLE_RUST_CORE=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW_STRICT=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW_INTERVAL=256
+      - name: Build strict-shadow text workload targets
+        run: >-
+          cmake --build build-z2r1d2-shadow --parallel 2 --target
+          zevryon-z2r1d2-text-probe
+          zevryon-unicode-benchmark
+          zevryon-grapheme-conformance
+          zevryon-grapheme-benchmark
+          zevryon-script-conformance
+          zevryon-script-run-benchmark
+          zevryon-bidi-conformance
+          zevryon-bidi-benchmark
+      - name: Run authoritative baseline workloads
+        run: >-
+          python scripts/z2r1d2_run_text_workloads.py
+          --build-dir build-z2r1d2-baseline
+          --ucd-dir evidence/ci/z2r1d2/ucd-17.0.0
+          --mode baseline
+          --samples 3
+          --output evidence/ci/z2r1d2/baseline.json
+      - name: Run strict Rust-shadow workloads
+        run: >-
+          python scripts/z2r1d2_run_text_workloads.py
+          --build-dir build-z2r1d2-shadow
+          --ucd-dir evidence/ci/z2r1d2/ucd-17.0.0
+          --mode shadow
+          --samples 3
+          --output evidence/ci/z2r1d2/shadow.json
+      - name: Build fail-closed Z2R-1D2 manifest
+        run: >-
+          python scripts/z2r1d2_text_certification.py
+          --baseline evidence/ci/z2r1d2/baseline.json
+          --shadow evidence/ci/z2r1d2/shadow.json
+          --commit-sha "${{ github.sha }}"
+          --runner-os "${{ runner.os }}"
+          --compiler "runner-default-cxx"
+          --build-type Release
+          --maximum-p50-ratio 1.50
+          --maximum-p95-ratio 1.50
+          --maximum-wall-ratio 1.75
+          --maximum-peak-pss-ratio 1.50
+          --output evidence/ci/z2r1d2/certification.json
+      - name: Publish certification summary
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report = json.loads(
+              Path('evidence/ci/z2r1d2/certification.json').read_text()
+          )
+          lines = [
+              '## Z2R-1D2 Unicode text certification',
+              '',
+              f"- Slice ready: `{report['slice_ready']}`",
+              f"- Promotion ready: `{report['promotion_ready']}`",
+              f"- Pipeline checksum: `{report['probe']['pipeline_checksum']}`",
+              f"- Shadow operations: `{report['probe']['shadow_operations']}`",
+              f"- Shadow verifications: `{report['probe']['shadow_verifications']}`",
+              f"- Shadow mismatches: `{report['probe']['shadow_mismatches']}`",
+              '',
+              '| Workload | P50 ratio | P95 ratio | Wall ratio | Peak PSS ratio |',
+              '|---|---:|---:|---:|---:|',
+          ]
+          for name, item in report['workloads'].items():
+              ratios = item['ratios']
+              peak = ratios['median_peak_pss']
+              lines.append(
+                  f"| {name} | {ratios['median_p50']:.6f} | "
+                  f"{ratios['median_p95']:.6f} | {ratios['median_wall']:.6f} | "
+                  f"{peak:.6f} |" if peak is not None else
+                  f"| {name} | {ratios['median_p50']:.6f} | "
+                  f"{ratios['median_p95']:.6f} | {ratios['median_wall']:.6f} | n/a |"
+              )
+          summary = os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary:
+              with Path(summary).open('a', encoding='utf-8') as stream:
+                  stream.write('\n'.join(lines) + '\n')
+          print('\n'.join(lines))
+          PY
+      - name: Upload Z2R-1D2 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: z2r1d2-unicode-text-${{ github.sha }}
+          path: evidence/ci/z2r1d2
