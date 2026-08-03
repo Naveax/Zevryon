@@ -296,15 +296,14 @@ public:
         const bool has_pixel_buffer = !request.pixel_buffer.empty();
         const bool has_shader_surface = !request.shader_surface.empty();
         if (has_pixel_buffer && has_shader_surface) {
-          return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
-                      "Direct3D 12 present cannot use CPU and shader surfaces "
-                      "together");
+            return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
+                        "Direct3D 12 present cannot use CPU and shader surfaces "
+                        "together");
         }
         if (has_pixel_buffer &&
-            !native_window_pixel_buffer_valid(request.pixel_buffer,
-                                              snapshot_.config.surface)) {
-          return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
-                      "Direct3D 12 pixel buffer does not match the surface");
+            !native_window_pixel_buffer_valid(request.pixel_buffer, snapshot_.config.surface)) {
+            return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
+                        "Direct3D 12 pixel buffer does not match the surface");
         }
         if (has_shader_surface &&
             (!native_shader_surface_view_valid(request.shader_surface) ||
@@ -315,18 +314,15 @@ public:
                  snapshot_.config.context.runtime_generation ||
              request.shader_surface.width != snapshot_.config.surface.width ||
              request.shader_surface.height != snapshot_.config.surface.height ||
-             request.shader_surface.content_checksum !=
-                 request.command_checksum)) {
-          return fail(error, NativeWindowSwapchainErrorKind::StaleGeneration,
-                      "Direct3D 12 shader surface is stale or incompatible");
+             request.shader_surface.content_checksum != request.command_checksum)) {
+            return fail(error, NativeWindowSwapchainErrorKind::StaleGeneration,
+                        "Direct3D 12 shader surface is stale or incompatible");
         }
         if ((request.flags & kNativeWindowPresentAllowTearing) != 0U &&
-            ((snapshot_.config.flags & kNativeWindowSwapchainAllowTearing) ==
-                 0U ||
+            ((snapshot_.config.flags & kNativeWindowSwapchainAllowTearing) == 0U ||
              snapshot_.config.present_mode != NativePresentMode::Immediate)) {
-          return fail(error,
-                      NativeWindowSwapchainErrorKind::UnsupportedPresentMode,
-                      "DXGI tearing requires enabled immediate presentation");
+            return fail(error, NativeWindowSwapchainErrorKind::UnsupportedPresentMode,
+                        "DXGI tearing requires enabled immediate presentation");
         }
 
         *receipt = {};
@@ -365,131 +361,113 @@ public:
         }
 
         if (has_shader_surface) {
-          ID3D12Resource *raw_source =
-              reinterpret_cast<ID3D12Resource *>(static_cast<std::uintptr_t>(
-                  request.shader_surface.native_resource));
-          if (raw_source == nullptr) {
-            return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
-                        "Direct3D 12 shader surface resource is null");
-          }
-          raw_source->AddRef();
-          ComPtr<ID3D12Resource> source;
-          source.Attach(raw_source);
-          ComPtr<ID3D12Device> source_device;
-          result = source->GetDevice(IID_PPV_ARGS(&source_device));
-          if (FAILED(result) || source_device.Get() != device_.Get()) {
-            return fail(error, NativeWindowSwapchainErrorKind::StaleGeneration,
-                        "Direct3D 12 shader surface belongs to another device",
-                        result);
-          }
-          HRESULT resolver_error = S_OK;
-          if (!shader_resolver_.encode(
-                  slot.command_list.Get(), source.Get(), slot.resource.Get(),
-                  slot.rtv, snapshot_.config.surface.width,
-                  snapshot_.config.surface.height, &resolver_error)) {
-            return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
-                        "Direct3D 12 shader surface resolve failed",
-                        resolver_error);
-          }
-          slot.shader_surface = std::move(source);
+            ID3D12Resource* raw_source = reinterpret_cast<ID3D12Resource*>(
+                static_cast<std::uintptr_t>(request.shader_surface.native_resource));
+            if (raw_source == nullptr) {
+                return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
+                            "Direct3D 12 shader surface resource is null");
+            }
+            raw_source->AddRef();
+            ComPtr<ID3D12Resource> source;
+            source.Attach(raw_source);
+            ComPtr<ID3D12Device> source_device;
+            result = source->GetDevice(IID_PPV_ARGS(&source_device));
+            if (FAILED(result) || source_device.Get() != device_.Get()) {
+                return fail(error, NativeWindowSwapchainErrorKind::StaleGeneration,
+                            "Direct3D 12 shader surface belongs to another device", result);
+            }
+            HRESULT resolver_error = S_OK;
+            if (!shader_resolver_.encode(slot.command_list.Get(), source.Get(), slot.resource.Get(),
+                                         slot.rtv, snapshot_.config.surface.width,
+                                         snapshot_.config.surface.height, &resolver_error)) {
+                return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                            "Direct3D 12 shader surface resolve failed", resolver_error);
+            }
+            slot.shader_surface = std::move(source);
         } else if (has_pixel_buffer) {
-          const UINT row_pitch =
-              static_cast<UINT>((request.pixel_buffer.row_bytes +
-                                 D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1U) &
-                                ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1U));
-          const std::uint64_t upload_bytes =
-              static_cast<std::uint64_t>(row_pitch) *
-              request.pixel_buffer.height;
-          D3D12_HEAP_PROPERTIES heap{};
-          heap.Type = D3D12_HEAP_TYPE_UPLOAD;
-          D3D12_RESOURCE_DESC description{};
-          description.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-          description.Width = upload_bytes;
-          description.Height = 1U;
-          description.DepthOrArraySize = 1U;
-          description.MipLevels = 1U;
-          description.SampleDesc.Count = 1U;
-          description.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-          ComPtr<ID3D12Resource> upload;
-          result = device_->CreateCommittedResource(
-              &heap, D3D12_HEAP_FLAG_NONE, &description,
-              D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
-              IID_PPV_ARGS(&upload));
-          if (FAILED(result)) {
-            return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
-                        "Direct3D 12 pixel upload allocation failed", result);
-          }
-          void *mapped = nullptr;
-          result = upload->Map(0U, nullptr, &mapped);
-          if (FAILED(result) || mapped == nullptr) {
-            return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
-                        "Direct3D 12 pixel upload mapping failed", result);
-          }
-          auto *destination = static_cast<std::byte *>(mapped);
-          for (std::uint32_t row = 0U; row < request.pixel_buffer.height;
-               ++row) {
-            std::memcpy(destination + static_cast<std::size_t>(row) * row_pitch,
-                        request.pixel_buffer.bytes.data() +
-                            static_cast<std::size_t>(row) *
-                                request.pixel_buffer.row_bytes,
-                        request.pixel_buffer.row_bytes);
-          }
-          upload->Unmap(0U, nullptr);
-          slot.upload = upload;
+            const UINT row_pitch = static_cast<UINT>(
+                (request.pixel_buffer.row_bytes + D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1U) &
+                ~(D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1U));
+            const std::uint64_t upload_bytes =
+                static_cast<std::uint64_t>(row_pitch) * request.pixel_buffer.height;
+            D3D12_HEAP_PROPERTIES heap{};
+            heap.Type = D3D12_HEAP_TYPE_UPLOAD;
+            D3D12_RESOURCE_DESC description{};
+            description.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            description.Width = upload_bytes;
+            description.Height = 1U;
+            description.DepthOrArraySize = 1U;
+            description.MipLevels = 1U;
+            description.SampleDesc.Count = 1U;
+            description.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            ComPtr<ID3D12Resource> upload;
+            result = device_->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &description,
+                                                      D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                                      IID_PPV_ARGS(&upload));
+            if (FAILED(result)) {
+                return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                            "Direct3D 12 pixel upload allocation failed", result);
+            }
+            void* mapped = nullptr;
+            result = upload->Map(0U, nullptr, &mapped);
+            if (FAILED(result) || mapped == nullptr) {
+                return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                            "Direct3D 12 pixel upload mapping failed", result);
+            }
+            auto* destination = static_cast<std::byte*>(mapped);
+            for (std::uint32_t row = 0U; row < request.pixel_buffer.height; ++row) {
+                std::memcpy(destination + static_cast<std::size_t>(row) * row_pitch,
+                            request.pixel_buffer.bytes.data() +
+                                static_cast<std::size_t>(row) * request.pixel_buffer.row_bytes,
+                            request.pixel_buffer.row_bytes);
+            }
+            upload->Unmap(0U, nullptr);
+            slot.upload = upload;
 
-          D3D12_RESOURCE_BARRIER to_copy{};
-          to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-          to_copy.Transition.pResource = slot.resource.Get();
-          to_copy.Transition.Subresource =
-              D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-          to_copy.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-          to_copy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
-          slot.command_list->ResourceBarrier(1U, &to_copy);
+            D3D12_RESOURCE_BARRIER to_copy{};
+            to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            to_copy.Transition.pResource = slot.resource.Get();
+            to_copy.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            to_copy.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+            to_copy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+            slot.command_list->ResourceBarrier(1U, &to_copy);
 
-          D3D12_TEXTURE_COPY_LOCATION source{};
-          source.pResource = upload.Get();
-          source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-          source.PlacedFootprint.Footprint.Format =
-              map_format(snapshot_.config.surface.format);
-          source.PlacedFootprint.Footprint.Width = request.pixel_buffer.width;
-          source.PlacedFootprint.Footprint.Height = request.pixel_buffer.height;
-          source.PlacedFootprint.Footprint.Depth = 1U;
-          source.PlacedFootprint.Footprint.RowPitch = row_pitch;
-          D3D12_TEXTURE_COPY_LOCATION destination_location{};
-          destination_location.pResource = slot.resource.Get();
-          destination_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-          destination_location.SubresourceIndex = 0U;
-          slot.command_list->CopyTextureRegion(&destination_location, 0U, 0U,
-                                               0U, &source, nullptr);
+            D3D12_TEXTURE_COPY_LOCATION source{};
+            source.pResource = upload.Get();
+            source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            source.PlacedFootprint.Footprint.Format = map_format(snapshot_.config.surface.format);
+            source.PlacedFootprint.Footprint.Width = request.pixel_buffer.width;
+            source.PlacedFootprint.Footprint.Height = request.pixel_buffer.height;
+            source.PlacedFootprint.Footprint.Depth = 1U;
+            source.PlacedFootprint.Footprint.RowPitch = row_pitch;
+            D3D12_TEXTURE_COPY_LOCATION destination_location{};
+            destination_location.pResource = slot.resource.Get();
+            destination_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            destination_location.SubresourceIndex = 0U;
+            slot.command_list->CopyTextureRegion(&destination_location, 0U, 0U, 0U, &source,
+                                                 nullptr);
 
-          D3D12_RESOURCE_BARRIER to_present = to_copy;
-          to_present.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
-          to_present.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-          slot.command_list->ResourceBarrier(1U, &to_present);
+            D3D12_RESOURCE_BARRIER to_present = to_copy;
+            to_present.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+            to_present.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+            slot.command_list->ResourceBarrier(1U, &to_present);
         } else {
-          D3D12_RESOURCE_BARRIER to_render{};
-          to_render.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-          to_render.Transition.pResource = slot.resource.Get();
-          to_render.Transition.Subresource =
-              D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-          to_render.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-          to_render.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-          slot.command_list->ResourceBarrier(1U, &to_render);
-          const FLOAT color[4] = {
-              static_cast<FLOAT>((request.command_checksum >> 0U) & 0xFFU) /
-                  255.0F,
-              static_cast<FLOAT>((request.command_checksum >> 8U) & 0xFFU) /
-                  255.0F,
-              static_cast<FLOAT>((request.command_checksum >> 16U) & 0xFFU) /
-                  255.0F,
-              1.0F};
-          slot.command_list->ClearRenderTargetView(slot.rtv, color, 0U,
-                                                   nullptr);
-          D3D12_RESOURCE_BARRIER to_present = to_render;
-          to_present.Transition.StateBefore =
-              D3D12_RESOURCE_STATE_RENDER_TARGET;
-          to_present.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-          slot.command_list->ResourceBarrier(1U, &to_present);
+            D3D12_RESOURCE_BARRIER to_render{};
+            to_render.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            to_render.Transition.pResource = slot.resource.Get();
+            to_render.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            to_render.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+            to_render.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+            slot.command_list->ResourceBarrier(1U, &to_render);
+            const FLOAT color[4] = {
+                static_cast<FLOAT>((request.command_checksum >> 0U) & 0xFFU) / 255.0F,
+                static_cast<FLOAT>((request.command_checksum >> 8U) & 0xFFU) / 255.0F,
+                static_cast<FLOAT>((request.command_checksum >> 16U) & 0xFFU) / 255.0F, 1.0F};
+            slot.command_list->ClearRenderTargetView(slot.rtv, color, 0U, nullptr);
+            D3D12_RESOURCE_BARRIER to_present = to_render;
+            to_present.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+            to_present.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+            slot.command_list->ResourceBarrier(1U, &to_present);
         }
         result = slot.command_list->Close();
         if (FAILED(result)) {
@@ -917,14 +895,11 @@ private:
         }
 
         HRESULT resolver_result = S_OK;
-        if (!shader_resolver_.configure(new_device.Get(),
-                                        map_format(config.surface.format),
+        if (!shader_resolver_.configure(new_device.Get(), map_format(config.surface.format),
                                         &resolver_result)) {
-          release_image_resources_locked();
-          return fail(error,
-                      NativeWindowSwapchainErrorKind::SwapchainCreationFailed,
-                      "Direct3D 12 shader resolve pipeline creation failed",
-                      resolver_result);
+            release_image_resources_locked();
+            return fail(error, NativeWindowSwapchainErrorKind::SwapchainCreationFailed,
+                        "Direct3D 12 shader resolve pipeline creation failed", resolver_result);
         }
 
         factory_ = std::move(new_factory);
@@ -1002,16 +977,16 @@ private:
 
     void release_image_resources_locked() noexcept {
         for (ImageSlot& slot : images_) {
-          slot.resource.Reset();
-          slot.upload.Reset();
-          slot.shader_surface.Reset();
-          slot.allocator.Reset();
-          slot.command_list.Reset();
-          slot.rtv = {};
-          slot.image = {};
-          slot.fence_value = 0U;
-          slot.acquired = 0U;
-          slot.in_flight = 0U;
+            slot.resource.Reset();
+            slot.upload.Reset();
+            slot.shader_surface.Reset();
+            slot.allocator.Reset();
+            slot.command_list.Reset();
+            slot.rtv = {};
+            slot.image = {};
+            slot.fence_value = 0U;
+            slot.acquired = 0U;
+            slot.in_flight = 0U;
         }
         rtv_heap_.Reset();
         rtv_increment_ = 0U;
