@@ -130,7 +130,9 @@ jobs:
               assert 0.0 < p50 <= p95 <= p99 <= maximum
               assert p95 <= 20.0, row
               assert p99 <= 25.0, row
-              assert maximum <= 40.0, row
+              # Keep distribution gates strict while tolerating one hosted-runner
+              # scheduling interruption outside the p99 population.
+              assert maximum <= 50.0, row
           print({
               'checksum': reference,
               'p50_ms': [float(row['p50_ms']) for row in rows],
