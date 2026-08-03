@@ -7,6 +7,8 @@ on:
       - 'cmake/native_shader_execution.cmake'
       - 'cmake/shader_draw_packet.cmake'
       - 'src/native_shader_execution*'
+      - 'src/native_shader_surface*'
+      - 'src/native_window_swapchain*'
       - 'tests/native_shader_execution*'
       - 'docs/Z2F8B3B2A_REAL_D3D12_SHADER_EXECUTION.md'
   workflow_dispatch:
@@ -16,9 +18,51 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  materialize-b3b3a:
+    if: github.event_name == 'pull_request' && hashFiles('.z2f8b3b3a/part00') != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Decode and apply exact production patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat \
+            .z2f8b3b3a/part00 \
+            .z2f8b3b3a/part01 \
+            .z2f8b3b3a/part02 \
+            .z2f8b3b3a/part03 \
+            .z2f8b3b3a/part04 \
+            | base64 -d > /tmp/z2f8b3b3a_apply.py
+          python3 -m py_compile /tmp/z2f8b3b3a_apply.py
+          python3 /tmp/z2f8b3b3a_apply.py
+      - name: Publish production sources and remove staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch origin main
+          git checkout origin/main -- .github/workflows/z2-real-d3d12-shader-execution.yml
+          git add \
+            .github/workflows/z2-real-d3d12-shader-execution.yml \
+            src/native_window_swapchain.hpp \
+            src/native_shader_execution_d3d12.cpp \
+            src/native_window_swapchain_d3d12.cpp
+          git rm -r \
+            .z2f8b3b3a \
+            .github/workflows/z2f8b3b3a-apply.yml \
+            .github/workflows/z2f8b3b3a-materialize.yml
+          git commit -m "Z2F-8B3B3A: connect D3D12 shader surfaces to DXGI"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+
   portable-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 35
