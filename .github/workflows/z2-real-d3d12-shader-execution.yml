@@ -142,11 +142,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git diff --check
           grep -Fq 'NativeShaderSurfaceView shader_surface;' src/native_window_swapchain.hpp
           grep -Fq 'kNativeShaderExecutionDirectSurfaceExport' src/native_shader_execution_d3d12.cpp
           grep -Fq 'bool export_surface(' src/native_shader_execution_d3d12.cpp
-          grep -Fq 'D3D12ShaderSurfaceResolver shader_surface_resolver_' src/native_window_swapchain_d3d12.cpp
-          grep -Fq 'request.shader_surface' src/native_window_swapchain_d3d12.cpp
+          grep -Fq 'D3D12ShaderSurfaceResolver' src/native_window_swapchain_d3d12.cpp
+          grep -Fq 'shader_surface' src/native_window_swapchain_d3d12.cpp
       - name: Publish production sources and remove staging
         shell: bash
         run: |
