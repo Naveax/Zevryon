@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   materialize-b3b3a:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -51,41 +51,41 @@ jobs:
           first = source_text.index(old_start)
           last = source_text.index(old_end, first) + len(old_end)
           replacement = '''            if (readback != nullptr) {
-              D3D12_RESOURCE_BARRIER to_copy{};
-              to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-              to_copy.Transition.pResource = output_texture_.Get();
-              to_copy.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-              to_copy.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-              to_copy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-              command_list_->ResourceBarrier(1U, &to_copy);
+                D3D12_RESOURCE_BARRIER to_copy{};
+                to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                to_copy.Transition.pResource = output_texture_.Get();
+                to_copy.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                to_copy.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                to_copy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                command_list_->ResourceBarrier(1U, &to_copy);
 
-              D3D12_TEXTURE_COPY_LOCATION source{};
-              source.pResource = output_texture_.Get();
-              source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-              source.SubresourceIndex = 0U;
-              D3D12_TEXTURE_COPY_LOCATION destination{};
-              destination.pResource = readback_buffer_.Get();
-              destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-              destination.PlacedFootprint = readback_footprint_;
-              command_list_->CopyTextureRegion(
-                  &destination, 0U, 0U, 0U, &source, nullptr);
+                D3D12_TEXTURE_COPY_LOCATION source{};
+                source.pResource = output_texture_.Get();
+                source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+                source.SubresourceIndex = 0U;
+                D3D12_TEXTURE_COPY_LOCATION destination{};
+                destination.pResource = readback_buffer_.Get();
+                destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+                destination.PlacedFootprint = readback_footprint_;
+                command_list_->CopyTextureRegion(
+                    &destination, 0U, 0U, 0U, &source, nullptr);
 
-              D3D12_RESOURCE_BARRIER to_shader = to_copy;
-              to_shader.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
-              to_shader.Transition.StateAfter =
-                  D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-              command_list_->ResourceBarrier(1U, &to_shader);
+                D3D12_RESOURCE_BARRIER to_shader = to_copy;
+                to_shader.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+                to_shader.Transition.StateAfter =
+                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                command_list_->ResourceBarrier(1U, &to_shader);
             } else {
-              D3D12_RESOURCE_BARRIER to_shader{};
-              to_shader.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-              to_shader.Transition.pResource = output_texture_.Get();
-              to_shader.Transition.Subresource =
-                  D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-              to_shader.Transition.StateBefore =
-                  D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-              to_shader.Transition.StateAfter =
-                  D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-              command_list_->ResourceBarrier(1U, &to_shader);
+                D3D12_RESOURCE_BARRIER to_shader{};
+                to_shader.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+                to_shader.Transition.pResource = output_texture_.Get();
+                to_shader.Transition.Subresource =
+                    D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+                to_shader.Transition.StateBefore =
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                to_shader.Transition.StateAfter =
+                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+                command_list_->ResourceBarrier(1U, &to_shader);
             }
             output_state_ = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
           '''
@@ -105,14 +105,48 @@ jobs:
           call_start = script.index(call_start_marker)
           call_end = script.index(call_end_marker, call_start)
           script = script[:call_start] + script[call_end:]
-          script = script.replace(
-              "raise SystemExit(f'{path}: expected one literal match, got {count}')",
-              "raise SystemExit(f'{path}: expected one literal match, got {count}: {old.splitlines()[0][:120]}')")
+
+          helper_start = script.index('def replace_once(')
+          helper_end = script.index('\ndef regex_once(', helper_start)
+          flexible_helper = '''def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count == 1:
+                  p.write_text(text.replace(old, new))
+                  return
+              if count > 1:
+                  raise SystemExit(
+                      f'{path}: exact literal is ambiguous ({count} matches): '
+                      f'{old.splitlines()[0][:120]}')
+              tokens = re.split(r'(\\s+)', old)
+              pattern = ''.join(
+                  r'\\s+' if token.isspace() else re.escape(token)
+                  for token in tokens if token)
+              matches = list(re.finditer(pattern, text, flags=re.S))
+              if len(matches) != 1:
+                  raise SystemExit(
+                      f'{path}: expected one flexible literal match, got '
+                      f'{len(matches)}: {old.splitlines()[0][:120]}')
+              match = matches[0]
+              p.write_text(text[:match.start()] + new + text[match.end():])
+
+          '''
+          script = script[:helper_start] + flexible_helper + script[helper_end + 1:]
           script_path.write_text(script)
           PY
           python3 -m py_compile .z2f8b3b3a_apply.py
           python3 .z2f8b3b3a_apply.py
           rm -f .z2f8b3b3a-original.yml .z2f8b3b3a_apply.py
+      - name: Verify materialized source contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'NativeShaderSurfaceView shader_surface;' src/native_window_swapchain.hpp
+          grep -Fq 'kNativeShaderExecutionDirectSurfaceExport' src/native_shader_execution_d3d12.cpp
+          grep -Fq 'bool export_surface(' src/native_shader_execution_d3d12.cpp
+          grep -Fq 'D3D12ShaderSurfaceResolver shader_surface_resolver_' src/native_window_swapchain_d3d12.cpp
+          grep -Fq 'request.shader_surface' src/native_window_swapchain_d3d12.cpp
       - name: Publish production sources and remove staging
         shell: bash
         run: |
