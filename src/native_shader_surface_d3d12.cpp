@@ -5,6 +5,7 @@
 #include <d3dcompiler.h>
 
 #include <array>
+#include <cstddef>
 #include <cstring>
 
 namespace zevryon::text::detail {
@@ -59,7 +60,10 @@ bool D3D12ShaderSurfaceResolver::configure(
         set_error(native_error, E_INVALIDARG);
         return false;
     }
-    if (device_ != nullptr && render_target_format_ == render_target_format) {
+    if (device_.Get() == device &&
+        render_target_format_ == render_target_format &&
+        descriptor_heap_ != nullptr && descriptor_increment_ != 0U) {
+        descriptor_targets_.fill(nullptr);
         return true;
     }
     reset();
@@ -115,7 +119,8 @@ bool D3D12ShaderSurfaceResolver::configure(
     D3D12_ROOT_SIGNATURE_DESC root_desc{};
     root_desc.NumParameters = 1U;
     root_desc.pParameters = &parameter;
-    root_desc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+    root_desc.Flags =
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
     Microsoft::WRL::ComPtr<ID3DBlob> serialized;
     Microsoft::WRL::ComPtr<ID3DBlob> root_error;
@@ -159,7 +164,8 @@ bool D3D12ShaderSurfaceResolver::configure(
         D3D12_BLEND_OP_ADD,
         D3D12_LOGIC_OP_NOOP,
         D3D12_COLOR_WRITE_ENABLE_ALL};
-    for (D3D12_RENDER_TARGET_BLEND_DESC& target : pipeline.BlendState.RenderTarget) {
+    for (D3D12_RENDER_TARGET_BLEND_DESC& target :
+         pipeline.BlendState.RenderTarget) {
         target = blend;
     }
     pipeline.SampleMask = UINT_MAX;
@@ -168,12 +174,14 @@ bool D3D12ShaderSurfaceResolver::configure(
     pipeline.RasterizerState.FrontCounterClockwise = FALSE;
     pipeline.RasterizerState.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
     pipeline.RasterizerState.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
-    pipeline.RasterizerState.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
+    pipeline.RasterizerState.SlopeScaledDepthBias =
+        D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
     pipeline.RasterizerState.DepthClipEnable = TRUE;
     pipeline.RasterizerState.MultisampleEnable = FALSE;
     pipeline.RasterizerState.AntialiasedLineEnable = FALSE;
     pipeline.RasterizerState.ForcedSampleCount = 0U;
-    pipeline.RasterizerState.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+    pipeline.RasterizerState.ConservativeRaster =
+        D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
     pipeline.DepthStencilState.DepthEnable = FALSE;
     pipeline.DepthStencilState.StencilEnable = FALSE;
     pipeline.InputLayout = {nullptr, 0U};
@@ -193,12 +201,19 @@ bool D3D12ShaderSurfaceResolver::configure(
 
     D3D12_DESCRIPTOR_HEAP_DESC heap{};
     heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap.NumDescriptors = 1U;
+    heap.NumDescriptors = static_cast<UINT>(descriptor_targets_.size());
     heap.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> descriptor_heap;
     result = device->CreateDescriptorHeap(&heap, IID_PPV_ARGS(&descriptor_heap));
     if (FAILED(result)) {
         set_error(native_error, result);
+        return false;
+    }
+    const UINT descriptor_increment =
+        device->GetDescriptorHandleIncrementSize(
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    if (descriptor_increment == 0U) {
+        set_error(native_error, E_FAIL);
         return false;
     }
 
@@ -207,6 +222,8 @@ bool D3D12ShaderSurfaceResolver::configure(
     pipeline_state_ = std::move(pipeline_state);
     descriptor_heap_ = std::move(descriptor_heap);
     render_target_format_ = render_target_format;
+    descriptor_increment_ = descriptor_increment;
+    descriptor_targets_.fill(nullptr);
     return true;
 }
 
@@ -221,7 +238,8 @@ bool D3D12ShaderSurfaceResolver::encode(
     set_error(native_error, S_OK);
     if (command_list == nullptr || source == nullptr || target == nullptr ||
         width == 0U || height == 0U || pipeline_state_ == nullptr ||
-        root_signature_ == nullptr || descriptor_heap_ == nullptr || device_ == nullptr) {
+        root_signature_ == nullptr || descriptor_heap_ == nullptr ||
+        device_ == nullptr || descriptor_increment_ == 0U) {
         set_error(native_error, E_INVALIDARG);
         return false;
     }
@@ -234,6 +252,29 @@ bool D3D12ShaderSurfaceResolver::encode(
         return false;
     }
 
+    std::size_t descriptor_index = descriptor_targets_.size();
+    std::size_t free_index = descriptor_targets_.size();
+    for (std::size_t index = 0U;
+         index < descriptor_targets_.size();
+         ++index) {
+        if (descriptor_targets_[index] == target) {
+            descriptor_index = index;
+            break;
+        }
+        if (descriptor_targets_[index] == nullptr &&
+            free_index == descriptor_targets_.size()) {
+            free_index = index;
+        }
+    }
+    if (descriptor_index == descriptor_targets_.size()) {
+        if (free_index == descriptor_targets_.size()) {
+            set_error(native_error, E_OUTOFMEMORY);
+            return false;
+        }
+        descriptor_index = free_index;
+        descriptor_targets_[descriptor_index] = target;
+    }
+
     D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
     srv.Format = DXGI_FORMAT_R32_UINT;
     srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
@@ -242,10 +283,14 @@ bool D3D12ShaderSurfaceResolver::encode(
     srv.Texture2D.MipLevels = 1U;
     srv.Texture2D.PlaneSlice = 0U;
     srv.Texture2D.ResourceMinLODClamp = 0.0F;
-    device_->CreateShaderResourceView(
-        source,
-        &srv,
-        descriptor_heap_->GetCPUDescriptorHandleForHeapStart());
+    D3D12_CPU_DESCRIPTOR_HANDLE descriptor_cpu =
+        descriptor_heap_->GetCPUDescriptorHandleForHeapStart();
+    descriptor_cpu.ptr += descriptor_index * descriptor_increment_;
+    D3D12_GPU_DESCRIPTOR_HANDLE descriptor_gpu =
+        descriptor_heap_->GetGPUDescriptorHandleForHeapStart();
+    descriptor_gpu.ptr += static_cast<UINT64>(descriptor_index) *
+        descriptor_increment_;
+    device_->CreateShaderResourceView(source, &srv, descriptor_cpu);
 
     D3D12_RESOURCE_BARRIER to_render{};
     to_render.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -259,9 +304,7 @@ bool D3D12ShaderSurfaceResolver::encode(
     command_list->SetDescriptorHeaps(1U, heaps);
     command_list->SetGraphicsRootSignature(root_signature_.Get());
     command_list->SetPipelineState(pipeline_state_.Get());
-    command_list->SetGraphicsRootDescriptorTable(
-        0U,
-        descriptor_heap_->GetGPUDescriptorHandleForHeapStart());
+    command_list->SetGraphicsRootDescriptorTable(0U, descriptor_gpu);
     const D3D12_VIEWPORT viewport{
         0.0F,
         0.0F,
@@ -288,6 +331,8 @@ bool D3D12ShaderSurfaceResolver::encode(
 }
 
 void D3D12ShaderSurfaceResolver::reset() noexcept {
+    descriptor_targets_.fill(nullptr);
+    descriptor_increment_ = 0U;
     descriptor_heap_.Reset();
     pipeline_state_.Reset();
     root_signature_.Reset();
