@@ -1,5 +1,8 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![deny(warnings)]
+// C ABI pointer validity is checked for null and alignment before each audited
+// unsafe block. Writability and lifetime remain the foreign caller's contract.
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 use core::mem::{align_of, size_of};
 use core::ptr;
@@ -13,11 +16,13 @@ const _: [(); 1] = [(); (size_of::<ResourceLedger>() <= ZR_LEDGER_STORAGE_BYTES)
 const _: [(); 1] = [(); (align_of::<ResourceLedger>() <= ZR_LEDGER_STORAGE_ALIGN) as usize];
 
 fn storage_aligned(storage: *const ZrLedgerStorage) -> bool {
-    !storage.is_null() && (storage as usize) % align_of::<ResourceLedger>() == 0
+    !storage.is_null()
+        && (storage as usize).is_multiple_of(align_of::<ResourceLedger>())
 }
 
 fn snapshot_aligned(snapshot: *const ZrResourceSnapshot) -> bool {
-    !snapshot.is_null() && (snapshot as usize) % align_of::<ZrResourceSnapshot>() == 0
+    !snapshot.is_null()
+        && (snapshot as usize).is_multiple_of(align_of::<ZrResourceSnapshot>())
 }
 
 fn with_ledger<R>(
