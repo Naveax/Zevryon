@@ -123,17 +123,38 @@ int main() {
         packets.hot, packets.atlas, &hot_readback, &error));
     assert(readbacks_equal(hot_readback, packets.reference));
 
+    // The production path executes the same certified packet without copying
+    // the full output surface back to CPU memory.
+    assert(executor->execute(packets.hot, packets.atlas, nullptr, &error));
+    NativeShaderSurfaceView surface;
+    assert(executor->export_surface(&surface, &error));
+    assert(native_shader_surface_view_valid(surface));
+    assert(surface.api_kind == NativeGpuApiKind::Direct3D12);
+    assert(surface.format == GpuSurfaceFormat::Bgra8Unorm);
+    assert(surface.state == NativeShaderSurfaceState::ShaderRead);
+    assert(surface.device_generation == context.device_generation);
+    assert(surface.runtime_generation == context.runtime_generation);
+    assert(surface.executor_generation == config.executor_generation);
+    assert(surface.output_generation != 0U);
+    assert(surface.frame_id == packets.hot.header.frame_id);
+    assert(surface.content_checksum == packets.hot.header.packet_checksum);
+    assert(surface.native_resource != 0U);
+    assert(surface.width == packets.hot.header.surface_width);
+    assert(surface.height == packets.hot.header.surface_height);
+
     NativeShaderExecutionSnapshot snapshot = executor->snapshot();
     assert(snapshot.configured == 1U);
-    assert(snapshot.executions == 2U);
+    assert(snapshot.executions == 3U);
     assert(snapshot.readbacks == 2U);
     assert(snapshot.atlas_upload_batches == 1U);
-    assert(snapshot.atlas_reuses == 1U);
+    assert(snapshot.atlas_reuses == 2U);
     assert(snapshot.persistent_atlas_bytes == 49'152U);
     assert(snapshot.output_surface_bytes == 921'600U);
     assert(snapshot.last_readback_checksum == packets.reference.checksum);
     assert((snapshot.capability_flags &
         kNativeShaderExecutionRetainedContext) != 0U);
+    assert((snapshot.capability_flags &
+        kNativeShaderExecutionDirectSurfaceExport) != 0U);
 
     GpuShaderPacket corrupted(&packets.hot_resource);
     corrupted.header = packets.hot.header;
@@ -143,6 +164,10 @@ int main() {
     assert(error.kind == NativeShaderExecutionErrorKind::InvalidInput);
 
     executor->shutdown();
+    NativeShaderSurfaceView shutdown_surface;
+    assert(!executor->export_surface(&shutdown_surface, &error));
+    assert(error.kind == NativeShaderExecutionErrorKind::StaleGeneration);
+
     std::cout << "real D3D12 integer shader execution: commands="
               << packets.hot.header.command_count
               << " fills=" << packets.hot.header.fill_instance_count
