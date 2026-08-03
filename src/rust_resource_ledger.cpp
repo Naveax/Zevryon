@@ -6,7 +6,9 @@ RustResourceLedger::RustResourceLedger() noexcept
     : initialized_(zr_ledger_init(&storage_) != 0U) {}
 
 RustResourceLedger::~RustResourceLedger() {
-    zr_ledger_clear(&storage_);
+    if (initialized_) {
+        zr_ledger_clear(&storage_);
+    }
     initialized_ = false;
 }
 
@@ -17,56 +19,57 @@ bool RustResourceLedger::valid() const noexcept {
 bool RustResourceLedger::set_hard_limit(
     ResourceClass resource_class,
     std::size_t bytes) noexcept {
-    return valid() &&
+    return initialized_ &&
         zr_ledger_set_hard_limit(&storage_, class_id(resource_class), bytes) != 0U;
 }
 
 bool RustResourceLedger::try_reserve(
     ResourceClass resource_class,
     std::size_t bytes) noexcept {
-    return valid() &&
+    return initialized_ &&
         zr_ledger_try_reserve(&storage_, class_id(resource_class), bytes) != 0U;
 }
 
 bool RustResourceLedger::release(
     ResourceClass resource_class,
     std::size_t bytes) noexcept {
-    return valid() && zr_ledger_release(&storage_, class_id(resource_class), bytes) != 0U;
+    return initialized_ &&
+        zr_ledger_release(&storage_, class_id(resource_class), bytes) != 0U;
 }
 
 bool RustResourceLedger::record_cache_hit(ResourceClass resource_class) noexcept {
-    return valid() &&
+    return initialized_ &&
         zr_ledger_record_cache_hit(&storage_, class_id(resource_class)) != 0U;
 }
 
 bool RustResourceLedger::record_cache_miss(ResourceClass resource_class) noexcept {
-    return valid() &&
+    return initialized_ &&
         zr_ledger_record_cache_miss(&storage_, class_id(resource_class)) != 0U;
 }
 
 bool RustResourceLedger::record_eviction(ResourceClass resource_class) noexcept {
-    return valid() &&
+    return initialized_ &&
         zr_ledger_record_eviction(&storage_, class_id(resource_class)) != 0U;
 }
 
 bool RustResourceLedger::record_physical_read(
     ResourceClass resource_class,
     std::uint64_t bytes) noexcept {
-    return valid() &&
+    return initialized_ &&
         zr_ledger_record_physical_read(&storage_, class_id(resource_class), bytes) != 0U;
 }
 
 bool RustResourceLedger::record_physical_write(
     ResourceClass resource_class,
     std::uint64_t bytes) noexcept {
-    return valid() &&
+    return initialized_ &&
         zr_ledger_record_physical_write(&storage_, class_id(resource_class), bytes) != 0U;
 }
 
 bool RustResourceLedger::snapshot(
     ResourceClass resource_class,
     ResourceSnapshot& output) const noexcept {
-    if (!valid()) {
+    if (!initialized_) {
         return false;
     }
 
@@ -91,19 +94,19 @@ bool RustResourceLedger::snapshot(
 }
 
 std::size_t RustResourceLedger::total_current_bytes() const noexcept {
-    return valid() ? zr_ledger_total_current_bytes(&storage_) : 0U;
+    return initialized_ ? zr_ledger_total_current_bytes(&storage_) : 0U;
 }
 
 std::size_t RustResourceLedger::total_peak_bytes() const noexcept {
-    return valid() ? zr_ledger_total_peak_bytes(&storage_) : 0U;
+    return initialized_ ? zr_ledger_total_peak_bytes(&storage_) : 0U;
 }
 
 bool RustResourceLedger::within_hard_limits() const noexcept {
-    return valid() && zr_ledger_within_hard_limits(&storage_) != 0U;
+    return initialized_ && zr_ledger_within_hard_limits(&storage_) != 0U;
 }
 
 bool RustResourceLedger::accounting_clean() const noexcept {
-    return valid() && zr_ledger_accounting_clean(&storage_) != 0U;
+    return initialized_ && zr_ledger_accounting_clean(&storage_) != 0U;
 }
 
 std::uint32_t RustResourceLedger::abi_version() noexcept {
