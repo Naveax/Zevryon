@@ -4,11 +4,15 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - "CMakeLists.txt"
+      - "cmake/rust_core.cmake"
       - "rust/**"
+      - "src/ledger_memory_resource.*"
       - "src/rust_resource_ledger.*"
       - "src/shadow_resource_ledger.*"
       - "src/zevryon_rust_ffi.h"
       - "src/resource_ledger.*"
+      - "tests/resource_ledger_tests.cpp"
       - "tests/rust_resource_ledger_equivalence_tests.cpp"
       - "tests/rust_resource_ledger_benchmark.cpp"
       - "tests/shadow_resource_ledger_tests.cpp"
@@ -25,7 +29,7 @@ concurrency:
 
 jobs:
   rust-core:
-    name: ${{ matrix.os }} Rust/C/C++ shadow certification
+    name: ${{ matrix.os }} Rust/C/C++ production shadow certification
     strategy:
       fail-fast: false
       matrix:
@@ -84,6 +88,30 @@ jobs:
 
       - name: Enforce measured performance ratios
         run: python tests/check_z2r1_ledger_baseline.py build-rust/z2r1-ledger-performance.json
+
+      - name: Configure root production Rust shadow
+        run: >-
+          cmake -S . -B build-production-shadow
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW_STRICT=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW_INTERVAL=64
+
+      - name: Build production shadow core and representative tests
+        run: >-
+          cmake --build build-production-shadow --config Release --parallel 2 --target
+          zevryon-resource-ledger-tests
+          zevryon-massivedoc-tests
+          zevryon-compact-document-tests
+          zevryon-layout-window-tests
+          zevryon-unicode-stream-tests
+
+      - name: Run production shadow representative tests
+        run: >-
+          ctest --test-dir build-production-shadow -C Release --output-on-failure
+          -R "(resource-ledger|massivedoc-store|compact-document|layout-window|unicode-stream)-tests"
 
       - name: Upload ledger performance baseline
         if: always()
