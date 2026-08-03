@@ -3,7 +3,6 @@
 #include "shadow_resource_ledger.hpp"
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -43,10 +42,10 @@ struct Operation {
 };
 
 struct Metrics {
-    double p50_ns_per_operation{0.0};
-    double p95_ns_per_operation{0.0};
-    double p99_ns_per_operation{0.0};
-    double max_ns_per_operation{0.0};
+    double p50{0.0};
+    double p95{0.0};
+    double p99{0.0};
+    double maximum{0.0};
     double operations_per_second{0.0};
 };
 
@@ -64,17 +63,17 @@ std::uint64_t mix(std::uint64_t checksum, std::uint64_t value) noexcept {
     return checksum;
 }
 
-std::vector<Operation> generate_workload(std::size_t operation_count) {
+std::vector<Operation> generate_workload(std::size_t count) {
     std::vector<Operation> operations;
-    operations.reserve(operation_count);
+    operations.reserve(count);
     std::uint64_t state = 0xBB67AE8584CAA73BULL;
 
-    for (std::size_t index = 0U; index < operation_count; ++index) {
+    for (std::size_t index = 0U; index < count; ++index) {
         const std::uint64_t random = next_random(state);
-        const std::size_t class_index = static_cast<std::size_t>(
-            random % static_cast<std::uint64_t>(resource_class_count));
         Operation operation{};
-        operation.resource_class = static_cast<ResourceClass>(class_index);
+        operation.resource_class = static_cast<ResourceClass>(
+            static_cast<std::size_t>(
+                random % static_cast<std::uint64_t>(resource_class_count)));
         operation.bytes =
             1U + static_cast<std::size_t>((random >> 12U) % 4'096U);
         operation.value = random ^ (static_cast<std::uint64_t>(index) << 17U);
@@ -105,131 +104,216 @@ std::vector<Operation> generate_workload(std::size_t operation_count) {
     return operations;
 }
 
-void configure(ResourceLedger& ledger) noexcept {
-    for (std::size_t index = 0U; index < resource_class_count; ++index) {
-        ledger.set_hard_limit(
-            static_cast<ResourceClass>(index),
-            256U * 1'024U + index * 4'096U);
-    }
-}
+struct CppAdapter {
+    ResourceLedger ledger{};
 
-bool configure(RustResourceLedger& ledger) noexcept {
-    bool configured = ledger.valid();
-    for (std::size_t index = 0U; index < resource_class_count; ++index) {
-        configured = ledger.set_hard_limit(
+    bool configure() noexcept {
+        for (std::size_t index = 0U; index < resource_class_count; ++index) {
+            ledger.set_hard_limit(
+                static_cast<ResourceClass>(index),
+                256U * 1'024U + index * 4'096U);
+        }
+        return true;
+    }
+
+    bool reserve(ResourceClass resource_class, std::size_t bytes) noexcept {
+        return ledger.try_reserve(resource_class, bytes);
+    }
+    bool release(ResourceClass resource_class, std::size_t bytes) noexcept {
+        ledger.release(resource_class, bytes);
+        return true;
+    }
+    bool cache_hit(ResourceClass resource_class) noexcept {
+        ledger.record_cache_hit(resource_class);
+        return true;
+    }
+    bool cache_miss(ResourceClass resource_class) noexcept {
+        ledger.record_cache_miss(resource_class);
+        return true;
+    }
+    bool eviction(ResourceClass resource_class) noexcept {
+        ledger.record_eviction(resource_class);
+        return true;
+    }
+    bool physical_read(ResourceClass resource_class, std::uint64_t bytes) noexcept {
+        ledger.record_physical_read(resource_class, bytes);
+        return true;
+    }
+    bool physical_write(ResourceClass resource_class, std::uint64_t bytes) noexcept {
+        ledger.record_physical_write(resource_class, bytes);
+        return true;
+    }
+    bool snapshot(ResourceClass resource_class, ResourceSnapshot& output) const noexcept {
+        output = ledger.snapshot(resource_class);
+        return true;
+    }
+    std::size_t total_current_bytes() const noexcept {
+        return ledger.total_current_bytes();
+    }
+    std::size_t total_peak_bytes() const noexcept {
+        return ledger.total_peak_bytes();
+    }
+    bool within_hard_limits() const noexcept {
+        return ledger.within_hard_limits();
+    }
+    bool accounting_clean() const noexcept {
+        return ledger.accounting_clean();
+    }
+    bool verify() noexcept {
+        return true;
+    }
+};
+
+struct RustAdapter {
+    RustResourceLedger ledger{};
+
+    bool configure() noexcept {
+        bool result = ledger.valid();
+        for (std::size_t index = 0U; index < resource_class_count; ++index) {
+            result = ledger.set_hard_limit(
                          static_cast<ResourceClass>(index),
                          256U * 1'024U + index * 4'096U) &&
-            configured;
+                result;
+        }
+        return result;
     }
-    return configured;
-}
 
-void configure(ShadowResourceLedger& ledger) noexcept {
-    for (std::size_t index = 0U; index < resource_class_count; ++index) {
-        ledger.set_hard_limit(
-            static_cast<ResourceClass>(index),
-            256U * 1'024U + index * 4'096U);
+    bool reserve(ResourceClass resource_class, std::size_t bytes) noexcept {
+        return ledger.try_reserve(resource_class, bytes);
     }
-}
+    bool release(ResourceClass resource_class, std::size_t bytes) noexcept {
+        return ledger.release(resource_class, bytes);
+    }
+    bool cache_hit(ResourceClass resource_class) noexcept {
+        return ledger.record_cache_hit(resource_class);
+    }
+    bool cache_miss(ResourceClass resource_class) noexcept {
+        return ledger.record_cache_miss(resource_class);
+    }
+    bool eviction(ResourceClass resource_class) noexcept {
+        return ledger.record_eviction(resource_class);
+    }
+    bool physical_read(ResourceClass resource_class, std::uint64_t bytes) noexcept {
+        return ledger.record_physical_read(resource_class, bytes);
+    }
+    bool physical_write(ResourceClass resource_class, std::uint64_t bytes) noexcept {
+        return ledger.record_physical_write(resource_class, bytes);
+    }
+    bool snapshot(ResourceClass resource_class, ResourceSnapshot& output) const noexcept {
+        return ledger.snapshot(resource_class, output);
+    }
+    std::size_t total_current_bytes() const noexcept {
+        return ledger.total_current_bytes();
+    }
+    std::size_t total_peak_bytes() const noexcept {
+        return ledger.total_peak_bytes();
+    }
+    bool within_hard_limits() const noexcept {
+        return ledger.within_hard_limits();
+    }
+    bool accounting_clean() const noexcept {
+        return ledger.accounting_clean();
+    }
+    bool verify() noexcept {
+        return ledger.valid();
+    }
+};
 
-std::uint64_t replay(ResourceLedger& ledger, const std::vector<Operation>& operations) noexcept {
+struct ShadowAdapter {
+    ShadowResourceLedger ledger{4'096U};
+
+    bool configure() noexcept {
+        for (std::size_t index = 0U; index < resource_class_count; ++index) {
+            ledger.set_hard_limit(
+                static_cast<ResourceClass>(index),
+                256U * 1'024U + index * 4'096U);
+        }
+        return ledger.healthy();
+    }
+
+    bool reserve(ResourceClass resource_class, std::size_t bytes) noexcept {
+        return ledger.try_reserve(resource_class, bytes);
+    }
+    bool release(ResourceClass resource_class, std::size_t bytes) noexcept {
+        ledger.release(resource_class, bytes);
+        return true;
+    }
+    bool cache_hit(ResourceClass resource_class) noexcept {
+        ledger.record_cache_hit(resource_class);
+        return true;
+    }
+    bool cache_miss(ResourceClass resource_class) noexcept {
+        ledger.record_cache_miss(resource_class);
+        return true;
+    }
+    bool eviction(ResourceClass resource_class) noexcept {
+        ledger.record_eviction(resource_class);
+        return true;
+    }
+    bool physical_read(ResourceClass resource_class, std::uint64_t bytes) noexcept {
+        ledger.record_physical_read(resource_class, bytes);
+        return true;
+    }
+    bool physical_write(ResourceClass resource_class, std::uint64_t bytes) noexcept {
+        ledger.record_physical_write(resource_class, bytes);
+        return true;
+    }
+    bool snapshot(ResourceClass resource_class, ResourceSnapshot& output) const noexcept {
+        output = ledger.snapshot(resource_class);
+        return true;
+    }
+    std::size_t total_current_bytes() const noexcept {
+        return ledger.total_current_bytes();
+    }
+    std::size_t total_peak_bytes() const noexcept {
+        return ledger.total_peak_bytes();
+    }
+    bool within_hard_limits() const noexcept {
+        return ledger.within_hard_limits();
+    }
+    bool accounting_clean() const noexcept {
+        return ledger.accounting_clean();
+    }
+    bool verify() noexcept {
+        return ledger.verify_now() && ledger.healthy();
+    }
+};
+
+template <typename Adapter>
+std::uint64_t replay(Adapter& adapter, const std::vector<Operation>& operations) noexcept {
     std::uint64_t checksum = 0x243F6A8885A308D3ULL;
     for (const Operation& operation : operations) {
+        bool operation_valid = true;
         switch (operation.kind) {
-        case OperationKind::Reserve:
-            checksum = mix(
-                checksum,
-                ledger.try_reserve(operation.resource_class, operation.bytes) ? 1U : 0U);
-            break;
+        case OperationKind::Reserve: {
+            const bool accepted =
+                adapter.reserve(operation.resource_class, operation.bytes);
+            checksum = mix(checksum, accepted ? 1U : 0U);
+            continue;
+        }
         case OperationKind::Release:
-            ledger.release(operation.resource_class, operation.bytes);
+            operation_valid = adapter.release(operation.resource_class, operation.bytes);
             break;
         case OperationKind::CacheHit:
-            ledger.record_cache_hit(operation.resource_class);
+            operation_valid = adapter.cache_hit(operation.resource_class);
             break;
         case OperationKind::CacheMiss:
-            ledger.record_cache_miss(operation.resource_class);
+            operation_valid = adapter.cache_miss(operation.resource_class);
             break;
         case OperationKind::Eviction:
-            ledger.record_eviction(operation.resource_class);
+            operation_valid = adapter.eviction(operation.resource_class);
             break;
         case OperationKind::PhysicalRead:
-            ledger.record_physical_read(operation.resource_class, operation.value);
+            operation_valid =
+                adapter.physical_read(operation.resource_class, operation.value);
             break;
         case OperationKind::PhysicalWrite:
-            ledger.record_physical_write(operation.resource_class, operation.value);
+            operation_valid =
+                adapter.physical_write(operation.resource_class, operation.value);
             break;
         }
-    }
-    return checksum;
-}
-
-std::uint64_t replay(
-    RustResourceLedger& ledger,
-    const std::vector<Operation>& operations) noexcept {
-    std::uint64_t checksum = 0x243F6A8885A308D3ULL;
-    for (const Operation& operation : operations) {
-        bool result = true;
-        switch (operation.kind) {
-        case OperationKind::Reserve:
-            result = ledger.try_reserve(operation.resource_class, operation.bytes);
-            checksum = mix(checksum, result ? 1U : 0U);
-            break;
-        case OperationKind::Release:
-            result = ledger.release(operation.resource_class, operation.bytes);
-            break;
-        case OperationKind::CacheHit:
-            result = ledger.record_cache_hit(operation.resource_class);
-            break;
-        case OperationKind::CacheMiss:
-            result = ledger.record_cache_miss(operation.resource_class);
-            break;
-        case OperationKind::Eviction:
-            result = ledger.record_eviction(operation.resource_class);
-            break;
-        case OperationKind::PhysicalRead:
-            result = ledger.record_physical_read(operation.resource_class, operation.value);
-            break;
-        case OperationKind::PhysicalWrite:
-            result = ledger.record_physical_write(operation.resource_class, operation.value);
-            break;
-        }
-        if (!result) {
+        if (!operation_valid) {
             checksum = mix(checksum, std::numeric_limits<std::uint64_t>::max());
-        }
-    }
-    return checksum;
-}
-
-std::uint64_t replay(
-    ShadowResourceLedger& ledger,
-    const std::vector<Operation>& operations) noexcept {
-    std::uint64_t checksum = 0x243F6A8885A308D3ULL;
-    for (const Operation& operation : operations) {
-        switch (operation.kind) {
-        case OperationKind::Reserve:
-            checksum = mix(
-                checksum,
-                ledger.try_reserve(operation.resource_class, operation.bytes) ? 1U : 0U);
-            break;
-        case OperationKind::Release:
-            ledger.release(operation.resource_class, operation.bytes);
-            break;
-        case OperationKind::CacheHit:
-            ledger.record_cache_hit(operation.resource_class);
-            break;
-        case OperationKind::CacheMiss:
-            ledger.record_cache_miss(operation.resource_class);
-            break;
-        case OperationKind::Eviction:
-            ledger.record_eviction(operation.resource_class);
-            break;
-        case OperationKind::PhysicalRead:
-            ledger.record_physical_read(operation.resource_class, operation.value);
-            break;
-        case OperationKind::PhysicalWrite:
-            ledger.record_physical_write(operation.resource_class, operation.value);
-            break;
         }
     }
     return checksum;
@@ -252,41 +336,18 @@ std::uint64_t snapshot_checksum(const ResourceSnapshot& snapshot) noexcept {
     return checksum;
 }
 
-std::uint64_t finalize(const ResourceLedger& ledger) noexcept {
-    std::uint64_t checksum = 0U;
-    for (std::size_t index = 0U; index < resource_class_count; ++index) {
-        checksum = mix(
-            checksum,
-            snapshot_checksum(ledger.snapshot(static_cast<ResourceClass>(index))));
-    }
-    checksum = mix(checksum, static_cast<std::uint64_t>(ledger.total_current_bytes()));
-    checksum = mix(checksum, static_cast<std::uint64_t>(ledger.total_peak_bytes()));
-    return checksum;
-}
-
-std::uint64_t finalize(const RustResourceLedger& ledger) noexcept {
+template <typename Adapter>
+std::uint64_t finalize(const Adapter& adapter) noexcept {
     std::uint64_t checksum = 0U;
     for (std::size_t index = 0U; index < resource_class_count; ++index) {
         ResourceSnapshot snapshot{};
-        if (!ledger.snapshot(static_cast<ResourceClass>(index), snapshot)) {
+        if (!adapter.snapshot(static_cast<ResourceClass>(index), snapshot)) {
             return std::numeric_limits<std::uint64_t>::max();
         }
         checksum = mix(checksum, snapshot_checksum(snapshot));
     }
-    checksum = mix(checksum, static_cast<std::uint64_t>(ledger.total_current_bytes()));
-    checksum = mix(checksum, static_cast<std::uint64_t>(ledger.total_peak_bytes()));
-    return checksum;
-}
-
-std::uint64_t finalize(const ShadowResourceLedger& ledger) noexcept {
-    std::uint64_t checksum = 0U;
-    for (std::size_t index = 0U; index < resource_class_count; ++index) {
-        checksum = mix(
-            checksum,
-            snapshot_checksum(ledger.snapshot(static_cast<ResourceClass>(index))));
-    }
-    checksum = mix(checksum, static_cast<std::uint64_t>(ledger.total_current_bytes()));
-    checksum = mix(checksum, static_cast<std::uint64_t>(ledger.total_peak_bytes()));
+    checksum = mix(checksum, static_cast<std::uint64_t>(adapter.total_current_bytes()));
+    checksum = mix(checksum, static_cast<std::uint64_t>(adapter.total_peak_bytes()));
     return checksum;
 }
 
@@ -306,77 +367,58 @@ bool snapshots_equal(const ResourceSnapshot& left, const ResourceSnapshot& right
 }
 
 bool certify_equivalence(const std::vector<Operation>& operations) {
-    ResourceLedger cpp_ledger;
-    RustResourceLedger rust_ledger;
-    ShadowResourceLedger shadow_ledger(4'096U);
-    configure(cpp_ledger);
-    if (!configure(rust_ledger)) {
+    CppAdapter cpp;
+    RustAdapter rust;
+    ShadowAdapter shadow;
+    if (!cpp.configure() || !rust.configure() || !shadow.configure()) {
         return false;
     }
-    configure(shadow_ledger);
 
-    const std::uint64_t cpp_result = replay(cpp_ledger, operations);
-    const std::uint64_t rust_result = replay(rust_ledger, operations);
-    const std::uint64_t shadow_result = replay(shadow_ledger, operations);
+    const std::uint64_t cpp_result = replay(cpp, operations);
+    const std::uint64_t rust_result = replay(rust, operations);
+    const std::uint64_t shadow_result = replay(shadow, operations);
     if (cpp_result != rust_result || cpp_result != shadow_result ||
-        !shadow_ledger.verify_now() || !shadow_ledger.healthy()) {
+        !cpp.verify() || !rust.verify() || !shadow.verify()) {
         return false;
     }
 
     for (std::size_t index = 0U; index < resource_class_count; ++index) {
         const auto resource_class = static_cast<ResourceClass>(index);
+        ResourceSnapshot cpp_snapshot{};
         ResourceSnapshot rust_snapshot{};
-        if (!rust_ledger.snapshot(resource_class, rust_snapshot) ||
-            !snapshots_equal(cpp_ledger.snapshot(resource_class), rust_snapshot) ||
-            !snapshots_equal(cpp_ledger.snapshot(resource_class), shadow_ledger.snapshot(resource_class))) {
+        ResourceSnapshot shadow_snapshot{};
+        if (!cpp.snapshot(resource_class, cpp_snapshot) ||
+            !rust.snapshot(resource_class, rust_snapshot) ||
+            !shadow.snapshot(resource_class, shadow_snapshot) ||
+            !snapshots_equal(cpp_snapshot, rust_snapshot) ||
+            !snapshots_equal(cpp_snapshot, shadow_snapshot)) {
             return false;
         }
     }
 
-    return cpp_ledger.total_current_bytes() == rust_ledger.total_current_bytes() &&
-        cpp_ledger.total_current_bytes() == shadow_ledger.total_current_bytes() &&
-        cpp_ledger.total_peak_bytes() == rust_ledger.total_peak_bytes() &&
-        cpp_ledger.total_peak_bytes() == shadow_ledger.total_peak_bytes() &&
-        cpp_ledger.within_hard_limits() == rust_ledger.within_hard_limits() &&
-        cpp_ledger.accounting_clean() == rust_ledger.accounting_clean();
+    return cpp.total_current_bytes() == rust.total_current_bytes() &&
+        cpp.total_current_bytes() == shadow.total_current_bytes() &&
+        cpp.total_peak_bytes() == rust.total_peak_bytes() &&
+        cpp.total_peak_bytes() == shadow.total_peak_bytes() &&
+        cpp.within_hard_limits() == rust.within_hard_limits() &&
+        cpp.accounting_clean() == rust.accounting_clean();
 }
 
-double measure_cpp(const std::vector<Operation>& operations) {
-    ResourceLedger ledger;
-    configure(ledger);
-    const auto begin = std::chrono::steady_clock::now();
-    const std::uint64_t replay_checksum = replay(ledger, operations);
-    const auto end = std::chrono::steady_clock::now();
-    benchmark_sink.fetch_xor(mix(replay_checksum, finalize(ledger)), std::memory_order_relaxed);
-    const double nanoseconds =
-        std::chrono::duration<double, std::nano>(end - begin).count();
-    return nanoseconds / static_cast<double>(operations.size());
-}
-
-double measure_rust(const std::vector<Operation>& operations) {
-    RustResourceLedger ledger;
-    if (!configure(ledger)) {
+template <typename Adapter>
+double measure(const std::vector<Operation>& operations) {
+    Adapter adapter;
+    if (!adapter.configure()) {
         return std::numeric_limits<double>::infinity();
     }
     const auto begin = std::chrono::steady_clock::now();
-    const std::uint64_t replay_checksum = replay(ledger, operations);
+    const std::uint64_t replay_checksum = replay(adapter, operations);
     const auto end = std::chrono::steady_clock::now();
-    benchmark_sink.fetch_xor(mix(replay_checksum, finalize(ledger)), std::memory_order_relaxed);
-    const double nanoseconds =
-        std::chrono::duration<double, std::nano>(end - begin).count();
-    return nanoseconds / static_cast<double>(operations.size());
-}
-
-double measure_shadow(const std::vector<Operation>& operations) {
-    ShadowResourceLedger ledger(4'096U);
-    configure(ledger);
-    const auto begin = std::chrono::steady_clock::now();
-    const std::uint64_t replay_checksum = replay(ledger, operations);
-    const auto end = std::chrono::steady_clock::now();
-    if (!ledger.verify_now() || !ledger.healthy()) {
+    if (!adapter.verify()) {
         return std::numeric_limits<double>::infinity();
     }
-    benchmark_sink.fetch_xor(mix(replay_checksum, finalize(ledger)), std::memory_order_relaxed);
+    benchmark_sink.fetch_xor(
+        mix(replay_checksum, finalize(adapter)),
+        std::memory_order_relaxed);
     const double nanoseconds =
         std::chrono::duration<double, std::nano>(end - begin).count();
     return nanoseconds / static_cast<double>(operations.size());
@@ -391,19 +433,19 @@ double percentile(std::vector<double> samples, double quantile) {
 
 Metrics summarize(const std::vector<double>& samples) {
     Metrics metrics{};
-    metrics.p50_ns_per_operation = percentile(samples, 0.50);
-    metrics.p95_ns_per_operation = percentile(samples, 0.95);
-    metrics.p99_ns_per_operation = percentile(samples, 0.99);
-    metrics.max_ns_per_operation = *std::max_element(samples.begin(), samples.end());
-    metrics.operations_per_second = 1'000'000'000.0 / metrics.p50_ns_per_operation;
+    metrics.p50 = percentile(samples, 0.50);
+    metrics.p95 = percentile(samples, 0.95);
+    metrics.p99 = percentile(samples, 0.99);
+    metrics.maximum = *std::max_element(samples.begin(), samples.end());
+    metrics.operations_per_second = 1'000'000'000.0 / metrics.p50;
     return metrics;
 }
 
 void write_metrics(std::ostream& output, const Metrics& metrics) {
-    output << "{\"p50_ns_per_operation\":" << metrics.p50_ns_per_operation
-           << ",\"p95_ns_per_operation\":" << metrics.p95_ns_per_operation
-           << ",\"p99_ns_per_operation\":" << metrics.p99_ns_per_operation
-           << ",\"max_ns_per_operation\":" << metrics.max_ns_per_operation
+    output << "{\"p50_ns_per_operation\":" << metrics.p50
+           << ",\"p95_ns_per_operation\":" << metrics.p95
+           << ",\"p99_ns_per_operation\":" << metrics.p99
+           << ",\"max_ns_per_operation\":" << metrics.maximum
            << ",\"operations_per_second\":" << metrics.operations_per_second << '}';
 }
 
@@ -411,24 +453,24 @@ bool write_report(
     const std::string& path,
     std::size_t operation_count,
     std::size_t sample_count,
-    const Metrics& cpp_metrics,
-    const Metrics& rust_metrics,
-    const Metrics& shadow_metrics,
+    const Metrics& cpp,
+    const Metrics& rust,
+    const Metrics& shadow,
     double rust_ratio,
     double shadow_ratio) {
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     if (!output) {
         return false;
     }
-    output << std::fixed << std::setprecision(3);
-    output << "{\"schema\":\"zevryon.ledger-performance.v1\","
+    output << std::fixed << std::setprecision(3)
+           << "{\"schema\":\"zevryon.ledger-performance.v1\","
            << "\"operations_per_sample\":" << operation_count << ','
            << "\"samples\":" << sample_count << ",\"cpp\":";
-    write_metrics(output, cpp_metrics);
+    write_metrics(output, cpp);
     output << ",\"rust\":";
-    write_metrics(output, rust_metrics);
+    write_metrics(output, rust);
     output << ",\"shadow\":";
-    write_metrics(output, shadow_metrics);
+    write_metrics(output, shadow);
     output << ",\"rust_to_cpp_p50_ratio\":" << rust_ratio
            << ",\"shadow_to_cpp_p50_ratio\":" << shadow_ratio
            << ",\"sink\":" << benchmark_sink.load(std::memory_order_relaxed) << "}\n";
@@ -454,9 +496,9 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    static_cast<void>(measure_cpp(operations));
-    static_cast<void>(measure_rust(operations));
-    static_cast<void>(measure_shadow(operations));
+    static_cast<void>(measure<CppAdapter>(operations));
+    static_cast<void>(measure<RustAdapter>(operations));
+    static_cast<void>(measure<ShadowAdapter>(operations));
 
     std::vector<double> cpp_samples;
     std::vector<double> rust_samples;
@@ -468,37 +510,37 @@ int main(int argc, char** argv) {
     for (std::size_t sample = 0U; sample < sample_count; ++sample) {
         switch (sample % 3U) {
         case 0U:
-            cpp_samples.push_back(measure_cpp(operations));
-            rust_samples.push_back(measure_rust(operations));
-            shadow_samples.push_back(measure_shadow(operations));
+            cpp_samples.push_back(measure<CppAdapter>(operations));
+            rust_samples.push_back(measure<RustAdapter>(operations));
+            shadow_samples.push_back(measure<ShadowAdapter>(operations));
             break;
         case 1U:
-            rust_samples.push_back(measure_rust(operations));
-            shadow_samples.push_back(measure_shadow(operations));
-            cpp_samples.push_back(measure_cpp(operations));
+            rust_samples.push_back(measure<RustAdapter>(operations));
+            shadow_samples.push_back(measure<ShadowAdapter>(operations));
+            cpp_samples.push_back(measure<CppAdapter>(operations));
             break;
         default:
-            shadow_samples.push_back(measure_shadow(operations));
-            cpp_samples.push_back(measure_cpp(operations));
-            rust_samples.push_back(measure_rust(operations));
+            shadow_samples.push_back(measure<ShadowAdapter>(operations));
+            cpp_samples.push_back(measure<CppAdapter>(operations));
+            rust_samples.push_back(measure<RustAdapter>(operations));
             break;
         }
     }
 
-    const Metrics cpp_metrics = summarize(cpp_samples);
-    const Metrics rust_metrics = summarize(rust_samples);
-    const Metrics shadow_metrics = summarize(shadow_samples);
-    const double cpp_floor = std::max(cpp_metrics.p50_ns_per_operation, 0.001);
-    const double rust_ratio = rust_metrics.p50_ns_per_operation / cpp_floor;
-    const double shadow_ratio = shadow_metrics.p50_ns_per_operation / cpp_floor;
+    const Metrics cpp = summarize(cpp_samples);
+    const Metrics rust = summarize(rust_samples);
+    const Metrics shadow = summarize(shadow_samples);
+    const double cpp_floor = std::max(cpp.p50, 0.001);
+    const double rust_ratio = rust.p50 / cpp_floor;
+    const double shadow_ratio = shadow.p50 / cpp_floor;
 
     if (!write_report(
             report_path,
             operation_count,
             sample_count,
-            cpp_metrics,
-            rust_metrics,
-            shadow_metrics,
+            cpp,
+            rust,
+            shadow,
             rust_ratio,
             shadow_ratio)) {
         std::cerr << "FAILED: unable to write benchmark report\n";
@@ -506,28 +548,22 @@ int main(int argc, char** argv) {
     }
 
     std::cout << std::fixed << std::setprecision(3)
-              << "C++ p50=" << cpp_metrics.p50_ns_per_operation
-              << " ns/op, Rust p50=" << rust_metrics.p50_ns_per_operation
-              << " ns/op, shadow p50=" << shadow_metrics.p50_ns_per_operation
-              << " ns/op, Rust/C++=" << rust_ratio
-              << "x, shadow/C++=" << shadow_ratio << "x\n";
+              << "C++ p50=" << cpp.p50 << " ns/op, Rust p50=" << rust.p50
+              << " ns/op, shadow p50=" << shadow.p50 << " ns/op, Rust/C++="
+              << rust_ratio << "x, shadow/C++=" << shadow_ratio << "x\n";
 
-    const double rust_p50_limit = std::max(
-        cpp_metrics.p50_ns_per_operation * 20.0,
-        cpp_metrics.p50_ns_per_operation + 200.0);
-    const double rust_p99_limit = std::max(
-        cpp_metrics.p99_ns_per_operation * 30.0,
-        cpp_metrics.p99_ns_per_operation + 1'000.0);
+    const double rust_p50_limit = std::max(cpp.p50 * 20.0, cpp.p50 + 200.0);
+    const double rust_p99_limit = std::max(cpp.p99 * 30.0, cpp.p99 + 1'000.0);
     const double shadow_p50_limit = std::max(
-        (cpp_metrics.p50_ns_per_operation + rust_metrics.p50_ns_per_operation) * 5.0,
-        cpp_metrics.p50_ns_per_operation + rust_metrics.p50_ns_per_operation + 500.0);
+        (cpp.p50 + rust.p50) * 5.0,
+        cpp.p50 + rust.p50 + 500.0);
 
-    if (rust_metrics.p50_ns_per_operation > rust_p50_limit ||
-        rust_metrics.p99_ns_per_operation > rust_p99_limit ||
-        shadow_metrics.p50_ns_per_operation > shadow_p50_limit ||
-        cpp_metrics.operations_per_second < 100'000.0 ||
-        rust_metrics.operations_per_second < 100'000.0 ||
-        shadow_metrics.operations_per_second < 100'000.0) {
+    if (!std::isfinite(cpp.p50) || !std::isfinite(rust.p50) ||
+        !std::isfinite(shadow.p50) || rust.p50 > rust_p50_limit ||
+        rust.p99 > rust_p99_limit || shadow.p50 > shadow_p50_limit ||
+        cpp.operations_per_second < 100'000.0 ||
+        rust.operations_per_second < 100'000.0 ||
+        shadow.operations_per_second < 100'000.0) {
         std::cerr << "FAILED: catastrophic ledger performance regression gate\n";
         return 1;
     }
