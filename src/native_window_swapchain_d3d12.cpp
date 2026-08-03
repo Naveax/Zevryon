@@ -1,5 +1,5 @@
-#include "native_shader_surface_d3d12.hpp"
 #include "native_window_swapchain.hpp"
+#include "native_shader_surface_d3d12.hpp"
 
 #if defined(ZEVRYON_HAS_D3D12_WINDOW_SWAPCHAIN)
 
