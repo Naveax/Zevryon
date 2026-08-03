@@ -4,7 +4,6 @@ on:
   pull_request:
     paths:
       - '.github/workflows/z2-real-d3d12-shader-execution.yml'
-      - '.z2f8b3b3a/**'
       - 'src/native_shader_execution*'
       - 'src/native_shader_surface*'
       - 'src/native_window_swapchain*'
@@ -26,52 +25,36 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-      - name: Decode and apply exact production patch
-        shell: pwsh
+      - name: Extract and apply canonical production patch
+        shell: bash
         run: |
-          $ErrorActionPreference = 'Stop'
-          $parts = @(
-            '.z2f8b3b3a/part00',
-            '.z2f8b3b3a/part01',
-            '.z2f8b3b3a/part02',
-            '.z2f8b3b3a/part03',
-            '.z2f8b3b3a/part04'
-          )
-          foreach ($part in $parts) {
-            if (-not (Test-Path -LiteralPath $part)) { throw "Missing $part" }
-          }
-          $encoded = ($parts | ForEach-Object {
-            Get-Content -LiteralPath $_ -Raw
-          }) -join ''
-          $encoded = $encoded -replace '[^A-Za-z0-9+/]', ''
-          $remainder = $encoded.Length % 4
-          if ($remainder -ne 0) {
-            $encoded += '=' * (4 - $remainder)
-          }
-          $scriptPath = Join-Path $env:RUNNER_TEMP 'z2f8b3b3a_apply.py'
-          [IO.File]::WriteAllBytes(
-            $scriptPath,
-            [Convert]::FromBase64String($encoded))
-          python -m py_compile $scriptPath
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python $scriptPath
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          set -euo pipefail
+          git show \
+            01271ebb6fada967ff9a47c005964f34cd537f15:.github/workflows/z2f8b3b3a-apply.yml \
+            > /tmp/z2f8b3b3a-original.yml
+          sed -n "/python3 - <<'PY'/,/^          PY$/p" \
+            /tmp/z2f8b3b3a-original.yml \
+            | sed '1d;$d;s/^          //' \
+            > /tmp/z2f8b3b3a_apply.py
+          test -s /tmp/z2f8b3b3a_apply.py
+          python3 -m py_compile /tmp/z2f8b3b3a_apply.py
+          python3 /tmp/z2f8b3b3a_apply.py
       - name: Publish production sources and remove staging
-        shell: pwsh
+        shell: bash
         run: |
-          $ErrorActionPreference = 'Stop'
+          set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git fetch origin main
           git checkout origin/main -- .github/workflows/z2-real-d3d12-shader-execution.yml
-          git add `
-            .github/workflows/z2-real-d3d12-shader-execution.yml `
-            src/native_window_swapchain.hpp `
-            src/native_shader_execution_d3d12.cpp `
+          git add \
+            .github/workflows/z2-real-d3d12-shader-execution.yml \
+            src/native_window_swapchain.hpp \
+            src/native_shader_execution_d3d12.cpp \
             src/native_window_swapchain_d3d12.cpp
-          git rm -r `
-            .z2f8b3b3a `
-            .github/workflows/z2f8b3b3a-apply.yml `
+          git rm -r \
+            .z2f8b3b3a \
+            .github/workflows/z2f8b3b3a-apply.yml \
             .github/workflows/z2f8b3b3a-materialize.yml
           git commit -m "Z2F-8B3B3A: connect D3D12 shader surfaces to DXGI"
-          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
