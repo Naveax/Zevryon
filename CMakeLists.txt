@@ -7,6 +7,31 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(ZEVRYON_ENABLE_SANITIZERS "Enable ASan and UBSan" OFF)
 option(ZEVRYON_ENABLE_FONTCONFIG_DISCOVERY "Build the Linux Fontconfig discovery adapter" ON)
 option(ZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY "Build the Windows DirectWrite discovery adapter" ON)
+option(ZEVRYON_ENABLE_RUST_CORE "Build the Rust logical-core static library" OFF)
+option(ZEVRYON_RUST_LEDGER_SHADOW "Mirror production ResourceLedger operations into Rust" OFF)
+option(ZEVRYON_RUST_LEDGER_SHADOW_STRICT "Abort immediately on a production Rust shadow mismatch" OFF)
+set(
+  ZEVRYON_RUST_LEDGER_SHADOW_INTERVAL
+  "1024"
+  CACHE STRING
+  "Mutating ledger operations between complete production Rust shadow verifications; zero disables automatic verification")
+
+if(ZEVRYON_RUST_LEDGER_SHADOW AND NOT ZEVRYON_ENABLE_RUST_CORE)
+  message(FATAL_ERROR "ZEVRYON_RUST_LEDGER_SHADOW requires ZEVRYON_ENABLE_RUST_CORE=ON")
+endif()
+if(ZEVRYON_RUST_LEDGER_SHADOW_STRICT AND NOT ZEVRYON_RUST_LEDGER_SHADOW)
+  message(FATAL_ERROR "ZEVRYON_RUST_LEDGER_SHADOW_STRICT requires ZEVRYON_RUST_LEDGER_SHADOW=ON")
+endif()
+if(NOT ZEVRYON_RUST_LEDGER_SHADOW_INTERVAL MATCHES "^[0-9]+$")
+  message(FATAL_ERROR "ZEVRYON_RUST_LEDGER_SHADOW_INTERVAL must be a non-negative integer")
+endif()
+if(ZEVRYON_RUST_LEDGER_SHADOW_STRICT)
+  set(ZEVRYON_RUST_LEDGER_SHADOW_STRICT_VALUE 1)
+else()
+  set(ZEVRYON_RUST_LEDGER_SHADOW_STRICT_VALUE 0)
+endif()
+
+include(cmake/rust_core.cmake)
 
 function(zevryon_options target)
   if(MSVC)
@@ -72,6 +97,16 @@ add_library(zevryon-massivedoc-core STATIC
 )
 target_include_directories(zevryon-massivedoc-core PUBLIC src)
 zevryon_options(zevryon-massivedoc-core)
+
+if(ZEVRYON_RUST_LEDGER_SHADOW)
+  target_compile_definitions(
+    zevryon-massivedoc-core
+    PUBLIC
+      ZEVRYON_RESOURCE_LEDGER_RUST_SHADOW=1
+      ZEVRYON_RUST_LEDGER_SHADOW_INTERVAL=${ZEVRYON_RUST_LEDGER_SHADOW_INTERVAL}
+      ZEVRYON_RUST_LEDGER_SHADOW_STRICT=${ZEVRYON_RUST_LEDGER_SHADOW_STRICT_VALUE})
+  zevryon_link_rust_core(zevryon-massivedoc-core)
+endif()
 
 if(ZEVRYON_ENABLE_FONTCONFIG_DISCOVERY AND UNIX AND NOT APPLE)
   find_package(PkgConfig QUIET)
