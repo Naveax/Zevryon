@@ -17,6 +17,8 @@ if(TARGET zevryon-native-gpu-sdk-execution)
     src/native_window_swapchain_stub.cpp)
 
   if(WIN32)
+    # Z2F-8B3B3A binds the direct shader-surface resolver into the standalone
+    # DXGI presenter without introducing a dependency on the shader executor.
     list(APPEND
       ZEVRYON_NATIVE_WINDOW_SWAPCHAIN_SOURCES
       src/native_window_swapchain_d3d12.cpp
