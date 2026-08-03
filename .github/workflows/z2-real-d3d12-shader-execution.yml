@@ -4,8 +4,11 @@ on:
   pull_request:
     paths:
       - '.github/workflows/z2-real-d3d12-shader-execution.yml'
-      - 'src/native_shader_surface_d3d12.*'
-      - 'src/native_window_swapchain_d3d12.cpp'
+      - 'cmake/native_shader_execution.cmake'
+      - 'cmake/shader_draw_packet.cmake'
+      - 'src/native_shader_execution*'
+      - 'tests/native_shader_execution*'
+      - 'docs/Z2F8B3B2A_REAL_D3D12_SHADER_EXECUTION.md'
   workflow_dispatch:
 
 concurrency:
@@ -13,211 +16,124 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  materialize-descriptor-slots:
+  portable-contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+      - name: Configure strict portable build
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - name: Build and run portable contract
+        run: |
+          cmake --build build --parallel 2 --target \
+            zevryon-native-shader-execution-stub-tests \
+            zevryon-shader-draw-packet-tests \
+            zevryon-shader-draw-packet-equivalence-tests
+          ./build/zevryon-native-shader-execution-stub-tests
+          ./build/zevryon-shader-draw-packet-tests
+          ./build/zevryon-shader-draw-packet-equivalence-tests
+
+  portable-sanitizer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure portable sanitizers
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_SANITIZERS=ON
+      - name: Build and run under ASan and UBSan
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          cmake --build build --parallel 2 --target \
+            zevryon-native-shader-execution-stub-tests \
+            zevryon-shader-draw-packet-tests
+          ./build/zevryon-native-shader-execution-stub-tests
+          ./build/zevryon-shader-draw-packet-tests
+
+  real-d3d12:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure MSVC and Direct3D 12 build
+        shell: pwsh
+        run: cmake -S . -B build -DBUILD_TESTING=ON
+      - name: Build focused targets
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel 2 --target zevryon-native-shader-execution-d3d12-tests
+          cmake --build build --config Release --parallel 2 --target zevryon-native-shader-execution-d3d12-benchmark
+      - name: Repeat real GPU readback certification
+        shell: pwsh
+        run: |
+          1..10 | ForEach-Object {
+            ./build/Release/zevryon-native-shader-execution-d3d12-tests.exe
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Run three benchmark distributions
+        shell: pwsh
+        run: |
+          1..3 | ForEach-Object {
+            ./build/Release/zevryon-native-shader-execution-d3d12-benchmark.exe 64 `
+              | Out-File -Encoding utf8 "d3d12-shader-benchmark-$_.txt"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Enforce exact topology, equivalence and latency gates
+        shell: pwsh
+        run: |
+          @'
+          def load(path):
+              values = {}
+              with open(path, encoding='utf-8-sig') as handle:
+                  for line in handle:
+                      key, value = line.strip().split('=', 1)
+                      values[key] = value
+              return values
+
+          rows = [load(f'd3d12-shader-benchmark-{run}.txt') for run in range(1, 4)]
+          reference = int(rows[0]['reference_checksum'])
+          for row in rows:
+              assert row['schema'] == 'zevryon.d3d12-integer-shader-execution.v1'
+              assert int(row['iterations']) == 64
+              assert int(row['samples']) == 64
+              assert int(row['commands']) == 68
+              assert int(row['fill_instances']) == 65
+              assert int(row['glyph_instances']) == 240
+              assert int(row['resident_pages']) == 3
+              assert int(row['resident_atlas_bytes']) == 49152
+              assert int(row['output_surface_bytes']) == 921600
+              assert int(row['atlas_upload_batches']) == 1
+              assert int(row['atlas_reuses']) >= 64
+              assert int(row['reference_checksum']) == reference
+              assert int(row['gpu_checksum']) == reference
+              p50 = float(row['p50_ms'])
+              p95 = float(row['p95_ms'])
+              p99 = float(row['p99_ms'])
+              maximum = float(row['max_ms'])
+              assert 0.0 < p50 <= p95 <= p99 <= maximum
+              assert p95 <= 20.0, row
+              assert p99 <= 25.0, row
+              assert maximum <= 40.0, row
+          print({
+              'checksum': reference,
+              'p50_ms': [float(row['p50_ms']) for row in rows],
+              'p95_ms': [float(row['p95_ms']) for row in rows],
+              'p99_ms': [float(row['p99_ms']) for row in rows],
+              'maximum_ms': [float(row['max_ms']) for row in rows],
+          })
+          '@ | python -
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-      - name: Apply per-image SRV descriptor ownership
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          def replace_once(path: str, old: str, new: str) -> None:
-              file_path = Path(path)
-              text = file_path.read_text()
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(
-                      f'{path}: expected one match, got {count}: '
-                      f'{old.splitlines()[0][:120]}')
-              file_path.write_text(text.replace(old, new))
-
-          replace_once(
-              'src/native_shader_surface_d3d12.hpp',
-              '''        ID3D12Device* device,
-                  DXGI_FORMAT render_target_format,
-                  HRESULT* native_error) noexcept;''',
-              '''        ID3D12Device* device,
-                  DXGI_FORMAT render_target_format,
-                  std::uint32_t descriptor_count,
-                  HRESULT* native_error) noexcept;''')
-          replace_once(
-              'src/native_shader_surface_d3d12.hpp',
-              '''        D3D12_CPU_DESCRIPTOR_HANDLE target_rtv,
-                  std::uint32_t width,
-                  std::uint32_t height,''',
-              '''        D3D12_CPU_DESCRIPTOR_HANDLE target_rtv,
-                  std::uint32_t descriptor_index,
-                  std::uint32_t width,
-                  std::uint32_t height,''')
-          replace_once(
-              'src/native_shader_surface_d3d12.hpp',
-              '''    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> descriptor_heap_;
-              DXGI_FORMAT render_target_format_{DXGI_FORMAT_UNKNOWN};''',
-              '''    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> descriptor_heap_;
-              DXGI_FORMAT render_target_format_{DXGI_FORMAT_UNKNOWN};
-              UINT descriptor_increment_{0U};
-              std::uint32_t descriptor_count_{0U};''')
-
-          replace_once(
-              'src/native_shader_surface_d3d12.cpp',
-              '''    ID3D12Device* device,
-              DXGI_FORMAT render_target_format,
-              HRESULT* native_error) noexcept {''',
-              '''    ID3D12Device* device,
-              DXGI_FORMAT render_target_format,
-              std::uint32_t descriptor_count,
-              HRESULT* native_error) noexcept {''')
-          replace_once(
-              'src/native_shader_surface_d3d12.cpp',
-              '''    if (device == nullptr || render_target_format == DXGI_FORMAT_UNKNOWN) {''',
-              '''    if (device == nullptr || render_target_format == DXGI_FORMAT_UNKNOWN ||
-                  descriptor_count == 0U) {''')
-          replace_once(
-              'src/native_shader_surface_d3d12.cpp',
-              '''    if (device_ != nullptr && render_target_format_ == render_target_format) {
-                  return true;
-              }''',
-              '''    if (device_ != nullptr &&
-                  render_target_format_ == render_target_format &&
-                  descriptor_count_ == descriptor_count) {
-                  return true;
-              }''')
-          replace_once(
-              'src/native_shader_surface_d3d12.cpp',
-              '''    heap.NumDescriptors = 1U;''',
-              '''    heap.NumDescriptors = descriptor_count;''')
-          replace_once(
-              'src/native_shader_surface_d3d12.cpp',
-              '''    if (FAILED(result)) {
-                  set_error(native_error, result);
-                  return false;
-              }
-          
-              device_ = device;
-              root_signature_ = std::move(root_signature);''',
-              '''    if (FAILED(result)) {
-                  set_error(native_error, result);
-                  return false;
-              }
-              const UINT descriptor_increment =
-                  device->GetDescriptorHandleIncrementSize(
-                      D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-              if (descriptor_increment == 0U) {
-                  set_error(native_error, E_FAIL);
-                  return false;
-              }
-          
-              device_ = device;
-              root_signature_ = std::move(root_signature);''')
-          replace_once(
-              'src/native_shader_surface_d3d12.cpp',
-              '''    descriptor_heap_ = std::move(descriptor_heap);
-              render_target_format_ = render_target_format;
-              return true;''',
-              '''    descriptor_heap_ = std::move(descriptor_heap);
-              render_target_format_ = render_target_format;
-              descriptor_increment_ = descriptor_increment;
-              descriptor_count_ = descriptor_count;
-              return true;''')
-          replace_once(
-              'src/native_shader_surface_d3d12.cpp',
-              '''    D3D12_CPU_DESCRIPTOR_HANDLE target_rtv,
-              std::uint32_t width,
-              std::uint32_t height,''',
-              '''    D3D12_CPU_DESCRIPTOR_HANDLE target_rtv,
-              std::uint32_t descriptor_index,
-              std::uint32_t width,
-              std::uint32_t height,''')
-          replace_once(
-              'src/native_shader_surface_d3d12.cpp',
-              '''        width == 0U || height == 0U || pipeline_state_ == nullptr ||
-                  root_signature_ == nullptr || descriptor_heap_ == nullptr || device_ == nullptr) {''',
-              '''        descriptor_index >= descriptor_count_ ||
-                  width == 0U || height == 0U || pipeline_state_ == nullptr ||
-                  root_signature_ == nullptr || descriptor_heap_ == nullptr ||
-                  device_ == nullptr || descriptor_increment_ == 0U) {''')
-          replace_once(
-              'src/native_shader_surface_d3d12.cpp',
-              '''    device_->CreateShaderResourceView(
-                  source,
-                  &srv,
-                  descriptor_heap_->GetCPUDescriptorHandleForHeapStart());''',
-              '''    D3D12_CPU_DESCRIPTOR_HANDLE descriptor_cpu =
-                  descriptor_heap_->GetCPUDescriptorHandleForHeapStart();
-              descriptor_cpu.ptr += static_cast<SIZE_T>(descriptor_index) *
-                  descriptor_increment_;
-              D3D12_GPU_DESCRIPTOR_HANDLE descriptor_gpu =
-                  descriptor_heap_->GetGPUDescriptorHandleForHeapStart();
-              descriptor_gpu.ptr += static_cast<UINT64>(descriptor_index) *
-                  descriptor_increment_;
-              device_->CreateShaderResourceView(source, &srv, descriptor_cpu);''')
-          replace_once(
-              'src/native_shader_surface_d3d12.cpp',
-              '''    command_list->SetGraphicsRootDescriptorTable(
-                  0U,
-                  descriptor_heap_->GetGPUDescriptorHandleForHeapStart());''',
-              '''    command_list->SetGraphicsRootDescriptorTable(0U, descriptor_gpu);''')
-          replace_once(
-              'src/native_shader_surface_d3d12.cpp',
-              '''    render_target_format_ = DXGI_FORMAT_UNKNOWN;
-              }''',
-              '''    render_target_format_ = DXGI_FORMAT_UNKNOWN;
-              descriptor_increment_ = 0U;
-              descriptor_count_ = 0U;
-              }''')
-
-          replace_once(
-              'src/native_window_swapchain_d3d12.cpp',
-              '''      new_device.Get(),
-                    map_format(config.surface.format),
-                    &resolver_result))''',
-              '''      new_device.Get(),
-                    map_format(config.surface.format),
-                    config.image_count,
-                    &resolver_result))''')
-          replace_once(
-              'src/native_window_swapchain_d3d12.cpp',
-              '''          slot.resource.Get(),
-                    slot.rtv,
-                    snapshot_.config.surface.width,''',
-              '''          slot.resource.Get(),
-                    slot.rtv,
-                    index,
-                    snapshot_.config.surface.width,''')
-          PY
-          git diff --check
-      - name: Verify descriptor-slot contract
-        shell: bash
-        run: |
-          set -euo pipefail
-          grep -Fq 'std::uint32_t descriptor_count' src/native_shader_surface_d3d12.hpp
-          grep -Fq 'std::uint32_t descriptor_index' src/native_shader_surface_d3d12.hpp
-          grep -Fq 'descriptor_index >= descriptor_count_' src/native_shader_surface_d3d12.cpp
-          grep -Fq 'heap.NumDescriptors = descriptor_count;' src/native_shader_surface_d3d12.cpp
-          grep -Fq 'config.image_count,' src/native_window_swapchain_d3d12.cpp
-          grep -Fq 'slot.rtv,' src/native_window_swapchain_d3d12.cpp
-      - name: Publish production changes and restore CI
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git fetch origin main
-          git checkout origin/main -- .github/workflows/z2-real-d3d12-shader-execution.yml
-          git add \
-            .github/workflows/z2-real-d3d12-shader-execution.yml \
-            src/native_shader_surface_d3d12.hpp \
-            src/native_shader_surface_d3d12.cpp \
-            src/native_window_swapchain_d3d12.cpp
-          git commit -m "Z2F-8B3B3A: isolate D3D12 SRVs per swapchain image"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          name: z2-real-d3d12-shader-${{ github.sha }}
+          path: |
+            d3d12-shader-benchmark-*.txt
+          if-no-files-found: warn
