@@ -37,6 +37,79 @@ jobs:
             | sed '1d;$d;s/^          //' \
             > /tmp/z2f8b3b3a_apply.py
           test -s /tmp/z2f8b3b3a_apply.py
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source_path = Path('src/native_shader_execution_d3d12.cpp')
+          source_text = source_path.read_text()
+          old_start = '            D3D12_RESOURCE_BARRIER to_copy{};\n'
+          old_end = (
+              '            command_list_->CopyTextureRegion('
+              '&destination, 0U, 0U, 0U, &source, nullptr);\n')
+          if source_text.count(old_start) != 1 or source_text.count(old_end) != 1:
+              raise SystemExit('D3D12 copy block markers are missing or ambiguous')
+          first = source_text.index(old_start)
+          last = source_text.index(old_end, first) + len(old_end)
+          replacement = '''            if (readback != nullptr) {
+              D3D12_RESOURCE_BARRIER to_copy{};
+              to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+              to_copy.Transition.pResource = output_texture_.Get();
+              to_copy.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+              to_copy.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+              to_copy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+              command_list_->ResourceBarrier(1U, &to_copy);
+
+              D3D12_TEXTURE_COPY_LOCATION source{};
+              source.pResource = output_texture_.Get();
+              source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+              source.SubresourceIndex = 0U;
+              D3D12_TEXTURE_COPY_LOCATION destination{};
+              destination.pResource = readback_buffer_.Get();
+              destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+              destination.PlacedFootprint = readback_footprint_;
+              command_list_->CopyTextureRegion(
+                  &destination, 0U, 0U, 0U, &source, nullptr);
+
+              D3D12_RESOURCE_BARRIER to_shader = to_copy;
+              to_shader.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+              to_shader.Transition.StateAfter =
+                  D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+              command_list_->ResourceBarrier(1U, &to_shader);
+            } else {
+              D3D12_RESOURCE_BARRIER to_shader{};
+              to_shader.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+              to_shader.Transition.pResource = output_texture_.Get();
+              to_shader.Transition.Subresource =
+                  D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+              to_shader.Transition.StateBefore =
+                  D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+              to_shader.Transition.StateAfter =
+                  D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+              command_list_->ResourceBarrier(1U, &to_shader);
+            }
+            output_state_ = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+          '''
+          source_path.write_text(source_text[:first] + replacement + source_text[last:])
+
+          script_path = Path('/tmp/z2f8b3b3a_apply.py')
+          script = script_path.read_text()
+          call_start_marker = (
+              "replace_once(\n"
+              "    'src/native_shader_execution_d3d12.cpp',\n"
+              "    '''            D3D12_RESOURCE_BARRIER to_copy{};")
+          call_end_marker = (
+              "regex_once(\n"
+              "    'src/native_shader_execution_d3d12.cpp',")
+          if script.count(call_start_marker) != 1 or script.count(call_end_marker) < 1:
+              raise SystemExit('copy-block patch call markers are missing or ambiguous')
+          call_start = script.index(call_start_marker)
+          call_end = script.index(call_end_marker, call_start)
+          script = script[:call_start] + script[call_end:]
+          script = script.replace(
+              "raise SystemExit(f'{path}: expected one literal match, got {count}')",
+              "raise SystemExit(f'{path}: expected one literal match, got {count}: {old.splitlines()[0][:120]}')")
+          script_path.write_text(script)
+          PY
           python3 -m py_compile /tmp/z2f8b3b3a_apply.py
           python3 /tmp/z2f8b3b3a_apply.py
       - name: Publish production sources and remove staging
