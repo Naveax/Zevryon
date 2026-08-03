@@ -1,109 +1,31 @@
 name: z2f8b3b3a-materialize
 
 on:
-  pull_request:
-    types: [opened, synchronize]
+  push:
+    branches: [work/z2f8b3b3a-direct-d3d12-shader-present]
+    paths: ['.github/workflows/z2f8b3b3a-materialize.yml']
 
 permissions:
   contents: write
 
 jobs:
   materialize:
-    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-      - name: Extract and apply exact source patch
+      - name: Decode and apply exact production patch
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          workflow = Path('.github/workflows/z2f8b3b3a-apply.yml').read_text()
-          start = "          python3 - <<'PY'\n"
-          end = "\n          PY\n"
-          if workflow.count(start) != 1 or workflow.count(end) != 1:
-              raise SystemExit('exact patch script markers are missing or ambiguous')
-          body = workflow.split(start, 1)[1].split(end, 1)[0]
-          lines = []
-          for line in body.splitlines():
-              lines.append(line[10:] if line.startswith('          ') else line)
-          script = '\n'.join(lines) + '\n'
-
-          # The workflow transport inserted trailing whitespace into this one
-          # triple-quoted literal. Apply that source block directly using exact
-          # start/end markers, then remove its duplicate call from the script.
-          source_path = Path('src/native_shader_execution_d3d12.cpp')
-          source_text = source_path.read_text()
-          old_start = '            D3D12_RESOURCE_BARRIER to_copy{};\n'
-          old_end = ('            command_list_->CopyTextureRegion('
-                     '&destination, 0U, 0U, 0U, &source, nullptr);\n')
-          if source_text.count(old_start) != 1 or source_text.count(old_end) != 1:
-              raise SystemExit('D3D12 copy block markers are missing or ambiguous')
-          first = source_text.index(old_start)
-          last = source_text.index(old_end, first) + len(old_end)
-          replacement = '''            if (readback != nullptr) {
-                D3D12_RESOURCE_BARRIER to_copy{};
-                to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-                to_copy.Transition.pResource = output_texture_.Get();
-                to_copy.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-                to_copy.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-                to_copy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-                command_list_->ResourceBarrier(1U, &to_copy);
-
-                D3D12_TEXTURE_COPY_LOCATION source{};
-                source.pResource = output_texture_.Get();
-                source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-                source.SubresourceIndex = 0U;
-                D3D12_TEXTURE_COPY_LOCATION destination{};
-                destination.pResource = readback_buffer_.Get();
-                destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-                destination.PlacedFootprint = readback_footprint_;
-                command_list_->CopyTextureRegion(
-                    &destination, 0U, 0U, 0U, &source, nullptr);
-
-                D3D12_RESOURCE_BARRIER to_shader = to_copy;
-                to_shader.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
-                to_shader.Transition.StateAfter =
-                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-                command_list_->ResourceBarrier(1U, &to_shader);
-            } else {
-                D3D12_RESOURCE_BARRIER to_shader{};
-                to_shader.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-                to_shader.Transition.pResource = output_texture_.Get();
-                to_shader.Transition.Subresource =
-                    D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-                to_shader.Transition.StateBefore =
-                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-                to_shader.Transition.StateAfter =
-                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-                command_list_->ResourceBarrier(1U, &to_shader);
-            }
-            output_state_ = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-'''
-          source_path.write_text(source_text[:first] + replacement + source_text[last:])
-
-          call_start_marker = (
-              "replace_once(\n"
-              "    'src/native_shader_execution_d3d12.cpp',\n"
-              "    '''            D3D12_RESOURCE_BARRIER to_copy{};")
-          call_end_marker = (
-              "regex_once(\n"
-              "    'src/native_shader_execution_d3d12.cpp',")
-          if script.count(call_start_marker) != 1 or script.count(call_end_marker) < 1:
-              raise SystemExit('copy-block patch call markers are missing or ambiguous')
-          call_start = script.index(call_start_marker)
-          call_end = script.index(call_end_marker, call_start)
-          script = script[:call_start] + script[call_end:]
-          script = script.replace(
-              "raise SystemExit(f'{path}: expected one literal match, got {count}')",
-              "raise SystemExit(f'{path}: expected one literal match, got {count}: {old.splitlines()[0][:120]}')")
-          Path('/tmp/z2f8b3b3a_apply.py').write_text(script)
-          PY
+          cat \
+            .z2f8b3b3a/part00 \
+            .z2f8b3b3a/part01 \
+            .z2f8b3b3a/part02 \
+            .z2f8b3b3a/part03 \
+            .z2f8b3b3a/part04 \
+            | base64 -d > /tmp/z2f8b3b3a_apply.py
           python3 -m py_compile /tmp/z2f8b3b3a_apply.py
           python3 /tmp/z2f8b3b3a_apply.py
       - name: Publish production sources and remove staging
@@ -116,6 +38,9 @@ jobs:
             src/native_window_swapchain.hpp \
             src/native_shader_execution_d3d12.cpp \
             src/native_window_swapchain_d3d12.cpp
-          git rm -r .z2f8b3b3a .github/workflows/z2f8b3b3a-apply.yml
+          git rm -r \
+            .z2f8b3b3a \
+            .github/workflows/z2f8b3b3a-apply.yml \
+            .github/workflows/z2f8b3b3a-materialize.yml
           git commit -m "Z2F-8B3B3A: connect D3D12 shader surfaces to DXGI"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          git push origin HEAD:work/z2f8b3b3a-direct-d3d12-shader-present
