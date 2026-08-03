@@ -1,4 +1,4 @@
-name: Z2R-0 Rust core foundation
+name: Z2R Rust core certification
 
 on:
   workflow_dispatch:
@@ -6,22 +6,26 @@ on:
     paths:
       - "rust/**"
       - "src/rust_resource_ledger.*"
+      - "src/shadow_resource_ledger.*"
       - "src/zevryon_rust_ffi.h"
       - "src/resource_ledger.*"
       - "tests/rust_resource_ledger_equivalence_tests.cpp"
+      - "tests/rust_resource_ledger_benchmark.cpp"
+      - "tests/shadow_resource_ledger_tests.cpp"
       - "tests/rust_ffi_c_abi_tests.c"
+      - "tests/check_z2r1_ledger_baseline.py"
       - ".github/workflows/z2r0-rust-core-foundation.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: z2r0-rust-core-${{ github.event.pull_request.number || github.ref }}
+  group: z2r-rust-core-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   rust-core:
-    name: ${{ matrix.os }} Rust/C/C++ equivalence
+    name: ${{ matrix.os }} Rust/C/C++ shadow certification
     strategy:
       fail-fast: false
       matrix:
@@ -35,6 +39,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Install stable Rust toolchain
         run: |
           rustup toolchain install stable --profile minimal
@@ -46,6 +55,7 @@ jobs:
           rustc --version --verbose
           cargo --version
           cmake --version
+          python --version
 
       - name: Check Rust formatting
         run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
@@ -59,8 +69,26 @@ jobs:
       - name: Configure standalone bridge
         run: cmake -S rust/bridge -B build-rust -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build Rust C and C++ certification targets
-        run: cmake --build build-rust --config Release --target zevryon-rust-resource-ledger-tests zevryon-rust-c-abi-tests --parallel 2
+      - name: Build Rust C C++ shadow and benchmark targets
+        run: >-
+          cmake --build build-rust --config Release --parallel 2 --target
+          zevryon-rust-resource-ledger-tests
+          zevryon-rust-shadow-ledger-tests
+          zevryon-rust-resource-ledger-benchmark
+          zevryon-rust-c-abi-tests
 
-      - name: Run Rust C and C++ certification tests
-        run: ctest --test-dir build-rust -C Release --output-on-failure -R "rust-(resource-ledger-equivalence|c-abi-runtime)"
+      - name: Run exact equivalence shadow and performance certification
+        run: >-
+          ctest --test-dir build-rust -C Release --output-on-failure
+          -R "rust-(resource-ledger-equivalence|shadow-resource-ledger|resource-ledger-performance|c-abi-runtime)"
+
+      - name: Enforce measured performance ratios
+        run: python tests/check_z2r1_ledger_baseline.py build-rust/z2r1-ledger-performance.json
+
+      - name: Upload ledger performance baseline
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: z2r1-ledger-performance-${{ matrix.os }}-${{ github.sha }}
+          path: build-rust/z2r1-ledger-performance.json
+          if-no-files-found: warn
