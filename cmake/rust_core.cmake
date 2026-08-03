@@ -18,6 +18,17 @@ file(GLOB_RECURSE ZEVRYON_RUST_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/rust/crates/*.rs"
   "${CMAKE_CURRENT_SOURCE_DIR}/rust/crates/*/Cargo.toml")
 
+# In strict certification mode every mismatch path deliberately terminates the
+# process. MSVC consequently diagnoses the immediately following control-flow
+# joins in resource_ledger.cpp as C4702. Scope the suppression to that one
+# translation unit and only to the strict Rust-shadow build; all other warning
+# policy remains /W4 /WX.
+if(MSVC AND ZEVRYON_RUST_LEDGER_SHADOW_STRICT)
+  set_source_files_properties(
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/resource_ledger.cpp"
+    PROPERTIES COMPILE_OPTIONS "/wd4702")
+endif()
+
 add_custom_command(
   OUTPUT "${ZEVRYON_RUST_FFI_LIBRARY}"
   COMMAND
