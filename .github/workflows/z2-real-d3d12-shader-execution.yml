@@ -37,20 +37,20 @@ jobs:
             '.z2f8b3b3a/part03',
             '.z2f8b3b3a/part04'
           )
-          $stream = [IO.MemoryStream]::new()
-          try {
-            foreach ($part in $parts) {
-              if (-not (Test-Path -LiteralPath $part)) { throw "Missing $part" }
-              $encoded = (Get-Content -LiteralPath $part -Raw) -replace '\s', ''
-              $chunk = [Convert]::FromBase64String($encoded)
-              $stream.Write($chunk, 0, $chunk.Length)
-            }
-            $scriptPath = Join-Path $env:RUNNER_TEMP 'z2f8b3b3a_apply.py'
-            [IO.File]::WriteAllBytes($scriptPath, $stream.ToArray())
+          foreach ($part in $parts) {
+            if (-not (Test-Path -LiteralPath $part)) { throw "Missing $part" }
           }
-          finally {
-            $stream.Dispose()
+          $encoded = ($parts | ForEach-Object {
+            Get-Content -LiteralPath $_ -Raw
+          }) -join ''
+          $encoded = $encoded -replace '[^A-Za-z0-9+/=]', ''
+          if (($encoded.Length % 4) -ne 0) {
+            throw "Filtered base64 length is not divisible by four: $($encoded.Length)"
           }
+          $scriptPath = Join-Path $env:RUNNER_TEMP 'z2f8b3b3a_apply.py'
+          [IO.File]::WriteAllBytes(
+            $scriptPath,
+            [Convert]::FromBase64String($encoded))
           python -m py_compile $scriptPath
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python $scriptPath
