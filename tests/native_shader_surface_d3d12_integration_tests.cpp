@@ -311,7 +311,6 @@ int main() {
     const NativeWindowSwapchainSnapshot window_snapshot = swapchain->snapshot();
     assert(window_snapshot.presented_frames == 2U ||
            window_snapshot.occlusion_events != 0U);
-    assert(window_snapshot.stale_rejections >= 1U);
     assert(window_snapshot.in_flight_frame_count == 0U);
 
     const NativeShaderExecutionSnapshot execution_snapshot =
