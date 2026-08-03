@@ -30,8 +30,8 @@ typedef struct ZrResourceSnapshot {
     uint64_t physical_write_bytes;
 } ZrResourceSnapshot;
 
-typedef struct ZR_ALIGNAS(ZR_LEDGER_STORAGE_ALIGN) ZrLedgerStorage {
-    uint8_t bytes[ZR_LEDGER_STORAGE_BYTES];
+typedef struct ZrLedgerStorage {
+    ZR_ALIGNAS(ZR_LEDGER_STORAGE_ALIGN) uint8_t bytes[ZR_LEDGER_STORAGE_BYTES];
 } ZrLedgerStorage;
 
 uint32_t zr_abi_version(void);
