@@ -156,7 +156,9 @@ int main() {
     {
         ResourceLedger ledger;
         ledger.set_hard_limit(ResourceClass::UnicodeBuffer, 4U * 1024U * 1024U);
-        Evidence evidence{.name = "unicode", .input_items = bytes.size()};
+        Evidence evidence;
+        evidence.name = "unicode";
+        evidence.input_items = bytes.size();
         const auto started = std::chrono::steady_clock::now();
         {
             LedgerMemoryResource memory(ledger, ResourceClass::UnicodeBuffer);
@@ -199,7 +201,9 @@ int main() {
     {
         ResourceLedger ledger;
         ledger.set_hard_limit(ResourceClass::GraphemeCluster, 2U * 1024U * 1024U);
-        Evidence evidence{.name = "grapheme", .input_items = codepoints.size()};
+        Evidence evidence;
+        evidence.name = "grapheme";
+        evidence.input_items = codepoints.size();
         zevryon::text::GraphemeSegmentStats stats;
         const auto started = std::chrono::steady_clock::now();
         {
@@ -232,10 +236,9 @@ int main() {
     {
         ResourceLedger ledger;
         ledger.set_hard_limit(ResourceClass::ScriptRun, 1U * 1024U * 1024U);
-        Evidence evidence{
-            .name = "script",
-            .input_items = boundaries.empty() ? 0U : boundaries.size() - 1U,
-        };
+        Evidence evidence;
+        evidence.name = "script";
+        evidence.input_items = boundaries.empty() ? 0U : boundaries.size() - 1U;
         zevryon::text::ScriptRunStats stats;
         const auto started = std::chrono::steady_clock::now();
         {
@@ -270,7 +273,9 @@ int main() {
     {
         ResourceLedger ledger;
         ledger.set_hard_limit(ResourceClass::BidiRun, 2U * 1024U * 1024U);
-        Evidence evidence{.name = "bidi", .input_items = codepoints.size()};
+        Evidence evidence;
+        evidence.name = "bidi";
+        evidence.input_items = codepoints.size();
         zevryon::text::BidiExplicitStats stats;
         const auto started = std::chrono::steady_clock::now();
         {
