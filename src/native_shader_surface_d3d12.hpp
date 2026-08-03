@@ -10,6 +10,7 @@
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 
+#include <array>
 #include <cstdint>
 
 namespace zevryon::text::detail {
@@ -38,6 +39,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> pipeline_state_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> descriptor_heap_;
     DXGI_FORMAT render_target_format_{DXGI_FORMAT_UNKNOWN};
+    UINT descriptor_increment_{0U};
+    std::array<ID3D12Resource*, 16U> descriptor_targets_{};
 };
 
 } // namespace zevryon::text::detail
