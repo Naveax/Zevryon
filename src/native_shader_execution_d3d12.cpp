@@ -392,12 +392,11 @@ public:
         snapshot_ = {};
         snapshot_.api_kind = NativeGpuApiKind::Direct3D12;
         snapshot_.configured = 1U;
-        snapshot_.capability_flags =
-            kNativeShaderExecutionIntegerComposition |
-            kNativeShaderExecutionPersistentAtlas |
-            kNativeShaderExecutionGpuReadback |
-            kNativeShaderExecutionRetainedContext |
-            kNativeShaderExecutionDirectSurfaceExport;
+        snapshot_.capability_flags = kNativeShaderExecutionIntegerComposition |
+                                     kNativeShaderExecutionPersistentAtlas |
+                                     kNativeShaderExecutionGpuReadback |
+                                     kNativeShaderExecutionRetainedContext |
+                                     kNativeShaderExecutionDirectSurfaceExport;
         snapshot_.device_generation = config.context.device_generation;
         snapshot_.runtime_generation = config.context.runtime_generation;
         snapshot_.executor_generation = config.executor_generation;
@@ -411,16 +410,16 @@ public:
         NativeShaderExecutionError* error) noexcept override {
         std::lock_guard<std::mutex> lock(mutex_);
         clear_error(error);
-        if (snapshot_.configured == 0U ||
-            packet.header.frame_id == 0U ||
+        if (snapshot_.configured == 0U || packet.header.frame_id == 0U ||
             packet.header.packet_checksum != shader_packet_checksum(packet) ||
             packet.header.command_count != packet.commands.size() ||
             packet.header.fill_instance_count != packet.fills.size() ||
             packet.header.glyph_instance_count != packet.glyphs.size() ||
-            packet.header.surface_width == 0U || packet.header.surface_height == 0U) {
-            snapshot_.rejected_packets += 1U;
-            return fail(error, NativeShaderExecutionErrorKind::InvalidInput,
-                        "invalid or mutated shader packet");
+            packet.header.surface_width == 0U ||
+            packet.header.surface_height == 0U) {
+          snapshot_.rejected_packets += 1U;
+          return fail(error, NativeShaderExecutionErrorKind::InvalidInput,
+                      "invalid or mutated shader packet");
         }
         if (packet.commands.size() > config_.limits.maximum_commands ||
             packet.fills.size() > config_.limits.maximum_fill_instances ||
@@ -575,43 +574,46 @@ public:
                 }
             }
             if (readback != nullptr) {
-      D3D12_RESOURCE_BARRIER to_copy{};
-      to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-      to_copy.Transition.pResource = output_texture_.Get();
-      to_copy.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-      to_copy.Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-      to_copy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-      command_list_->ResourceBarrier(1U, &to_copy);
+              D3D12_RESOURCE_BARRIER to_copy{};
+              to_copy.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+              to_copy.Transition.pResource = output_texture_.Get();
+              to_copy.Transition.Subresource =
+                  D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+              to_copy.Transition.StateBefore =
+                  D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+              to_copy.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+              command_list_->ResourceBarrier(1U, &to_copy);
 
-      D3D12_TEXTURE_COPY_LOCATION source{};
-      source.pResource = output_texture_.Get();
-      source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-      source.SubresourceIndex = 0U;
-      D3D12_TEXTURE_COPY_LOCATION destination{};
-      destination.pResource = readback_buffer_.Get();
-      destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-      destination.PlacedFootprint = readback_footprint_;
-      command_list_->CopyTextureRegion(
-          &destination, 0U, 0U, 0U, &source, nullptr);
+              D3D12_TEXTURE_COPY_LOCATION source{};
+              source.pResource = output_texture_.Get();
+              source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+              source.SubresourceIndex = 0U;
+              D3D12_TEXTURE_COPY_LOCATION destination{};
+              destination.pResource = readback_buffer_.Get();
+              destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+              destination.PlacedFootprint = readback_footprint_;
+              command_list_->CopyTextureRegion(&destination, 0U, 0U, 0U,
+                                               &source, nullptr);
 
-      D3D12_RESOURCE_BARRIER to_shader = to_copy;
-      to_shader.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
-      to_shader.Transition.StateAfter =
-          D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-      command_list_->ResourceBarrier(1U, &to_shader);
-  } else {
-      D3D12_RESOURCE_BARRIER to_shader{};
-      to_shader.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-      to_shader.Transition.pResource = output_texture_.Get();
-      to_shader.Transition.Subresource =
-          D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-      to_shader.Transition.StateBefore =
-          D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-      to_shader.Transition.StateAfter =
-          D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
-      command_list_->ResourceBarrier(1U, &to_shader);
-  }
-  output_state_ = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+              D3D12_RESOURCE_BARRIER to_shader = to_copy;
+              to_shader.Transition.StateBefore =
+                  D3D12_RESOURCE_STATE_COPY_SOURCE;
+              to_shader.Transition.StateAfter =
+                  D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+              command_list_->ResourceBarrier(1U, &to_shader);
+            } else {
+              D3D12_RESOURCE_BARRIER to_shader{};
+              to_shader.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+              to_shader.Transition.pResource = output_texture_.Get();
+              to_shader.Transition.Subresource =
+                  D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+              to_shader.Transition.StateBefore =
+                  D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+              to_shader.Transition.StateAfter =
+                  D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+              command_list_->ResourceBarrier(1U, &to_shader);
+            }
+            output_state_ = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
             result = command_list_->Close();
             if (FAILED(result)) {
                 return fail(error, NativeShaderExecutionErrorKind::CommandEncodingFailed,
@@ -624,79 +626,79 @@ public:
             }
 
             if (readback != nullptr) {
-      ShaderReadback candidate{};
-      candidate.width = packet.header.surface_width;
-      candidate.height = packet.header.surface_height;
-      candidate.row_bytes = packet.header.surface_width * 4U;
-      std::uint64_t surface_bytes = 0U;
-      if (!checked_multiply(
-              candidate.row_bytes, candidate.height, &surface_bytes) ||
-          surface_bytes > config_.limits.maximum_readback_bytes ||
-          surface_bytes > (std::numeric_limits<std::size_t>::max)()) {
-          return fail(
-              error,
-              NativeShaderExecutionErrorKind::ResourceBudgetExceeded,
-              "readback byte count exceeds the configured limit");
-      }
-      candidate.bgra.resize(static_cast<std::size_t>(surface_bytes));
-      void* mapped = nullptr;
-      D3D12_RANGE read_range{
-          0U, static_cast<SIZE_T>(readback_total_bytes_)};
-      result = readback_buffer_->Map(0U, &read_range, &mapped);
-      if (FAILED(result) || mapped == nullptr) {
-          return fail(
-              error,
-              NativeShaderExecutionErrorKind::ReadbackFailed,
-              "readback buffer mapping failed",
-              result);
-      }
-      const auto* source_bytes =
-          static_cast<const std::byte*>(mapped) +
-          static_cast<std::size_t>(readback_footprint_.Offset);
-      for (std::uint32_t row = 0U; row < candidate.height; ++row) {
-          std::memcpy(
-              candidate.bgra.data() +
-                  static_cast<std::size_t>(row) * candidate.row_bytes,
-              source_bytes + static_cast<std::size_t>(row) *
-                  readback_footprint_.Footprint.RowPitch,
-              candidate.row_bytes);
-      }
-      D3D12_RANGE write_range{0U, 0U};
-      readback_buffer_->Unmap(0U, &write_range);
-      candidate.checksum = shader_bytes_checksum(candidate.bgra);
-      *readback = std::move(candidate);
-  }            last_surface_ = {};
-  last_surface_.api_kind = NativeGpuApiKind::Direct3D12;
-  last_surface_.format = GpuSurfaceFormat::Bgra8Unorm;
-  last_surface_.state = NativeShaderSurfaceState::ShaderRead;
-  last_surface_.flags =
-      kNativeShaderSurfaceReady |
-      kNativeShaderSurfaceNonOwning |
-      kNativeShaderSurfacePremultipliedAlpha;
-  last_surface_.device_generation = config_.context.device_generation;
-  last_surface_.runtime_generation = config_.context.runtime_generation;
-  last_surface_.executor_generation = config_.executor_generation;
-  last_surface_.output_generation = output_generation_;
-  last_surface_.frame_id = packet.header.frame_id;
-  last_surface_.content_checksum = packet.header.packet_checksum;
-  last_surface_.native_resource = static_cast<std::uint64_t>(
-      reinterpret_cast<std::uintptr_t>(output_texture_.Get()));
-  last_surface_.width = packet.header.surface_width;
-  last_surface_.height = packet.header.surface_height;
+              ShaderReadback candidate{};
+              candidate.width = packet.header.surface_width;
+              candidate.height = packet.header.surface_height;
+              candidate.row_bytes = packet.header.surface_width * 4U;
+              std::uint64_t surface_bytes = 0U;
+              if (!checked_multiply(candidate.row_bytes, candidate.height,
+                                    &surface_bytes) ||
+                  surface_bytes > config_.limits.maximum_readback_bytes ||
+                  surface_bytes > (std::numeric_limits<std::size_t>::max)()) {
+                return fail(
+                    error,
+                    NativeShaderExecutionErrorKind::ResourceBudgetExceeded,
+                    "readback byte count exceeds the configured limit");
+              }
+              candidate.bgra.resize(static_cast<std::size_t>(surface_bytes));
+              void *mapped = nullptr;
+              D3D12_RANGE read_range{
+                  0U, static_cast<SIZE_T>(readback_total_bytes_)};
+              result = readback_buffer_->Map(0U, &read_range, &mapped);
+              if (FAILED(result) || mapped == nullptr) {
+                return fail(error,
+                            NativeShaderExecutionErrorKind::ReadbackFailed,
+                            "readback buffer mapping failed", result);
+              }
+              const auto *source_bytes =
+                  static_cast<const std::byte *>(mapped) +
+                  static_cast<std::size_t>(readback_footprint_.Offset);
+              for (std::uint32_t row = 0U; row < candidate.height; ++row) {
+                std::memcpy(
+                    candidate.bgra.data() +
+                        static_cast<std::size_t>(row) * candidate.row_bytes,
+                    source_bytes + static_cast<std::size_t>(row) *
+                                       readback_footprint_.Footprint.RowPitch,
+                    candidate.row_bytes);
+              }
+              D3D12_RANGE write_range{0U, 0U};
+              readback_buffer_->Unmap(0U, &write_range);
+              candidate.checksum = shader_bytes_checksum(candidate.bgra);
+              *readback = std::move(candidate);
+            }
+            last_surface_ = {};
+            last_surface_.api_kind = NativeGpuApiKind::Direct3D12;
+            last_surface_.format = GpuSurfaceFormat::Bgra8Unorm;
+            last_surface_.state = NativeShaderSurfaceState::ShaderRead;
+            last_surface_.flags = kNativeShaderSurfaceReady |
+                                  kNativeShaderSurfaceNonOwning |
+                                  kNativeShaderSurfacePremultipliedAlpha;
+            last_surface_.device_generation = config_.context.device_generation;
+            last_surface_.runtime_generation =
+                config_.context.runtime_generation;
+            last_surface_.executor_generation = config_.executor_generation;
+            last_surface_.output_generation = output_generation_;
+            last_surface_.frame_id = packet.header.frame_id;
+            last_surface_.content_checksum = packet.header.packet_checksum;
+            last_surface_.native_resource = static_cast<std::uint64_t>(
+                reinterpret_cast<std::uintptr_t>(output_texture_.Get()));
+            last_surface_.width = packet.header.surface_width;
+            last_surface_.height = packet.header.surface_height;
 
-  snapshot_.executions += 1U;
-  snapshot_.last_packet_checksum = packet.header.packet_checksum;
-  if (readback != nullptr) {
-      snapshot_.readbacks += 1U;
-      snapshot_.last_readback_checksum = readback->checksum;
-  }
-  const std::uint64_t transient =
-      static_cast<std::uint64_t>(commands.size()) * sizeof(D3dCommand) +
-      static_cast<std::uint64_t>(fills.size()) * sizeof(D3dFill) +
-      static_cast<std::uint64_t>(glyphs.size()) * sizeof(D3dGlyph) +
-      (readback != nullptr ? readback_total_bytes_ : 0U);
-snapshot_.peak_transient_bytes = std::max(
-                snapshot_.peak_transient_bytes, transient);
+            snapshot_.executions += 1U;
+            snapshot_.last_packet_checksum = packet.header.packet_checksum;
+            if (readback != nullptr) {
+              snapshot_.readbacks += 1U;
+              snapshot_.last_readback_checksum = readback->checksum;
+            }
+            const std::uint64_t transient =
+                static_cast<std::uint64_t>(commands.size()) *
+                    sizeof(D3dCommand) +
+                static_cast<std::uint64_t>(fills.size()) * sizeof(D3dFill) +
+                static_cast<std::uint64_t>(glyphs.size()) * sizeof(D3dGlyph) +
+                (readback != nullptr ? readback_total_bytes_ : 0U);
+            snapshot_.peak_transient_bytes =
+                std::max(snapshot_.peak_transient_bytes, transient);
             return true;
         } catch (const std::bad_alloc&) {
             return fail(error, NativeShaderExecutionErrorKind::AllocationFailed,
@@ -707,23 +709,22 @@ snapshot_.peak_transient_bytes = std::max(
         }
     }
 
-    bool export_surface(
-        NativeShaderSurfaceView* surface,
-        NativeShaderExecutionError* error) noexcept override {
-        std::lock_guard<std::mutex> lock(mutex_);
-        clear_error(error);
-        if (surface == nullptr) {
-  return fail(error, NativeShaderExecutionErrorKind::InvalidInput,
-              "shader surface output is null");
-        }
-        if (!native_shader_surface_view_valid(last_surface_) ||
-  output_texture_ == nullptr) {
-  *surface = {};
-  return fail(error, NativeShaderExecutionErrorKind::StaleGeneration,
-              "no completed Direct3D 12 shader surface is available");
-        }
-        *surface = last_surface_;
-        return true;
+    bool export_surface(NativeShaderSurfaceView *surface,
+                        NativeShaderExecutionError *error) noexcept override {
+      std::lock_guard<std::mutex> lock(mutex_);
+      clear_error(error);
+      if (surface == nullptr) {
+        return fail(error, NativeShaderExecutionErrorKind::InvalidInput,
+                    "shader surface output is null");
+      }
+      if (!native_shader_surface_view_valid(last_surface_) ||
+          output_texture_ == nullptr) {
+        *surface = {};
+        return fail(error, NativeShaderExecutionErrorKind::StaleGeneration,
+                    "no completed Direct3D 12 shader surface is available");
+      }
+      *surface = last_surface_;
+      return true;
     }
 
     NativeShaderExecutionSnapshot snapshot() const noexcept override {
@@ -1091,9 +1092,10 @@ private:
                         "readback buffer allocation failed", result);
         }
         if (next_output_generation_ ==
-  (std::numeric_limits<std::uint64_t>::max)()) {
-  return fail(error, NativeShaderExecutionErrorKind::ResourceAllocationFailed,
-              "Direct3D 12 shader output generation overflowed");
+            (std::numeric_limits<std::uint64_t>::max)()) {
+          return fail(error,
+                      NativeShaderExecutionErrorKind::ResourceAllocationFailed,
+                      "Direct3D 12 shader output generation overflowed");
         }
         output_texture_ = std::move(output);
         readback_buffer_ = std::move(readback);
