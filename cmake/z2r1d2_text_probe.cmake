@@ -1,7 +1,7 @@
 if(NOT TARGET zevryon-z2r1d2-text-probe)
   add_executable(
     zevryon-z2r1d2-text-probe
-    "${CMAKE_CURRENT_LIST_DIR}/../tests/z2r1d2_text_workload_probe.cpp")
+    "${CMAKE_CURRENT_LIST_DIR}/../tests/z2r1d2_text_workload_probe_v2.cpp")
   target_include_directories(
     zevryon-z2r1d2-text-probe
     PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../src")
