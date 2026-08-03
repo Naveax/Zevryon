@@ -4,8 +4,8 @@
 use core::mem::{align_of, size_of};
 use core::ptr;
 use zevryon_abi::{
-    ZrLedgerStorage, ZrResourceSnapshot, ZR_ABI_VERSION, ZR_LEDGER_STORAGE_BYTES,
-    ZR_LEDGER_STORAGE_ALIGN, ZR_RESOURCE_CLASS_COUNT,
+    ZrLedgerStorage, ZrResourceSnapshot, ZR_ABI_VERSION, ZR_LEDGER_STORAGE_ALIGN,
+    ZR_LEDGER_STORAGE_BYTES, ZR_RESOURCE_CLASS_COUNT,
 };
 use zevryon_ledger::ResourceLedger;
 
@@ -78,7 +78,9 @@ pub extern "C" fn zr_ledger_init(storage: *mut ZrLedgerStorage) -> u8 {
     unsafe {
         // SAFETY: The storage is non-null, aligned, and large enough by the compile-time
         // assertions above. ResourceLedger has no externally owned allocations.
-        storage.cast::<ResourceLedger>().write(ResourceLedger::new());
+        storage
+            .cast::<ResourceLedger>()
+            .write(ResourceLedger::new());
     }
     1
 }
@@ -106,8 +108,10 @@ pub extern "C" fn zr_ledger_set_hard_limit(
     bytes: usize,
 ) -> u8 {
     u8::from(
-        with_ledger_mut(storage, |ledger| ledger.set_hard_limit(resource_class, bytes))
-            .unwrap_or(false),
+        with_ledger_mut(storage, |ledger| {
+            ledger.set_hard_limit(resource_class, bytes)
+        })
+        .unwrap_or(false),
     )
 }
 
@@ -131,8 +135,7 @@ pub extern "C" fn zr_ledger_release(
     bytes: usize,
 ) -> u8 {
     u8::from(
-        with_ledger_mut(storage, |ledger| ledger.release(resource_class, bytes))
-            .unwrap_or(false),
+        with_ledger_mut(storage, |ledger| ledger.release(resource_class, bytes)).unwrap_or(false),
     )
 }
 
@@ -142,8 +145,7 @@ pub extern "C" fn zr_ledger_record_cache_hit(
     resource_class: u32,
 ) -> u8 {
     u8::from(
-        with_ledger_mut(storage, |ledger| ledger.record_cache_hit(resource_class))
-            .unwrap_or(false),
+        with_ledger_mut(storage, |ledger| ledger.record_cache_hit(resource_class)).unwrap_or(false),
     )
 }
 
@@ -164,8 +166,7 @@ pub extern "C" fn zr_ledger_record_eviction(
     resource_class: u32,
 ) -> u8 {
     u8::from(
-        with_ledger_mut(storage, |ledger| ledger.record_eviction(resource_class))
-            .unwrap_or(false),
+        with_ledger_mut(storage, |ledger| ledger.record_eviction(resource_class)).unwrap_or(false),
     )
 }
 
