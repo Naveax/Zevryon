@@ -64,6 +64,13 @@ function(zevryon_strict_options target)
   endif()
 endfunction()
 
+function(zevryon_cpp_options target)
+  zevryon_strict_options(${target})
+  if(MSVC)
+    target_compile_options(${target} PRIVATE /permissive- /EHsc)
+  endif()
+endfunction()
+
 function(zevryon_link_rust_runtime target)
   target_link_libraries(${target} PRIVATE zevryon-rust-ffi)
   add_dependencies(${target} zevryon-rust-ffi-build)
@@ -90,15 +97,16 @@ endfunction()
 
 add_library(zevryon-rust-ledger-bridge STATIC
   "${ZEVRYON_ROOT}/src/resource_ledger.cpp"
-  "${ZEVRYON_ROOT}/src/rust_resource_ledger.cpp")
+  "${ZEVRYON_ROOT}/src/rust_resource_ledger.cpp"
+  "${ZEVRYON_ROOT}/src/shadow_resource_ledger.cpp")
 target_include_directories(
   zevryon-rust-ledger-bridge
   PUBLIC "${ZEVRYON_ROOT}/src")
+target_compile_definitions(
+  zevryon-rust-ledger-bridge
+  PRIVATE ZEVRYON_SHADOW_LEDGER_TEST_HOOKS=1)
 add_dependencies(zevryon-rust-ledger-bridge zevryon-rust-ffi-build)
-zevryon_strict_options(zevryon-rust-ledger-bridge)
-if(MSVC)
-  target_compile_options(zevryon-rust-ledger-bridge PRIVATE /permissive- /EHsc)
-endif()
+zevryon_cpp_options(zevryon-rust-ledger-bridge)
 
 add_executable(
   zevryon-rust-resource-ledger-tests
@@ -106,10 +114,26 @@ add_executable(
 target_link_libraries(
   zevryon-rust-resource-ledger-tests PRIVATE zevryon-rust-ledger-bridge)
 zevryon_link_rust_runtime(zevryon-rust-resource-ledger-tests)
-zevryon_strict_options(zevryon-rust-resource-ledger-tests)
-if(MSVC)
-  target_compile_options(zevryon-rust-resource-ledger-tests PRIVATE /permissive- /EHsc)
-endif()
+zevryon_cpp_options(zevryon-rust-resource-ledger-tests)
+
+add_executable(
+  zevryon-rust-shadow-ledger-tests
+  "${ZEVRYON_ROOT}/tests/shadow_resource_ledger_tests.cpp")
+target_compile_definitions(
+  zevryon-rust-shadow-ledger-tests
+  PRIVATE ZEVRYON_SHADOW_LEDGER_TEST_HOOKS=1)
+target_link_libraries(
+  zevryon-rust-shadow-ledger-tests PRIVATE zevryon-rust-ledger-bridge)
+zevryon_link_rust_runtime(zevryon-rust-shadow-ledger-tests)
+zevryon_cpp_options(zevryon-rust-shadow-ledger-tests)
+
+add_executable(
+  zevryon-rust-resource-ledger-benchmark
+  "${ZEVRYON_ROOT}/tests/rust_resource_ledger_benchmark.cpp")
+target_link_libraries(
+  zevryon-rust-resource-ledger-benchmark PRIVATE zevryon-rust-ledger-bridge)
+zevryon_link_rust_runtime(zevryon-rust-resource-ledger-benchmark)
+zevryon_cpp_options(zevryon-rust-resource-ledger-benchmark)
 
 add_executable(
   zevryon-rust-c-abi-tests
@@ -124,5 +148,16 @@ add_test(
   NAME rust-resource-ledger-equivalence
   COMMAND zevryon-rust-resource-ledger-tests)
 add_test(
+  NAME rust-shadow-resource-ledger
+  COMMAND zevryon-rust-shadow-ledger-tests)
+add_test(
+  NAME rust-resource-ledger-performance
+  COMMAND
+    zevryon-rust-resource-ledger-benchmark
+    --json "${CMAKE_CURRENT_BINARY_DIR}/z2r1-ledger-performance.json")
+add_test(
   NAME rust-c-abi-runtime
   COMMAND zevryon-rust-c-abi-tests)
+set_tests_properties(
+  rust-resource-ledger-performance
+  PROPERTIES TIMEOUT 180)
