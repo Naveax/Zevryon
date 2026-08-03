@@ -41,6 +41,8 @@ int main() {
             65'536U + index * 1'024U);
     }
 
+    std::uint64_t performed_operations =
+        static_cast<std::uint64_t>(resource_class_count);
     std::uint64_t random_state = 0x6A09E667F3BCC909ULL;
     for (std::size_t operation = 0U; operation < operation_count; ++operation) {
         const std::uint64_t random = next_random(random_state);
@@ -70,20 +72,20 @@ int main() {
         default:
             ledger.record_physical_write(resource_class, random >> 1U);
             ledger.record_eviction(resource_class);
+            ++performed_operations;
             break;
         }
+        ++performed_operations;
     }
 
-    const std::uint64_t expected_operations =
-        static_cast<std::uint64_t>(resource_class_count + operation_count);
     if (!require(ledger.verify_now(), "final full verification succeeds") ||
         !require(ledger.healthy(), "matching C++ and Rust ledgers remain healthy") ||
         !require(
-            ledger.diagnostics().operations == expected_operations,
+            ledger.diagnostics().operations == performed_operations,
             "every mutating operation is counted") ||
         !require(
             ledger.diagnostics().verifications >=
-                expected_operations / verification_interval,
+                performed_operations / verification_interval,
             "periodic verification cadence is enforced") ||
         !require(
             ledger.diagnostics().mismatches == 0U,
