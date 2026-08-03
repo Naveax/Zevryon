@@ -6,16 +6,12 @@ on:
       - '.github/workflows/z2-real-d3d12-shader-execution.yml'
   workflow_dispatch:
 
-concurrency:
-  group: z2f8b3b3a-stale-accounting-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
-
 permissions:
   contents: write
 
 jobs:
   materialize-stale-accounting:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -23,10 +19,9 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
       - name: Patch production accounting
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          python3 - <<'PY'
+          @'
           from pathlib import Path
           import re
 
@@ -46,18 +41,19 @@ jobs:
               f'{indent}snapshot_.stale_rejections += 1U;\n'
               f'{match.group(0)}')
           path.write_text(text[:match.start()] + replacement + text[match.end():])
-          PY
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git diff --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Publish production fix and restore focused CI
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git checkout ba059a5fbc8db7796443ff25b148e2d859892554 -- \
-            .github/workflows/z2-real-d3d12-shader-execution.yml
-          git add \
-            .github/workflows/z2-real-d3d12-shader-execution.yml \
-            src/native_window_swapchain_d3d12.cpp
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout ba059a5fbc8db7796443ff25b148e2d859892554 -- .github/workflows/z2-real-d3d12-shader-execution.yml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git add .github/workflows/z2-real-d3d12-shader-execution.yml src/native_window_swapchain_d3d12.cpp
           git commit -m "Account rejected D3D12 shader-surface generations"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
