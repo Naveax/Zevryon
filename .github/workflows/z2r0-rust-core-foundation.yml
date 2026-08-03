@@ -13,6 +13,7 @@ on:
       - "tests/rust_resource_ledger_benchmark.cpp"
       - "tests/shadow_resource_ledger_tests.cpp"
       - "tests/rust_ffi_c_abi_tests.c"
+      - "tests/check_z2r1_ledger_baseline.py"
       - ".github/workflows/z2r0-rust-core-foundation.yml"
 
 permissions:
@@ -38,6 +39,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Install stable Rust toolchain
         run: |
           rustup toolchain install stable --profile minimal
@@ -49,6 +55,7 @@ jobs:
           rustc --version --verbose
           cargo --version
           cmake --version
+          python --version
 
       - name: Check Rust formatting
         run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
@@ -74,6 +81,9 @@ jobs:
         run: >-
           ctest --test-dir build-rust -C Release --output-on-failure
           -R "rust-(resource-ledger-equivalence|shadow-resource-ledger|resource-ledger-performance|c-abi-runtime)"
+
+      - name: Enforce measured performance ratios
+        run: python tests/check_z2r1_ledger_baseline.py build-rust/z2r1-ledger-performance.json
 
       - name: Upload ledger performance baseline
         if: always()
