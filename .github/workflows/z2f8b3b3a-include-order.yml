@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: z2f8b3b3a-include-order-${{ github.event.pull_request.number || github.ref }}
+  group: z2f8b3b3a-include-order-windows-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 permissions:
