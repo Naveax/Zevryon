@@ -11,6 +11,7 @@ on:
       - "src/zevryon_rust_ffi.h"
       - "src/resource_ledger.*"
       - "tests/rust_resource_ledger_equivalence_tests.cpp"
+      - "tests/rust_ffi_c_abi_tests.c"
       - ".github/workflows/z2r0-rust-core-foundation.yml"
   pull_request:
     paths:
@@ -19,6 +20,7 @@ on:
       - "src/zevryon_rust_ffi.h"
       - "src/resource_ledger.*"
       - "tests/rust_resource_ledger_equivalence_tests.cpp"
+      - "tests/rust_ffi_c_abi_tests.c"
       - ".github/workflows/z2r0-rust-core-foundation.yml"
 
 permissions:
@@ -30,7 +32,7 @@ concurrency:
 
 jobs:
   rust-core:
-    name: ${{ matrix.os }} Rust/C++ equivalence
+    name: ${{ matrix.os }} Rust/C/C++ equivalence
     strategy:
       fail-fast: false
       matrix:
@@ -68,8 +70,8 @@ jobs:
       - name: Configure standalone bridge
         run: cmake -S rust/bridge -B build-rust -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build Rust/C++ equivalence target
-        run: cmake --build build-rust --config Release --target zevryon-rust-resource-ledger-tests --parallel 2
+      - name: Build Rust C and C++ certification targets
+        run: cmake --build build-rust --config Release --target zevryon-rust-resource-ledger-tests zevryon-rust-c-abi-tests --parallel 2
 
-      - name: Run Rust/C++ equivalence test
-        run: ctest --test-dir build-rust -C Release --output-on-failure -R rust-resource-ledger-equivalence
+      - name: Run Rust C and C++ certification tests
+        run: ctest --test-dir build-rust -C Release --output-on-failure -R "rust-(resource-ledger-equivalence|c-abi-runtime)"
