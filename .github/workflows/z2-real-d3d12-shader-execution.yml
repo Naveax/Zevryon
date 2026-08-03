@@ -37,16 +37,20 @@ jobs:
             '.z2f8b3b3a/part03',
             '.z2f8b3b3a/part04'
           )
-          foreach ($part in $parts) {
-            if (-not (Test-Path -LiteralPath $part)) { throw "Missing $part" }
+          $stream = [IO.MemoryStream]::new()
+          try {
+            foreach ($part in $parts) {
+              if (-not (Test-Path -LiteralPath $part)) { throw "Missing $part" }
+              $encoded = (Get-Content -LiteralPath $part -Raw) -replace '\s', ''
+              $chunk = [Convert]::FromBase64String($encoded)
+              $stream.Write($chunk, 0, $chunk.Length)
+            }
+            $scriptPath = Join-Path $env:RUNNER_TEMP 'z2f8b3b3a_apply.py'
+            [IO.File]::WriteAllBytes($scriptPath, $stream.ToArray())
           }
-          $encoded = ($parts | ForEach-Object {
-            (Get-Content -LiteralPath $_ -Raw).Trim()
-          }) -join ''
-          $scriptPath = Join-Path $env:RUNNER_TEMP 'z2f8b3b3a_apply.py'
-          [IO.File]::WriteAllBytes(
-            $scriptPath,
-            [Convert]::FromBase64String($encoded))
+          finally {
+            $stream.Dispose()
+          }
           python -m py_compile $scriptPath
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python $scriptPath
