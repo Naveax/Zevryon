@@ -46,7 +46,35 @@ Reported implementations:
 
 The report schema is `zevryon.ledger-performance.v1` and records p50, p95, p99, maximum nanoseconds per operation, operations per second and p50 ratios.
 
-Initial gates are deliberately catastrophic-regression gates, not promotion gates. Hosted runners are allowed broad scheduling variance. Tighter platform-specific gates must be derived from collected artifacts rather than invented before measurement.
+## First hosted-runner baseline
+
+The first exact-equivalence run produced the following p50 measurements:
+
+| Runner | C++ ns/op | Rust ns/op | Rust/C++ | Shadow ns/op | Shadow/C++ |
+|---|---:|---:|---:|---:|---:|
+| Ubuntu | 11.533 | 14.863 | 1.289x | 19.464 | 1.688x |
+| Windows | 10.052 | 13.305 | 1.324x | 18.040 | 1.795x |
+| macOS | 8.644 | 10.597 | 1.226x | 13.734 | 1.589x |
+
+Observed p50 throughput ranges:
+
+- C++: 86.7–115.7 million operations/second;
+- Rust through C ABI: 67.3–94.4 million operations/second;
+- exact shadow mode: 51.4–72.8 million operations/second.
+
+These values are hosted-runner baselines, not promises for end-user hardware. Their primary purpose is to define regression ratios and reveal catastrophic FFI or verification overhead.
+
+## Measured CI gates
+
+The artifact checker now enforces:
+
+- Rust p50 no more than 2.50x C++;
+- Rust p99 no more than 3.00x C++;
+- shadow p50 no more than 3.50x C++;
+- shadow p99 no more than 4.00x C++;
+- every implementation at least 5 million operations/second.
+
+These limits preserve substantial hosted-runner tolerance while replacing the initial 20x catastrophic-only allowance with evidence-based gates.
 
 ## FFI hot-path correction
 
@@ -72,4 +100,4 @@ This slice does not:
 - remove the C++ ledger;
 - change the native GPU or operating-system backends;
 - make Rust authoritative;
-- claim that Rust is faster before benchmark artifacts exist.
+- claim that Rust is universally faster than C++.
