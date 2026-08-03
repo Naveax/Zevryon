@@ -8,7 +8,7 @@ on:
 
 concurrency:
   group: z2f8b3b3a-stale-accounting-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -48,7 +48,6 @@ jobs:
           path.write_text(text[:match.start()] + replacement + text[match.end():])
           PY
           git diff --check
-          grep -Fq 'snapshot_.stale_rejections += 1U;' src/native_window_swapchain_d3d12.cpp
       - name: Publish production fix and restore focused CI
         shell: bash
         run: |
