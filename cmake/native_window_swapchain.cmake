@@ -97,6 +97,19 @@ if(TARGET zevryon-native-gpu-sdk-execution)
         zevryon-native-window-swapchain-d3d12-tests
         PRIVATE zevryon-native-window-swapchain)
       zevryon_options(zevryon-native-window-swapchain-d3d12-tests)
+
+      add_executable(
+        zevryon-native-shader-surface-d3d12-integration-tests
+        tests/native_shader_surface_d3d12_integration_tests.cpp)
+      target_include_directories(
+        zevryon-native-shader-surface-d3d12-integration-tests PRIVATE tests)
+      target_link_libraries(
+        zevryon-native-shader-surface-d3d12-integration-tests
+        PRIVATE
+          zevryon-native-window-swapchain
+          zevryon-native-shader-execution)
+      zevryon_options(
+        zevryon-native-shader-surface-d3d12-integration-tests)
     endif()
 
     if(MSVC)
@@ -107,6 +120,10 @@ if(TARGET zevryon-native-gpu-sdk-execution)
       if(TARGET zevryon-native-window-swapchain-d3d12-tests)
         target_compile_options(
           zevryon-native-window-swapchain-d3d12-tests PRIVATE /UNDEBUG)
+      endif()
+      if(TARGET zevryon-native-shader-surface-d3d12-integration-tests)
+        target_compile_options(
+          zevryon-native-shader-surface-d3d12-integration-tests PRIVATE /UNDEBUG)
       endif()
     else()
       target_compile_options(
@@ -125,6 +142,11 @@ if(TARGET zevryon-native-gpu-sdk-execution)
       add_test(
         NAME native-window-swapchain-d3d12-tests
         COMMAND zevryon-native-window-swapchain-d3d12-tests)
+    endif()
+    if(TARGET zevryon-native-shader-surface-d3d12-integration-tests)
+      add_test(
+        NAME native-shader-surface-d3d12-integration-tests
+        COMMAND zevryon-native-shader-surface-d3d12-integration-tests)
     endif()
   endif()
 endif()
