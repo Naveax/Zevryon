@@ -17,9 +17,13 @@ find_program(ZEVRYON_CARGO_EXECUTABLE cargo REQUIRED)
 if(WIN32)
   set(ZEVRYON_RUST_FFI_LIBRARY
       "${ZEVRYON_RUST_TARGET_DIR}/release/zevryon_ffi.lib")
+  set(ZEVRYON_RUST_MASSIVEDOC_FFI_LIBRARY
+      "${ZEVRYON_RUST_TARGET_DIR}/release/zevryon_massivedoc_ffi.lib")
 else()
   set(ZEVRYON_RUST_FFI_LIBRARY
       "${ZEVRYON_RUST_TARGET_DIR}/release/libzevryon_ffi.a")
+  set(ZEVRYON_RUST_MASSIVEDOC_FFI_LIBRARY
+      "${ZEVRYON_RUST_TARGET_DIR}/release/libzevryon_massivedoc_ffi.a")
 endif()
 
 file(GLOB_RECURSE ZEVRYON_RUST_SOURCES CONFIGURE_DEPENDS
@@ -27,13 +31,15 @@ file(GLOB_RECURSE ZEVRYON_RUST_SOURCES CONFIGURE_DEPENDS
   "${ZEVRYON_ROOT}/rust/crates/*/Cargo.toml")
 
 add_custom_command(
-  OUTPUT "${ZEVRYON_RUST_FFI_LIBRARY}"
+  OUTPUT
+    "${ZEVRYON_RUST_FFI_LIBRARY}"
+    "${ZEVRYON_RUST_MASSIVEDOC_FFI_LIBRARY}"
   COMMAND
     "${CMAKE_COMMAND}" -E env
     "CARGO_TARGET_DIR=${ZEVRYON_RUST_TARGET_DIR}"
     "${ZEVRYON_CARGO_EXECUTABLE}" build
       --manifest-path "${ZEVRYON_RUST_MANIFEST}"
-      --package zevryon-ffi
+      --workspace
       --release
       --locked
   DEPENDS
@@ -42,17 +48,24 @@ add_custom_command(
     "${ZEVRYON_ROOT}/rust/Cargo.lock"
     "${ZEVRYON_ROOT}/rust/rust-toolchain.toml"
   WORKING_DIRECTORY "${ZEVRYON_ROOT}/rust"
-  COMMENT "Building the Zevryon Rust core static library"
+  COMMENT "Building the Zevryon Rust static libraries"
   VERBATIM)
 
 add_custom_target(
-  zevryon-rust-ffi-build
-  DEPENDS "${ZEVRYON_RUST_FFI_LIBRARY}")
+  zevryon-rust-staticlibs-build
+  DEPENDS
+    "${ZEVRYON_RUST_FFI_LIBRARY}"
+    "${ZEVRYON_RUST_MASSIVEDOC_FFI_LIBRARY}")
 
 add_library(zevryon-rust-ffi STATIC IMPORTED GLOBAL)
 set_target_properties(
   zevryon-rust-ffi
   PROPERTIES IMPORTED_LOCATION "${ZEVRYON_RUST_FFI_LIBRARY}")
+
+add_library(zevryon-rust-massivedoc-ffi STATIC IMPORTED GLOBAL)
+set_target_properties(
+  zevryon-rust-massivedoc-ffi
+  PROPERTIES IMPORTED_LOCATION "${ZEVRYON_RUST_MASSIVEDOC_FFI_LIBRARY}")
 
 function(zevryon_strict_options target)
   if(MSVC)
@@ -71,10 +84,7 @@ function(zevryon_cpp_options target)
   endif()
 endfunction()
 
-function(zevryon_link_rust_runtime target)
-  target_link_libraries(${target} PRIVATE zevryon-rust-ffi)
-  add_dependencies(${target} zevryon-rust-ffi-build)
-
+function(zevryon_link_rust_system_libraries target)
   if(MSVC)
     target_link_libraries(
       ${target}
@@ -95,6 +105,18 @@ function(zevryon_link_rust_runtime target)
   endif()
 endfunction()
 
+function(zevryon_link_rust_runtime target)
+  target_link_libraries(${target} PRIVATE zevryon-rust-ffi)
+  add_dependencies(${target} zevryon-rust-staticlibs-build)
+  zevryon_link_rust_system_libraries(${target})
+endfunction()
+
+function(zevryon_link_massivedoc_rust_runtime target)
+  target_link_libraries(${target} PRIVATE zevryon-rust-massivedoc-ffi)
+  add_dependencies(${target} zevryon-rust-staticlibs-build)
+  zevryon_link_rust_system_libraries(${target})
+endfunction()
+
 add_library(zevryon-rust-ledger-bridge STATIC
   "${ZEVRYON_ROOT}/src/resource_ledger.cpp"
   "${ZEVRYON_ROOT}/src/rust_resource_ledger.cpp"
@@ -105,7 +127,7 @@ target_include_directories(
 target_compile_definitions(
   zevryon-rust-ledger-bridge
   PRIVATE ZEVRYON_SHADOW_LEDGER_TEST_HOOKS=1)
-add_dependencies(zevryon-rust-ledger-bridge zevryon-rust-ffi-build)
+add_dependencies(zevryon-rust-ledger-bridge zevryon-rust-staticlibs-build)
 zevryon_cpp_options(zevryon-rust-ledger-bridge)
 
 add_executable(
@@ -143,6 +165,22 @@ target_include_directories(
 zevryon_link_rust_runtime(zevryon-rust-c-abi-tests)
 zevryon_strict_options(zevryon-rust-c-abi-tests)
 
+add_executable(
+  zevryon-rust-massivedoc-codec-tests
+  "${ZEVRYON_ROOT}/tests/rust_massivedoc_descriptor_codec_tests.cpp")
+target_include_directories(
+  zevryon-rust-massivedoc-codec-tests PRIVATE "${ZEVRYON_ROOT}/src")
+zevryon_link_massivedoc_rust_runtime(zevryon-rust-massivedoc-codec-tests)
+zevryon_cpp_options(zevryon-rust-massivedoc-codec-tests)
+
+add_executable(
+  zevryon-rust-massivedoc-c-abi-tests
+  "${ZEVRYON_ROOT}/tests/rust_massivedoc_descriptor_c_abi_tests.c")
+target_include_directories(
+  zevryon-rust-massivedoc-c-abi-tests PRIVATE "${ZEVRYON_ROOT}/src")
+zevryon_link_massivedoc_rust_runtime(zevryon-rust-massivedoc-c-abi-tests)
+zevryon_strict_options(zevryon-rust-massivedoc-c-abi-tests)
+
 include(CTest)
 add_test(
   NAME rust-resource-ledger-equivalence
@@ -158,6 +196,12 @@ add_test(
 add_test(
   NAME rust-c-abi-runtime
   COMMAND zevryon-rust-c-abi-tests)
+add_test(
+  NAME rust-massivedoc-descriptor-codec
+  COMMAND zevryon-rust-massivedoc-codec-tests)
+add_test(
+  NAME rust-massivedoc-c-abi-runtime
+  COMMAND zevryon-rust-massivedoc-c-abi-tests)
 set_tests_properties(
   rust-resource-ledger-performance
   PROPERTIES TIMEOUT 180)
