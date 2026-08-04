@@ -10,6 +10,10 @@ option(
   ZEVRYON_RUST_UNICODE_SHADOW_STRICT
   "Abort immediately on a production Rust Unicode shadow mismatch"
   OFF)
+option(
+  ZEVRYON_RUST_UNICODE_SHADOW_TEST_HOOKS
+  "Compile diagnostic-only Unicode shadow fault injection hooks"
+  OFF)
 
 # Authority promotion and Unicode shadow execution are deliberately opt-in.
 # Either feature selects the shared Rust toolchain without changing the normal
@@ -30,6 +34,16 @@ if(ZEVRYON_RUST_UNICODE_SHADOW_STRICT)
   set(ZEVRYON_RUST_UNICODE_SHADOW_STRICT_VALUE 1)
 else()
   set(ZEVRYON_RUST_UNICODE_SHADOW_STRICT_VALUE 0)
+endif()
+if(ZEVRYON_RUST_UNICODE_SHADOW_TEST_HOOKS AND
+   NOT ZEVRYON_RUST_UNICODE_SHADOW)
+  message(FATAL_ERROR
+    "ZEVRYON_RUST_UNICODE_SHADOW_TEST_HOOKS requires ZEVRYON_RUST_UNICODE_SHADOW=ON")
+endif()
+if(ZEVRYON_RUST_UNICODE_SHADOW_TEST_HOOKS AND
+   ZEVRYON_RUST_UNICODE_SHADOW_STRICT)
+  message(FATAL_ERROR
+    "Unicode shadow test hooks require diagnostic non-strict mode")
 endif()
 
 if(NOT ZEVRYON_ENABLE_RUST_CORE)
@@ -160,6 +174,10 @@ if(ZEVRYON_RUST_UNICODE_SHADOW)
   add_compile_definitions(
     ZEVRYON_UTF8_RUST_SHADOW=1
     ZEVRYON_RUST_UNICODE_SHADOW_STRICT=${ZEVRYON_RUST_UNICODE_SHADOW_STRICT_VALUE})
+  if(ZEVRYON_RUST_UNICODE_SHADOW_TEST_HOOKS)
+    add_compile_definitions(
+      ZEVRYON_UTF8_RUST_SHADOW_TEST_HOOKS=1)
+  endif()
   link_libraries(zevryon-rust-unicode-runtime)
 endif()
 

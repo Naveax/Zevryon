@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <new>
 #include <sstream>
@@ -25,6 +26,13 @@ void clear_error(Utf8DecodeError* error) noexcept {
         error->message.clear();
     }
 }
+
+#if defined(ZEVRYON_UTF8_RUST_SHADOW_TEST_HOOKS)
+bool rust_shadow_test_fault(const char* expected) noexcept {
+    const char* selected = std::getenv("ZEVRYON_UTF8_SHADOW_FAULT");
+    return selected != nullptr && std::strcmp(selected, expected) == 0;
+}
+#endif
 
 } // namespace
 
@@ -637,6 +645,15 @@ void Utf8StreamDecoder::rust_shadow_feed(
             &written,
             &shadow_error) != 0U;
 
+#if defined(ZEVRYON_UTF8_RUST_SHADOW_TEST_HOOKS)
+    if (rust_shadow_test_fault("output") && written != 0U) {
+        rust_shadow_output_[0].value ^= 1U;
+    }
+    if (rust_shadow_test_fault("error")) {
+        shadow_error.kind ^= 1U;
+    }
+#endif
+
     if (shadow_result != primary_result) {
         rust_shadow_record_mismatch(
             RustShadowMismatchKind::OperationResult,
@@ -821,7 +838,14 @@ void Utf8StreamDecoder::rust_shadow_reset() noexcept {
     if (!rust_shadow_initialized_) {
         return;
     }
-    if (zr_utf8_decoder_reset(&rust_shadow_storage_) == 0U) {
+    bool reset_result =
+        zr_utf8_decoder_reset(&rust_shadow_storage_) != 0U;
+#if defined(ZEVRYON_UTF8_RUST_SHADOW_TEST_HOOKS)
+    if (rust_shadow_test_fault("reset")) {
+        reset_result = false;
+    }
+#endif
+    if (!reset_result) {
         rust_shadow_record_mismatch(
             RustShadowMismatchKind::ResetResult, 0U, 1U, 0U);
     }
@@ -855,6 +879,11 @@ bool Utf8StreamDecoder::rust_shadow_verify_state() noexcept {
             RustShadowMismatchKind::RustUnavailable, 1U, 1U, 0U);
         return false;
     }
+#if defined(ZEVRYON_UTF8_RUST_SHADOW_TEST_HOOKS)
+    if (rust_shadow_test_fault("state")) {
+        shadow_stats.source_bytes ^= 1U;
+    }
+#endif
     compare(0U, stats_.source_bytes, shadow_stats.source_bytes);
     compare(1U, stats_.emitted_codepoints, shadow_stats.emitted_codepoints);
     compare(2U, stats_.invalid_sequences, shadow_stats.invalid_sequences);
