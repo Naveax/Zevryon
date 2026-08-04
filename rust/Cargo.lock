@@ -20,3 +20,19 @@ version = "0.1.0"
 dependencies = [
  "zevryon-abi",
 ]
+
+[[package]]
+name = "zevryon-unicode-abi"
+version = "0.1.0"
+
+[[package]]
+name = "zevryon-unicode-ffi"
+version = "0.1.0"
+dependencies = [
+ "zevryon-unicode-abi",
+ "zevryon-unicode-stream",
+]
+
+[[package]]
+name = "zevryon-unicode-stream"
+version = "0.1.0"
