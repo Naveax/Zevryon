@@ -176,11 +176,25 @@ void import_store(
     metadata.style_runs = records * 2U;
     metadata.resource_references = records / 8U;
     metadata.largest_record_bytes = largest;
-    zevryon::massivedoc::StoreStats stats;
-    if (!writer.finalize(metadata, &stats, &error)) {
+    zevryon::massivedoc::StoreStats finalized_stats;
+    if (!writer.finalize(metadata, &finalized_stats, &error)) {
         fail(error);
     }
-    std::cout << ",\"store\":" << zevryon::massivedoc::stats_json(stats);
+
+    zevryon::massivedoc::StoreReader persisted_reader(root);
+    if (!persisted_reader.open(&error)) {
+        fail(error);
+    }
+    const auto& persisted_stats = persisted_reader.stats();
+    if (persisted_stats.payload_sha256 != finalized_stats.payload_sha256 ||
+        persisted_stats.corpus.logical_utf8_bytes !=
+            finalized_stats.corpus.logical_utf8_bytes ||
+        persisted_stats.corpus.logical_records != finalized_stats.corpus.logical_records ||
+        persisted_stats.chunk_count != finalized_stats.chunk_count) {
+        fail("persisted store stats diverged from finalized store stats");
+    }
+    std::cout << ",\"store\":"
+              << zevryon::massivedoc::stats_json(persisted_stats);
 }
 
 void open_store(const std::filesystem::path& root, bool verify) {
