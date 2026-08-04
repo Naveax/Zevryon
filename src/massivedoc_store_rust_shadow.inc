@@ -1,6 +1,4 @@
 #if defined(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)
-#include "massivedoc_descriptor_shadow.hpp"
-
 std::vector<std::byte> serialize_record_with_rust_shadow(
     const RecordDescriptor& descriptor) {
     auto bytes = serialize_record(descriptor);
