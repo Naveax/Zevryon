@@ -1,0 +1,147 @@
+name: Z2R-3C MassiveDoc production codec shadow certification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "CMakeLists.txt"
+      - "cmake/rust_core.cmake"
+      - "rust/**"
+      - "src/massivedoc_descriptor_shadow.*"
+      - "src/massivedoc_store_part01.inc"
+      - "src/massivedoc_store_rust_shadow.inc"
+      - "src/zevryon_massivedoc_rust_ffi.h"
+      - "tests/massivedoc_descriptor_shadow_tests.cpp"
+      - "tests/massivedoc_store_tests.cpp"
+      - "docs/Z2R3C_MASSIVEDOC_CODEC_SHADOW.md"
+      - ".github/workflows/z2r3c-massivedoc-codec-shadow.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: z2r3c-massivedoc-codec-shadow-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  strict-production-shadow:
+    name: ${{ matrix.os }} strict production codec shadow
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Report toolchains
+        run: |
+          rustc --version --verbose
+          cargo --version
+          cmake --version
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+
+      - name: Test complete Rust workspace
+        run: cargo test --manifest-path rust/Cargo.toml --workspace --all-targets --locked
+
+      - name: Run Clippy with warnings denied
+        run: >-
+          cargo clippy --manifest-path rust/Cargo.toml
+          --workspace --all-targets --locked -- -D warnings
+
+      - name: Configure strict production descriptor shadow
+        run: >-
+          cmake -S . -B build-z2r3c-strict
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW=OFF
+          -DZEVRYON_RUST_LEDGER_AUTHORITATIVE=OFF
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW=ON
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT=ON
+
+      - name: Build production shadow and MassiveDoc targets
+        run: >-
+          cmake --build build-z2r3c-strict --config Release --parallel 2 --target
+          zevryon-massivedoc-codec-shadow-tests
+          zevryon-massivedoc-tests
+          zevryon-massivedoc
+
+      - name: Run exact production shadow certification
+        run: >-
+          ctest --test-dir build-z2r3c-strict -C Release --output-on-failure
+          -R "^(massivedoc-codec-shadow-tests|massivedoc-store-tests)$"
+
+  diagnostic-divergence:
+    name: Ubuntu diagnostic mismatch detection
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure diagnostic production descriptor shadow
+        run: >-
+          cmake -S . -B build-z2r3c-diagnostic
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW=OFF
+          -DZEVRYON_RUST_LEDGER_AUTHORITATIVE=OFF
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW=ON
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT=OFF
+
+      - name: Build diagnostic shadow target
+        run: >-
+          cmake --build build-z2r3c-diagnostic --config Release --parallel 2 --target
+          zevryon-massivedoc-codec-shadow-tests
+
+      - name: Prove positive parity and negative divergence detection
+        run: >-
+          ctest --test-dir build-z2r3c-diagnostic -C Release --output-on-failure
+          -R "^massivedoc-codec-shadow-(tests|fault)$"
+
+  cpp-rollback:
+    name: Ubuntu unchanged Rust-disabled MassiveDoc build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure unchanged C++ production graph
+        run: >-
+          cmake -S . -B build-z2r3c-cpp
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DZEVRYON_RUST_LEDGER_SHADOW=OFF
+          -DZEVRYON_RUST_LEDGER_AUTHORITATIVE=OFF
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW=OFF
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT=OFF
+
+      - name: Build unchanged MassiveDoc targets without Cargo
+        run: >-
+          cmake --build build-z2r3c-cpp --config Release --parallel 2 --target
+          zevryon-massivedoc-tests
+          zevryon-massivedoc
+
+      - name: Run unchanged C++ MassiveDoc tests
+        run: >-
+          ctest --test-dir build-z2r3c-cpp -C Release --output-on-failure
+          -R "^massivedoc-store-tests$"
