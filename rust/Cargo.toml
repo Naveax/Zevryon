@@ -4,6 +4,9 @@ members = [
     "crates/zevryon-abi",
     "crates/zevryon-ledger",
     "crates/zevryon-ffi",
+    "crates/zevryon-unicode-abi",
+    "crates/zevryon-unicode-stream",
+    "crates/zevryon-unicode-ffi",
 ]
 
 [workspace.package]
