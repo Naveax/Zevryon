@@ -66,10 +66,8 @@ impl Default for ZrUtf8DecoderStorage {
 const _: [(); 16] = [(); core::mem::size_of::<ZrDecodedCodePoint>()];
 const _: [(); 48] = [(); core::mem::size_of::<ZrUtf8DecodeStats>()];
 const _: [(); 16] = [(); core::mem::size_of::<ZrUtf8DecodeError>()];
-const _: [(); ZR_UTF8_DECODER_STORAGE_BYTES] =
-    [(); core::mem::size_of::<ZrUtf8DecoderStorage>()];
-const _: [(); ZR_UTF8_DECODER_STORAGE_ALIGN] =
-    [(); core::mem::align_of::<ZrUtf8DecoderStorage>()];
+const _: [(); ZR_UTF8_DECODER_STORAGE_BYTES] = [(); core::mem::size_of::<ZrUtf8DecoderStorage>()];
+const _: [(); ZR_UTF8_DECODER_STORAGE_ALIGN] = [(); core::mem::align_of::<ZrUtf8DecoderStorage>()];
 
 #[cfg(test)]
 mod tests {
