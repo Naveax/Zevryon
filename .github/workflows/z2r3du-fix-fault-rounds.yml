@@ -16,24 +16,15 @@ jobs:
           fetch-depth: 0
       - run: |
           python - <<'PY'
+          import re
           from pathlib import Path
           path = Path('scripts/z2r3d_run_unicode_workloads.py')
           text = path.read_text(encoding='utf-8')
-          old = '''            faults[fault] = run_process(
-                fault_binary,
-                args.logical_bytes,
-                1,
-                fault=fault,
-            )'''
-          new = '''            faults[fault] = run_process(
-                fault_binary,
-                args.logical_bytes,
-                args.rounds,
-                fault=fault,
-            )'''
-          if text.count(old) != 1:
-              raise RuntimeError('fault-round patch did not match exactly once')
-          path.write_text(text.replace(old, new), encoding='utf-8')
+          pattern = r'(faults\[fault\]\s*=\s*run_process\(\s*fault_binary,\s*args\.logical_bytes,\s*)1(\s*,\s*fault=fault,\s*\))'
+          text, count = re.subn(pattern, r'\g<1>args.rounds\2', text, count=1)
+          if count != 1:
+              raise RuntimeError(f'fault-round patch count was {count}')
+          path.write_text(text, encoding='utf-8')
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
