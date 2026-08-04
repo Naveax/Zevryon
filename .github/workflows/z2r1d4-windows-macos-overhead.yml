@@ -174,6 +174,7 @@ jobs:
           --max-p95-ratio 1.50
           --max-wall-ratio 1.75
           --max-peak-rss-ratio 1.50
+          --max-peak-rss-delta-bytes 8388608
           --output evidence/z2r1d4/${{ matrix.platform }}/certification.json
 
       - name: Publish platform summary
@@ -197,15 +198,17 @@ jobs:
           print(f"- Shadow mismatches: `{report['probe']['mismatches']}`")
           print(f"- Manifest SHA-256: `{report['manifest_sha256']}`")
           print()
-          print('| Workload | P50 ratio | P95 ratio | Wall ratio | Peak RSS ratio |')
-          print('|---|---:|---:|---:|---:|')
+          print('| Workload | P50 ratio | P95 ratio | Wall ratio | Peak RSS ratio | RSS delta MiB |')
+          print('|---|---:|---:|---:|---:|---:|')
           for item in report['workloads']:
               peak = item['peak_rss_ratio']
               peak_text = 'n/a' if peak is None else f'{peak:.4f}'
+              delta = item['peak_rss_delta_bytes']
+              delta_text = 'n/a' if delta is None else f'{delta / (1024 * 1024):.3f}'
               print(
                   f"| {item['name']} | {item['p50_ratio']:.4f} | "
                   f"{item['p95_ratio']:.4f} | {item['wall_time_ratio']:.4f} | "
-                  f"{peak_text} |"
+                  f"{peak_text} | {delta_text} |"
               )
           PY
 
