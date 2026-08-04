@@ -1,0 +1,117 @@
+name: Z2R Rust ledger authority certification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "rust/**"
+      - "src/resource_ledger.*"
+      - "src/resource_ledger_authoritative.cpp"
+      - "src/ledger_memory_resource.*"
+      - "src/zevryon_rust_ffi.h"
+      - "tests/rust_resource_ledger_authority_tests.cpp"
+      - "cmake/rust_core.cmake"
+      - "CMakeLists.txt"
+      - ".github/workflows/z2r2-rust-ledger-authority.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: z2r2-rust-ledger-authority-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  authoritative-production:
+    name: ${{ matrix.os }} Rust authority and production regression
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup component add rustfmt clippy
+
+      - name: Toolchain versions
+        run: |
+          rustc --version --verbose
+          cargo --version
+          cmake --version
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+
+      - name: Test Rust workspace
+        run: cargo test --manifest-path rust/Cargo.toml --workspace --all-targets --locked
+
+      - name: Clippy Rust workspace
+        run: >-
+          cargo clippy --manifest-path rust/Cargo.toml --workspace --all-targets --locked -- -D warnings
+
+      - name: Configure strict Rust-authoritative production build
+        run: >-
+          cmake -S . -B build-authority
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW=ON
+          -DZEVRYON_RUST_LEDGER_AUTHORITATIVE=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW_STRICT=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW_INTERVAL=64
+
+      - name: Build authority and representative production targets
+        run: >-
+          cmake --build build-authority --config Release --parallel 2 --target
+          zevryon-rust-authority-tests
+          zevryon-resource-ledger-tests
+          zevryon-massivedoc-tests
+          zevryon-compact-document-tests
+          zevryon-layout-window-tests
+          zevryon-unicode-stream-tests
+
+      - name: Run authority and representative production certification
+        run: >-
+          ctest --test-dir build-authority -C Release --output-on-failure
+          -R "^(rust-resource-ledger-authority|resource-ledger-tests|massivedoc-store-tests|compact-document-tests|layout-window-tests|unicode-stream-tests)$"
+
+  reverse-shadow-fault:
+    name: Ubuntu reverse-shadow divergence detection
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Configure diagnostic authority build
+        run: >-
+          cmake -S . -B build-authority-fault
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW=ON
+          -DZEVRYON_RUST_LEDGER_AUTHORITATIVE=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW_STRICT=OFF
+          -DZEVRYON_RUST_LEDGER_SHADOW_INTERVAL=0
+
+      - name: Build authority fault target
+        run: >-
+          cmake --build build-authority-fault --config Release --parallel 2 --target
+          zevryon-rust-authority-tests
+
+      - name: Prove Rust remains authoritative under C++ divergence
+        run: >-
+          ctest --test-dir build-authority-fault -C Release --output-on-failure
+          -R "^rust-resource-ledger-authority(-fault)?$"
