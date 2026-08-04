@@ -31,12 +31,14 @@ This retains the Z2R-1C/Z2R-1D boundary: C++ decides and Rust verifies.
 ### Rust authority with C++ reverse shadow
 
 ```text
+ZEVRYON_ENABLE_RUST_CORE=ON
+ZEVRYON_RUST_LEDGER_SHADOW=ON
 ZEVRYON_RUST_LEDGER_AUTHORITATIVE=ON
 ZEVRYON_RUST_LEDGER_SHADOW_STRICT=ON
 ZEVRYON_RUST_LEDGER_SHADOW_INTERVAL=64
 ```
 
-The authority option selects the Rust core and production mirror automatically. The production target substitutes `src/resource_ledger_authoritative.cpp` for the existing C++-authoritative translation unit.
+The existing Rust-core and production-shadow gates are enabled explicitly before the root CMake dependency validation runs. The authority option then substitutes `src/resource_ledger_authoritative.cpp` for the existing C++-authoritative translation unit and reverses the decision boundary.
 
 In this mode:
 
