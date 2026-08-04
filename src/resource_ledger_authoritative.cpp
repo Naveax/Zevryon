@@ -1,6 +1,7 @@
 #include "resource_ledger.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <sstream>
 
@@ -60,20 +61,50 @@ constexpr std::array<const char*, resource_class_count> kResourceNames{
     "line_selection_map",
 };
 
-ResourceSnapshot from_rust_snapshot(const ZrResourceSnapshot& snapshot) noexcept {
+constexpr std::array<const char*, 11> kMismatchNames{
+    "none",
+    "rust_unavailable",
+    "abi_version",
+    "resource_class_count",
+    "operation_result",
+    "snapshot_unavailable",
+    "snapshot_field",
+    "total_current_bytes",
+    "total_peak_bytes",
+    "within_hard_limits",
+    "accounting_clean",
+};
+
+constexpr std::array<const char*, 13> kFieldNames{
+    "none",
+    "hard_limit_bytes",
+    "current_bytes",
+    "peak_bytes",
+    "reservations",
+    "releases",
+    "rejected_reservations",
+    "accounting_errors",
+    "cache_hits",
+    "cache_misses",
+    "evictions",
+    "physical_read_bytes",
+    "physical_write_bytes",
+};
+
+ResourceSnapshot from_rust_snapshot(const ZrResourceSnapshot& source) noexcept {
     ResourceSnapshot result{};
-    result.hard_limit_bytes = snapshot.hard_limit_bytes;
-    result.current_bytes = snapshot.current_bytes;
-    result.peak_bytes = snapshot.peak_bytes;
-    result.reservations = snapshot.reservations;
-    result.releases = snapshot.releases;
-    result.rejected_reservations = snapshot.rejected_reservations;
-    result.accounting_errors = snapshot.accounting_errors;
-    result.cache_hits = snapshot.cache_hits;
-    result.cache_misses = snapshot.cache_misses;
-    result.evictions = snapshot.evictions;
-    result.physical_read_bytes = snapshot.physical_read_bytes;
-    result.physical_write_bytes = snapshot.physical_write_bytes;
+    result.hard_limit_bytes = source.hard_limit_bytes;
+    result.current_bytes = source.current_bytes;
+    result.peak_bytes = source.peak_bytes;
+    result.reservations = source.reservations;
+    result.releases = source.releases;
+    result.rejected_reservations = source.rejected_reservations;
+    result.accounting_errors = source.accounting_errors;
+    result.cache_hits = source.cache_hits;
+    result.cache_misses = source.cache_misses;
+    result.evictions = source.evictions;
+    result.physical_read_bytes = source.physical_read_bytes;
+    result.physical_write_bytes = source.physical_write_bytes;
     return result;
 }
 
@@ -152,12 +183,12 @@ bool ResourceLedger::try_reserve(
     if (bytes > cpp_shadow.hard_limit_bytes ||
         cpp_shadow.current_bytes > cpp_shadow.hard_limit_bytes - bytes ||
         bytes > std::numeric_limits<std::size_t>::max() - total_current_bytes_) {
-        increment_saturating(cpp_shadow.rejected_reservations);
+        ++cpp_shadow.rejected_reservations;
         cpp_result = false;
     } else {
         cpp_shadow.current_bytes += bytes;
         cpp_shadow.peak_bytes = std::max(cpp_shadow.peak_bytes, cpp_shadow.current_bytes);
-        increment_saturating(cpp_shadow.reservations);
+        ++cpp_shadow.reservations;
         total_current_bytes_ += bytes;
         total_peak_bytes_ = std::max(total_peak_bytes_, total_current_bytes_);
     }
@@ -178,9 +209,9 @@ void ResourceLedger::release(
     ResourceClass resource_class,
     std::size_t bytes) noexcept {
     ResourceSnapshot& cpp_shadow = resources_[index_of(resource_class)];
-    increment_saturating(cpp_shadow.releases);
+    ++cpp_shadow.releases;
     if (bytes > cpp_shadow.current_bytes || bytes > total_current_bytes_) {
-        increment_saturating(cpp_shadow.accounting_errors);
+        ++cpp_shadow.accounting_errors;
         total_current_bytes_ -= std::min(total_current_bytes_, cpp_shadow.current_bytes);
         cpp_shadow.current_bytes = 0U;
     } else {
@@ -191,17 +222,17 @@ void ResourceLedger::release(
 }
 
 void ResourceLedger::record_cache_hit(ResourceClass resource_class) noexcept {
-    increment_saturating(resources_[index_of(resource_class)].cache_hits);
+    ++resources_[index_of(resource_class)].cache_hits;
     rust_shadow_record_cache_hit(resource_class);
 }
 
 void ResourceLedger::record_cache_miss(ResourceClass resource_class) noexcept {
-    increment_saturating(resources_[index_of(resource_class)].cache_misses);
+    ++resources_[index_of(resource_class)].cache_misses;
     rust_shadow_record_cache_miss(resource_class);
 }
 
 void ResourceLedger::record_eviction(ResourceClass resource_class) noexcept {
-    increment_saturating(resources_[index_of(resource_class)].evictions);
+    ++resources_[index_of(resource_class)].evictions;
     rust_shadow_record_eviction(resource_class);
 }
 
@@ -225,6 +256,7 @@ ResourceSnapshot ResourceLedger::snapshot(ResourceClass resource_class) const no
     if (!rust_shadow_initialized_) {
         abort_authority();
     }
+
     ZrResourceSnapshot rust_snapshot{};
     if (zr_ledger_snapshot(
             &rust_shadow_storage_,
@@ -419,83 +451,16 @@ std::uint64_t ResourceLedger::rust_shadow_mismatches() const noexcept {
 }
 
 std::string ResourceLedger::rust_shadow_json() const {
-    const char* mismatch_name = "none";
-    switch (rust_shadow_first_mismatch_) {
-    case RustShadowMismatchKind::None:
-        break;
-    case RustShadowMismatchKind::RustUnavailable:
-        mismatch_name = "rust_unavailable";
-        break;
-    case RustShadowMismatchKind::AbiVersion:
-        mismatch_name = "abi_version";
-        break;
-    case RustShadowMismatchKind::ResourceClassCount:
-        mismatch_name = "resource_class_count";
-        break;
-    case RustShadowMismatchKind::OperationResult:
-        mismatch_name = "operation_result";
-        break;
-    case RustShadowMismatchKind::SnapshotUnavailable:
-        mismatch_name = "snapshot_unavailable";
-        break;
-    case RustShadowMismatchKind::SnapshotField:
-        mismatch_name = "snapshot_field";
-        break;
-    case RustShadowMismatchKind::TotalCurrentBytes:
-        mismatch_name = "total_current_bytes";
-        break;
-    case RustShadowMismatchKind::TotalPeakBytes:
-        mismatch_name = "total_peak_bytes";
-        break;
-    case RustShadowMismatchKind::WithinHardLimits:
-        mismatch_name = "within_hard_limits";
-        break;
-    case RustShadowMismatchKind::AccountingClean:
-        mismatch_name = "accounting_clean";
-        break;
-    }
-
-    const char* field_name = "none";
-    switch (rust_shadow_first_field_) {
-    case RustShadowSnapshotField::None:
-        break;
-    case RustShadowSnapshotField::HardLimitBytes:
-        field_name = "hard_limit_bytes";
-        break;
-    case RustShadowSnapshotField::CurrentBytes:
-        field_name = "current_bytes";
-        break;
-    case RustShadowSnapshotField::PeakBytes:
-        field_name = "peak_bytes";
-        break;
-    case RustShadowSnapshotField::Reservations:
-        field_name = "reservations";
-        break;
-    case RustShadowSnapshotField::Releases:
-        field_name = "releases";
-        break;
-    case RustShadowSnapshotField::RejectedReservations:
-        field_name = "rejected_reservations";
-        break;
-    case RustShadowSnapshotField::AccountingErrors:
-        field_name = "accounting_errors";
-        break;
-    case RustShadowSnapshotField::CacheHits:
-        field_name = "cache_hits";
-        break;
-    case RustShadowSnapshotField::CacheMisses:
-        field_name = "cache_misses";
-        break;
-    case RustShadowSnapshotField::Evictions:
-        field_name = "evictions";
-        break;
-    case RustShadowSnapshotField::PhysicalReadBytes:
-        field_name = "physical_read_bytes";
-        break;
-    case RustShadowSnapshotField::PhysicalWriteBytes:
-        field_name = "physical_write_bytes";
-        break;
-    }
+    const std::size_t mismatch_index =
+        static_cast<std::size_t>(rust_shadow_first_mismatch_);
+    const std::size_t field_index =
+        static_cast<std::size_t>(rust_shadow_first_field_);
+    const char* mismatch_name = mismatch_index < kMismatchNames.size()
+        ? kMismatchNames[mismatch_index]
+        : "invalid";
+    const char* field_name = field_index < kFieldNames.size()
+        ? kFieldNames[field_index]
+        : "invalid";
 
     std::ostringstream output;
     output << "{\"schema\":\"zevryon.rust-shadow-ledger.v1\","
@@ -551,36 +516,7 @@ void ResourceLedger::rust_shadow_set_hard_limit(
             RustShadowSnapshotField::HardLimitBytes,
             1U,
             0U);
-    }
-    rust_shadow_complete_operation(resource_class);
-}
-
-void ResourceLedger::rust_shadow_try_reserve(
-    ResourceClass resource_class,
-    std::size_t bytes,
-    bool primary_result) noexcept {
-    if (!rust_shadow_initialized_) {
-        rust_shadow_record_mismatch(
-            RustShadowMismatchKind::RustUnavailable,
-            resource_class,
-            RustShadowSnapshotField::Reservations,
-            1U,
-            0U);
-        rust_shadow_complete_operation(resource_class);
-        return;
-    }
-    const bool rust_result =
-        zr_ledger_try_reserve(
-            &rust_shadow_storage_,
-            static_cast<std::uint32_t>(index_of(resource_class)),
-            bytes) != 0U;
-    if (rust_result != primary_result) {
-        rust_shadow_record_mismatch(
-            RustShadowMismatchKind::OperationResult,
-            resource_class,
-            RustShadowSnapshotField::Reservations,
-            rust_result ? 1U : 0U,
-            primary_result ? 1U : 0U);
+        abort_authority();
     }
     rust_shadow_complete_operation(resource_class);
 }
@@ -599,6 +535,7 @@ void ResourceLedger::rust_shadow_release(
             RustShadowSnapshotField::Releases,
             1U,
             0U);
+        abort_authority();
     }
     rust_shadow_complete_operation(resource_class);
 }
@@ -615,6 +552,7 @@ void ResourceLedger::rust_shadow_record_cache_hit(
             RustShadowSnapshotField::CacheHits,
             1U,
             0U);
+        abort_authority();
     }
     rust_shadow_complete_operation(resource_class);
 }
@@ -631,6 +569,7 @@ void ResourceLedger::rust_shadow_record_cache_miss(
             RustShadowSnapshotField::CacheMisses,
             1U,
             0U);
+        abort_authority();
     }
     rust_shadow_complete_operation(resource_class);
 }
@@ -647,6 +586,7 @@ void ResourceLedger::rust_shadow_record_eviction(
             RustShadowSnapshotField::Evictions,
             1U,
             0U);
+        abort_authority();
     }
     rust_shadow_complete_operation(resource_class);
 }
@@ -665,6 +605,7 @@ void ResourceLedger::rust_shadow_record_physical_read(
             RustShadowSnapshotField::PhysicalReadBytes,
             1U,
             0U);
+        abort_authority();
     }
     rust_shadow_complete_operation(resource_class);
 }
@@ -683,6 +624,7 @@ void ResourceLedger::rust_shadow_record_physical_write(
             RustShadowSnapshotField::PhysicalWriteBytes,
             1U,
             0U);
+        abort_authority();
     }
     rust_shadow_complete_operation(resource_class);
 }
@@ -806,7 +748,7 @@ void ResourceLedger::inject_cpp_shadow_reservation_for_testing(
     }
     cpp_shadow.current_bytes += bytes;
     cpp_shadow.peak_bytes = std::max(cpp_shadow.peak_bytes, cpp_shadow.current_bytes);
-    increment_saturating(cpp_shadow.reservations);
+    ++cpp_shadow.reservations;
     total_current_bytes_ += bytes;
     total_peak_bytes_ = std::max(total_peak_bytes_, total_current_bytes_);
 }
