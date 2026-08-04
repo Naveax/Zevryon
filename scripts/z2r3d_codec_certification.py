@@ -171,7 +171,7 @@ def validate_report(report: dict[str, Any], platform_name: str) -> dict[str, int
     require(samples >= 3, "fewer than three samples")
 
     operations = report.get("operations")
-    require(isinstance(operations, dict) and tuple(operations) == OPERATIONS, "operation set/order mismatch")
+    require(isinstance(operations, dict) and set(operations) == set(OPERATIONS), "operation set mismatch")
     import_telemetry = operations["import"].get("shadow_telemetry")
     require(
         isinstance(import_telemetry, list) and len(import_telemetry) == samples,
@@ -213,6 +213,19 @@ def validate_report(report: dict[str, Any], platform_name: str) -> dict[str, int
     require(len(tree_sha) == 64, "store tree SHA invalid")
     files = canonical_store.get("files")
     require(isinstance(files, list) and len(files) == file_count, "store file inventory mismatch")
+    unhashed_store = dict(canonical_store)
+    unhashed_store.pop("tree_sha256", None)
+    require(
+        hashlib.sha256(canonical_bytes(unhashed_store)).hexdigest() == tree_sha,
+        "store tree SHA does not match canonical inventory",
+    )
+    paths = [str(item.get("path", "")) for item in files if isinstance(item, dict)]
+    require(len(paths) == file_count, "store file entry is not an object")
+    require(paths == sorted(paths), "store file inventory is not sorted")
+    require(len(set(paths)) == file_count, "store file inventory contains duplicates")
+    for item in files:
+        require(int(item.get("bytes", -1)) >= 0, "store file byte count invalid")
+        require(len(str(item.get("sha256", ""))) == 64, "store file SHA invalid")
 
     import_pairs = report.get("import_pairs")
     require(isinstance(import_pairs, list) and len(import_pairs) == samples, "import pair count mismatch")

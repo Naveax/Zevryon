@@ -38,7 +38,7 @@ std::optional<T> parse_number(std::string_view text) {
     return value;
 }
 
-std::string_view mismatch_name(
+[[maybe_unused]] std::string_view mismatch_name(
 #if defined(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)
     zevryon::massivedoc::MassiveDocDescriptorShadowOperation operation
 #else

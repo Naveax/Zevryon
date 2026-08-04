@@ -69,7 +69,15 @@ def validate_platform(
     )
     require(all(item.get("passed") is True for item in operations), f"{platform_name} operation failed")
     require(manifest.get("total_p50_wall_seconds", {}).get("passed") is True, f"{platform_name} total gate failed")
-    require(len(str(manifest.get("manifest_sha256", ""))) == 64, f"{platform_name} manifest SHA invalid")
+    claimed_manifest_sha = str(manifest.get("manifest_sha256", ""))
+    require(len(claimed_manifest_sha) == 64, f"{platform_name} manifest SHA invalid")
+    unhashed_manifest = dict(manifest)
+    unhashed_manifest.pop("manifest_sha256", None)
+    require(
+        hashlib.sha256(canonical_bytes(unhashed_manifest)).hexdigest()
+        == claimed_manifest_sha,
+        f"{platform_name} manifest SHA does not match canonical content",
+    )
     return manifest
 
 
