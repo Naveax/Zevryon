@@ -1,0 +1,83 @@
+name: Z2R-3D-U Unicode promotion readiness
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "cmake/rust_core.cmake"
+      - "cmake/z2r3d_unicode_probe.cmake"
+      - "src/unicode_stream.*"
+      - "scripts/z2r3d_*unicode*.py"
+      - "tests/*z2r3d_unicode*"
+      - "docs/Z2R3D_UNICODE_PROMOTION_READINESS.md"
+      - ".github/workflows/z2r3d-unicode-promotion-readiness.yml"
+      - "rust/crates/zevryon-unicode-*/**"
+      - "rust/unicode-bridge/**"
+permissions:
+  contents: read
+concurrency:
+  group: z2r3du-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: python -m pip install --upgrade pip pytest
+      - run: >-
+          python -m py_compile scripts/z2r3d_ci_unicode.py
+          scripts/z2r3d_run_unicode_workloads.py
+          scripts/z2r3d_unicode_certification.py
+          scripts/z2r3d_finalize_unicode_promotion.py
+      - run: python -m pytest -q tests/test_z2r3d_unicode_certification.py
+  platform:
+    needs: contracts
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, platform: linux, compiler: GNU}
+          - {os: windows-latest, platform: windows, compiler: MSVC}
+          - {os: macos-latest, platform: macos, compiler: AppleClang}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - uses: dtolnay/rust-toolchain@stable
+      - run: python -m pip install --upgrade pip psutil
+      - run: >-
+          python scripts/z2r3d_ci_unicode.py platform
+          --platform ${{ matrix.platform }} --compiler ${{ matrix.compiler }}
+          --sha "${{ github.event.pull_request.head.sha || github.sha }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: z2r3du-${{ matrix.platform }}-${{ github.sha }}
+          path: evidence/z2r3du/${{ matrix.platform }}-*.json
+          if-no-files-found: error
+  final:
+    needs: platform
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: python -m pip install --upgrade pip pytest
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: z2r3du-*-${{ github.sha }}
+          path: evidence/z2r3du/downloaded
+          merge-multiple: true
+      - run: python -m pytest -q tests/test_z2r3d_unicode_certification.py
+      - run: >-
+          python scripts/z2r3d_ci_unicode.py finalize
+          --sha "${{ github.event.pull_request.head.sha || github.sha }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: z2r3du-promotion-${{ github.sha }}
+          path: evidence/z2r3du/z2r3du-promotion-readiness.json
+          if-no-files-found: error
