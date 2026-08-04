@@ -161,7 +161,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
             faults[fault] = run_process(
                 fault_binary,
                 args.logical_bytes,
-                1,
+                args.rounds,
                 fault=fault,
             )
 
