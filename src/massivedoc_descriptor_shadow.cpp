@@ -61,6 +61,7 @@ bool bytes_equal(
            std::memcmp(byte_pointer(cpp_bytes), rust_bytes, rust_size) == 0;
 }
 
+#if defined(ZEVRYON_RUST_MASSIVEDOC_CODEC_AUTHORITATIVE)
 bool cpp_reverse_shadow_fault_enabled(
     MassiveDocDescriptorShadowOperation operation) noexcept {
 #if defined(ZEVRYON_MASSIVEDOC_CODEC_AUTHORITY_TEST_HOOKS)
@@ -75,6 +76,7 @@ bool cpp_reverse_shadow_fault_enabled(
 [[noreturn]] void abort_authority() noexcept {
     std::abort();
 }
+#endif
 #endif
 
 } // namespace
