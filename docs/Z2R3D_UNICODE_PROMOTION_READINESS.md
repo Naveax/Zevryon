@@ -29,7 +29,8 @@ strict shadow:
 
 The baseline build must remain Cargo-free. Rust does not supply browser-visible
 return values, decoded records, errors, statistics, offsets, PMR ownership or
-allocation decisions in this slice.
+allocation decisions in this slice. Output-budget evidence must also avoid
+allocator-growth behavior that varies between standard-library implementations.
 
 ## Required corpus
 
