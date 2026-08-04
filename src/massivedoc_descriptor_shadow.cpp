@@ -20,6 +20,7 @@ std::atomic<std::uint64_t> g_mismatches{0};
 std::atomic<std::uint32_t> g_first_mismatch{
     static_cast<std::uint32_t>(MassiveDocDescriptorShadowOperation::None)};
 
+#if defined(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)
 void record_mismatch(MassiveDocDescriptorShadowOperation operation) noexcept {
     g_mismatches.fetch_add(1U, std::memory_order_relaxed);
     std::uint32_t expected =
@@ -35,7 +36,6 @@ void record_mismatch(MassiveDocDescriptorShadowOperation operation) noexcept {
 #endif
 }
 
-#if defined(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)
 const std::uint8_t* byte_pointer(std::span<const std::byte> bytes) noexcept {
     return reinterpret_cast<const std::uint8_t*>(bytes.data());
 }
