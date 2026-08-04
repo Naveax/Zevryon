@@ -1,8 +1,10 @@
 #include "unicode_stream.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <limits>
 #include <new>
+#include <sstream>
 
 namespace zevryon::text {
 namespace {
@@ -53,9 +55,97 @@ const char* utf8_error_kind_name(Utf8ErrorKind kind) noexcept {
 }
 
 Utf8StreamDecoder::Utf8StreamDecoder(Utf8ErrorPolicy policy) noexcept
-    : policy_(policy) {}
+    : policy_(policy) {
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+    rust_shadow_initialized_ =
+        zr_utf8_decoder_init(
+            &rust_shadow_storage_,
+            static_cast<std::uint32_t>(policy_)) != 0U;
+    if (!rust_shadow_initialized_) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::RustUnavailable, 0U, 1U, 0U);
+        return;
+    }
+    if (zr_utf8_abi_version() != ZR_UTF8_ABI_VERSION) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::AbiVersion,
+            0U,
+            ZR_UTF8_ABI_VERSION,
+            zr_utf8_abi_version());
+        rust_shadow_initialized_ = false;
+        return;
+    }
+    if (zr_utf8_decoder_storage_size() != ZR_UTF8_DECODER_STORAGE_BYTES) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::StorageContract,
+            0U,
+            ZR_UTF8_DECODER_STORAGE_BYTES,
+            zr_utf8_decoder_storage_size());
+        rust_shadow_initialized_ = false;
+        return;
+    }
+    if (zr_utf8_decoder_storage_alignment() != ZR_UTF8_DECODER_STORAGE_ALIGN) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::StorageContract,
+            1U,
+            ZR_UTF8_DECODER_STORAGE_ALIGN,
+            zr_utf8_decoder_storage_alignment());
+        rust_shadow_initialized_ = false;
+        return;
+    }
+    static_cast<void>(rust_shadow_verify_state());
+#endif
+}
+
+Utf8StreamDecoder::~Utf8StreamDecoder() {
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+    if (rust_shadow_initialized_) {
+        zr_utf8_decoder_clear(&rust_shadow_storage_);
+    }
+    rust_shadow_initialized_ = false;
+#endif
+}
 
 bool Utf8StreamDecoder::feed(
+    std::span<const std::byte> bytes,
+    std::uint64_t absolute_source_offset,
+    std::pmr::vector<DecodedCodePoint>* output,
+    Utf8DecodeError* error) noexcept {
+    const std::size_t output_start = output != nullptr ? output->size() : 0U;
+    const bool primary_result =
+        feed_cpp(bytes, absolute_source_offset, output, error);
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+    if (output != nullptr && error != nullptr) {
+        rust_shadow_feed(
+            bytes,
+            absolute_source_offset,
+            *output,
+            output_start,
+            primary_result,
+            *error);
+    }
+#endif
+    return primary_result;
+}
+
+bool Utf8StreamDecoder::finish(
+    std::pmr::vector<DecodedCodePoint>* output,
+    Utf8DecodeError* error) noexcept {
+    const std::size_t output_start = output != nullptr ? output->size() : 0U;
+    const bool primary_result = finish_cpp(output, error);
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+    if (output != nullptr && error != nullptr) {
+        rust_shadow_finish(
+            *output,
+            output_start,
+            primary_result,
+            *error);
+    }
+#endif
+    return primary_result;
+}
+
+bool Utf8StreamDecoder::feed_cpp(
     std::span<const std::byte> bytes,
     std::uint64_t absolute_source_offset,
     std::pmr::vector<DecodedCodePoint>* output,
@@ -222,7 +312,7 @@ bool Utf8StreamDecoder::feed(
     return true;
 }
 
-bool Utf8StreamDecoder::finish(
+bool Utf8StreamDecoder::finish_cpp(
     std::pmr::vector<DecodedCodePoint>* output,
     Utf8DecodeError* error) noexcept {
     if (output == nullptr || error == nullptr) {
@@ -261,6 +351,9 @@ void Utf8StreamDecoder::reset() noexcept {
     failed_ = false;
     next_source_offset_ = 0U;
     clear_sequence();
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+    rust_shadow_reset();
+#endif
 }
 
 Utf8ErrorPolicy Utf8StreamDecoder::policy() const noexcept {
@@ -277,6 +370,122 @@ std::uint64_t Utf8StreamDecoder::next_source_offset() const noexcept {
 
 bool Utf8StreamDecoder::failed() const noexcept {
     return failed_;
+}
+
+bool Utf8StreamDecoder::rust_shadow_enabled() const noexcept {
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+    return rust_shadow_initialized_;
+#else
+    return false;
+#endif
+}
+
+bool Utf8StreamDecoder::rust_shadow_healthy() const noexcept {
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+    return rust_shadow_initialized_ && rust_shadow_mismatches_ == 0U;
+#else
+    return false;
+#endif
+}
+
+std::uint64_t Utf8StreamDecoder::rust_shadow_operations() const noexcept {
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+    return rust_shadow_operations_;
+#else
+    return 0U;
+#endif
+}
+
+std::uint64_t Utf8StreamDecoder::rust_shadow_verifications() const noexcept {
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+    return rust_shadow_verifications_;
+#else
+    return 0U;
+#endif
+}
+
+std::uint64_t Utf8StreamDecoder::rust_shadow_mismatches() const noexcept {
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+    return rust_shadow_mismatches_;
+#else
+    return 0U;
+#endif
+}
+
+std::string Utf8StreamDecoder::rust_shadow_json() const {
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+    const char* mismatch_name = "none";
+    switch (rust_shadow_first_mismatch_) {
+        case RustShadowMismatchKind::None:
+            break;
+        case RustShadowMismatchKind::RustUnavailable:
+            mismatch_name = "rust_unavailable";
+            break;
+        case RustShadowMismatchKind::AbiVersion:
+            mismatch_name = "abi_version";
+            break;
+        case RustShadowMismatchKind::StorageContract:
+            mismatch_name = "storage_contract";
+            break;
+        case RustShadowMismatchKind::OperationResult:
+            mismatch_name = "operation_result";
+            break;
+        case RustShadowMismatchKind::OutputCount:
+            mismatch_name = "output_count";
+            break;
+        case RustShadowMismatchKind::OutputRecord:
+            mismatch_name = "output_record";
+            break;
+        case RustShadowMismatchKind::ErrorKind:
+            mismatch_name = "error_kind";
+            break;
+        case RustShadowMismatchKind::ErrorOffset:
+            mismatch_name = "error_offset";
+            break;
+        case RustShadowMismatchKind::Statistics:
+            mismatch_name = "statistics";
+            break;
+        case RustShadowMismatchKind::NextSourceOffset:
+            mismatch_name = "next_source_offset";
+            break;
+        case RustShadowMismatchKind::FailedState:
+            mismatch_name = "failed_state";
+            break;
+        case RustShadowMismatchKind::Policy:
+            mismatch_name = "policy";
+            break;
+        case RustShadowMismatchKind::BufferAllocation:
+            mismatch_name = "buffer_allocation";
+            break;
+        case RustShadowMismatchKind::ResetResult:
+            mismatch_name = "reset_result";
+            break;
+    }
+
+    std::ostringstream output;
+    output << "{\"schema\":\"zevryon.rust-unicode-shadow.v1\","
+           << "\"enabled\":"
+           << (rust_shadow_initialized_ ? "true" : "false") << ','
+           << "\"strict\":"
+           << (ZEVRYON_RUST_UNICODE_SHADOW_STRICT != 0 ? "true" : "false") << ','
+           << "\"abi_version\":" << zr_utf8_abi_version() << ','
+           << "\"operations\":" << rust_shadow_operations_ << ','
+           << "\"verifications\":" << rust_shadow_verifications_ << ','
+           << "\"mismatches\":" << rust_shadow_mismatches_ << ','
+           << "\"healthy\":"
+           << (rust_shadow_healthy() ? "true" : "false") << ','
+           << "\"first_mismatch\":\"" << mismatch_name << "\","
+           << "\"first_index\":" << rust_shadow_first_index_ << ','
+           << "\"expected\":" << rust_shadow_expected_ << ','
+           << "\"actual\":" << rust_shadow_actual_ << '}';
+    return output.str();
+#else
+    return "{\"schema\":\"zevryon.rust-unicode-shadow.v1\","
+           "\"enabled\":false,\"strict\":false,\"abi_version\":0,"
+           "\"operations\":0,\"verifications\":0,\"mismatches\":0,"
+           "\"healthy\":false,\"first_mismatch\":\"none\","
+           "\"first_index\":0,\"expected\":0,\"actual\":0}";
+#endif
 }
 
 bool Utf8StreamDecoder::emit(
@@ -368,5 +577,350 @@ void Utf8StreamDecoder::clear_sequence() noexcept {
     minimum_value_ = 0U;
     pending_continuations_ = 0U;
 }
+
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+void Utf8StreamDecoder::rust_shadow_feed(
+    std::span<const std::byte> bytes,
+    std::uint64_t absolute_source_offset,
+    const std::pmr::vector<DecodedCodePoint>& output,
+    std::size_t output_start,
+    bool primary_result,
+    const Utf8DecodeError& primary_error) noexcept {
+    increment_saturating(rust_shadow_operations_);
+    if (!rust_shadow_initialized_) {
+        return;
+    }
+
+    const std::size_t appended =
+        output.size() >= output_start ? output.size() - output_start : 0U;
+    std::size_t capacity = 0U;
+    if (!primary_result &&
+        primary_error.kind == Utf8ErrorKind::OutputBudgetExceeded) {
+        capacity = appended;
+    } else if (bytes.size() == std::numeric_limits<std::size_t>::max()) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::BufferAllocation,
+            0U,
+            0U,
+            std::numeric_limits<std::uint64_t>::max());
+        return;
+    } else {
+        capacity = bytes.size() + 1U;
+    }
+
+    try {
+        rust_shadow_output_.resize(capacity);
+    } catch (...) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::BufferAllocation,
+            0U,
+            static_cast<std::uint64_t>(capacity),
+            0U);
+        return;
+    }
+
+    std::size_t written = 0U;
+    ZrUtf8DecodeError shadow_error{};
+    const auto* input = reinterpret_cast<const std::uint8_t*>(bytes.data());
+    const bool shadow_result =
+        zr_utf8_decoder_feed(
+            &rust_shadow_storage_,
+            input,
+            bytes.size(),
+            absolute_source_offset,
+            rust_shadow_output_.data(),
+            capacity,
+            &written,
+            &shadow_error) != 0U;
+
+    if (shadow_result != primary_result) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::OperationResult,
+            0U,
+            primary_result ? 1U : 0U,
+            shadow_result ? 1U : 0U);
+    }
+    if (written != appended) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::OutputCount,
+            0U,
+            static_cast<std::uint64_t>(appended),
+            static_cast<std::uint64_t>(written));
+    }
+
+    const std::size_t comparable = std::min(written, appended);
+    for (std::size_t index = 0U; index < comparable; ++index) {
+        const DecodedCodePoint& primary = output[output_start + index];
+        const ZrDecodedCodePoint& shadow = rust_shadow_output_[index];
+        const std::uint64_t record_index =
+            static_cast<std::uint64_t>(index) * 4U;
+        if (primary.source_start != shadow.source_start) {
+            rust_shadow_record_mismatch(
+                RustShadowMismatchKind::OutputRecord,
+                record_index,
+                primary.source_start,
+                shadow.source_start);
+        }
+        if (primary.value != shadow.value) {
+            rust_shadow_record_mismatch(
+                RustShadowMismatchKind::OutputRecord,
+                record_index + 1U,
+                primary.value,
+                shadow.value);
+        }
+        if (primary.source_length != shadow.source_length) {
+            rust_shadow_record_mismatch(
+                RustShadowMismatchKind::OutputRecord,
+                record_index + 2U,
+                primary.source_length,
+                shadow.source_length);
+        }
+        const std::uint64_t primary_replacement =
+            primary.replacement ? 1U : 0U;
+        if (primary_replacement != shadow.replacement) {
+            rust_shadow_record_mismatch(
+                RustShadowMismatchKind::OutputRecord,
+                record_index + 3U,
+                primary_replacement,
+                shadow.replacement);
+        }
+    }
+
+    const std::uint64_t primary_error_kind =
+        static_cast<std::uint64_t>(primary_error.kind);
+    if (primary_error_kind != shadow_error.kind) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::ErrorKind,
+            0U,
+            primary_error_kind,
+            shadow_error.kind);
+    }
+    if (primary_error.source_offset != shadow_error.source_offset) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::ErrorOffset,
+            0U,
+            primary_error.source_offset,
+            shadow_error.source_offset);
+    }
+    static_cast<void>(rust_shadow_verify_state());
+}
+
+void Utf8StreamDecoder::rust_shadow_finish(
+    const std::pmr::vector<DecodedCodePoint>& output,
+    std::size_t output_start,
+    bool primary_result,
+    const Utf8DecodeError& primary_error) noexcept {
+    increment_saturating(rust_shadow_operations_);
+    if (!rust_shadow_initialized_) {
+        return;
+    }
+
+    const std::size_t appended =
+        output.size() >= output_start ? output.size() - output_start : 0U;
+    const std::size_t capacity =
+        !primary_result &&
+                primary_error.kind == Utf8ErrorKind::OutputBudgetExceeded
+            ? appended
+            : 1U;
+    try {
+        rust_shadow_output_.resize(capacity);
+    } catch (...) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::BufferAllocation,
+            0U,
+            static_cast<std::uint64_t>(capacity),
+            0U);
+        return;
+    }
+
+    std::size_t written = 0U;
+    ZrUtf8DecodeError shadow_error{};
+    const bool shadow_result =
+        zr_utf8_decoder_finish(
+            &rust_shadow_storage_,
+            rust_shadow_output_.data(),
+            capacity,
+            &written,
+            &shadow_error) != 0U;
+
+    if (shadow_result != primary_result) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::OperationResult,
+            0U,
+            primary_result ? 1U : 0U,
+            shadow_result ? 1U : 0U);
+    }
+    if (written != appended) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::OutputCount,
+            0U,
+            static_cast<std::uint64_t>(appended),
+            static_cast<std::uint64_t>(written));
+    }
+    if (written != 0U && appended != 0U) {
+        const DecodedCodePoint& primary = output[output_start];
+        const ZrDecodedCodePoint& shadow = rust_shadow_output_[0];
+        if (primary.source_start != shadow.source_start) {
+            rust_shadow_record_mismatch(
+                RustShadowMismatchKind::OutputRecord,
+                0U,
+                primary.source_start,
+                shadow.source_start);
+        }
+        if (primary.value != shadow.value) {
+            rust_shadow_record_mismatch(
+                RustShadowMismatchKind::OutputRecord,
+                1U,
+                primary.value,
+                shadow.value);
+        }
+        if (primary.source_length != shadow.source_length) {
+            rust_shadow_record_mismatch(
+                RustShadowMismatchKind::OutputRecord,
+                2U,
+                primary.source_length,
+                shadow.source_length);
+        }
+        const std::uint64_t primary_replacement =
+            primary.replacement ? 1U : 0U;
+        if (primary_replacement != shadow.replacement) {
+            rust_shadow_record_mismatch(
+                RustShadowMismatchKind::OutputRecord,
+                3U,
+                primary_replacement,
+                shadow.replacement);
+        }
+    }
+
+    const std::uint64_t primary_error_kind =
+        static_cast<std::uint64_t>(primary_error.kind);
+    if (primary_error_kind != shadow_error.kind) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::ErrorKind,
+            0U,
+            primary_error_kind,
+            shadow_error.kind);
+    }
+    if (primary_error.source_offset != shadow_error.source_offset) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::ErrorOffset,
+            0U,
+            primary_error.source_offset,
+            shadow_error.source_offset);
+    }
+    static_cast<void>(rust_shadow_verify_state());
+}
+
+void Utf8StreamDecoder::rust_shadow_reset() noexcept {
+    increment_saturating(rust_shadow_operations_);
+    rust_shadow_output_.clear();
+    if (!rust_shadow_initialized_) {
+        return;
+    }
+    if (zr_utf8_decoder_reset(&rust_shadow_storage_) == 0U) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::ResetResult, 0U, 1U, 0U);
+    }
+    static_cast<void>(rust_shadow_verify_state());
+}
+
+bool Utf8StreamDecoder::rust_shadow_verify_state() noexcept {
+    increment_saturating(rust_shadow_verifications_);
+    if (!rust_shadow_initialized_) {
+        return false;
+    }
+
+    bool matches = true;
+    const auto compare = [this, &matches](
+                             std::uint64_t index,
+                             std::uint64_t expected,
+                             std::uint64_t actual) noexcept {
+        if (expected != actual) {
+            rust_shadow_record_mismatch(
+                RustShadowMismatchKind::Statistics,
+                index,
+                expected,
+                actual);
+            matches = false;
+        }
+    };
+
+    ZrUtf8DecodeStats shadow_stats{};
+    if (zr_utf8_decoder_stats(&rust_shadow_storage_, &shadow_stats) == 0U) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::RustUnavailable, 1U, 1U, 0U);
+        return false;
+    }
+    compare(0U, stats_.source_bytes, shadow_stats.source_bytes);
+    compare(1U, stats_.emitted_codepoints, shadow_stats.emitted_codepoints);
+    compare(2U, stats_.invalid_sequences, shadow_stats.invalid_sequences);
+    compare(3U, stats_.replacements, shadow_stats.replacements);
+    compare(4U, stats_.chunks, shadow_stats.chunks);
+    compare(
+        5U,
+        stats_.maximum_pending_continuations,
+        shadow_stats.maximum_pending_continuations);
+
+    const std::uint64_t shadow_offset =
+        zr_utf8_decoder_next_source_offset(&rust_shadow_storage_);
+    if (next_source_offset_ != shadow_offset) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::NextSourceOffset,
+            0U,
+            next_source_offset_,
+            shadow_offset);
+        matches = false;
+    }
+
+    const std::uint64_t shadow_failed =
+        zr_utf8_decoder_failed(&rust_shadow_storage_) != 0U ? 1U : 0U;
+    const std::uint64_t primary_failed = failed_ ? 1U : 0U;
+    if (primary_failed != shadow_failed) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::FailedState,
+            0U,
+            primary_failed,
+            shadow_failed);
+        matches = false;
+    }
+
+    const std::uint64_t shadow_policy =
+        zr_utf8_decoder_policy(&rust_shadow_storage_);
+    const std::uint64_t primary_policy =
+        static_cast<std::uint64_t>(policy_);
+    if (primary_policy != shadow_policy) {
+        rust_shadow_record_mismatch(
+            RustShadowMismatchKind::Policy,
+            0U,
+            primary_policy,
+            shadow_policy);
+        matches = false;
+    }
+    return matches;
+}
+
+void Utf8StreamDecoder::rust_shadow_record_mismatch(
+    RustShadowMismatchKind kind,
+    std::uint64_t index,
+    std::uint64_t expected,
+    std::uint64_t actual) noexcept {
+    increment_saturating(rust_shadow_mismatches_);
+    if (rust_shadow_first_mismatch_ == RustShadowMismatchKind::None) {
+        rust_shadow_first_mismatch_ = kind;
+        rust_shadow_first_index_ = index;
+        rust_shadow_expected_ = expected;
+        rust_shadow_actual_ = actual;
+    }
+#if ZEVRYON_RUST_UNICODE_SHADOW_STRICT
+    std::abort();
+#endif
+}
+
+void Utf8StreamDecoder::increment_saturating(std::uint64_t& value) noexcept {
+    if (value != std::numeric_limits<std::uint64_t>::max()) {
+        ++value;
+    }
+}
+#endif
 
 } // namespace zevryon::text
