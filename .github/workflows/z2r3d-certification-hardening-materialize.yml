@@ -4,6 +4,9 @@ on:
   push:
     paths:
       - ".github/workflows/z2r3d-certification-hardening-materialize.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/z2r3d-certification-hardening-materialize.yml"
 
 permissions:
   contents: write
@@ -15,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
 
       - name: Harden canonical certification checks
@@ -88,10 +91,12 @@ jobs:
           PY
 
       - name: Remove one-time materializer and commit
+        env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
           rm .github/workflows/z2r3d-certification-hardening-materialize.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add scripts/z2r3d_codec_certification.py scripts/z2r3d_finalize_promotion.py tests/z2r3d_massivedoc_codec_workload.cpp .github/workflows/z2r3d-certification-hardening-materialize.yml
           git commit -m "Harden Z2R-3D canonical certification hashes"
-          git push origin HEAD:${GITHUB_REF_NAME}
+          git push origin HEAD:${BRANCH_NAME}
