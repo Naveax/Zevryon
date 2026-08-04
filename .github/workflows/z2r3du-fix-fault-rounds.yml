@@ -1,0 +1,42 @@
+name: Z2R-3D-U fix fault rounds
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/z2r3du-fix-fault-rounds.yml"
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/z2r3d-unicode-promotion-readiness
+          fetch-depth: 0
+      - run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/z2r3d_run_unicode_workloads.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''            faults[fault] = run_process(
+                fault_binary,
+                args.logical_bytes,
+                1,
+                fault=fault,
+            )'''
+          new = '''            faults[fault] = run_process(
+                fault_binary,
+                args.logical_bytes,
+                args.rounds,
+                fault=fault,
+            )'''
+          if text.count(old) != 1:
+              raise RuntimeError('fault-round patch did not match exactly once')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/z2r3d_run_unicode_workloads.py
+          git commit -m "Fix Z2R-3D-U fault corpus round parity"
+          git push origin HEAD:agent/z2r3d-unicode-promotion-readiness
