@@ -190,13 +190,7 @@ impl Utf8StreamDecoder {
                                 let value = self.accumulator;
                                 let source_start = self.sequence_start;
                                 self.clear_sequence();
-                                self.emit(
-                                    value,
-                                    source_start,
-                                    source_end,
-                                    false,
-                                    &mut emit,
-                                )?;
+                                self.emit(value, source_start, source_end, false, &mut emit)?;
                             }
                         }
                         continue;
@@ -386,8 +380,7 @@ mod tests {
     #[test]
     fn valid_multibyte_input_is_chunk_invariant() {
         let input = [
-            0x41, 0xc5, 0x9f, 0x65, 0xcc, 0x81, 0xf0, 0x9f, 0x98, 0x80, 0x0a, 0xe4, 0xb8,
-            0xad,
+            0x41, 0xc5, 0x9f, 0x65, 0xcc, 0x81, 0xf0, 0x9f, 0x98, 0x80, 0x0a, 0xe4, 0xb8, 0xad,
         ];
         let mut one_shot = Utf8StreamDecoder::new(ErrorPolicy::Strict);
         let reference = collect(&mut one_shot, &input, 1000).expect("valid UTF-8");
@@ -517,9 +510,7 @@ mod tests {
         decoder.reset();
         assert!(!decoder.failed());
         assert_eq!(decoder.next_source_offset(), 0);
-        decoder
-            .feed(&[0x41], 0, |_| Ok(()))
-            .expect("after reset");
+        decoder.feed(&[0x41], 0, |_| Ok(())).expect("after reset");
         decoder.finish(|_| Ok(())).expect("finish");
         decoder.finish(|_| Ok(())).expect("idempotent finish");
         assert!(decoder.feed(&[0x42], 1, |_| Ok(())).is_err());
