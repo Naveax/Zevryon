@@ -1,5 +1,5 @@
 name: Z2R-3D-U Unicode promotion readiness
-# This workflow certifies the exact clean PR head after bootstrap removal.
+# This workflow certifies the exact clean PR head after fault-round parity repair.
 on:
   workflow_dispatch:
   pull_request:
