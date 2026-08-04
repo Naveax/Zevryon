@@ -19,51 +19,30 @@ jobs:
         with:
           ref: agent/z2r3d-unicode-promotion-readiness
           fetch-depth: 0
-      - name: Repair, verify and apply permanent implementation
+      - name: Extract stored payload for exact comparison
         run: |
           python - <<'PY'
-          import base64
           import hashlib
+          import json
           import re
           from pathlib import Path
 
-          expected_sha = '93e2ff06edfe271e3b6ef3472009c5bcb5b584c962c0dda68b4da6ad71a05752'
-          workflow = Path('.github/workflows/z2r3du-materialize.yml')
-          text = workflow.read_text(encoding='utf-8')
+          text = Path('.github/workflows/z2r3du-materialize.yml').read_text(encoding='utf-8')
           match = re.search(r'^\s*MATERIALIZER_B64:\s*(\S+)\s*$', text, re.MULTILINE)
           if match is None:
               raise RuntimeError('materializer payload not found')
-
-          payload = bytearray(match.group(1).encode('ascii'))
-          if hashlib.sha256(payload).hexdigest() != expected_sha:
-              alphabet = b'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-              center = (1719 // 3) * 4
-              repaired = False
-              for position in range(max(0, center - 12), min(len(payload), center + 16)):
-                  original = payload[position]
-                  for candidate in alphabet:
-                      if candidate == original:
-                          continue
-                      payload[position] = candidate
-                      if hashlib.sha256(payload).hexdigest() == expected_sha:
-                          repaired = True
-                          break
-                  if repaired:
-                      break
-                  payload[position] = original
-              if not repaired:
-                  raise RuntimeError('single-character payload repair failed')
-
-          if hashlib.sha256(payload).hexdigest() != expected_sha:
-              raise RuntimeError('materializer payload SHA-256 mismatch')
-          code = base64.b64decode(bytes(payload), validate=True).decode('utf-8')
-          exec(compile(code, 'z2r3du-materializer', 'exec'))
-          Path('.github/workflows/z2r3du-pr-materialize.yml').unlink()
+          payload = match.group(1)
+          out = Path('evidence/z2r3du-bootstrap')
+          out.mkdir(parents=True, exist_ok=True)
+          (out / 'stored-payload.txt').write_text(payload, encoding='ascii')
+          (out / 'metadata.json').write_text(json.dumps({
+              'length': len(payload),
+              'sha256': hashlib.sha256(payload.encode('ascii')).hexdigest(),
+          }, sort_keys=True, indent=2) + '\n', encoding='utf-8')
           PY
-      - name: Commit permanent implementation
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "Z2R-3D-U: add Unicode promotion readiness certification"
-          git push origin HEAD:agent/z2r3d-unicode-promotion-readiness
+      - name: Upload stored payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: z2r3du-stored-payload-${{ github.sha }}
+          path: evidence/z2r3du-bootstrap
+          if-no-files-found: error
