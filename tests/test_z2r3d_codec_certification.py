@@ -29,6 +29,7 @@ RECORDS = 100_000
 CHUNKS = 100_004
 LOGICAL_BYTES = 128 * 1024 * 1024
 PAYLOAD_SHA = "a" * 64
+PREREQUISITE = finalize.EXPECTED_Z2R3C_HEAD
 
 
 def rehash_report(report: dict) -> dict:
@@ -275,11 +276,29 @@ def test_final_manifest_success_without_authority_switch() -> None:
             "macos": platform_manifest("macos", commit),
         },
         commit_sha=commit,
-        z2r3c_head="f" * 40,
+        z2r3c_head=PREREQUISITE,
     )
     assert final["promotion_ready"] is True
     assert final["all_platforms_ready"] is True
     assert final["authority"]["authoritative_switch_performed"] is False
+
+
+def test_final_manifest_rejects_changed_prerequisite() -> None:
+    commit = "f" * 40
+    try:
+        finalize.build_final_manifest(
+            {
+                "linux": platform_manifest("linux", commit),
+                "windows": platform_manifest("windows", commit),
+                "macos": platform_manifest("macos", commit),
+            },
+            commit_sha=commit,
+            z2r3c_head="0" * 40,
+        )
+    except finalize.FinalizationError as error:
+        assert "prerequisite SHA mismatch" in str(error)
+    else:
+        raise AssertionError("changed prerequisite SHA was accepted")
 
 
 def test_final_manifest_rejects_forged_platform_manifest_hash() -> None:
@@ -294,7 +313,7 @@ def test_final_manifest_rejects_forged_platform_manifest_hash() -> None:
         finalize.build_final_manifest(
             manifests,
             commit_sha=commit,
-            z2r3c_head="2" * 40,
+            z2r3c_head=PREREQUISITE,
         )
     except finalize.FinalizationError as error:
         assert "manifest SHA" in str(error)
@@ -320,7 +339,7 @@ def test_final_manifest_rejects_cross_platform_tree_difference() -> None:
         finalize.build_final_manifest(
             manifests,
             commit_sha=commit,
-            z2r3c_head="4" * 40,
+            z2r3c_head=PREREQUISITE,
         )
     except finalize.FinalizationError as error:
         assert "store tree differs" in str(error)
@@ -339,7 +358,7 @@ def test_final_manifest_requires_same_commit() -> None:
         finalize.build_final_manifest(
             manifests,
             commit_sha=commit,
-            z2r3c_head="7" * 40,
+            z2r3c_head=PREREQUISITE,
         )
     except finalize.FinalizationError as error:
         assert "windows commit SHA mismatch" in str(error)
