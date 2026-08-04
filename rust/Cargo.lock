@@ -22,17 +22,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "zevryon-unicode-abi"
+name = "zevryon-massivedoc"
 version = "0.1.0"
 
 [[package]]
-name = "zevryon-unicode-ffi"
+name = "zevryon-massivedoc-ffi"
 version = "0.1.0"
 dependencies = [
- "zevryon-unicode-abi",
- "zevryon-unicode-stream",
+ "zevryon-massivedoc",
 ]
-
-[[package]]
-name = "zevryon-unicode-stream"
-version = "0.1.0"
