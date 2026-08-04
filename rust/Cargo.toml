@@ -4,6 +4,8 @@ members = [
     "crates/zevryon-abi",
     "crates/zevryon-ledger",
     "crates/zevryon-ffi",
+    "crates/zevryon-massivedoc",
+    "crates/zevryon-massivedoc-ffi",
 ]
 
 [workspace.package]
