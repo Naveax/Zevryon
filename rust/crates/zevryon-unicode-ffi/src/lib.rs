@@ -14,8 +14,7 @@ use zevryon_unicode_stream::{
     DecodeError, DecodeStats, DecodedCodePoint, ErrorPolicy, Utf8StreamDecoder,
 };
 
-const _: [(); 1] =
-    [(); (size_of::<Utf8StreamDecoder>() <= ZR_UTF8_DECODER_STORAGE_BYTES) as usize];
+const _: [(); 1] = [(); (size_of::<Utf8StreamDecoder>() <= ZR_UTF8_DECODER_STORAGE_BYTES) as usize];
 const _: [(); 1] =
     [(); (align_of::<Utf8StreamDecoder>() <= ZR_UTF8_DECODER_STORAGE_ALIGN) as usize];
 
@@ -24,8 +23,7 @@ fn pointer_aligned<T>(pointer: *const T) -> bool {
 }
 
 fn storage_aligned(storage: *const ZrUtf8DecoderStorage) -> bool {
-    pointer_aligned(storage)
-        && (storage as usize).is_multiple_of(align_of::<Utf8StreamDecoder>())
+    pointer_aligned(storage) && (storage as usize).is_multiple_of(align_of::<Utf8StreamDecoder>())
 }
 
 fn with_decoder<R>(
@@ -145,10 +143,7 @@ pub extern "C" fn zr_utf8_decoder_storage_alignment() -> usize {
 }
 
 #[no_mangle]
-pub extern "C" fn zr_utf8_decoder_init(
-    storage: *mut ZrUtf8DecoderStorage,
-    policy: u32,
-) -> u8 {
+pub extern "C" fn zr_utf8_decoder_init(storage: *mut ZrUtf8DecoderStorage, policy: u32) -> u8 {
     if !storage_aligned(storage) {
         return 0;
     }
@@ -172,11 +167,7 @@ pub extern "C" fn zr_utf8_decoder_clear(storage: *mut ZrUtf8DecoderStorage) {
     }
     unsafe {
         // SAFETY: The storage points to exactly the fixed writable ABI record.
-        ptr::write_bytes(
-            storage.cast::<u8>(),
-            0,
-            ZR_UTF8_DECODER_STORAGE_BYTES,
-        );
+        ptr::write_bytes(storage.cast::<u8>(), 0, ZR_UTF8_DECODER_STORAGE_BYTES);
     }
 }
 
@@ -281,9 +272,7 @@ pub extern "C" fn zr_utf8_decoder_finish(
 
 #[no_mangle]
 pub extern "C" fn zr_utf8_decoder_reset(storage: *mut ZrUtf8DecoderStorage) -> u8 {
-    u8::from(
-        with_decoder_mut(storage, Utf8StreamDecoder::reset).is_some(),
-    )
+    u8::from(with_decoder_mut(storage, Utf8StreamDecoder::reset).is_some())
 }
 
 #[no_mangle]
@@ -310,9 +299,7 @@ pub extern "C" fn zr_utf8_decoder_stats(
 }
 
 #[no_mangle]
-pub extern "C" fn zr_utf8_decoder_next_source_offset(
-    storage: *const ZrUtf8DecoderStorage,
-) -> u64 {
+pub extern "C" fn zr_utf8_decoder_next_source_offset(storage: *const ZrUtf8DecoderStorage) -> u64 {
     with_decoder(storage, Utf8StreamDecoder::next_source_offset).unwrap_or(0)
 }
 
@@ -325,18 +312,14 @@ pub extern "C" fn zr_utf8_decoder_failed(storage: *const ZrUtf8DecoderStorage) -
 mod tests {
     use super::*;
     use zevryon_unicode_abi::{
-        ZR_UTF8_ERROR_OUTPUT_BUDGET_EXCEEDED, ZR_UTF8_POLICY_REPLACE,
-        ZR_UTF8_POLICY_STRICT,
+        ZR_UTF8_ERROR_OUTPUT_BUDGET_EXCEEDED, ZR_UTF8_POLICY_REPLACE, ZR_UTF8_POLICY_STRICT,
     };
 
     #[test]
     fn ffi_lifecycle_and_output_budget_are_fail_closed() {
         let mut storage = ZrUtf8DecoderStorage::default();
         assert_eq!(zr_utf8_decoder_valid(&storage), 0);
-        assert_eq!(
-            zr_utf8_decoder_init(&mut storage, ZR_UTF8_POLICY_STRICT),
-            1
-        );
+        assert_eq!(zr_utf8_decoder_init(&mut storage, ZR_UTF8_POLICY_STRICT), 1);
         assert_eq!(zr_utf8_decoder_valid(&storage), 1);
 
         let input = [0x41u8, 0xc5, 0x9f];
@@ -359,13 +342,16 @@ mod tests {
         assert_eq!(written, 2);
         assert_eq!(output[0].value, 0x41);
         assert_eq!(output[1].value, 0x15f);
-        assert_eq!(zr_utf8_decoder_finish(
-            &mut storage,
-            output.as_mut_ptr(),
-            output.len(),
-            &mut written,
-            &mut error,
-        ), 1);
+        assert_eq!(
+            zr_utf8_decoder_finish(
+                &mut storage,
+                output.as_mut_ptr(),
+                output.len(),
+                &mut written,
+                &mut error,
+            ),
+            1
+        );
 
         assert_eq!(zr_utf8_decoder_reset(&mut storage), 1);
         assert_eq!(zr_utf8_decoder_policy(&storage), ZR_UTF8_POLICY_STRICT);
