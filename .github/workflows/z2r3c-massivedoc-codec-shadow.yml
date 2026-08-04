@@ -8,6 +8,7 @@ on:
       - "cmake/rust_core.cmake"
       - "rust/**"
       - "src/massivedoc_descriptor_shadow.*"
+      - "src/massivedoc_store.hpp"
       - "src/massivedoc_store_part01.inc"
       - "src/massivedoc_store_rust_shadow.inc"
       - "src/zevryon_massivedoc_rust_ffi.h"
@@ -81,6 +82,43 @@ jobs:
         run: >-
           ctest --test-dir build-z2r3c-strict -C Release --output-on-failure
           -R "^(massivedoc-codec-shadow-tests|massivedoc-store-tests)$"
+
+  combined-rust-authority:
+    name: Ubuntu ResourceLedger authority plus MassiveDoc codec shadow
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure both production Rust boundaries
+        run: >-
+          cmake -S . -B build-z2r3c-combined
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW=ON
+          -DZEVRYON_RUST_LEDGER_AUTHORITATIVE=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW_STRICT=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW_INTERVAL=64
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW=ON
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT=ON
+
+      - name: Build combined authority and shadow graph
+        run: >-
+          cmake --build build-z2r3c-combined --config Release --parallel 2 --target
+          zevryon-rust-authority-tests
+          zevryon-massivedoc-codec-shadow-tests
+          zevryon-massivedoc-tests
+
+      - name: Run both exact production verifiers
+        run: >-
+          ctest --test-dir build-z2r3c-combined -C Release --output-on-failure
+          -R "^(rust-resource-ledger-authority|massivedoc-codec-shadow-tests|massivedoc-store-tests)$"
 
   diagnostic-divergence:
     name: Ubuntu diagnostic mismatch detection
