@@ -71,17 +71,14 @@ impl ChunkDescriptor {
     }
 }
 
-#[must_use]
 pub fn record_descriptor_offset(record_index: u64) -> Option<u64> {
     record_index.checked_mul(RECORD_DESCRIPTOR_BYTES as u64)
 }
 
-#[must_use]
 pub fn chunk_descriptor_offset(chunk_index: u64) -> Option<u64> {
     chunk_index.checked_mul(CHUNK_DESCRIPTOR_BYTES as u64)
 }
 
-#[must_use]
 pub fn plan_record_slice(
     record_length: u64,
     byte_offset: u64,
