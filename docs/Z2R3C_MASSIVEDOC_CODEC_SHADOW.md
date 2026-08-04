@@ -16,7 +16,7 @@ ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW=OFF
 ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT=OFF
 ```
 
-The production MassiveDoc graph remains C++ only. Cargo is not required and the Rust MassiveDoc static library is not built or linked.
+The production MassiveDoc graph remains C++ only. Cargo is not required, the Rust MassiveDoc static library is not built or linked, and the shadow translation unit is not present in the target source list.
 
 ### Diagnostic shadow mode
 
