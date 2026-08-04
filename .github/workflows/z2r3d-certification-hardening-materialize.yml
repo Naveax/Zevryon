@@ -25,16 +25,16 @@ jobs:
 
           certification = Path("scripts/z2r3d_codec_certification.py")
           text = certification.read_text(encoding="utf-8")
-          old = '''    require(isinstance(operations, dict) and tuple(operations) == OPERATIONS, "operation set/order mismatch")'''
-          new = '''    require(isinstance(operations, dict) and set(operations) == set(OPERATIONS), "operation set mismatch")'''
-          if text.count(old) != 1:
-              raise SystemExit("operation-set replacement did not match exactly once")
-          text = text.replace(old, new)
-
-          old = '''    files = canonical_store.get("files")
+          replacements = [
+              (
+                  '    require(isinstance(operations, dict) and tuple(operations) == OPERATIONS, "operation set/order mismatch")',
+                  '    require(isinstance(operations, dict) and set(operations) == set(OPERATIONS), "operation set mismatch")',
+              ),
+              (
+                  '''    files = canonical_store.get("files")
               require(isinstance(files, list) and len(files) == file_count, "store file inventory mismatch")
-          '''
-          new = '''    files = canonical_store.get("files")
+          ''',
+                  '''    files = canonical_store.get("files")
               require(isinstance(files, list) and len(files) == file_count, "store file inventory mismatch")
               unhashed_store = dict(canonical_store)
               unhashed_store.pop("tree_sha256", None)
@@ -49,10 +49,14 @@ jobs:
               for item in files:
                   require(int(item.get("bytes", -1)) >= 0, "store file byte count invalid")
                   require(len(str(item.get("sha256", ""))) == 64, "store file SHA invalid")
-          '''
-          if text.count(old) != 1:
-              raise SystemExit("store-tree replacement did not match exactly once")
-          certification.write_text(text.replace(old, new), encoding="utf-8")
+          ''',
+              ),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"certification replacement count was {text.count(old)}")
+              text = text.replace(old, new)
+          certification.write_text(text, encoding="utf-8")
 
           finalizer = Path("scripts/z2r3d_finalize_promotion.py")
           text = finalizer.read_text(encoding="utf-8")
@@ -71,8 +75,16 @@ jobs:
               return manifest
           '''
           if text.count(old) != 1:
-              raise SystemExit("platform-manifest replacement did not match exactly once")
+              raise SystemExit(f"finalizer replacement count was {text.count(old)}")
           finalizer.write_text(text.replace(old, new), encoding="utf-8")
+
+          workload = Path("tests/z2r3d_massivedoc_codec_workload.cpp")
+          text = workload.read_text(encoding="utf-8")
+          old = "std::string_view mismatch_name("
+          new = "[[maybe_unused]] std::string_view mismatch_name("
+          if text.count(old) != 1:
+              raise SystemExit(f"workload replacement count was {text.count(old)}")
+          workload.write_text(text.replace(old, new), encoding="utf-8")
           PY
 
       - name: Remove one-time materializer and commit
@@ -80,6 +92,6 @@ jobs:
           rm .github/workflows/z2r3d-certification-hardening-materialize.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add scripts/z2r3d_codec_certification.py scripts/z2r3d_finalize_promotion.py .github/workflows/z2r3d-certification-hardening-materialize.yml
+          git add scripts/z2r3d_codec_certification.py scripts/z2r3d_finalize_promotion.py tests/z2r3d_massivedoc_codec_workload.cpp .github/workflows/z2r3d-certification-hardening-materialize.yml
           git commit -m "Harden Z2R-3D canonical certification hashes"
           git push origin HEAD:${GITHUB_REF_NAME}
