@@ -128,6 +128,8 @@ The absolute-delta branch prevents a fixed Rust runtime footprint from failing s
 
 Every paired report includes a canonical SHA-256 over its complete content. Platform certification recomputes that hash before accepting any field.
 
+The complete store inventory is independently rehashed from its sorted file entries. File paths must be unique, file sizes must be non-negative and every file digest must be a 64-character SHA-256 value.
+
 Every platform manifest includes its own canonical SHA-256. Finalization recomputes all three platform hashes and then requires:
 
 - the same tested commit;
