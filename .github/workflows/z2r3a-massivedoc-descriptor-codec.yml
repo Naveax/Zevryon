@@ -1,0 +1,74 @@
+name: Z2R MassiveDoc descriptor codec certification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "rust/Cargo.toml"
+      - "rust/Cargo.lock"
+      - "rust/crates/zevryon-massivedoc/**"
+      - "rust/crates/zevryon-massivedoc-ffi/**"
+      - "rust/massivedoc-bridge/**"
+      - "src/zevryon_massivedoc_rust_ffi.h"
+      - "tests/rust_massivedoc_*"
+      - "docs/Z2R3A_MASSIVEDOC_DESCRIPTOR_CODEC.md"
+      - ".github/workflows/z2r3a-massivedoc-descriptor-codec.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: z2r3a-massivedoc-descriptor-codec-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  descriptor-codec:
+    name: ${{ matrix.os }} descriptor codec and ABI
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup component add rustfmt clippy
+
+      - name: Toolchain versions
+        run: |
+          rustc --version --verbose
+          cargo --version
+          cmake --version
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+
+      - name: Test Rust workspace
+        run: cargo test --manifest-path rust/Cargo.toml --workspace --all-targets --locked
+
+      - name: Clippy Rust workspace
+        run: >-
+          cargo clippy --manifest-path rust/Cargo.toml --workspace --all-targets --locked -- -D warnings
+
+      - name: Configure strict C and C++ descriptor bridge
+        run: >-
+          cmake -S rust/massivedoc-bridge -B build-rust-massivedoc
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+
+      - name: Build descriptor bridge tests
+        run: >-
+          cmake --build build-rust-massivedoc --config Release --parallel 2 --target
+          zevryon-rust-massivedoc-descriptor-tests
+          zevryon-rust-massivedoc-c-abi-tests
+
+      - name: Run descriptor and ABI certification
+        run: >-
+          ctest --test-dir build-rust-massivedoc -C Release --output-on-failure
+          -R "^rust-massivedoc-(descriptor-equivalence|c-abi-runtime)$"

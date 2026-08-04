@@ -1,0 +1,13 @@
+[package]
+name = "zevryon-massivedoc-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+zevryon-massivedoc = { path = "../zevryon-massivedoc" }
