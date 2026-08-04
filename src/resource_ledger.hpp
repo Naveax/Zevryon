@@ -101,6 +101,29 @@ public:
     std::uint64_t rust_shadow_mismatches() const noexcept;
     std::string rust_shadow_json() const;
 
+    static constexpr bool rust_authoritative() noexcept {
+#if defined(ZEVRYON_RESOURCE_LEDGER_RUST_AUTHORITATIVE)
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    static constexpr const char* authoritative_backend() noexcept {
+#if defined(ZEVRYON_RESOURCE_LEDGER_RUST_AUTHORITATIVE)
+        return "rust";
+#else
+        return "cpp";
+#endif
+    }
+
+#if defined(ZEVRYON_RESOURCE_LEDGER_RUST_AUTHORITATIVE) && \
+    defined(ZEVRYON_RESOURCE_LEDGER_AUTHORITY_TEST_HOOKS)
+    void inject_cpp_shadow_reservation_for_testing(
+        ResourceClass resource_class,
+        std::size_t bytes) noexcept;
+#endif
+
 private:
     static std::size_t index_of(ResourceClass resource_class) noexcept;
     static std::uint64_t saturating_add(std::uint64_t left, std::uint64_t right) noexcept;
