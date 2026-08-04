@@ -1,0 +1,103 @@
+name: Z2R-3C Rust Unicode production shadow certification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "cmake/rust_core.cmake"
+      - "rust/Cargo.toml"
+      - "rust/Cargo.lock"
+      - "rust/rust-toolchain.toml"
+      - "rust/crates/zevryon-unicode-*/**"
+      - "rust/unicode-bridge/**"
+      - "src/unicode_stream.*"
+      - "src/zevryon_rust_ffi.h"
+      - "tests/unicode_stream_tests.cpp"
+      - "docs/Z2R3C_UNICODE_PRODUCTION_SHADOW.md"
+      - ".github/workflows/z2r3c-unicode-production-shadow.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: z2r3c-unicode-shadow-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unicode-production-shadow:
+    name: ${{ matrix.os }} production UTF-8 shadow
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Report toolchains
+        run: |
+          rustc --version --verbose
+          cargo --version
+          cmake --version
+
+      - name: Check combined Rust formatting
+        run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+
+      - name: Test combined Rust workspace
+        run: cargo test --manifest-path rust/Cargo.toml --workspace --all-targets --locked
+
+      - name: Clippy combined Rust workspace
+        run: >-
+          cargo clippy --manifest-path rust/Cargo.toml
+          --workspace --all-targets --locked -- -D warnings
+
+      - name: Configure rollback-safe C++ baseline
+        run: >-
+          cmake -S . -B build-z2r3c-baseline
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DZEVRYON_RUST_UNICODE_SHADOW=OFF
+          -DZEVRYON_RUST_UNICODE_SHADOW_STRICT=OFF
+
+      - name: Build baseline Unicode test
+        run: >-
+          cmake --build build-z2r3c-baseline --config Release --parallel 2 --target
+          zevryon-unicode-stream-tests
+
+      - name: Run baseline Unicode test
+        run: >-
+          ctest --test-dir build-z2r3c-baseline -C Release --output-on-failure
+          -R "^unicode-stream-tests$"
+
+      - name: Configure strict production Rust Unicode shadow
+        run: >-
+          cmake -S . -B build-z2r3c-shadow
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DZEVRYON_RUST_UNICODE_SHADOW=ON
+          -DZEVRYON_RUST_UNICODE_SHADOW_STRICT=ON
+          -DZEVRYON_RUST_LEDGER_AUTHORITATIVE=OFF
+          -DZEVRYON_RUST_LEDGER_SHADOW=OFF
+
+      - name: Build strict-shadow Unicode production graph
+        run: >-
+          cmake --build build-z2r3c-shadow --config Release --parallel 2 --target
+          zevryon-unicode-stream-tests
+          zevryon-grapheme-segmenter-tests
+          zevryon-script-run-tests
+          zevryon-bidi-explicit-tests
+
+      - name: Run strict-shadow Unicode production tests
+        run: >-
+          ctest --test-dir build-z2r3c-shadow -C Release --output-on-failure
+          -R "^(unicode-stream-tests|grapheme-segmenter-tests|script-run-tests|bidi-explicit-tests)$"
