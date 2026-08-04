@@ -1,0 +1,177 @@
+name: Z2R-3C materialize production descriptor shadow
+
+on:
+  push:
+    branches:
+      - agent/z2r3c-massivedoc-codec-shadow
+    paths:
+      - .github/workflows/z2r3c-materialize.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: z2r3c-materialize
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/z2r3c-massivedoc-codec-shadow
+          fetch-depth: 0
+
+      - name: Apply deterministic production integration
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              if text.count(old) != 1:
+                  raise SystemExit(f"expected exactly one anchor in {path}: {text.count(old)}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          replace_once(
+              "src/massivedoc_store_part01.inc",
+              "\n} // namespace\n\nstruct StoreWriter::Impl",
+              "\n#include \"massivedoc_store_rust_shadow.inc\"\n\n} // namespace\n\nstruct StoreWriter::Impl",
+          )
+
+          replace_once(
+              "CMakeLists.txt",
+              'option(ZEVRYON_RUST_LEDGER_SHADOW_STRICT "Abort immediately on a production Rust shadow mismatch" OFF)\n',
+              'option(ZEVRYON_RUST_LEDGER_SHADOW_STRICT "Abort immediately on a production Rust shadow mismatch" OFF)\n'
+              'option(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW "Mirror production MassiveDoc descriptor codec operations into Rust" OFF)\n'
+              'option(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT "Abort immediately on a production MassiveDoc codec mismatch" OFF)\n',
+          )
+
+          replace_once(
+              "CMakeLists.txt",
+              'if(ZEVRYON_RUST_LEDGER_SHADOW_STRICT AND NOT ZEVRYON_RUST_LEDGER_SHADOW)\n'
+              '  message(FATAL_ERROR "ZEVRYON_RUST_LEDGER_SHADOW_STRICT requires ZEVRYON_RUST_LEDGER_SHADOW=ON")\n'
+              'endif()\n'
+              'if(NOT ZEVRYON_RUST_LEDGER_SHADOW_INTERVAL MATCHES "^[0-9]+$")',
+              'if(ZEVRYON_RUST_LEDGER_SHADOW_STRICT AND NOT ZEVRYON_RUST_LEDGER_SHADOW)\n'
+              '  message(FATAL_ERROR "ZEVRYON_RUST_LEDGER_SHADOW_STRICT requires ZEVRYON_RUST_LEDGER_SHADOW=ON")\n'
+              'endif()\n'
+              'if(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW AND NOT ZEVRYON_ENABLE_RUST_CORE)\n'
+              '  message(FATAL_ERROR "ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW requires ZEVRYON_ENABLE_RUST_CORE=ON")\n'
+              'endif()\n'
+              'if(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT AND NOT ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)\n'
+              '  message(FATAL_ERROR "ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT requires ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW=ON")\n'
+              'endif()\n'
+              'if(NOT ZEVRYON_RUST_LEDGER_SHADOW_INTERVAL MATCHES "^[0-9]+$")',
+          )
+
+          replace_once(
+              "CMakeLists.txt",
+              'if(ZEVRYON_RUST_LEDGER_SHADOW_STRICT)\n'
+              '  set(ZEVRYON_RUST_LEDGER_SHADOW_STRICT_VALUE 1)\n'
+              'else()\n'
+              '  set(ZEVRYON_RUST_LEDGER_SHADOW_STRICT_VALUE 0)\n'
+              'endif()\n\n'
+              'include(cmake/rust_core.cmake)',
+              'if(ZEVRYON_RUST_LEDGER_SHADOW_STRICT)\n'
+              '  set(ZEVRYON_RUST_LEDGER_SHADOW_STRICT_VALUE 1)\n'
+              'else()\n'
+              '  set(ZEVRYON_RUST_LEDGER_SHADOW_STRICT_VALUE 0)\n'
+              'endif()\n'
+              'if(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT)\n'
+              '  set(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT_VALUE 1)\n'
+              'else()\n'
+              '  set(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT_VALUE 0)\n'
+              'endif()\n\n'
+              'include(cmake/rust_core.cmake)',
+          )
+
+          replace_once(
+              "CMakeLists.txt",
+              '  src/compact_document.cpp\n  src/font_catalog.cpp',
+              '  src/compact_document.cpp\n  src/massivedoc_descriptor_shadow.cpp\n  src/font_catalog.cpp',
+          )
+
+          replace_once(
+              "CMakeLists.txt",
+              'if(ZEVRYON_RUST_LEDGER_SHADOW)\n'
+              '  target_compile_definitions(\n'
+              '    zevryon-massivedoc-core\n'
+              '    PUBLIC\n'
+              '      ZEVRYON_RESOURCE_LEDGER_RUST_SHADOW=1\n'
+              '      ZEVRYON_RUST_LEDGER_SHADOW_INTERVAL=${ZEVRYON_RUST_LEDGER_SHADOW_INTERVAL}\n'
+              '      ZEVRYON_RUST_LEDGER_SHADOW_STRICT=${ZEVRYON_RUST_LEDGER_SHADOW_STRICT_VALUE})\n'
+              '  zevryon_link_rust_core(zevryon-massivedoc-core)\n'
+              'endif()\n\n'
+              'if(ZEVRYON_ENABLE_FONTCONFIG_DISCOVERY AND UNIX AND NOT APPLE)',
+              'if(ZEVRYON_RUST_LEDGER_SHADOW)\n'
+              '  target_compile_definitions(\n'
+              '    zevryon-massivedoc-core\n'
+              '    PUBLIC\n'
+              '      ZEVRYON_RESOURCE_LEDGER_RUST_SHADOW=1\n'
+              '      ZEVRYON_RUST_LEDGER_SHADOW_INTERVAL=${ZEVRYON_RUST_LEDGER_SHADOW_INTERVAL}\n'
+              '      ZEVRYON_RUST_LEDGER_SHADOW_STRICT=${ZEVRYON_RUST_LEDGER_SHADOW_STRICT_VALUE})\n'
+              '  zevryon_link_rust_core(zevryon-massivedoc-core)\n'
+              'endif()\n\n'
+              'if(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)\n'
+              '  target_compile_definitions(\n'
+              '    zevryon-massivedoc-core\n'
+              '    PUBLIC\n'
+              '      ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW=1\n'
+              '      ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT=${ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT_VALUE})\n'
+              '  zevryon_link_rust_massivedoc_codec(zevryon-massivedoc-core)\n'
+              'endif()\n\n'
+              'if(ZEVRYON_ENABLE_FONTCONFIG_DISCOVERY AND UNIX AND NOT APPLE)',
+          )
+
+          replace_once(
+              "CMakeLists.txt",
+              '  add_test(NAME massivedoc-store-tests COMMAND zevryon-massivedoc-tests)\n\n'
+              '  add_executable(zevryon-compact-document-tests tests/compact_document_tests.cpp)',
+              '  add_test(NAME massivedoc-store-tests COMMAND zevryon-massivedoc-tests)\n\n'
+              '  if(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)\n'
+              '    add_executable(\n'
+              '      zevryon-massivedoc-codec-shadow-tests\n'
+              '      tests/massivedoc_descriptor_shadow_tests.cpp)\n'
+              '    target_link_libraries(\n'
+              '      zevryon-massivedoc-codec-shadow-tests PRIVATE zevryon-massivedoc-core)\n'
+              '    zevryon_options(zevryon-massivedoc-codec-shadow-tests)\n'
+              '    add_test(\n'
+              '      NAME massivedoc-codec-shadow-tests\n'
+              '      COMMAND zevryon-massivedoc-codec-shadow-tests)\n'
+              '    if(NOT ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT)\n'
+              '      add_test(\n'
+              '        NAME massivedoc-codec-shadow-fault\n'
+              '        COMMAND zevryon-massivedoc-codec-shadow-tests --fault)\n'
+              '    endif()\n'
+              '  endif()\n\n'
+              '  add_executable(zevryon-compact-document-tests tests/compact_document_tests.cpp)',
+          )
+
+          rust_core = Path("cmake/rust_core.cmake")
+          text = rust_core.read_text(encoding="utf-8")
+          anchor = (
+              'add_library(zevryon-rust-ffi STATIC IMPORTED GLOBAL)\n'
+              'set_target_properties(\n'
+              '  zevryon-rust-ffi\n'
+              '  PROPERTIES IMPORTED_LOCATION "${ZEVRYON_RUST_FFI_LIBRARY}")\n'
+          )
+          block = anchor + '''\nif(WIN32)\n  set(ZEVRYON_RUST_MASSIVEDOC_FFI_LIBRARY\n      "${ZEVRYON_RUST_TARGET_DIR}/release/zevryon_massivedoc_ffi.lib")\nelse()\n  set(ZEVRYON_RUST_MASSIVEDOC_FFI_LIBRARY\n      "${ZEVRYON_RUST_TARGET_DIR}/release/libzevryon_massivedoc_ffi.a")\nendif()\n\nadd_custom_command(\n  OUTPUT "${ZEVRYON_RUST_MASSIVEDOC_FFI_LIBRARY}"\n  COMMAND\n    "${CMAKE_COMMAND}" -E env\n    "CARGO_TARGET_DIR=${ZEVRYON_RUST_TARGET_DIR}"\n    "${ZEVRYON_CARGO_EXECUTABLE}" build\n      --manifest-path "${ZEVRYON_RUST_MANIFEST}"\n      --package zevryon-massivedoc-ffi\n      --release\n      --locked\n  DEPENDS\n    ${ZEVRYON_RUST_SOURCES}\n    "${ZEVRYON_RUST_MANIFEST}"\n    "${CMAKE_CURRENT_SOURCE_DIR}/rust/Cargo.lock"\n    "${CMAKE_CURRENT_SOURCE_DIR}/rust/rust-toolchain.toml"\n  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/rust"\n  COMMENT "Building the Zevryon Rust MassiveDoc descriptor library"\n  VERBATIM)\n\nadd_custom_target(\n  zevryon-rust-massivedoc-ffi-build\n  DEPENDS "${ZEVRYON_RUST_MASSIVEDOC_FFI_LIBRARY}")\nadd_dependencies(zevryon-rust-massivedoc-ffi-build zevryon-rust-ffi-build)\n\nadd_library(zevryon-rust-massivedoc-ffi STATIC IMPORTED GLOBAL)\nset_target_properties(\n  zevryon-rust-massivedoc-ffi\n  PROPERTIES IMPORTED_LOCATION "${ZEVRYON_RUST_MASSIVEDOC_FFI_LIBRARY}")\n'''
+          if text.count(anchor) != 1:
+              raise SystemExit("rust_core imported library anchor mismatch")
+          text = text.replace(anchor, block, 1)
+          text += '''\nfunction(zevryon_link_rust_massivedoc_codec target)\n  target_link_libraries(${target} PUBLIC zevryon-rust-massivedoc-ffi)\n  add_dependencies(${target} zevryon-rust-massivedoc-ffi-build)\n\n  if(MSVC)\n    target_link_libraries(\n      ${target}\n      PUBLIC advapi32 bcrypt ntdll userenv ws2_32)\n  elseif(APPLE)\n    find_library(ZEVRYON_MASSIVEDOC_SECURITY_FRAMEWORK Security REQUIRED)\n    find_library(ZEVRYON_MASSIVEDOC_FOUNDATION_FRAMEWORK Foundation REQUIRED)\n    find_library(ZEVRYON_MASSIVEDOC_ICONV_LIBRARY iconv REQUIRED)\n    target_link_libraries(\n      ${target}\n      PUBLIC\n        "${ZEVRYON_MASSIVEDOC_SECURITY_FRAMEWORK}"\n        "${ZEVRYON_MASSIVEDOC_FOUNDATION_FRAMEWORK}"\n        "${ZEVRYON_MASSIVEDOC_ICONV_LIBRARY}")\n  else()\n    find_package(Threads REQUIRED)\n    target_link_libraries(\n      ${target}\n      PUBLIC Threads::Threads dl m rt util)\n  endif()\nendfunction()\n'''
+          rust_core.write_text(text, encoding="utf-8")
+
+          Path(".github/workflows/z2r3c-materialize.yml").unlink()
+
+      - name: Commit materialized production integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CMakeLists.txt cmake/rust_core.cmake src/massivedoc_store_part01.inc .github/workflows/z2r3c-materialize.yml
+          git commit -m "Z2R-3C: integrate production MassiveDoc codec shadow"
+          git push origin HEAD:agent/z2r3c-massivedoc-codec-shadow
