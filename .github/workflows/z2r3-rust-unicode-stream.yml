@@ -1,0 +1,94 @@
+name: Z2R Rust Unicode stream certification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "rust/Cargo.toml"
+      - "rust/Cargo.lock"
+      - "rust/rust-toolchain.toml"
+      - "rust/crates/zevryon-unicode-*/**"
+      - "rust/unicode-bridge/**"
+      - "src/unicode_stream.*"
+      - "src/rust_unicode_stream_decoder.*"
+      - "src/zevryon_rust_ffi.h"
+      - "tests/unicode_stream_tests.cpp"
+      - "tests/rust_unicode_stream_equivalence_tests.cpp"
+      - "tests/rust_unicode_ffi_c_abi_tests.c"
+      - ".github/workflows/z2r3-rust-unicode-stream.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: z2r3-unicode-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unicode-stream:
+    name: ${{ matrix.os }} Rust/C/C++ UTF-8 equivalence
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Report toolchains
+        run: |
+          rustc --version --verbose
+          cargo --version
+          cmake --version
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+
+      - name: Run complete Rust workspace tests
+        run: cargo test --manifest-path rust/Cargo.toml --workspace --all-targets --locked
+
+      - name: Run Clippy with warnings denied
+        run: >-
+          cargo clippy --manifest-path rust/Cargo.toml
+          --workspace --all-targets --locked -- -D warnings
+
+      - name: Configure standalone Unicode bridge
+        run: cmake -S rust/unicode-bridge -B build-rust-unicode -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build strict C and C++ Unicode certification targets
+        run: >-
+          cmake --build build-rust-unicode --config Release --parallel 2 --target
+          zevryon-rust-unicode-stream-tests
+          zevryon-rust-unicode-c-abi-tests
+
+      - name: Run exact UTF-8 equivalence and C ABI tests
+        run: >-
+          ctest --test-dir build-rust-unicode -C Release --output-on-failure
+          -R "rust-unicode-(stream-equivalence|c-abi-runtime)"
+
+      - name: Configure unchanged C++ production baseline
+        run: >-
+          cmake -S . -B build-cpp-unicode
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DZEVRYON_RUST_LEDGER_SHADOW=OFF
+          -DZEVRYON_RUST_LEDGER_AUTHORITATIVE=OFF
+
+      - name: Build unchanged C++ Unicode stream tests
+        run: >-
+          cmake --build build-cpp-unicode --config Release --parallel 2 --target
+          zevryon-unicode-stream-tests
+
+      - name: Run unchanged C++ Unicode stream tests
+        run: >-
+          ctest --test-dir build-cpp-unicode -C Release --output-on-failure
+          -R "^unicode-stream-tests$"
