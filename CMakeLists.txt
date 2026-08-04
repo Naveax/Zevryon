@@ -90,7 +90,6 @@ add_library(zevryon-massivedoc-core STATIC
   src/bidi_visual.cpp
   src/bidi_weak.cpp
   src/compact_document.cpp
-  src/massivedoc_descriptor_shadow.cpp
   src/font_catalog.cpp
   src/font_discovery_generation.cpp
   src/font_fallback.cpp
@@ -123,6 +122,9 @@ if(ZEVRYON_RUST_LEDGER_SHADOW)
 endif()
 
 if(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)
+  target_sources(
+    zevryon-massivedoc-core
+    PRIVATE src/massivedoc_descriptor_shadow.cpp)
   target_compile_definitions(
     zevryon-massivedoc-core
     PUBLIC
