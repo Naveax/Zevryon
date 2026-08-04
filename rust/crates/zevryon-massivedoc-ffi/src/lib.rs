@@ -214,10 +214,7 @@ pub extern "C" fn zr_massivedoc_record_descriptor_offset(
 }
 
 #[no_mangle]
-pub extern "C" fn zr_massivedoc_chunk_descriptor_offset(
-    chunk_index: u64,
-    output: *mut u64,
-) -> u8 {
+pub extern "C" fn zr_massivedoc_chunk_descriptor_offset(chunk_index: u64, output: *mut u64) -> u8 {
     if !aligned(output) {
         return 0;
     }
