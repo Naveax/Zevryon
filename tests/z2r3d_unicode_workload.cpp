@@ -293,12 +293,8 @@ bool run_discontinuity_case(Summary& summary) {
 
 bool run_budget_case(Summary& summary) {
     Utf8StreamDecoder decoder(Utf8ErrorPolicy::Strict);
-    std::array<std::byte, 128> storage{};
-    std::pmr::monotonic_buffer_resource arena(
-        storage.data(),
-        storage.size(),
+    std::pmr::vector<DecodedCodePoint> output(
         std::pmr::null_memory_resource());
-    std::pmr::vector<DecodedCodePoint> output(&arena);
     Utf8DecodeError error{};
     std::array<std::byte, 64> input{};
     input.fill(std::byte{0x41U});
