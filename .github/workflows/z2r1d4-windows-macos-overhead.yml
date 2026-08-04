@@ -1,0 +1,285 @@
+name: Z2R Rust Windows and macOS workload certification
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/z2r1d4-windows-macos-overhead.yml'
+      - 'CMakeLists.txt'
+      - 'cmake/rust_core.cmake'
+      - 'cmake/coretext_discovery.cmake'
+      - 'cmake/font_resource_sfnt.cmake'
+      - 'cmake/z2r1d4_platform_probe.cmake'
+      - 'rust/**'
+      - 'src/resource_ledger.*'
+      - 'src/ledger_memory_resource.*'
+      - 'src/font_*'
+      - 'src/*font*'
+      - 'src/directwrite_discovery.*'
+      - 'src/coretext_discovery.*'
+      - 'src/shaping_run_plan.*'
+      - 'tests/directwrite_discovery_tests.cpp'
+      - 'tests/coretext_discovery_tests.cpp'
+      - 'tests/z2r1d4_platform_discovery_probe.cpp'
+      - 'tests/test_z2r1d4_platform_certification.py'
+      - 'scripts/z2r1d4_run_platform_workloads.py'
+      - 'scripts/z2r1d4_platform_certification.py'
+      - 'scripts/z2r1d4_finalize_promotion.py'
+  workflow_dispatch:
+
+concurrency:
+  group: z2r1d4-platforms-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  platform-pair:
+    name: ${{ matrix.platform }} baseline-shadow pair
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+            adapter: directwrite
+            discovery_test_target: zevryon-directwrite-discovery-tests
+            compiler: MSVC
+          - os: macos-latest
+            platform: macos
+            adapter: coretext
+            discovery_test_target: zevryon-coretext-discovery-tests
+            compiler: AppleClang
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python test dependencies
+        run: python -m pip install --upgrade pip pytest psutil
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Report toolchains
+        run: |
+          cmake --version
+          python --version
+          rustc --version --verbose
+          cargo --version
+
+      - name: Test Z2R-1D4 fail-closed contracts
+        run: python -m pytest -q tests/test_z2r1d4_platform_certification.py
+
+      - name: Configure authoritative C++ baseline
+        shell: bash
+        run: |
+          probe_file="$(python -c 'from pathlib import Path; print(Path("cmake/z2r1d4_platform_probe.cmake").resolve().as_posix())')"
+          cmake -S . -B build-z2r1d4-baseline \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DCMAKE_PROJECT_INCLUDE="$probe_file" \
+            -DZEVRYON_ENABLE_RUST_CORE=OFF \
+            -DZEVRYON_RUST_LEDGER_SHADOW=OFF \
+            -DZEVRYON_ENABLE_FONTCONFIG_DISCOVERY=OFF \
+            -DZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY=ON \
+            -DZEVRYON_ENABLE_CORETEXT_DISCOVERY=ON \
+            -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=OFF
+
+      - name: Build baseline platform workload graph
+        shell: bash
+        run: |
+          cmake --build build-z2r1d4-baseline --config Release --parallel 2 --target \
+            zevryon-z2r1d4-platform-probe \
+            zevryon-font-content-identity-benchmark \
+            zevryon-font-load-locator-benchmark \
+            zevryon-shaping-run-plan-benchmark \
+            zevryon-resource-ledger-tests \
+            zevryon-font-catalog-fallback-tests \
+            zevryon-font-discovery-generation-tests \
+            zevryon-font-resource-sfnt-tests \
+            zevryon-font-resource-integrity-tests \
+            zevryon-font-content-identity-tests \
+            zevryon-font-load-locator-tests \
+            zevryon-shaping-run-plan-tests \
+            ${{ matrix.discovery_test_target }}
+
+      - name: Configure strict production Rust shadow
+        shell: bash
+        run: |
+          probe_file="$(python -c 'from pathlib import Path; print(Path("cmake/z2r1d4_platform_probe.cmake").resolve().as_posix())')"
+          cmake -S . -B build-z2r1d4-shadow \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DCMAKE_PROJECT_INCLUDE="$probe_file" \
+            -DZEVRYON_ENABLE_RUST_CORE=ON \
+            -DZEVRYON_RUST_LEDGER_SHADOW=ON \
+            -DZEVRYON_RUST_LEDGER_SHADOW_STRICT=ON \
+            -DZEVRYON_RUST_LEDGER_SHADOW_INTERVAL=256 \
+            -DZEVRYON_ENABLE_FONTCONFIG_DISCOVERY=OFF \
+            -DZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY=ON \
+            -DZEVRYON_ENABLE_CORETEXT_DISCOVERY=ON \
+            -DZEVRYON_ENABLE_HARFBUZZ_SHAPING=OFF
+
+      - name: Build strict-shadow platform workload graph
+        shell: bash
+        run: |
+          cmake --build build-z2r1d4-shadow --config Release --parallel 2 --target \
+            zevryon-z2r1d4-platform-probe \
+            zevryon-font-content-identity-benchmark \
+            zevryon-font-load-locator-benchmark \
+            zevryon-shaping-run-plan-benchmark \
+            zevryon-resource-ledger-tests \
+            zevryon-font-catalog-fallback-tests \
+            zevryon-font-discovery-generation-tests \
+            zevryon-font-resource-sfnt-tests \
+            zevryon-font-resource-integrity-tests \
+            zevryon-font-content-identity-tests \
+            zevryon-font-load-locator-tests \
+            zevryon-shaping-run-plan-tests \
+            ${{ matrix.discovery_test_target }}
+
+      - name: Run authoritative baseline platform workloads
+        run: >-
+          python scripts/z2r1d4_run_platform_workloads.py
+          --build-dir build-z2r1d4-baseline
+          --platform ${{ matrix.platform }}
+          --mode baseline
+          --samples 3
+          --output evidence/z2r1d4/${{ matrix.platform }}/baseline.json
+
+      - name: Run strict Rust-shadow platform workloads
+        run: >-
+          python scripts/z2r1d4_run_platform_workloads.py
+          --build-dir build-z2r1d4-shadow
+          --platform ${{ matrix.platform }}
+          --mode shadow
+          --samples 3
+          --output evidence/z2r1d4/${{ matrix.platform }}/shadow.json
+
+      - name: Build fail-closed platform certification manifest
+        run: >-
+          python scripts/z2r1d4_platform_certification.py
+          --baseline evidence/z2r1d4/${{ matrix.platform }}/baseline.json
+          --shadow evidence/z2r1d4/${{ matrix.platform }}/shadow.json
+          --platform ${{ matrix.platform }}
+          --commit-sha "${{ github.sha }}"
+          --compiler "${{ matrix.compiler }}"
+          --build-type Release
+          --max-p50-ratio 1.50
+          --max-p95-ratio 1.50
+          --max-wall-ratio 1.75
+          --max-peak-rss-ratio 1.50
+          --max-peak-rss-delta-bytes 8388608
+          --output evidence/z2r1d4/${{ matrix.platform }}/certification.json
+
+      - name: Publish platform summary
+        shell: bash
+        run: |
+          PLATFORM="${{ matrix.platform }}" python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import os
+          from pathlib import Path
+
+          platform = os.environ['PLATFORM']
+          report = json.loads(
+              Path(f'evidence/z2r1d4/{platform}/certification.json').read_text()
+          )
+          print(f'## Z2R-1D4 {platform} certification')
+          print()
+          print(f"- Adapter: `{report['adapter']}`")
+          print(f"- Slice ready: `{report['slice_ready']}`")
+          print(f"- Tests: `{report['tests']['count']}`")
+          print(f"- Shadow operations: `{report['probe']['operations']}`")
+          print(f"- Shadow mismatches: `{report['probe']['mismatches']}`")
+          print(f"- Manifest SHA-256: `{report['manifest_sha256']}`")
+          print()
+          print('| Workload | P50 ratio | P95 ratio | Wall ratio | Peak RSS ratio | RSS delta MiB |')
+          print('|---|---:|---:|---:|---:|---:|')
+          for item in report['workloads']:
+              peak = item['peak_rss_ratio']
+              peak_text = 'n/a' if peak is None else f'{peak:.4f}'
+              delta = item['peak_rss_delta_bytes']
+              delta_text = 'n/a' if delta is None else f'{delta / (1024 * 1024):.3f}'
+              print(
+                  f"| {item['name']} | {item['p50_ratio']:.4f} | "
+                  f"{item['p95_ratio']:.4f} | {item['wall_time_ratio']:.4f} | "
+                  f"{peak_text} | {delta_text} |"
+              )
+          PY
+
+      - name: Upload platform evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: z2r1d4-platform-${{ matrix.platform }}-${{ github.sha }}
+          path: evidence/z2r1d4/
+          if-no-files-found: error
+
+  promotion-readiness:
+    name: final promotion-readiness manifest
+    needs: platform-pair
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest
+
+      - name: Recheck fail-closed finalization contracts
+        run: python -m pytest -q tests/test_z2r1d4_platform_certification.py
+
+      - name: Download Windows and macOS evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: z2r1d4-platform-*-${{ github.sha }}
+          path: evidence/z2r1d4
+          merge-multiple: true
+
+      - name: Build final Z2R-1D promotion-readiness manifest
+        run: >-
+          python scripts/z2r1d4_finalize_promotion.py
+          --windows evidence/z2r1d4/windows/certification.json
+          --macos evidence/z2r1d4/macos/certification.json
+          --commit-sha "${{ github.sha }}"
+          --prerequisite Z2R-1D1-massivedoc-zenith=bcee7c0553e69800507d26a50d26d06f8abf6e16bb9f9baae136350503d7ad02
+          --prerequisite Z2R-1D2-unicode-text=743300578775305596b2962fd6f68eb22c913bc73f3c1d2c103ff06ce54addbb
+          --prerequisite Z2R-1D3-font-discovery-fallback-shaping=17ffa5cfa403b28e744d127b875e06fb9f21edec38a5c916cc45c06610e2d91a
+          --output evidence/z2r1d4/promotion-readiness.json
+
+      - name: Publish final summary
+        shell: bash
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+
+          report = json.loads(
+              Path('evidence/z2r1d4/promotion-readiness.json').read_text()
+          )
+          print('## Z2R-1D final promotion readiness')
+          print()
+          print(f"- All mandatory slices ready: `{report['all_mandatory_slices_ready']}`")
+          print(f"- Promotion ready: `{report['promotion_ready']}`")
+          print(
+              '- Authority switch performed: '
+              f"`{report['authority']['authoritative_switch_performed']}`"
+          )
+          print(f"- Manifest SHA-256: `{report['manifest_sha256']}`")
+          PY
+
+      - name: Upload final evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: z2r1d4-promotion-readiness-${{ github.sha }}
+          path: evidence/z2r1d4/
+          if-no-files-found: error
