@@ -1,6 +1,7 @@
 #include "massivedoc_descriptor_shadow.hpp"
 #include "massivedoc_store.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -32,6 +33,22 @@ std::vector<std::byte> make_payload(std::size_t bytes, std::uint8_t seed) {
         byte = static_cast<std::byte>(value);
     }
     return payload;
+}
+
+std::vector<std::byte> read_record_bytes(
+    const zevryon::massivedoc::StoreReader& reader,
+    std::uint64_t record_index,
+    std::string* error) {
+    std::vector<std::byte> output;
+    const bool read = reader.read_record(
+        record_index,
+        [&output](std::span<const std::byte> chunk) {
+            output.insert(output.end(), chunk.begin(), chunk.end());
+            return true;
+        },
+        error);
+    require(read, *error);
+    return output;
 }
 
 void require_authority_identity() {
@@ -76,8 +93,7 @@ void run_positive() {
     require(reader.open(&error), error);
     require(reader.verify(&error), error);
 
-    std::vector<std::byte> first_round_trip;
-    require(reader.read_record(0U, &first_round_trip, &error), error);
+    const auto first_round_trip = read_record_bytes(reader, 0U, &error);
     require(first_round_trip == first, "Rust-authoritative first record diverged");
 
     std::vector<std::byte> slice;
@@ -142,8 +158,7 @@ void run_fault() {
     md::StoreReader clean_reader(root);
     require(clean_reader.open(&error), error);
     require(clean_reader.verify(&error), error);
-    std::vector<std::byte> clean_round_trip;
-    require(clean_reader.read_record(0U, &clean_round_trip, &error), error);
+    const auto clean_round_trip = read_record_bytes(clean_reader, 0U, &error);
     require(
         clean_round_trip == payload,
         "C++ encode reverse-shadow corruption changed Rust-authoritative disk bytes");
@@ -155,8 +170,7 @@ void run_fault() {
     md::StoreReader fault_reader(root);
     require(fault_reader.open(&error), error);
     require(fault_reader.verify(&error), error);
-    std::vector<std::byte> fault_round_trip;
-    require(fault_reader.read_record(0U, &fault_round_trip, &error), error);
+    const auto fault_round_trip = read_record_bytes(fault_reader, 0U, &error);
     require(
         fault_round_trip == payload,
         "C++ decode reverse-shadow corruption changed Rust-authoritative output");
