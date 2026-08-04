@@ -1,3 +1,4 @@
+#if defined(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)
 #include "massivedoc_descriptor_shadow.hpp"
 
 namespace {
@@ -54,3 +55,4 @@ std::optional<ChunkDescriptor> parse_chunk_with_rust_shadow(
 #define parse_record(bytes) parse_record_with_rust_shadow(bytes)
 #define serialize_chunk(descriptor) serialize_chunk_with_rust_shadow(descriptor)
 #define parse_chunk(bytes) parse_chunk_with_rust_shadow(bytes)
+#endif
