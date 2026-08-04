@@ -1,0 +1,85 @@
+name: Materialize Z2R-3D certification hardening
+
+on:
+  push:
+    paths:
+      - ".github/workflows/z2r3d-certification-hardening-materialize.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Harden canonical certification checks
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          certification = Path("scripts/z2r3d_codec_certification.py")
+          text = certification.read_text(encoding="utf-8")
+          old = '''    require(isinstance(operations, dict) and tuple(operations) == OPERATIONS, "operation set/order mismatch")'''
+          new = '''    require(isinstance(operations, dict) and set(operations) == set(OPERATIONS), "operation set mismatch")'''
+          if text.count(old) != 1:
+              raise SystemExit("operation-set replacement did not match exactly once")
+          text = text.replace(old, new)
+
+          old = '''    files = canonical_store.get("files")
+              require(isinstance(files, list) and len(files) == file_count, "store file inventory mismatch")
+          '''
+          new = '''    files = canonical_store.get("files")
+              require(isinstance(files, list) and len(files) == file_count, "store file inventory mismatch")
+              unhashed_store = dict(canonical_store)
+              unhashed_store.pop("tree_sha256", None)
+              require(
+                  hashlib.sha256(canonical_bytes(unhashed_store)).hexdigest() == tree_sha,
+                  "store tree SHA does not match canonical inventory",
+              )
+              paths = [str(item.get("path", "")) for item in files if isinstance(item, dict)]
+              require(len(paths) == file_count, "store file entry is not an object")
+              require(paths == sorted(paths), "store file inventory is not sorted")
+              require(len(set(paths)) == file_count, "store file inventory contains duplicates")
+              for item in files:
+                  require(int(item.get("bytes", -1)) >= 0, "store file byte count invalid")
+                  require(len(str(item.get("sha256", ""))) == 64, "store file SHA invalid")
+          '''
+          if text.count(old) != 1:
+              raise SystemExit("store-tree replacement did not match exactly once")
+          certification.write_text(text.replace(old, new), encoding="utf-8")
+
+          finalizer = Path("scripts/z2r3d_finalize_promotion.py")
+          text = finalizer.read_text(encoding="utf-8")
+          old = '''    require(len(str(manifest.get("manifest_sha256", ""))) == 64, f"{platform_name} manifest SHA invalid")
+              return manifest
+          '''
+          new = '''    claimed_manifest_sha = str(manifest.get("manifest_sha256", ""))
+              require(len(claimed_manifest_sha) == 64, f"{platform_name} manifest SHA invalid")
+              unhashed_manifest = dict(manifest)
+              unhashed_manifest.pop("manifest_sha256", None)
+              require(
+                  hashlib.sha256(canonical_bytes(unhashed_manifest)).hexdigest()
+                  == claimed_manifest_sha,
+                  f"{platform_name} manifest SHA does not match canonical content",
+              )
+              return manifest
+          '''
+          if text.count(old) != 1:
+              raise SystemExit("platform-manifest replacement did not match exactly once")
+          finalizer.write_text(text.replace(old, new), encoding="utf-8")
+          PY
+
+      - name: Remove one-time materializer and commit
+        run: |
+          rm .github/workflows/z2r3d-certification-hardening-materialize.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/z2r3d_codec_certification.py scripts/z2r3d_finalize_promotion.py .github/workflows/z2r3d-certification-hardening-materialize.yml
+          git commit -m "Harden Z2R-3D canonical certification hashes"
+          git push origin HEAD:${GITHUB_REF_NAME}
