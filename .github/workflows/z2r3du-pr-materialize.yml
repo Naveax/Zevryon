@@ -19,19 +19,44 @@ jobs:
         with:
           ref: agent/z2r3d-unicode-promotion-readiness
           fetch-depth: 0
-      - name: Decode and apply permanent implementation
+      - name: Repair, verify and apply permanent implementation
         run: |
           python - <<'PY'
           import base64
+          import hashlib
           import re
           from pathlib import Path
 
+          expected_sha = '93e2ff06edfe271e3b6ef3472009c5bcb5b584c962c0dda68b4da6ad71a05752'
           workflow = Path('.github/workflows/z2r3du-materialize.yml')
           text = workflow.read_text(encoding='utf-8')
           match = re.search(r'^\s*MATERIALIZER_B64:\s*(\S+)\s*$', text, re.MULTILINE)
           if match is None:
               raise RuntimeError('materializer payload not found')
-          code = base64.b64decode(match.group(1)).decode('utf-8')
+
+          payload = bytearray(match.group(1).encode('ascii'))
+          if hashlib.sha256(payload).hexdigest() != expected_sha:
+              alphabet = b'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+              center = (1719 // 3) * 4
+              repaired = False
+              for position in range(max(0, center - 12), min(len(payload), center + 16)):
+                  original = payload[position]
+                  for candidate in alphabet:
+                      if candidate == original:
+                          continue
+                      payload[position] = candidate
+                      if hashlib.sha256(payload).hexdigest() == expected_sha:
+                          repaired = True
+                          break
+                  if repaired:
+                      break
+                  payload[position] = original
+              if not repaired:
+                  raise RuntimeError('single-character payload repair failed')
+
+          if hashlib.sha256(payload).hexdigest() != expected_sha:
+              raise RuntimeError('materializer payload SHA-256 mismatch')
+          code = base64.b64decode(bytes(payload), validate=True).decode('utf-8')
           exec(compile(code, 'z2r3du-materializer', 'exec'))
           Path('.github/workflows/z2r3du-pr-materialize.yml').unlink()
           PY
