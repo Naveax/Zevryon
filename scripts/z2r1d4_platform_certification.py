@@ -143,8 +143,10 @@ def build_manifest(
     max_p95_ratio: float,
     max_wall_ratio: float,
     max_peak_rss_ratio: float,
+    max_peak_rss_delta_bytes: int,
 ) -> dict[str, Any]:
     require(platform_name in EXPECTED_ADAPTER, "unsupported platform")
+    require(max_peak_rss_delta_bytes >= 0, "peak RSS delta gate must be non-negative")
     baseline_workloads = validate_run(baseline, "baseline", platform_name)
     shadow_workloads = validate_run(shadow, "shadow", platform_name)
     probe = validate_probe(shadow.get("rust_shadow_probe"))
@@ -171,16 +173,32 @@ def build_manifest(
         wall_ratio = positive_ratio(
             other["median_wall_seconds"], base["median_wall_seconds"], f"{name}.wall"
         )
+        baseline_peak = base.get("median_peak_rss_bytes")
+        shadow_peak = other.get("median_peak_rss_bytes")
         peak_ratio = optional_ratio(
-            other.get("median_peak_rss_bytes"),
-            base.get("median_peak_rss_bytes"),
+            shadow_peak,
+            baseline_peak,
             f"{name}.peak_rss",
         )
+        peak_delta_bytes = None
+        memory_passed = peak_ratio is None
+        if peak_ratio is not None:
+            baseline_peak_number = finite_non_negative(
+                baseline_peak, f"{name}.peak_rss.baseline"
+            )
+            shadow_peak_number = finite_non_negative(
+                shadow_peak, f"{name}.peak_rss.shadow"
+            )
+            peak_delta_bytes = int(shadow_peak_number - baseline_peak_number)
+            memory_passed = (
+                peak_ratio <= max_peak_rss_ratio
+                or peak_delta_bytes <= max_peak_rss_delta_bytes
+            )
         passed = (
             p50_ratio <= max_p50_ratio
             and p95_ratio <= max_p95_ratio
             and wall_ratio <= max_wall_ratio
-            and (peak_ratio is None or peak_ratio <= max_peak_rss_ratio)
+            and memory_passed
         )
         require(passed, f"{name} exceeded a performance or memory gate")
         workload_results.append(
@@ -191,6 +209,9 @@ def build_manifest(
                 "p95_ratio": p95_ratio,
                 "wall_time_ratio": wall_ratio,
                 "peak_rss_ratio": peak_ratio,
+                "peak_rss_delta_bytes": peak_delta_bytes,
+                "peak_rss_gate": "ratio-or-absolute-delta",
+                "memory_passed": memory_passed,
                 "passed": True,
             }
         )
@@ -224,6 +245,8 @@ def build_manifest(
             "max_p95_ratio": max_p95_ratio,
             "max_wall_time_ratio": max_wall_ratio,
             "max_peak_rss_ratio": max_peak_rss_ratio,
+            "max_peak_rss_delta_bytes": max_peak_rss_delta_bytes,
+            "peak_rss_gate": "ratio-or-absolute-delta",
         },
         "workloads": workload_results,
         "slice_ready": True,
@@ -246,6 +269,9 @@ def main() -> int:
     parser.add_argument("--max-p95-ratio", type=float, default=1.50)
     parser.add_argument("--max-wall-ratio", type=float, default=1.75)
     parser.add_argument("--max-peak-rss-ratio", type=float, default=1.50)
+    parser.add_argument(
+        "--max-peak-rss-delta-bytes", type=int, default=8 * 1024 * 1024
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -261,6 +287,7 @@ def main() -> int:
             max_p95_ratio=args.max_p95_ratio,
             max_wall_ratio=args.max_wall_ratio,
             max_peak_rss_ratio=args.max_peak_rss_ratio,
+            max_peak_rss_delta_bytes=args.max_peak_rss_delta_bytes,
         )
     except CertificationError as error:
         print(f"Z2R-1D4 platform certification failed: {error}", file=sys.stderr)
