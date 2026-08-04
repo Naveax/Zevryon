@@ -1,8 +1,6 @@
 #if defined(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)
 #include "massivedoc_descriptor_shadow.hpp"
 
-namespace {
-
 std::vector<std::byte> serialize_record_with_rust_shadow(
     const RecordDescriptor& descriptor) {
     auto bytes = serialize_record(descriptor);
@@ -48,8 +46,6 @@ std::optional<ChunkDescriptor> parse_chunk_with_rust_shadow(
     }
     return descriptor;
 }
-
-} // namespace
 
 #define serialize_record(descriptor) serialize_record_with_rust_shadow(descriptor)
 #define parse_record(bytes) parse_record_with_rust_shadow(bytes)
