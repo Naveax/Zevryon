@@ -1,0 +1,92 @@
+name: Materialize Z2R-3D runtime fixes
+
+on:
+  push:
+    paths:
+      - ".github/workflows/z2r3d-runtime-fix-materialize.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/z2r3d-runtime-fix-materialize.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Fix certification syntax and initial memory sampling
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          certification = Path("scripts/z2r3d_codec_certification.py")
+          text = certification.read_text(encoding="utf-8")
+          old = '''        memory = {
+              "metric": memory_name,
+              name: metric_gate(
+                  shadow_memory[name],
+                  baseline_memory[name],
+                  label=f"{operation}.{memory_name}.{name}",
+                  max_ratio=max_memory_ratio,
+                  max_delta=float(max_memory_delta_bytes),
+              )
+              for name in ("p50", "maximum")
+          }
+          '''
+          new = '''        memory: dict[str, Any] = {"metric": memory_name}
+              for name in ("p50", "maximum"):
+                  memory[name] = metric_gate(
+                      shadow_memory[name],
+                      baseline_memory[name],
+                      label=f"{operation}.{memory_name}.{name}",
+                      max_ratio=max_memory_ratio,
+                      max_delta=float(max_memory_delta_bytes),
+                  )
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f"memory syntax replacement count was {text.count(old)}")
+          certification.write_text(text.replace(old, new), encoding="utf-8")
+
+          runner = Path("scripts/z2r3d_run_codec_workloads.py")
+          text = runner.read_text(encoding="utf-8")
+          old = '''    thread = threading.Thread(target=monitor, daemon=True)
+              thread.start()
+              stdout, stderr = process.communicate()
+          '''
+          new = '''    thread = threading.Thread(target=monitor, daemon=True)
+              thread.start()
+              try:
+                  initial = psutil.Process(process.pid)
+                  peak_rss = max(peak_rss, int(initial.memory_info().rss))
+                  try:
+                      initial_pss = getattr(initial.memory_full_info(), "pss", None)
+                      if initial_pss is not None:
+                          peak_pss = max(peak_pss or 0, int(initial_pss))
+                  except (psutil.AccessDenied, psutil.NoSuchProcess, AttributeError):
+                      pass
+              except (psutil.AccessDenied, psutil.NoSuchProcess):
+                  pass
+              stdout, stderr = process.communicate()
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f"initial memory replacement count was {text.count(old)}")
+          runner.write_text(text.replace(old, new), encoding="utf-8")
+          PY
+
+      - name: Remove one-time materializer and commit
+        env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+        run: |
+          rm .github/workflows/z2r3d-runtime-fix-materialize.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/z2r3d_codec_certification.py scripts/z2r3d_run_codec_workloads.py .github/workflows/z2r3d-runtime-fix-materialize.yml
+          git commit -m "Fix Z2R-3D certification runtime measurement"
+          git push origin HEAD:${BRANCH_NAME}
