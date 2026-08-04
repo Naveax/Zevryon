@@ -82,7 +82,11 @@ pub fn chunk_descriptor_offset(chunk_index: u64) -> Option<u64> {
 }
 
 #[must_use]
-pub fn plan_record_slice(record_length: u64, byte_offset: u64, max_bytes: u64) -> Option<SlicePlan> {
+pub fn plan_record_slice(
+    record_length: u64,
+    byte_offset: u64,
+    max_bytes: u64,
+) -> Option<SlicePlan> {
     if byte_offset > record_length {
         return None;
     }
