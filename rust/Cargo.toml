@@ -6,6 +6,9 @@ members = [
     "crates/zevryon-ffi",
     "crates/zevryon-massivedoc",
     "crates/zevryon-massivedoc-ffi",
+    "crates/zevryon-unicode-abi",
+    "crates/zevryon-unicode-stream",
+    "crates/zevryon-unicode-ffi",
 ]
 
 [workspace.package]
