@@ -28,57 +28,60 @@ jobs:
 
           certification = Path("scripts/z2r3d_codec_certification.py")
           text = certification.read_text(encoding="utf-8")
-          old = '''        memory = {
-              "metric": memory_name,
-              name: metric_gate(
+          start_marker = "        memory = {\n"
+          end_marker = "        results.append(\n"
+          start = text.find(start_marker)
+          end = text.find(end_marker, start)
+          if start < 0 or end < 0 or text.count(start_marker) != 1:
+              raise SystemExit("memory block markers were not unique")
+          replacement = '''        memory: dict[str, Any] = {"metric": memory_name}
+          for name in ("p50", "maximum"):
+              memory[name] = metric_gate(
                   shadow_memory[name],
                   baseline_memory[name],
                   label=f"{operation}.{memory_name}.{name}",
                   max_ratio=max_memory_ratio,
                   max_delta=float(max_memory_delta_bytes),
               )
-              for name in ("p50", "maximum")
-          }
           '''
-          new = '''        memory: dict[str, Any] = {"metric": memory_name}
-              for name in ("p50", "maximum"):
-                  memory[name] = metric_gate(
-                      shadow_memory[name],
-                      baseline_memory[name],
-                      label=f"{operation}.{memory_name}.{name}",
-                      max_ratio=max_memory_ratio,
-                      max_delta=float(max_memory_delta_bytes),
-                  )
-          '''
-          if text.count(old) != 1:
-              raise SystemExit(f"memory syntax replacement count was {text.count(old)}")
-          certification.write_text(text.replace(old, new), encoding="utf-8")
+          certification.write_text(
+              text[:start] + replacement + text[end:], encoding="utf-8"
+          )
 
           runner = Path("scripts/z2r3d_run_codec_workloads.py")
           text = runner.read_text(encoding="utf-8")
-          old = '''    thread = threading.Thread(target=monitor, daemon=True)
-              thread.start()
-              stdout, stderr = process.communicate()
-          '''
-          new = '''    thread = threading.Thread(target=monitor, daemon=True)
-              thread.start()
+          start_marker = "    thread = threading.Thread(target=monitor, daemon=True)\n"
+          end_marker = "    stdout, stderr = process.communicate()\n"
+          start = text.find(start_marker)
+          end = text.find(end_marker, start)
+          if start < 0 or end < 0 or text.count(start_marker) != 1:
+              raise SystemExit("memory sampler markers were not unique")
+          end += len(end_marker)
+          replacement = '''    thread = threading.Thread(target=monitor, daemon=True)
+          thread.start()
+          try:
+              initial = psutil.Process(process.pid)
+              peak_rss = max(peak_rss, int(initial.memory_info().rss))
               try:
-                  initial = psutil.Process(process.pid)
-                  peak_rss = max(peak_rss, int(initial.memory_info().rss))
-                  try:
-                      initial_pss = getattr(initial.memory_full_info(), "pss", None)
-                      if initial_pss is not None:
-                          peak_pss = max(peak_pss or 0, int(initial_pss))
-                  except (psutil.AccessDenied, psutil.NoSuchProcess, AttributeError):
-                      pass
-              except (psutil.AccessDenied, psutil.NoSuchProcess):
+                  initial_pss = getattr(initial.memory_full_info(), "pss", None)
+                  if initial_pss is not None:
+                      peak_pss = max(peak_pss or 0, int(initial_pss))
+              except (psutil.AccessDenied, psutil.NoSuchProcess, AttributeError):
                   pass
-              stdout, stderr = process.communicate()
+          except (psutil.AccessDenied, psutil.NoSuchProcess):
+              pass
+          stdout, stderr = process.communicate()
           '''
-          if text.count(old) != 1:
-              raise SystemExit(f"initial memory replacement count was {text.count(old)}")
-          runner.write_text(text.replace(old, new), encoding="utf-8")
+          runner.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
           PY
+
+      - name: Validate materialized Python
+        run: |
+          python -m py_compile \
+            scripts/z2r3d_run_codec_workloads.py \
+            scripts/z2r3d_codec_certification.py \
+            scripts/z2r3d_finalize_promotion.py
+          python -m pytest -q tests/test_z2r3d_codec_certification.py
 
       - name: Remove one-time materializer and commit
         env:
