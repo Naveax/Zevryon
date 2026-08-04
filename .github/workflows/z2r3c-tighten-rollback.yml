@@ -1,0 +1,65 @@
+name: Z2R-3C tighten rollback graph
+
+on:
+  push:
+    branches:
+      - agent/z2r3c-massivedoc-codec-shadow
+    paths:
+      - .github/workflows/z2r3c-tighten-rollback.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: z2r3c-tighten-rollback
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/z2r3c-massivedoc-codec-shadow
+
+      - name: Make shadow source conditional
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("CMakeLists.txt")
+          text = path.read_text(encoding="utf-8")
+          unconditional = "  src/compact_document.cpp\n  src/massivedoc_descriptor_shadow.cpp\n  src/font_catalog.cpp"
+          if text.count(unconditional) != 1:
+              raise SystemExit("unconditional shadow source anchor mismatch")
+          text = text.replace(
+              unconditional,
+              "  src/compact_document.cpp\n  src/font_catalog.cpp",
+              1,
+          )
+          shadow_anchor = (
+              "if(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)\n"
+              "  target_compile_definitions(\n"
+          )
+          if text.count(shadow_anchor) != 1:
+              raise SystemExit("shadow block anchor mismatch")
+          text = text.replace(
+              shadow_anchor,
+              "if(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)\n"
+              "  target_sources(\n"
+              "    zevryon-massivedoc-core\n"
+              "    PRIVATE src/massivedoc_descriptor_shadow.cpp)\n"
+              "  target_compile_definitions(\n",
+              1,
+          )
+          path.write_text(text, encoding="utf-8")
+          Path(".github/workflows/z2r3c-tighten-rollback.yml").unlink()
+
+      - name: Commit conditional production graph
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CMakeLists.txt .github/workflows/z2r3c-tighten-rollback.yml
+          git commit -m "Z2R-3C: preserve the exact Rust-disabled source graph"
+          git push origin HEAD:agent/z2r3c-massivedoc-codec-shadow
