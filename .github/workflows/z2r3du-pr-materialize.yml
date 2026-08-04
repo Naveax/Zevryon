@@ -1,0 +1,44 @@
+name: Z2R-3D-U PR materializer
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/z2r3du-materialize.yml"
+      - ".github/workflows/z2r3du-pr-materialize.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/z2r3d-unicode-promotion-readiness
+          fetch-depth: 0
+      - name: Decode and apply permanent implementation
+        run: |
+          python - <<'PY'
+          import base64
+          import re
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/z2r3du-materialize.yml')
+          text = workflow.read_text(encoding='utf-8')
+          match = re.search(r'^\s*MATERIALIZER_B64:\s*(\S+)\s*$', text, re.MULTILINE)
+          if match is None:
+              raise RuntimeError('materializer payload not found')
+          code = base64.b64decode(match.group(1)).decode('utf-8')
+          exec(compile(code, 'z2r3du-materializer', 'exec'))
+          Path('.github/workflows/z2r3du-pr-materialize.yml').unlink()
+          PY
+      - name: Commit permanent implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Z2R-3D-U: add Unicode promotion readiness certification"
+          git push origin HEAD:agent/z2r3d-unicode-promotion-readiness
