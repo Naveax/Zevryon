@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: z2r3du-materialize-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   materialize:
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -19,13 +23,14 @@ jobs:
         with:
           ref: agent/z2r3d-unicode-promotion-readiness
           fetch-depth: 0
-      - name: Verify and apply permanent implementation
+      - name: Verify and apply non-workflow implementation
         run: |
           python - <<'PY'
           import base64
           import gzip
           import hashlib
           import shutil
+          import subprocess
           from pathlib import Path
 
           root = Path('.z2r3du')
@@ -62,13 +67,20 @@ jobs:
           code = gzip.decompress(compressed).decode('utf-8')
           exec(compile(code, 'z2r3du-materializer', 'exec'))
 
+          permanent_workflow = Path('.github/workflows/z2r3d-unicode-promotion-readiness.yml')
+          if not permanent_workflow.is_file():
+              raise RuntimeError('permanent workflow was not materialized')
+          permanent_workflow.unlink()
+          subprocess.run(
+              ['git', 'checkout', '--', '.github/workflows/z2r3du-materialize.yml'],
+              check=True,
+          )
           shutil.rmtree(root)
-          Path('.github/workflows/z2r3du-pr-materialize.yml').unlink()
           PY
-      - name: Commit permanent implementation
+      - name: Commit non-workflow implementation
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "Z2R-3D-U: add Unicode promotion readiness certification"
+          git commit -m "Z2R-3D-U: add Unicode promotion readiness implementation"
           git push origin HEAD:agent/z2r3d-unicode-promotion-readiness
