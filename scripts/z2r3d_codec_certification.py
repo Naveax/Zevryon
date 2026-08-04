@@ -55,7 +55,10 @@ def finite_non_negative(value: Any, label: str) -> float:
         number = float(value)
     except (TypeError, ValueError) as error:
         raise CertificationError(f"{label} is not numeric") from error
-    require(math.isfinite(number) and number >= 0.0, f"{label} must be finite and non-negative")
+    require(
+        math.isfinite(number) and number >= 0.0,
+        f"{label} must be finite and non-negative",
+    )
     return number
 
 
@@ -117,7 +120,10 @@ def expected_telemetry(operation: str, records: int, chunks: int) -> dict[str, i
 
 def validate_summary(summary: Any, label: str, samples: int, platform_name: str) -> None:
     require(isinstance(summary, dict), f"{label} summary missing")
-    require(int(summary.get("sample_count", 0)) == samples, f"{label} sample count mismatch")
+    require(
+        int(summary.get("sample_count", 0)) == samples,
+        f"{label} sample count mismatch",
+    )
     for family in ("wall_seconds", "internal_seconds"):
         metrics = summary.get(family)
         require(isinstance(metrics, dict), f"{label}.{family} missing")
@@ -171,7 +177,10 @@ def validate_report(report: dict[str, Any], platform_name: str) -> dict[str, int
     require(samples >= 3, "fewer than three samples")
 
     operations = report.get("operations")
-    require(isinstance(operations, dict) and set(operations) == set(OPERATIONS), "operation set mismatch")
+    require(
+        isinstance(operations, dict) and set(operations) == set(OPERATIONS),
+        "operation set mismatch",
+    )
     import_telemetry = operations["import"].get("shadow_telemetry")
     require(
         isinstance(import_telemetry, list) and len(import_telemetry) == samples,
@@ -195,14 +204,22 @@ def validate_report(report: dict[str, Any], platform_name: str) -> dict[str, int
         for telemetry in telemetry_samples:
             require(isinstance(telemetry, dict), f"{operation} telemetry is not an object")
             require(telemetry.get("enabled") is True, f"{operation} shadow disabled")
-            require(int(telemetry.get("mismatches", -1)) == 0, f"{operation} mismatch recorded")
-            require(telemetry.get("first_mismatch") == "None", f"{operation} mismatch latched")
+            require(
+                int(telemetry.get("mismatches", -1)) == 0,
+                f"{operation} mismatch recorded",
+            )
+            require(
+                telemetry.get("first_mismatch") == "None",
+                f"{operation} mismatch latched",
+            )
             for counter, expected_value in expected.items():
                 require(
                     int(telemetry.get(counter, -1)) == expected_value,
                     f"{operation} {counter} mismatch",
                 )
-        validate_summary(item.get("baseline"), f"{operation}.baseline", samples, platform_name)
+        validate_summary(
+            item.get("baseline"), f"{operation}.baseline", samples, platform_name
+        )
         validate_summary(item.get("shadow"), f"{operation}.shadow", samples, platform_name)
 
     canonical_store = report.get("canonical_store")
@@ -212,7 +229,10 @@ def validate_report(report: dict[str, Any], platform_name: str) -> dict[str, int
     require(file_count > 0, "canonical store is empty")
     require(len(tree_sha) == 64, "store tree SHA invalid")
     files = canonical_store.get("files")
-    require(isinstance(files, list) and len(files) == file_count, "store file inventory mismatch")
+    require(
+        isinstance(files, list) and len(files) == file_count,
+        "store file inventory mismatch",
+    )
     unhashed_store = dict(canonical_store)
     unhashed_store.pop("tree_sha256", None)
     require(
@@ -228,22 +248,37 @@ def validate_report(report: dict[str, Any], platform_name: str) -> dict[str, int
         require(len(str(item.get("sha256", ""))) == 64, "store file SHA invalid")
 
     import_pairs = report.get("import_pairs")
-    require(isinstance(import_pairs, list) and len(import_pairs) == samples, "import pair count mismatch")
+    require(
+        isinstance(import_pairs, list) and len(import_pairs) == samples,
+        "import pair count mismatch",
+    )
     for index, item in enumerate(import_pairs):
         require(int(item.get("sample", -1)) == index, "import sample index mismatch")
-        require(item.get("semantic_sha256") == semantic_hashes["import"], "import semantic hash mismatch")
+        require(
+            item.get("semantic_sha256") == semantic_hashes["import"],
+            "import semantic hash mismatch",
+        )
         require(item.get("store_tree_sha256") == tree_sha, "store tree changed between samples")
-        require(int(item.get("store_file_count", 0)) == file_count, "store file count changed")
+        require(
+            int(item.get("store_file_count", 0)) == file_count,
+            "store file count changed",
+        )
 
     export_pairs = report.get("export_pairs")
-    require(isinstance(export_pairs, list) and len(export_pairs) == samples, "export pair count mismatch")
+    require(
+        isinstance(export_pairs, list) and len(export_pairs) == samples,
+        "export pair count mismatch",
+    )
     for index, item in enumerate(export_pairs):
         require(int(item.get("sample", -1)) == index, "export sample index mismatch")
         require(int(item.get("bytes", -1)) == logical_bytes, "exported payload size mismatch")
         require(item.get("sha256") == payload_sha, "exported payload SHA mismatch")
 
     faults = report.get("faults")
-    require(isinstance(faults, dict) and set(faults) == set(FAULTS), "fault class set mismatch")
+    require(
+        isinstance(faults, dict) and set(faults) == set(FAULTS),
+        "fault class set mismatch",
+    )
     fault_counter = {
         "record-encode": "record_encode_checks",
         "record-decode": "record_decode_checks",
@@ -252,7 +287,10 @@ def validate_report(report: dict[str, Any], platform_name: str) -> dict[str, int
     }
     for name, mismatch in FAULTS.items():
         item = faults[name]
-        require(item.get("expected_first_mismatch") == mismatch, f"{name} expected class mismatch")
+        require(
+            item.get("expected_first_mismatch") == mismatch,
+            f"{name} expected class mismatch",
+        )
         telemetry = item.get("telemetry")
         require(isinstance(telemetry, dict), f"{name} telemetry missing")
         require(telemetry.get("enabled") is True, f"{name} shadow disabled")
@@ -260,7 +298,10 @@ def validate_report(report: dict[str, Any], platform_name: str) -> dict[str, int
         require(telemetry.get("first_mismatch") == mismatch, f"{name} latch mismatch")
         for counter in COUNTERS:
             expected_value = 1 if counter == fault_counter[name] else 0
-            require(int(telemetry.get(counter, -1)) == expected_value, f"{name} {counter} mismatch")
+            require(
+                int(telemetry.get(counter, -1)) == expected_value,
+                f"{name} {counter} mismatch",
+            )
 
     return {
         "logical_bytes": logical_bytes,
@@ -317,19 +358,23 @@ def build_manifest(
         memory_name = "peak_pss_bytes" if platform_name == "linux" else "peak_rss_bytes"
         baseline_memory = item["baseline"].get(memory_name)
         shadow_memory = item["shadow"].get(memory_name)
-        require(isinstance(baseline_memory, dict), f"{operation} baseline {memory_name} missing")
-        require(isinstance(shadow_memory, dict), f"{operation} shadow {memory_name} missing")
-        memory = {
-            "metric": memory_name,
-            name: metric_gate(
+        require(
+            isinstance(baseline_memory, dict),
+            f"{operation} baseline {memory_name} missing",
+        )
+        require(
+            isinstance(shadow_memory, dict),
+            f"{operation} shadow {memory_name} missing",
+        )
+        memory: dict[str, Any] = {"metric": memory_name}
+        for name in ("p50", "maximum"):
+            memory[name] = metric_gate(
                 shadow_memory[name],
                 baseline_memory[name],
                 label=f"{operation}.{memory_name}.{name}",
                 max_ratio=max_memory_ratio,
                 max_delta=float(max_memory_delta_bytes),
             )
-            for name in ("p50", "maximum")
-        }
         results.append(
             {
                 "operation": operation,
@@ -433,13 +478,21 @@ def main() -> int:
         print(f"Z2R-3D platform certification failed: {error}", file=sys.stderr)
         return 1
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(json.dumps({
-        "schema": manifest["schema"],
-        "platform": manifest["platform"],
-        "slice_ready": manifest["slice_ready"],
-        "manifest_sha256": manifest["manifest_sha256"],
-    }, sort_keys=True))
+    args.output.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(
+        json.dumps(
+            {
+                "schema": manifest["schema"],
+                "platform": manifest["platform"],
+                "slice_ready": manifest["slice_ready"],
+                "manifest_sha256": manifest["manifest_sha256"],
+            },
+            sort_keys=True,
+        )
+    )
     return 0
 
 
