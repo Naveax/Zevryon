@@ -20,3 +20,14 @@ version = "0.1.0"
 dependencies = [
  "zevryon-abi",
 ]
+
+[[package]]
+name = "zevryon-massivedoc"
+version = "0.1.0"
+
+[[package]]
+name = "zevryon-massivedoc-ffi"
+version = "0.1.0"
+dependencies = [
+ "zevryon-massivedoc",
+]
