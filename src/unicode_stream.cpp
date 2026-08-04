@@ -111,7 +111,9 @@ bool Utf8StreamDecoder::feed(
     std::uint64_t absolute_source_offset,
     std::pmr::vector<DecodedCodePoint>* output,
     Utf8DecodeError* error) noexcept {
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
     const std::size_t output_start = output != nullptr ? output->size() : 0U;
+#endif
     const bool primary_result =
         feed_cpp(bytes, absolute_source_offset, output, error);
 #if defined(ZEVRYON_UTF8_RUST_SHADOW)
@@ -131,7 +133,9 @@ bool Utf8StreamDecoder::feed(
 bool Utf8StreamDecoder::finish(
     std::pmr::vector<DecodedCodePoint>* output,
     Utf8DecodeError* error) noexcept {
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
     const std::size_t output_start = output != nullptr ? output->size() : 0U;
+#endif
     const bool primary_result = finish_cpp(output, error);
 #if defined(ZEVRYON_UTF8_RUST_SHADOW)
     if (output != nullptr && error != nullptr) {
