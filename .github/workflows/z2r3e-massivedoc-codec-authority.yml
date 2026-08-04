@@ -1,0 +1,346 @@
+name: Z2R-3E MassiveDoc codec authority certification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "cmake/rust_core.cmake"
+      - "src/massivedoc_descriptor_shadow.*"
+      - "src/massivedoc_store_rust_shadow.inc"
+      - "tests/massivedoc_descriptor_authority_tests.cpp"
+      - "tests/z2r3d_massivedoc_codec_workload.cpp"
+      - "tests/test_z2r3e_authority_certification.py"
+      - "scripts/z2r3d_*.py"
+      - "scripts/z2r3e_*.py"
+      - "cmake/z2r3d_massivedoc_codec_probe.cmake"
+      - "docs/Z2R3E_MASSIVEDOC_CODEC_AUTHORITY.md"
+      - ".github/workflows/z2r3e-massivedoc-codec-authority.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: z2r3e-massivedoc-codec-authority-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: Fail-closed authority contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip pytest psutil
+      - name: Compile authority scripts
+        run: >-
+          python -m py_compile
+          scripts/z2r3d_run_codec_workloads.py
+          scripts/z2r3d_codec_certification.py
+          scripts/z2r3e_authority_certification.py
+          scripts/z2r3e_finalize_authority.py
+      - name: Run authority manifest contract tests
+        run: python -m pytest -q tests/test_z2r3e_authority_certification.py
+
+  strict-authority:
+    name: ${{ matrix.platform }} strict Rust descriptor authority
+    needs: contracts
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Report toolchains
+        run: |
+          rustc --version --verbose
+          cargo --version
+          cmake --version
+      - name: Check complete Rust workspace
+        if: matrix.platform == 'linux'
+        run: |
+          cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+          cargo test --manifest-path rust/Cargo.toml --workspace --all-targets --locked
+          cargo clippy --manifest-path rust/Cargo.toml --workspace --all-targets --locked -- -D warnings
+      - name: Configure strict Rust descriptor authority
+        run: >-
+          cmake -S . -B build-z2r3e-strict
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW=OFF
+          -DZEVRYON_RUST_LEDGER_AUTHORITATIVE=OFF
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW=ON
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_AUTHORITATIVE=ON
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT=ON
+          -DZEVRYON_ENABLE_FONTCONFIG_DISCOVERY=OFF
+          -DZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY=OFF
+      - name: Build strict authority targets
+        run: >-
+          cmake --build build-z2r3e-strict --config Release --parallel 2 --target
+          zevryon-massivedoc-codec-authority-tests
+          zevryon-massivedoc-tests
+          zevryon-massivedoc
+      - name: Run strict authority and store tests
+        run: >-
+          ctest --test-dir build-z2r3e-strict -C Release --output-on-failure
+          -R "^(massivedoc-codec-authority|massivedoc-store-tests)$"
+
+  adversarial-reverse-shadow:
+    name: Ubuntu C++ reverse-shadow corruption
+    needs: contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Configure diagnostic Rust authority
+        run: >-
+          cmake -S . -B build-z2r3e-adversarial
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW=OFF
+          -DZEVRYON_RUST_LEDGER_AUTHORITATIVE=OFF
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW=ON
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_AUTHORITATIVE=ON
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT=OFF
+          -DZEVRYON_ENABLE_FONTCONFIG_DISCOVERY=OFF
+          -DZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY=OFF
+      - name: Build authority adversarial target
+        run: >-
+          cmake --build build-z2r3e-adversarial --config Release --parallel 2 --target
+          zevryon-massivedoc-codec-authority-tests
+      - name: Prove Rust output survives C++ reverse-shadow corruption
+        run: >-
+          ctest --test-dir build-z2r3e-adversarial -C Release --output-on-failure
+          -R "^massivedoc-codec-authority(-fault)?$"
+
+  combined-rust-authority:
+    name: Ubuntu ResourceLedger plus descriptor authority
+    needs: contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Configure both Rust authority boundaries
+        run: >-
+          cmake -S . -B build-z2r3e-combined
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW=ON
+          -DZEVRYON_RUST_LEDGER_AUTHORITATIVE=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW_STRICT=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW_INTERVAL=64
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW=ON
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_AUTHORITATIVE=ON
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT=ON
+          -DZEVRYON_ENABLE_FONTCONFIG_DISCOVERY=OFF
+          -DZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY=OFF
+      - name: Build combined authority graph
+        run: >-
+          cmake --build build-z2r3e-combined --config Release --parallel 2 --target
+          zevryon-rust-authority-tests
+          zevryon-massivedoc-codec-authority-tests
+          zevryon-massivedoc-tests
+      - name: Run both exact authority verifiers
+        run: >-
+          ctest --test-dir build-z2r3e-combined -C Release --output-on-failure
+          -R "^(rust-resource-ledger-authority|massivedoc-codec-authority|massivedoc-store-tests)$"
+
+  cpp-rollback:
+    name: Ubuntu build-only C++ rollback
+    needs: contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure Rust-disabled production graph
+        run: >-
+          cmake -S . -B build-z2r3e-cpp
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DZEVRYON_RUST_LEDGER_SHADOW=OFF
+          -DZEVRYON_RUST_LEDGER_AUTHORITATIVE=OFF
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW=OFF
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_AUTHORITATIVE=OFF
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT=OFF
+          -DZEVRYON_ENABLE_FONTCONFIG_DISCOVERY=OFF
+          -DZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY=OFF
+      - name: Build unchanged C++ targets without Cargo
+        run: >-
+          cmake --build build-z2r3e-cpp --config Release --parallel 2 --target
+          zevryon-massivedoc-tests
+          zevryon-massivedoc
+      - name: Run unchanged C++ store tests
+        run: >-
+          ctest --test-dir build-z2r3e-cpp -C Release --output-on-failure
+          -R "^massivedoc-store-tests$"
+      - name: Enforce Cargo-free rollback graph
+        shell: bash
+        run: |
+          test ! -d build-z2r3e-cpp/rust-target
+          if cmake --build build-z2r3e-cpp --target help | grep -q "massivedoc-codec-authority"; then
+            echo "Rust authority target leaked into rollback graph" >&2
+            exit 1
+          fi
+
+  paired-authority-corpus:
+    name: ${{ matrix.platform }} paired authority corpus
+    needs: strict-authority
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            compiler: GNU
+          - os: windows-latest
+            platform: windows
+            compiler: MSVC
+          - os: macos-latest
+            platform: macos
+            compiler: AppleClang
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip pytest psutil
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Resolve injected target path
+        run: >-
+          python -c "import os; from pathlib import Path;
+          path=Path('cmake/z2r3d_massivedoc_codec_probe.cmake').resolve().as_posix();
+          open(os.environ['GITHUB_ENV'],'a',encoding='utf-8').write('Z2R3E_PROBE='+path+'\n')"
+      - name: Configure authoritative C++ baseline
+        run: >-
+          cmake -S . -B build-z2r3e-baseline
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=OFF
+          -DCMAKE_PROJECT_INCLUDE=${{ env.Z2R3E_PROBE }}
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DZEVRYON_RUST_LEDGER_SHADOW=OFF
+          -DZEVRYON_RUST_LEDGER_AUTHORITATIVE=OFF
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW=OFF
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_AUTHORITATIVE=OFF
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT=OFF
+          -DZEVRYON_ENABLE_FONTCONFIG_DISCOVERY=OFF
+          -DZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY=OFF
+      - name: Build C++ baseline workload
+        run: >-
+          cmake --build build-z2r3e-baseline --config Release --parallel 2
+          --target zevryon-z2r3d-massivedoc-codec-workload
+      - name: Configure Rust authority with C++ reverse shadow
+        run: >-
+          cmake -S . -B build-z2r3e-authority
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=OFF
+          -DCMAKE_PROJECT_INCLUDE=${{ env.Z2R3E_PROBE }}
+          -DZEVRYON_ENABLE_RUST_CORE=ON
+          -DZEVRYON_RUST_LEDGER_SHADOW=OFF
+          -DZEVRYON_RUST_LEDGER_AUTHORITATIVE=OFF
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW=ON
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_AUTHORITATIVE=ON
+          -DZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT=OFF
+          -DZEVRYON_ENABLE_FONTCONFIG_DISCOVERY=OFF
+          -DZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY=OFF
+      - name: Build Rust-authoritative workload
+        run: >-
+          cmake --build build-z2r3e-authority --config Release --parallel 2
+          --target zevryon-z2r3d-massivedoc-codec-workload
+      - name: Resolve platform executables
+        run: >-
+          python -c "import os; from pathlib import Path;
+          name=Path('Release/zevryon-z2r3d-massivedoc-codec-workload.exe') if os.name=='nt'
+          else Path('zevryon-z2r3d-massivedoc-codec-workload');
+          env=Path(os.environ['GITHUB_ENV']);
+          env.open('a',encoding='utf-8').write(
+          'Z2R3E_BASELINE='+str((Path('build-z2r3e-baseline')/name).resolve())+'\n'+
+          'Z2R3E_AUTHORITY='+str((Path('build-z2r3e-authority')/name).resolve())+'\n')"
+      - name: Run paired 128 MiB authority workload
+        run: >-
+          python scripts/z2r3d_run_codec_workloads.py
+          --baseline-binary "${{ env.Z2R3E_BASELINE }}"
+          --shadow-binary "${{ env.Z2R3E_AUTHORITY }}"
+          --platform ${{ matrix.platform }}
+          --work-dir "${{ runner.temp }}/z2r3e-${{ matrix.platform }}"
+          --logical-bytes 134217728
+          --records 131072
+          --segment-bytes 16777216
+          --giant-record-bytes 67108864
+          --samples 3
+          --output evidence/z2r3e/${{ matrix.platform }}-paired.json
+      - name: Build fail-closed authority platform manifest
+        run: >-
+          python scripts/z2r3e_authority_certification.py
+          --report evidence/z2r3e/${{ matrix.platform }}-paired.json
+          --platform ${{ matrix.platform }}
+          --commit-sha "${{ github.event.pull_request.head.sha || github.sha }}"
+          --compiler ${{ matrix.compiler }}
+          --build-type Release
+          --output evidence/z2r3e/${{ matrix.platform }}-authority-certification.json
+      - name: Upload authority platform evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: z2r3e-platform-${{ matrix.platform }}-${{ github.sha }}
+          path: |
+            evidence/z2r3e/${{ matrix.platform }}-paired.json
+            evidence/z2r3e/${{ matrix.platform }}-authority-certification.json
+          if-no-files-found: error
+
+  final-authority-readiness:
+    name: Final three-platform authority-readiness manifest
+    needs:
+      - paired-authority-corpus
+      - adversarial-reverse-shadow
+      - combined-rust-authority
+      - cpp-rollback
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download all authority evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: z2r3e-platform-*-${{ github.sha }}
+          path: evidence/z2r3e/downloaded
+          merge-multiple: true
+      - name: Build final authority-readiness manifest
+        run: >-
+          python scripts/z2r3e_finalize_authority.py
+          --linux evidence/z2r3e/downloaded/linux-authority-certification.json
+          --windows evidence/z2r3e/downloaded/windows-authority-certification.json
+          --macos evidence/z2r3e/downloaded/macos-authority-certification.json
+          --commit-sha "${{ github.event.pull_request.head.sha || github.sha }}"
+          --z2r3d-head acb7967ce905ba43215e09716e414584d7c790da
+          --z2r3d-manifest-sha 8ec0438fd621fa9770439d3b03d19cf48c05eeb84eae33cc1a4ec548e75d6a05
+          --output evidence/z2r3e/z2r3e-authority-readiness.json
+      - name: Upload final authority evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: z2r3e-authority-readiness-${{ github.sha }}
+          path: evidence/z2r3e/z2r3e-authority-readiness.json
+          if-no-files-found: error
