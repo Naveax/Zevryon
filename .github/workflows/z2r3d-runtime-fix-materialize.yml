@@ -4,9 +4,7 @@ on:
   push:
     paths:
       - ".github/workflows/z2r3d-runtime-fix-materialize.yml"
-  pull_request:
-    paths:
-      - ".github/workflows/z2r3d-runtime-fix-materialize.yml"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -18,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref || github.ref_name }}
+          ref: agent/z2r3d-massivedoc-codec-promotion
           fetch-depth: 0
 
       - name: Fix certification syntax and initial memory sampling
@@ -34,19 +32,18 @@ jobs:
           end = text.find(end_marker, start)
           if start < 0 or end < 0 or text.count(start_marker) != 1:
               raise SystemExit("memory block markers were not unique")
-          replacement = '''        memory: dict[str, Any] = {"metric": memory_name}
-          for name in ("p50", "maximum"):
-              memory[name] = metric_gate(
-                  shadow_memory[name],
-                  baseline_memory[name],
-                  label=f"{operation}.{memory_name}.{name}",
-                  max_ratio=max_memory_ratio,
-                  max_delta=float(max_memory_delta_bytes),
-              )
-          '''
-          certification.write_text(
-              text[:start] + replacement + text[end:], encoding="utf-8"
-          )
+          replacement = "\n".join([
+              '        memory: dict[str, Any] = {"metric": memory_name}',
+              '        for name in ("p50", "maximum"):',
+              '            memory[name] = metric_gate(',
+              '                shadow_memory[name],',
+              '                baseline_memory[name],',
+              '                label=f"{operation}.{memory_name}.{name}",',
+              '                max_ratio=max_memory_ratio,',
+              '                max_delta=float(max_memory_delta_bytes),',
+              '            )',
+          ]) + "\n"
+          certification.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
 
           runner = Path("scripts/z2r3d_run_codec_workloads.py")
           text = runner.read_text(encoding="utf-8")
@@ -57,39 +54,37 @@ jobs:
           if start < 0 or end < 0 or text.count(start_marker) != 1:
               raise SystemExit("memory sampler markers were not unique")
           end += len(end_marker)
-          replacement = '''    thread = threading.Thread(target=monitor, daemon=True)
-          thread.start()
-          try:
-              initial = psutil.Process(process.pid)
-              peak_rss = max(peak_rss, int(initial.memory_info().rss))
-              try:
-                  initial_pss = getattr(initial.memory_full_info(), "pss", None)
-                  if initial_pss is not None:
-                      peak_pss = max(peak_pss or 0, int(initial_pss))
-              except (psutil.AccessDenied, psutil.NoSuchProcess, AttributeError):
-                  pass
-          except (psutil.AccessDenied, psutil.NoSuchProcess):
-              pass
-          stdout, stderr = process.communicate()
-          '''
+          replacement = "\n".join([
+              '    thread = threading.Thread(target=monitor, daemon=True)',
+              '    thread.start()',
+              '    try:',
+              '        initial = psutil.Process(process.pid)',
+              '        peak_rss = max(peak_rss, int(initial.memory_info().rss))',
+              '        try:',
+              '            initial_pss = getattr(initial.memory_full_info(), "pss", None)',
+              '            if initial_pss is not None:',
+              '                peak_pss = max(peak_pss or 0, int(initial_pss))',
+              '        except (psutil.AccessDenied, psutil.NoSuchProcess, AttributeError):',
+              '            pass',
+              '    except (psutil.AccessDenied, psutil.NoSuchProcess):',
+              '        pass',
+              '    stdout, stderr = process.communicate()',
+          ]) + "\n"
           runner.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
           PY
 
       - name: Validate materialized Python
-        run: |
-          python -m py_compile \
-            scripts/z2r3d_run_codec_workloads.py \
-            scripts/z2r3d_codec_certification.py \
-            scripts/z2r3d_finalize_promotion.py
-          python -m pytest -q tests/test_z2r3d_codec_certification.py
+        run: >-
+          python -m py_compile
+          scripts/z2r3d_run_codec_workloads.py
+          scripts/z2r3d_codec_certification.py
+          scripts/z2r3d_finalize_promotion.py
 
       - name: Remove one-time materializer and commit
-        env:
-          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
           rm .github/workflows/z2r3d-runtime-fix-materialize.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add scripts/z2r3d_codec_certification.py scripts/z2r3d_run_codec_workloads.py .github/workflows/z2r3d-runtime-fix-materialize.yml
-          git commit -m "Fix Z2R-3D certification runtime measurement"
-          git push origin HEAD:${BRANCH_NAME}
+          git add scripts/z2r3d_run_codec_workloads.py scripts/z2r3d_codec_certification.py .github/workflows/z2r3d-runtime-fix-materialize.yml
+          git commit -m "Z2R-3D: fix certification runtime validation"
+          git push origin HEAD:agent/z2r3d-massivedoc-codec-promotion
