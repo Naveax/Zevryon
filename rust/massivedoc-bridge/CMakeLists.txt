@@ -70,6 +70,14 @@ function(zevryon_cpp_options target)
   endif()
 endfunction()
 
+function(zevryon_enable_assertions target)
+  if(MSVC)
+    target_compile_options(${target} PRIVATE /UNDEBUG)
+  else()
+    target_compile_options(${target} PRIVATE -UNDEBUG)
+  endif()
+endfunction()
+
 function(zevryon_link_rust_runtime target)
   target_link_libraries(${target} PRIVATE zevryon-rust-massivedoc-ffi)
   add_dependencies(${target} zevryon-rust-massivedoc-ffi-build)
@@ -101,6 +109,7 @@ target_include_directories(
   zevryon-rust-massivedoc-descriptor-tests PRIVATE "${ZEVRYON_ROOT}/src")
 zevryon_link_rust_runtime(zevryon-rust-massivedoc-descriptor-tests)
 zevryon_cpp_options(zevryon-rust-massivedoc-descriptor-tests)
+zevryon_enable_assertions(zevryon-rust-massivedoc-descriptor-tests)
 
 add_executable(
   zevryon-rust-massivedoc-c-abi-tests
@@ -109,6 +118,7 @@ target_include_directories(
   zevryon-rust-massivedoc-c-abi-tests PRIVATE "${ZEVRYON_ROOT}/src")
 zevryon_link_rust_runtime(zevryon-rust-massivedoc-c-abi-tests)
 zevryon_strict_options(zevryon-rust-massivedoc-c-abi-tests)
+zevryon_enable_assertions(zevryon-rust-massivedoc-c-abi-tests)
 
 include(CTest)
 add_test(
