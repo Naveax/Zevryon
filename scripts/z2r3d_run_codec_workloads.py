@@ -108,21 +108,24 @@ def run_measured(command: list[str]) -> dict[str, Any]:
     peak_pss: int | None = None
     stop = threading.Event()
 
-    def monitor() -> None:
+    def sample_memory(observed: psutil.Process) -> None:
         nonlocal peak_rss, peak_pss
+        peak_rss = max(peak_rss, int(observed.memory_info().rss))
+        try:
+            pss = getattr(observed.memory_full_info(), "pss", None)
+            if pss is not None:
+                peak_pss = max(peak_pss or 0, int(pss))
+        except (psutil.AccessDenied, psutil.NoSuchProcess, AttributeError):
+            pass
+
+    def monitor() -> None:
         try:
             observed = psutil.Process(process.pid)
         except psutil.Error:
             return
         while not stop.is_set():
             try:
-                peak_rss = max(peak_rss, int(observed.memory_info().rss))
-                try:
-                    pss = getattr(observed.memory_full_info(), "pss", None)
-                    if pss is not None:
-                        peak_pss = max(peak_pss or 0, int(pss))
-                except (psutil.AccessDenied, psutil.NoSuchProcess, AttributeError):
-                    pass
+                sample_memory(observed)
             except (psutil.AccessDenied, psutil.NoSuchProcess):
                 break
             if process.poll() is not None:
@@ -131,6 +134,10 @@ def run_measured(command: list[str]) -> dict[str, Any]:
 
     thread = threading.Thread(target=monitor, daemon=True)
     thread.start()
+    try:
+        sample_memory(psutil.Process(process.pid))
+    except (psutil.AccessDenied, psutil.NoSuchProcess):
+        pass
     stdout, stderr = process.communicate()
     stop.set()
     thread.join(timeout=1.0)
@@ -471,7 +478,10 @@ def main() -> int:
     }
     report["report_sha256"] = object_sha256(report)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.output.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     print(
         json.dumps(
             {
