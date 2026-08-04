@@ -87,6 +87,7 @@ def platform_manifest(platform: str, commit: str = "c" * 40) -> dict:
         max_p95_ratio=1.50,
         max_wall_ratio=1.75,
         max_peak_rss_ratio=1.50,
+        max_peak_rss_delta_bytes=8 * 1024 * 1024,
     )
 
 
@@ -114,6 +115,7 @@ def test_platform_manifest_rejects_semantic_divergence() -> None:
             max_p95_ratio=1.50,
             max_wall_ratio=1.75,
             max_peak_rss_ratio=1.50,
+            max_peak_rss_delta_bytes=8 * 1024 * 1024,
         )
     except cert.CertificationError as error:
         assert "semantic output diverged" in str(error)
@@ -137,11 +139,61 @@ def test_platform_manifest_rejects_overhead_gate() -> None:
             max_p95_ratio=1.50,
             max_wall_ratio=1.75,
             max_peak_rss_ratio=1.50,
+            max_peak_rss_delta_bytes=8 * 1024 * 1024,
         )
     except cert.CertificationError as error:
         assert "performance or memory gate" in str(error)
     else:
         raise AssertionError("overhead regression was accepted")
+
+
+def test_platform_manifest_accepts_fixed_runtime_rss_delta() -> None:
+    baseline = make_run("macos", "baseline")
+    shadow = make_run("macos", "shadow")
+    baseline["workloads"][2]["median_peak_rss_bytes"] = 1 * 1024 * 1024
+    shadow["workloads"][2]["median_peak_rss_bytes"] = 6 * 1024 * 1024
+    report = cert.build_manifest(
+        baseline,
+        shadow,
+        platform_name="macos",
+        commit_sha="c" * 40,
+        compiler="test",
+        build_type="Release",
+        max_p50_ratio=1.50,
+        max_p95_ratio=1.50,
+        max_wall_ratio=1.75,
+        max_peak_rss_ratio=1.50,
+        max_peak_rss_delta_bytes=8 * 1024 * 1024,
+    )
+    item = report["workloads"][2]
+    assert item["peak_rss_ratio"] == 6.0
+    assert item["peak_rss_delta_bytes"] == 5 * 1024 * 1024
+    assert item["memory_passed"] is True
+
+
+def test_platform_manifest_rejects_large_rss_ratio_and_delta() -> None:
+    baseline = make_run("windows", "baseline")
+    shadow = make_run("windows", "shadow")
+    baseline["workloads"][1]["median_peak_rss_bytes"] = 2 * 1024 * 1024
+    shadow["workloads"][1]["median_peak_rss_bytes"] = 20 * 1024 * 1024
+    try:
+        cert.build_manifest(
+            baseline,
+            shadow,
+            platform_name="windows",
+            commit_sha="c" * 40,
+            compiler="test",
+            build_type="Release",
+            max_p50_ratio=1.50,
+            max_p95_ratio=1.50,
+            max_wall_ratio=1.75,
+            max_peak_rss_ratio=1.50,
+            max_peak_rss_delta_bytes=8 * 1024 * 1024,
+        )
+    except cert.CertificationError as error:
+        assert "performance or memory gate" in str(error)
+    else:
+        raise AssertionError("large RSS ratio and absolute delta were accepted")
 
 
 def test_platform_manifest_rejects_probe_mismatch() -> None:
@@ -159,6 +211,7 @@ def test_platform_manifest_rejects_probe_mismatch() -> None:
             max_p95_ratio=1.50,
             max_wall_ratio=1.75,
             max_peak_rss_ratio=1.50,
+            max_peak_rss_delta_bytes=8 * 1024 * 1024,
         )
     except cert.CertificationError as error:
         assert "probe recorded a mismatch" in str(error)
