@@ -1,4 +1,5 @@
 name: Z2R-3D-U fix budget determinism
+# Retry bootstrap on the existing pull request.
 on:
   pull_request:
     paths:
