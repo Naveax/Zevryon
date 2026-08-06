@@ -1,5 +1,9 @@
 #pragma once
 
+#if defined(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)
+#include "massivedoc_descriptor_shadow.hpp"
+#endif
+
 #include <array>
 #include <cstddef>
 #include <cstdint>

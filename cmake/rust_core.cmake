@@ -3,6 +3,10 @@ option(
   "Use Rust as the production ResourceLedger authority while retaining the C++ verifier"
   OFF)
 option(
+  ZEVRYON_RUST_MASSIVEDOC_CODEC_AUTHORITATIVE
+  "Use Rust as the production MassiveDoc descriptor authority while retaining the C++ reverse shadow"
+  OFF)
+option(
   ZEVRYON_RUST_UNICODE_SHADOW
   "Mirror production Utf8StreamDecoder operations into Rust"
   OFF)
@@ -12,11 +16,15 @@ option(
   OFF)
 
 # Authority promotion and Unicode shadow execution are deliberately opt-in.
-# Either feature selects the shared Rust toolchain without changing the normal
-# cache values used by default C++ builds.
+# Enabling any feature selects the shared Rust toolchain without changing the
+# normal cache values used by default C++ builds.
 if(ZEVRYON_RUST_LEDGER_AUTHORITATIVE)
   set(ZEVRYON_ENABLE_RUST_CORE ON)
   set(ZEVRYON_RUST_LEDGER_SHADOW ON)
+endif()
+if(ZEVRYON_RUST_MASSIVEDOC_CODEC_AUTHORITATIVE)
+  set(ZEVRYON_ENABLE_RUST_CORE ON)
+  set(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW ON)
 endif()
 if(ZEVRYON_RUST_UNICODE_SHADOW)
   set(ZEVRYON_ENABLE_RUST_CORE ON)
@@ -63,6 +71,11 @@ if(MSVC AND ZEVRYON_RUST_LEDGER_SHADOW_STRICT)
   set_source_files_properties(
     "${CMAKE_CURRENT_SOURCE_DIR}/src/resource_ledger.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/resource_ledger_authoritative.cpp"
+    PROPERTIES COMPILE_OPTIONS "/wd4702")
+endif()
+if(MSVC AND ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT)
+  set_source_files_properties(
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/massivedoc_descriptor_shadow.cpp"
     PROPERTIES COMPILE_OPTIONS "/wd4702")
 endif()
 if(MSVC AND ZEVRYON_RUST_UNICODE_SHADOW_STRICT)
@@ -163,6 +176,43 @@ if(ZEVRYON_RUST_UNICODE_SHADOW)
   link_libraries(zevryon-rust-unicode-runtime)
 endif()
 
+if(WIN32)
+  set(ZEVRYON_RUST_MASSIVEDOC_FFI_LIBRARY
+      "${ZEVRYON_RUST_TARGET_DIR}/release/zevryon_massivedoc_ffi.lib")
+else()
+  set(ZEVRYON_RUST_MASSIVEDOC_FFI_LIBRARY
+      "${ZEVRYON_RUST_TARGET_DIR}/release/libzevryon_massivedoc_ffi.a")
+endif()
+
+add_custom_command(
+  OUTPUT "${ZEVRYON_RUST_MASSIVEDOC_FFI_LIBRARY}"
+  COMMAND
+    "${CMAKE_COMMAND}" -E env
+    "CARGO_TARGET_DIR=${ZEVRYON_RUST_TARGET_DIR}"
+    "${ZEVRYON_CARGO_EXECUTABLE}" build
+      --manifest-path "${ZEVRYON_RUST_MANIFEST}"
+      --package zevryon-massivedoc-ffi
+      --release
+      --locked
+  DEPENDS
+    ${ZEVRYON_RUST_SOURCES}
+    "${ZEVRYON_RUST_MANIFEST}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/rust/Cargo.lock"
+    "${CMAKE_CURRENT_SOURCE_DIR}/rust/rust-toolchain.toml"
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/rust"
+  COMMENT "Building the Zevryon Rust MassiveDoc descriptor library"
+  VERBATIM)
+
+add_custom_target(
+  zevryon-rust-massivedoc-ffi-build
+  DEPENDS "${ZEVRYON_RUST_MASSIVEDOC_FFI_LIBRARY}")
+add_dependencies(zevryon-rust-massivedoc-ffi-build zevryon-rust-ffi-build)
+
+add_library(zevryon-rust-massivedoc-ffi STATIC IMPORTED GLOBAL)
+set_target_properties(
+  zevryon-rust-massivedoc-ffi
+  PROPERTIES IMPORTED_LOCATION "${ZEVRYON_RUST_MASSIVEDOC_FFI_LIBRARY}")
+
 function(zevryon_link_rust_core target)
   if(ZEVRYON_RUST_LEDGER_AUTHORITATIVE)
     # The production target was declared with resource_ledger.cpp in the root
@@ -225,6 +275,64 @@ function(zevryon_link_rust_core target)
         add_test(
           NAME rust-resource-ledger-authority-fault
           COMMAND zevryon-rust-authority-tests --fault)
+      endif()
+    endif()
+  endif()
+endfunction()
+
+function(zevryon_link_rust_massivedoc_codec target)
+  if(ZEVRYON_RUST_MASSIVEDOC_CODEC_AUTHORITATIVE)
+    target_compile_definitions(
+      ${target}
+      PUBLIC ZEVRYON_RUST_MASSIVEDOC_CODEC_AUTHORITATIVE=1
+      PRIVATE ZEVRYON_MASSIVEDOC_CODEC_AUTHORITY_TEST_HOOKS=1)
+  endif()
+
+  target_link_libraries(${target} PUBLIC zevryon-rust-massivedoc-ffi)
+  add_dependencies(${target} zevryon-rust-massivedoc-ffi-build)
+
+  if(MSVC)
+    target_link_libraries(
+      ${target}
+      PUBLIC advapi32 bcrypt ntdll userenv ws2_32)
+  elseif(APPLE)
+    find_library(ZEVRYON_MASSIVEDOC_SECURITY_FRAMEWORK Security REQUIRED)
+    find_library(ZEVRYON_MASSIVEDOC_FOUNDATION_FRAMEWORK Foundation REQUIRED)
+    find_library(ZEVRYON_MASSIVEDOC_ICONV_LIBRARY iconv REQUIRED)
+    target_link_libraries(
+      ${target}
+      PUBLIC
+        "${ZEVRYON_MASSIVEDOC_SECURITY_FRAMEWORK}"
+        "${ZEVRYON_MASSIVEDOC_FOUNDATION_FRAMEWORK}"
+        "${ZEVRYON_MASSIVEDOC_ICONV_LIBRARY}")
+  else()
+    find_package(Threads REQUIRED)
+    target_link_libraries(
+      ${target}
+      PUBLIC Threads::Threads dl m rt util)
+  endif()
+
+  if(ZEVRYON_RUST_MASSIVEDOC_CODEC_AUTHORITATIVE AND
+     NOT TARGET zevryon-massivedoc-codec-authority-tests)
+    include(CTest)
+    add_executable(
+      zevryon-massivedoc-codec-authority-tests
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/massivedoc_descriptor_authority_tests.cpp")
+    target_compile_definitions(
+      zevryon-massivedoc-codec-authority-tests
+      PRIVATE ZEVRYON_MASSIVEDOC_CODEC_AUTHORITY_TEST_HOOKS=1)
+    target_link_libraries(
+      zevryon-massivedoc-codec-authority-tests PRIVATE ${target})
+    zevryon_options(zevryon-massivedoc-codec-authority-tests)
+
+    if(BUILD_TESTING)
+      add_test(
+        NAME massivedoc-codec-authority
+        COMMAND zevryon-massivedoc-codec-authority-tests --positive)
+      if(NOT ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT)
+        add_test(
+          NAME massivedoc-codec-authority-fault
+          COMMAND zevryon-massivedoc-codec-authority-tests --fault)
       endif()
     endif()
   endif()

@@ -144,6 +144,8 @@ std::string escape_json(std::string_view input) {
     return output.str();
 }
 
+#include "massivedoc_store_rust_shadow.inc"
+
 } // namespace
 
 struct StoreWriter::Impl {
