@@ -36,6 +36,17 @@ pub enum ErrorKind {
     OutputBudgetExceeded = 9,
 }
 
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ErrorDetail {
+    None = 0,
+    DecoderFailed = 1,
+    DecoderFinished = 2,
+    DiscontinuousOffset = 3,
+    SourceRangeOverflow = 4,
+    OutputCapacity = 5,
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DecodeStats {
     pub source_bytes: u64,
@@ -57,6 +68,7 @@ pub struct DecodedCodePoint {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DecodeError {
     pub kind: ErrorKind,
+    pub detail: ErrorDetail,
     pub source_offset: u64,
 }
 
@@ -127,23 +139,43 @@ impl Utf8StreamDecoder {
         F: FnMut(DecodedCodePoint) -> Result<(), ()>,
     {
         if self.failed {
-            return self.fail(ErrorKind::DiscontinuousInput, absolute_source_offset);
+            return self.fail(
+                ErrorKind::DiscontinuousInput,
+                ErrorDetail::DecoderFailed,
+                absolute_source_offset,
+            );
         }
         if self.finished {
-            return self.fail(ErrorKind::DiscontinuousInput, absolute_source_offset);
+            return self.fail(
+                ErrorKind::DiscontinuousInput,
+                ErrorDetail::DecoderFinished,
+                absolute_source_offset,
+            );
         }
         if self.started && absolute_source_offset != self.next_source_offset {
-            return self.fail(ErrorKind::DiscontinuousInput, absolute_source_offset);
+            return self.fail(
+                ErrorKind::DiscontinuousInput,
+                ErrorDetail::DiscontinuousOffset,
+                absolute_source_offset,
+            );
         }
 
         let byte_count = match u64::try_from(bytes.len()) {
             Ok(value) => value,
             Err(_) => {
-                return self.fail(ErrorKind::DiscontinuousInput, absolute_source_offset);
+                return self.fail(
+                    ErrorKind::DiscontinuousInput,
+                    ErrorDetail::SourceRangeOverflow,
+                    absolute_source_offset,
+                );
             }
         };
         let Some(next_source_offset) = absolute_source_offset.checked_add(byte_count) else {
-            return self.fail(ErrorKind::DiscontinuousInput, absolute_source_offset);
+            return self.fail(
+                ErrorKind::DiscontinuousInput,
+                ErrorDetail::SourceRangeOverflow,
+                absolute_source_offset,
+            );
         };
 
         if !self.started {
@@ -252,7 +284,11 @@ impl Utf8StreamDecoder {
         F: FnMut(DecodedCodePoint) -> Result<(), ()>,
     {
         if self.failed {
-            return self.fail(ErrorKind::DiscontinuousInput, self.next_source_offset);
+            return self.fail(
+                ErrorKind::DiscontinuousInput,
+                ErrorDetail::DecoderFailed,
+                self.next_source_offset,
+            );
         }
         if self.finished {
             return Ok(());
@@ -292,7 +328,11 @@ impl Utf8StreamDecoder {
             replacement,
         };
         if emit(point).is_err() {
-            return self.fail(ErrorKind::OutputBudgetExceeded, source_start);
+            return self.fail(
+                ErrorKind::OutputBudgetExceeded,
+                ErrorDetail::OutputCapacity,
+                source_start,
+            );
         }
         self.stats.emitted_codepoints = self.stats.emitted_codepoints.wrapping_add(1);
         if replacement {
@@ -301,10 +341,16 @@ impl Utf8StreamDecoder {
         Ok(())
     }
 
-    fn fail(&mut self, kind: ErrorKind, source_offset: u64) -> Result<(), DecodeError> {
+    fn fail(
+        &mut self,
+        kind: ErrorKind,
+        detail: ErrorDetail,
+        source_offset: u64,
+    ) -> Result<(), DecodeError> {
         self.failed = true;
         Err(DecodeError {
             kind,
+            detail,
             source_offset,
         })
     }
@@ -321,7 +367,7 @@ impl Utf8StreamDecoder {
     {
         self.stats.invalid_sequences = self.stats.invalid_sequences.wrapping_add(1);
         if self.policy == ErrorPolicy::Strict {
-            return self.fail(kind, error_offset);
+            return self.fail(kind, ErrorDetail::None, error_offset);
         }
 
         let replacement_start = self.sequence_start;
@@ -431,6 +477,7 @@ mod tests {
                 .feed(input, *base, |_| Ok(()))
                 .expect_err("must reject");
             assert_eq!(error.kind, *kind);
+            assert_eq!(error.detail, ErrorDetail::None);
             assert_eq!(error.source_offset, *offset);
             assert!(decoder.failed());
         }
@@ -493,6 +540,7 @@ mod tests {
             .feed(&[0x41], 0, |_| Err(()))
             .expect_err("output budget must fail");
         assert_eq!(error.kind, ErrorKind::OutputBudgetExceeded);
+        assert_eq!(error.detail, ErrorDetail::OutputCapacity);
         assert_eq!(error.source_offset, 0);
         assert!(decoder.failed());
         assert_eq!(decoder.stats().emitted_codepoints, 0);
@@ -502,10 +550,17 @@ mod tests {
     fn discontinuity_and_reset_follow_lifecycle_contract() {
         let mut decoder = Utf8StreamDecoder::new(ErrorPolicy::Strict);
         decoder.feed(&[0x41], 10, |_| Ok(())).expect("first");
-        let error = decoder
+        let discontinuous = decoder
             .feed(&[0x42], 12, |_| Ok(()))
             .expect_err("discontinuous");
-        assert_eq!(error.kind, ErrorKind::DiscontinuousInput);
+        assert_eq!(discontinuous.kind, ErrorKind::DiscontinuousInput);
+        assert_eq!(discontinuous.detail, ErrorDetail::DiscontinuousOffset);
+
+        let failed = decoder
+            .feed(&[0x42], 11, |_| Ok(()))
+            .expect_err("failed decoder");
+        assert_eq!(failed.kind, ErrorKind::DiscontinuousInput);
+        assert_eq!(failed.detail, ErrorDetail::DecoderFailed);
 
         decoder.reset();
         assert!(!decoder.failed());
@@ -513,6 +568,21 @@ mod tests {
         decoder.feed(&[0x41], 0, |_| Ok(())).expect("after reset");
         decoder.finish(|_| Ok(())).expect("finish");
         decoder.finish(|_| Ok(())).expect("idempotent finish");
-        assert!(decoder.feed(&[0x42], 1, |_| Ok(())).is_err());
+        let finished = decoder
+            .feed(&[0x42], 1, |_| Ok(()))
+            .expect_err("finished decoder");
+        assert_eq!(finished.kind, ErrorKind::DiscontinuousInput);
+        assert_eq!(finished.detail, ErrorDetail::DecoderFinished);
+    }
+
+    #[test]
+    fn source_range_overflow_has_stable_detail() {
+        let mut decoder = Utf8StreamDecoder::new(ErrorPolicy::Strict);
+        let error = decoder
+            .feed(&[0x41], u64::MAX, |_| Ok(()))
+            .expect_err("source range overflow");
+        assert_eq!(error.kind, ErrorKind::DiscontinuousInput);
+        assert_eq!(error.detail, ErrorDetail::SourceRangeOverflow);
+        assert_eq!(error.source_offset, u64::MAX);
     }
 }

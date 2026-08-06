@@ -18,10 +18,18 @@ option(
   ZEVRYON_RUST_UNICODE_SHADOW_TEST_HOOKS
   "Compile diagnostic-only Unicode shadow fault injection hooks"
   OFF)
+option(
+  ZEVRYON_RUST_UNICODE_AUTHORITATIVE
+  "Use Rust as the production UTF-8 decoder authority with C++ reverse shadow"
+  OFF)
+option(
+  ZEVRYON_RUST_UNICODE_AUTHORITY_TEST_HOOKS
+  "Compile diagnostic-only C++ reverse-shadow fault injection hooks"
+  OFF)
 
-# Authority promotion and Unicode shadow execution are deliberately opt-in.
-# Enabling any feature selects the shared Rust toolchain without changing the
-# normal cache values used by default C++ builds.
+# Authority promotion and shadow execution are deliberately opt-in. Enabling
+# any feature selects the shared Rust toolchain without changing default cache
+# values used by normal C++ builds.
 if(ZEVRYON_RUST_LEDGER_AUTHORITATIVE)
   set(ZEVRYON_ENABLE_RUST_CORE ON)
   set(ZEVRYON_RUST_LEDGER_SHADOW ON)
@@ -29,6 +37,10 @@ endif()
 if(ZEVRYON_RUST_MASSIVEDOC_CODEC_AUTHORITATIVE)
   set(ZEVRYON_ENABLE_RUST_CORE ON)
   set(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW ON)
+endif()
+if(ZEVRYON_RUST_UNICODE_AUTHORITATIVE)
+  set(ZEVRYON_ENABLE_RUST_CORE ON)
+  set(ZEVRYON_RUST_UNICODE_SHADOW ON)
 endif()
 if(ZEVRYON_RUST_UNICODE_SHADOW)
   set(ZEVRYON_ENABLE_RUST_CORE ON)
@@ -52,6 +64,21 @@ if(ZEVRYON_RUST_UNICODE_SHADOW_TEST_HOOKS AND
    ZEVRYON_RUST_UNICODE_SHADOW_STRICT)
   message(FATAL_ERROR
     "Unicode shadow test hooks require diagnostic non-strict mode")
+endif()
+if(ZEVRYON_RUST_UNICODE_AUTHORITY_TEST_HOOKS AND
+   NOT ZEVRYON_RUST_UNICODE_AUTHORITATIVE)
+  message(FATAL_ERROR
+    "ZEVRYON_RUST_UNICODE_AUTHORITY_TEST_HOOKS requires ZEVRYON_RUST_UNICODE_AUTHORITATIVE=ON")
+endif()
+if(ZEVRYON_RUST_UNICODE_AUTHORITY_TEST_HOOKS AND
+   ZEVRYON_RUST_UNICODE_SHADOW_STRICT)
+  message(FATAL_ERROR
+    "Unicode authority test hooks require diagnostic non-strict mode")
+endif()
+if(ZEVRYON_RUST_UNICODE_SHADOW_TEST_HOOKS AND
+   ZEVRYON_RUST_UNICODE_AUTHORITATIVE)
+  message(FATAL_ERROR
+    "Legacy Rust-shadow fault hooks cannot be enabled in Rust authority mode")
 endif()
 
 if(NOT ZEVRYON_ENABLE_RUST_CORE)
@@ -80,7 +107,7 @@ file(GLOB_RECURSE ZEVRYON_RUST_SOURCES CONFIGURE_DEPENDS
 
 # Strict certification deliberately terminates at the first mismatch. MSVC can
 # consequently diagnose the immediately following control-flow joins as C4702.
-# Scope the suppression only to the selected strict translation units.
+# Scope the suppression only to selected strict translation units.
 if(MSVC AND ZEVRYON_RUST_LEDGER_SHADOW_STRICT)
   set_source_files_properties(
     "${CMAKE_CURRENT_SOURCE_DIR}/src/resource_ledger.cpp"
@@ -95,7 +122,16 @@ endif()
 if(MSVC AND ZEVRYON_RUST_UNICODE_SHADOW_STRICT)
   set_source_files_properties(
     "${CMAKE_CURRENT_SOURCE_DIR}/src/unicode_stream.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/unicode_stream_authoritative.cpp"
     PROPERTIES COMPILE_OPTIONS "/wd4702")
+endif()
+# The diagnostic fault selector intentionally reads a process-local test
+# environment variable. MSVC deprecates getenv even for this bounded,
+# read-only hook, so suppress C4996 only for the diagnostic translation unit.
+if(MSVC AND ZEVRYON_RUST_UNICODE_AUTHORITY_TEST_HOOKS)
+  set_source_files_properties(
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/unicode_stream_authoritative.cpp"
+    PROPERTIES COMPILE_OPTIONS "/wd4996")
 endif()
 
 add_custom_command(
@@ -188,8 +224,7 @@ if(ZEVRYON_RUST_UNICODE_SHADOW)
     ZEVRYON_UTF8_RUST_SHADOW=1
     ZEVRYON_RUST_UNICODE_SHADOW_STRICT=${ZEVRYON_RUST_UNICODE_SHADOW_STRICT_VALUE})
   if(ZEVRYON_RUST_UNICODE_SHADOW_TEST_HOOKS)
-    add_compile_definitions(
-      ZEVRYON_UTF8_RUST_SHADOW_TEST_HOOKS=1)
+    add_compile_definitions(ZEVRYON_UTF8_RUST_SHADOW_TEST_HOOKS=1)
   endif()
   link_libraries(zevryon-rust-unicode-runtime)
 endif()
@@ -233,9 +268,6 @@ set_target_properties(
 
 function(zevryon_link_rust_core target)
   if(ZEVRYON_RUST_LEDGER_AUTHORITATIVE)
-    # The production target was declared with resource_ledger.cpp in the root
-    # source list. Mark it non-compiling and substitute the authoritative
-    # implementation only for this opt-in configuration.
     set_source_files_properties(
       "${CMAKE_CURRENT_SOURCE_DIR}/src/resource_ledger.cpp"
       PROPERTIES HEADER_FILE_ONLY TRUE)
@@ -355,3 +387,48 @@ function(zevryon_link_rust_massivedoc_codec target)
     endif()
   endif()
 endfunction()
+
+function(zevryon_configure_rust_unicode_authority)
+  if(NOT TARGET zevryon-massivedoc-core)
+    message(FATAL_ERROR "Unicode authority requires zevryon-massivedoc-core")
+  endif()
+
+  set_source_files_properties(
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/unicode_stream.cpp"
+    PROPERTIES HEADER_FILE_ONLY TRUE)
+  target_sources(
+    zevryon-massivedoc-core
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/unicode_stream_authoritative.cpp")
+  target_compile_definitions(
+    zevryon-massivedoc-core
+    PUBLIC ZEVRYON_UTF8_RUST_AUTHORITATIVE=1)
+  if(ZEVRYON_RUST_UNICODE_AUTHORITY_TEST_HOOKS)
+    target_compile_definitions(
+      zevryon-massivedoc-core
+      PRIVATE ZEVRYON_UTF8_RUST_AUTHORITY_TEST_HOOKS=1)
+  endif()
+
+  if(BUILD_TESTING AND NOT TARGET zevryon-unicode-authority-tests)
+    add_executable(
+      zevryon-unicode-authority-tests
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/unicode_stream_authority_tests.cpp")
+    target_link_libraries(
+      zevryon-unicode-authority-tests PRIVATE zevryon-massivedoc-core)
+    zevryon_options(zevryon-unicode-authority-tests)
+    add_test(
+      NAME unicode-authority-positive
+      COMMAND zevryon-unicode-authority-tests --positive)
+    if(ZEVRYON_RUST_UNICODE_AUTHORITY_TEST_HOOKS AND
+       NOT ZEVRYON_RUST_UNICODE_SHADOW_STRICT)
+      foreach(fault output error state reset)
+        add_test(
+          NAME unicode-authority-fault-${fault}
+          COMMAND zevryon-unicode-authority-tests --fault ${fault})
+      endforeach()
+    endif()
+  endif()
+endfunction()
+
+if(ZEVRYON_RUST_UNICODE_AUTHORITATIVE)
+  cmake_language(DEFER CALL zevryon_configure_rust_unicode_authority)
+endif()

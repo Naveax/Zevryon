@@ -15,7 +15,7 @@ extern "C" {
 #define ZR_LEDGER_STORAGE_BYTES 4096u
 #define ZR_LEDGER_STORAGE_ALIGN 8u
 
-#define ZR_UTF8_ABI_VERSION 0x00010000u
+#define ZR_UTF8_ABI_VERSION 0x00010001u
 #define ZR_UTF8_DECODER_STORAGE_BYTES 128u
 #define ZR_UTF8_DECODER_STORAGE_ALIGN 8u
 #define ZR_UTF8_POLICY_STRICT 0u
@@ -30,6 +30,13 @@ extern "C" {
 #define ZR_UTF8_ERROR_CODE_POINT_OUT_OF_RANGE 7u
 #define ZR_UTF8_ERROR_TRUNCATED_SEQUENCE 8u
 #define ZR_UTF8_ERROR_OUTPUT_BUDGET_EXCEEDED 9u
+
+#define ZR_UTF8_ERROR_DETAIL_NONE 0u
+#define ZR_UTF8_ERROR_DETAIL_DECODER_FAILED 1u
+#define ZR_UTF8_ERROR_DETAIL_DECODER_FINISHED 2u
+#define ZR_UTF8_ERROR_DETAIL_DISCONTINUOUS_OFFSET 3u
+#define ZR_UTF8_ERROR_DETAIL_SOURCE_RANGE_OVERFLOW 4u
+#define ZR_UTF8_ERROR_DETAIL_OUTPUT_CAPACITY 5u
 
 typedef struct ZrResourceSnapshot {
     size_t hard_limit_bytes;
@@ -70,7 +77,7 @@ typedef struct ZrUtf8DecodeStats {
 
 typedef struct ZrUtf8DecodeError {
     uint32_t kind;
-    uint32_t reserved;
+    uint32_t detail;
     uint64_t source_offset;
 } ZrUtf8DecodeError;
 
