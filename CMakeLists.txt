@@ -10,6 +10,8 @@ option(ZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY "Build the Windows DirectWrite disco
 option(ZEVRYON_ENABLE_RUST_CORE "Build the Rust logical-core static library" OFF)
 option(ZEVRYON_RUST_LEDGER_SHADOW "Mirror production ResourceLedger operations into Rust" OFF)
 option(ZEVRYON_RUST_LEDGER_SHADOW_STRICT "Abort immediately on a production Rust shadow mismatch" OFF)
+option(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW "Mirror production MassiveDoc descriptor codec operations into Rust" OFF)
+option(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT "Abort immediately on a production MassiveDoc codec mismatch" OFF)
 set(
   ZEVRYON_RUST_LEDGER_SHADOW_INTERVAL
   "1024"
@@ -22,6 +24,12 @@ endif()
 if(ZEVRYON_RUST_LEDGER_SHADOW_STRICT AND NOT ZEVRYON_RUST_LEDGER_SHADOW)
   message(FATAL_ERROR "ZEVRYON_RUST_LEDGER_SHADOW_STRICT requires ZEVRYON_RUST_LEDGER_SHADOW=ON")
 endif()
+if(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW AND NOT ZEVRYON_ENABLE_RUST_CORE)
+  message(FATAL_ERROR "ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW requires ZEVRYON_ENABLE_RUST_CORE=ON")
+endif()
+if(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT AND NOT ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)
+  message(FATAL_ERROR "ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT requires ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW=ON")
+endif()
 if(NOT ZEVRYON_RUST_LEDGER_SHADOW_INTERVAL MATCHES "^[0-9]+$")
   message(FATAL_ERROR "ZEVRYON_RUST_LEDGER_SHADOW_INTERVAL must be a non-negative integer")
 endif()
@@ -29,6 +37,11 @@ if(ZEVRYON_RUST_LEDGER_SHADOW_STRICT)
   set(ZEVRYON_RUST_LEDGER_SHADOW_STRICT_VALUE 1)
 else()
   set(ZEVRYON_RUST_LEDGER_SHADOW_STRICT_VALUE 0)
+endif()
+if(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT)
+  set(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT_VALUE 1)
+else()
+  set(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT_VALUE 0)
 endif()
 
 include(cmake/rust_core.cmake)
@@ -106,6 +119,18 @@ if(ZEVRYON_RUST_LEDGER_SHADOW)
       ZEVRYON_RUST_LEDGER_SHADOW_INTERVAL=${ZEVRYON_RUST_LEDGER_SHADOW_INTERVAL}
       ZEVRYON_RUST_LEDGER_SHADOW_STRICT=${ZEVRYON_RUST_LEDGER_SHADOW_STRICT_VALUE})
   zevryon_link_rust_core(zevryon-massivedoc-core)
+endif()
+
+if(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)
+  target_sources(
+    zevryon-massivedoc-core
+    PRIVATE src/massivedoc_descriptor_shadow.cpp)
+  target_compile_definitions(
+    zevryon-massivedoc-core
+    PUBLIC
+      ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW=1
+      ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT=${ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT_VALUE})
+  zevryon_link_rust_massivedoc_codec(zevryon-massivedoc-core)
 endif()
 
 if(ZEVRYON_ENABLE_FONTCONFIG_DISCOVERY AND UNIX AND NOT APPLE)
@@ -230,6 +255,23 @@ if(BUILD_TESTING)
   target_link_libraries(zevryon-massivedoc-tests PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-massivedoc-tests)
   add_test(NAME massivedoc-store-tests COMMAND zevryon-massivedoc-tests)
+
+  if(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)
+    add_executable(
+      zevryon-massivedoc-codec-shadow-tests
+      tests/massivedoc_descriptor_shadow_tests.cpp)
+    target_link_libraries(
+      zevryon-massivedoc-codec-shadow-tests PRIVATE zevryon-massivedoc-core)
+    zevryon_options(zevryon-massivedoc-codec-shadow-tests)
+    add_test(
+      NAME massivedoc-codec-shadow-tests
+      COMMAND zevryon-massivedoc-codec-shadow-tests)
+    if(NOT ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT)
+      add_test(
+        NAME massivedoc-codec-shadow-fault
+        COMMAND zevryon-massivedoc-codec-shadow-tests --fault)
+    endif()
+  endif()
 
   add_executable(zevryon-compact-document-tests tests/compact_document_tests.cpp)
   target_link_libraries(zevryon-compact-document-tests PRIVATE zevryon-massivedoc-core)
