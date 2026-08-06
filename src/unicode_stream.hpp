@@ -8,6 +8,10 @@
 #include <string>
 #include <vector>
 
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+#include "zevryon_rust_ffi.h"
+#endif
+
 namespace zevryon::text {
 
 enum class Utf8ErrorPolicy : std::uint8_t {
@@ -81,6 +85,7 @@ struct Utf8DecodeStats {
 class Utf8StreamDecoder {
 public:
     explicit Utf8StreamDecoder(Utf8ErrorPolicy policy = Utf8ErrorPolicy::Strict) noexcept;
+    ~Utf8StreamDecoder();
 
     bool feed(
         std::span<const std::byte> bytes,
@@ -98,7 +103,23 @@ public:
     std::uint64_t next_source_offset() const noexcept;
     bool failed() const noexcept;
 
+    bool rust_shadow_enabled() const noexcept;
+    bool rust_shadow_healthy() const noexcept;
+    std::uint64_t rust_shadow_operations() const noexcept;
+    std::uint64_t rust_shadow_verifications() const noexcept;
+    std::uint64_t rust_shadow_mismatches() const noexcept;
+    std::string rust_shadow_json() const;
+
 private:
+    bool feed_cpp(
+        std::span<const std::byte> bytes,
+        std::uint64_t absolute_source_offset,
+        std::pmr::vector<DecodedCodePoint>* output,
+        Utf8DecodeError* error) noexcept;
+    bool finish_cpp(
+        std::pmr::vector<DecodedCodePoint>* output,
+        Utf8DecodeError* error) noexcept;
+
     bool emit(
         std::uint32_t value,
         std::uint64_t source_start,
@@ -125,6 +146,59 @@ private:
         std::uint64_t source_start) noexcept;
     void clear_sequence() noexcept;
 
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+    enum class RustShadowMismatchKind : std::uint8_t {
+        None = 0,
+        RustUnavailable,
+        AbiVersion,
+        StorageContract,
+        OperationResult,
+        OutputCount,
+        OutputRecord,
+        ErrorKind,
+        ErrorOffset,
+        Statistics,
+        NextSourceOffset,
+        FailedState,
+        Policy,
+        BufferAllocation,
+        ResetResult,
+    };
+
+    void rust_shadow_feed(
+        std::span<const std::byte> bytes,
+        std::uint64_t absolute_source_offset,
+        const std::pmr::vector<DecodedCodePoint>& output,
+        std::size_t output_start,
+        bool primary_result,
+        const Utf8DecodeError& primary_error) noexcept;
+    void rust_shadow_finish(
+        const std::pmr::vector<DecodedCodePoint>& output,
+        std::size_t output_start,
+        bool primary_result,
+        const Utf8DecodeError& primary_error) noexcept;
+    void rust_shadow_reset() noexcept;
+    bool rust_shadow_verify_state() noexcept;
+    void rust_shadow_record_mismatch(
+        RustShadowMismatchKind kind,
+        std::uint64_t index,
+        std::uint64_t expected,
+        std::uint64_t actual) noexcept;
+    static void increment_saturating(std::uint64_t& value) noexcept;
+
+    ZrUtf8DecoderStorage rust_shadow_storage_{};
+    std::vector<ZrDecodedCodePoint> rust_shadow_output_{};
+    std::uint64_t rust_shadow_operations_{0};
+    std::uint64_t rust_shadow_verifications_{0};
+    std::uint64_t rust_shadow_mismatches_{0};
+    std::uint64_t rust_shadow_first_index_{0};
+    std::uint64_t rust_shadow_expected_{0};
+    std::uint64_t rust_shadow_actual_{0};
+    RustShadowMismatchKind rust_shadow_first_mismatch_{
+        RustShadowMismatchKind::None};
+    bool rust_shadow_initialized_{false};
+#endif
+
     Utf8ErrorPolicy policy_;
     Utf8DecodeStats stats_;
     bool started_{false};
@@ -136,5 +210,13 @@ private:
     std::uint32_t minimum_value_{0};
     std::uint8_t pending_continuations_{0};
 };
+
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+static_assert(sizeof(ZrDecodedCodePoint) == 16U);
+static_assert(sizeof(ZrUtf8DecodeStats) == 48U);
+static_assert(sizeof(ZrUtf8DecodeError) == 16U);
+static_assert(sizeof(ZrUtf8DecoderStorage) == ZR_UTF8_DECODER_STORAGE_BYTES);
+static_assert(alignof(ZrUtf8DecoderStorage) == ZR_UTF8_DECODER_STORAGE_ALIGN);
+#endif
 
 } // namespace zevryon::text

@@ -66,6 +66,15 @@ bool decode(
     if (!decoder.finish(&output, error)) {
         return false;
     }
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+    if (!require(decoder.rust_shadow_enabled(), "decode Rust shadow initializes") ||
+        !require(decoder.rust_shadow_healthy(), "decode Rust shadow remains healthy") ||
+        !require(
+            decoder.rust_shadow_mismatches() == 0U,
+            "decode Rust shadow records zero mismatches")) {
+        return false;
+    }
+#endif
     result->assign(output.begin(), output.end());
     return true;
 }
@@ -143,7 +152,16 @@ bool expect_strict_error(
     std::pmr::vector<DecodedCodePoint> output(&memory);
     Utf8StreamDecoder decoder(Utf8ErrorPolicy::Strict);
     Utf8DecodeError error;
-    return require(!decoder.feed(input, source_base, &output, &error), "strict input rejected") &&
+    const bool rejected = !decoder.feed(input, source_base, &output, &error);
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+    if (!require(decoder.rust_shadow_healthy(), "strict Rust shadow remains healthy") ||
+        !require(
+            decoder.rust_shadow_mismatches() == 0U,
+            "strict Rust shadow records zero mismatches")) {
+        return false;
+    }
+#endif
+    return require(rejected, "strict input rejected") &&
            require(error.kind == expected_kind, "strict error kind") &&
            require(error.source_offset == expected_offset, "strict error offset") &&
            require(decoder.failed(), "strict decoder enters failed state");
@@ -241,10 +259,26 @@ bool test_lifecycle() {
 
     decoder.reset();
     output.clear();
-    return require(decoder.feed(first, 0U, &output, &error), "input accepted after reset") &&
-           require(decoder.finish(&output, &error), "finish succeeds") &&
-           require(decoder.finish(&output, &error), "finish is idempotent") &&
-           require(!decoder.feed(second, 1U, &output, &error), "input after finish rejected");
+    const bool result =
+        decoder.feed(first, 0U, &output, &error) &&
+        decoder.finish(&output, &error) &&
+        decoder.finish(&output, &error) &&
+        !decoder.feed(second, 1U, &output, &error);
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+    if (!require(decoder.rust_shadow_healthy(), "lifecycle Rust shadow remains healthy") ||
+        !require(
+            decoder.rust_shadow_operations() >= 6U,
+            "lifecycle Rust shadow observes feed finish and reset operations") ||
+        !require(
+            decoder.rust_shadow_verifications() >= decoder.rust_shadow_operations(),
+            "lifecycle Rust shadow verifies every operation") ||
+        !require(
+            decoder.rust_shadow_mismatches() == 0U,
+            "lifecycle Rust shadow records zero mismatches")) {
+        return false;
+    }
+#endif
+    return require(result, "reset finish and post-finish lifecycle contract");
 }
 
 bool test_resource_budget() {
@@ -269,6 +303,16 @@ bool test_resource_budget() {
                 "rejected allocation consumes no budget")) {
             return false;
         }
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+        if (!require(
+                decoder.rust_shadow_healthy(),
+                "budget failure is mirrored without false divergence") ||
+            !require(
+                decoder.rust_shadow_mismatches() == 0U,
+                "budget failure records zero Rust mismatches")) {
+            return false;
+        }
+#endif
     }
 
     zevryon::core::ResourceLedger released;
@@ -287,12 +331,46 @@ bool test_resource_budget() {
                 "actual allocation charged")) {
             return false;
         }
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+        if (!require(decoder.rust_shadow_healthy(), "budgeted Rust shadow remains healthy")) {
+            return false;
+        }
+#endif
     }
     return require(
                released.snapshot(zevryon::core::ResourceClass::UnicodeBuffer)
                        .current_bytes == 0U,
                "PMR destruction releases allocation") &&
            require(released.accounting_clean(), "PMR accounting remains clean");
+}
+
+bool test_shadow_telemetry_contract() {
+    Utf8StreamDecoder decoder(Utf8ErrorPolicy::Replace);
+#if defined(ZEVRYON_UTF8_RUST_SHADOW)
+    return require(decoder.rust_shadow_enabled(), "Rust Unicode shadow is enabled") &&
+           require(decoder.rust_shadow_healthy(), "fresh Rust Unicode shadow is healthy") &&
+           require(decoder.rust_shadow_operations() == 0U, "fresh shadow has zero operations") &&
+           require(decoder.rust_shadow_verifications() >= 1U, "constructor verifies Rust state") &&
+           require(decoder.rust_shadow_mismatches() == 0U, "fresh shadow has zero mismatches") &&
+           require(
+               decoder.rust_shadow_json().find("zevryon.rust-unicode-shadow.v1") !=
+                   std::string::npos,
+               "shadow telemetry exposes schema") &&
+           require(
+               decoder.rust_shadow_json().find("\"enabled\":true") !=
+                   std::string::npos,
+               "shadow telemetry reports enabled");
+#else
+    return require(!decoder.rust_shadow_enabled(), "default C++ build keeps Unicode Rust off") &&
+           require(!decoder.rust_shadow_healthy(), "disabled Unicode shadow is not reported healthy") &&
+           require(decoder.rust_shadow_operations() == 0U, "disabled shadow has zero operations") &&
+           require(decoder.rust_shadow_verifications() == 0U, "disabled shadow has zero verifications") &&
+           require(decoder.rust_shadow_mismatches() == 0U, "disabled shadow has zero mismatches") &&
+           require(
+               decoder.rust_shadow_json().find("\"enabled\":false") !=
+                   std::string::npos,
+               "default telemetry reports disabled");
+#endif
 }
 
 } // namespace
@@ -302,7 +380,8 @@ int main() {
         !test_strict_errors() ||
         !test_replacement_policy() ||
         !test_lifecycle() ||
-        !test_resource_budget()) {
+        !test_resource_budget() ||
+        !test_shadow_telemetry_contract()) {
         return 1;
     }
     std::cout << "Unicode stream tests passed\n";

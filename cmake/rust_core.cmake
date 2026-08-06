@@ -6,11 +6,18 @@ option(
   ZEVRYON_RUST_MASSIVEDOC_CODEC_AUTHORITATIVE
   "Use Rust as the production MassiveDoc descriptor authority while retaining the C++ reverse shadow"
   OFF)
+option(
+  ZEVRYON_RUST_UNICODE_SHADOW
+  "Mirror production Utf8StreamDecoder operations into Rust"
+  OFF)
+option(
+  ZEVRYON_RUST_UNICODE_SHADOW_STRICT
+  "Abort immediately on a production Rust Unicode shadow mismatch"
+  OFF)
 
-# Authority promotion is deliberately opt-in. Enabling it selects the already
-# certified Rust build and production mirror without changing the default cache
-# values used by normal C++ builds. Turning the option OFF restores the prior
-# source file and authority boundary immediately.
+# Authority promotion and Unicode shadow execution are deliberately opt-in.
+# Enabling any feature selects the shared Rust toolchain without changing the
+# normal cache values used by default C++ builds.
 if(ZEVRYON_RUST_LEDGER_AUTHORITATIVE)
   set(ZEVRYON_ENABLE_RUST_CORE ON)
   set(ZEVRYON_RUST_LEDGER_SHADOW ON)
@@ -18,6 +25,19 @@ endif()
 if(ZEVRYON_RUST_MASSIVEDOC_CODEC_AUTHORITATIVE)
   set(ZEVRYON_ENABLE_RUST_CORE ON)
   set(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW ON)
+endif()
+if(ZEVRYON_RUST_UNICODE_SHADOW)
+  set(ZEVRYON_ENABLE_RUST_CORE ON)
+endif()
+if(ZEVRYON_RUST_UNICODE_SHADOW_STRICT AND
+   NOT ZEVRYON_RUST_UNICODE_SHADOW)
+  message(FATAL_ERROR
+    "ZEVRYON_RUST_UNICODE_SHADOW_STRICT requires ZEVRYON_RUST_UNICODE_SHADOW=ON")
+endif()
+if(ZEVRYON_RUST_UNICODE_SHADOW_STRICT)
+  set(ZEVRYON_RUST_UNICODE_SHADOW_STRICT_VALUE 1)
+else()
+  set(ZEVRYON_RUST_UNICODE_SHADOW_STRICT_VALUE 0)
 endif()
 
 if(NOT ZEVRYON_ENABLE_RUST_CORE)
@@ -31,19 +51,22 @@ find_program(ZEVRYON_CARGO_EXECUTABLE cargo REQUIRED)
 if(WIN32)
   set(ZEVRYON_RUST_FFI_LIBRARY
       "${ZEVRYON_RUST_TARGET_DIR}/release/zevryon_ffi.lib")
+  set(ZEVRYON_RUST_UNICODE_FFI_LIBRARY
+      "${ZEVRYON_RUST_TARGET_DIR}/release/zevryon_unicode_ffi.lib")
 else()
   set(ZEVRYON_RUST_FFI_LIBRARY
       "${ZEVRYON_RUST_TARGET_DIR}/release/libzevryon_ffi.a")
+  set(ZEVRYON_RUST_UNICODE_FFI_LIBRARY
+      "${ZEVRYON_RUST_TARGET_DIR}/release/libzevryon_unicode_ffi.a")
 endif()
 
 file(GLOB_RECURSE ZEVRYON_RUST_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/rust/crates/*.rs"
   "${CMAKE_CURRENT_SOURCE_DIR}/rust/crates/*/Cargo.toml")
 
-# In strict certification mode every mismatch path deliberately terminates the
-# process. MSVC consequently diagnoses the immediately following control-flow
-# joins as C4702. Scope the suppression to the selected translation units and
-# only to strict Rust builds; all other /W4 /WX policy remains active.
+# Strict certification deliberately terminates at the first mismatch. MSVC can
+# consequently diagnose the immediately following control-flow joins as C4702.
+# Scope the suppression only to the selected strict translation units.
 if(MSVC AND ZEVRYON_RUST_LEDGER_SHADOW_STRICT)
   set_source_files_properties(
     "${CMAKE_CURRENT_SOURCE_DIR}/src/resource_ledger.cpp"
@@ -53,6 +76,11 @@ endif()
 if(MSVC AND ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW_STRICT)
   set_source_files_properties(
     "${CMAKE_CURRENT_SOURCE_DIR}/src/massivedoc_descriptor_shadow.cpp"
+    PROPERTIES COMPILE_OPTIONS "/wd4702")
+endif()
+if(MSVC AND ZEVRYON_RUST_UNICODE_SHADOW_STRICT)
+  set_source_files_properties(
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/unicode_stream.cpp"
     PROPERTIES COMPILE_OPTIONS "/wd4702")
 endif()
 
@@ -83,6 +111,70 @@ add_library(zevryon-rust-ffi STATIC IMPORTED GLOBAL)
 set_target_properties(
   zevryon-rust-ffi
   PROPERTIES IMPORTED_LOCATION "${ZEVRYON_RUST_FFI_LIBRARY}")
+
+if(ZEVRYON_RUST_UNICODE_SHADOW)
+  add_custom_command(
+    OUTPUT "${ZEVRYON_RUST_UNICODE_FFI_LIBRARY}"
+    COMMAND
+      "${CMAKE_COMMAND}" -E env
+      "CARGO_TARGET_DIR=${ZEVRYON_RUST_TARGET_DIR}"
+      "${ZEVRYON_CARGO_EXECUTABLE}" build
+        --manifest-path "${ZEVRYON_RUST_MANIFEST}"
+        --package zevryon-unicode-ffi
+        --release
+        --locked
+    DEPENDS
+      ${ZEVRYON_RUST_SOURCES}
+      "${ZEVRYON_RUST_MANIFEST}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/rust/Cargo.lock"
+      "${CMAKE_CURRENT_SOURCE_DIR}/rust/rust-toolchain.toml"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/rust"
+    COMMENT "Building the Zevryon Rust Unicode static library"
+    VERBATIM)
+
+  add_custom_target(
+    zevryon-rust-unicode-ffi-build
+    DEPENDS "${ZEVRYON_RUST_UNICODE_FFI_LIBRARY}")
+
+  add_library(zevryon-rust-unicode-ffi STATIC IMPORTED GLOBAL)
+  set_target_properties(
+    zevryon-rust-unicode-ffi
+    PROPERTIES IMPORTED_LOCATION "${ZEVRYON_RUST_UNICODE_FFI_LIBRARY}")
+
+  add_library(zevryon-rust-unicode-runtime INTERFACE)
+  target_link_libraries(
+    zevryon-rust-unicode-runtime
+    INTERFACE zevryon-rust-unicode-ffi)
+  add_dependencies(
+    zevryon-rust-unicode-runtime
+    zevryon-rust-unicode-ffi-build)
+
+  if(MSVC)
+    target_link_libraries(
+      zevryon-rust-unicode-runtime
+      INTERFACE advapi32 bcrypt ntdll userenv ws2_32)
+  elseif(APPLE)
+    find_library(ZEVRYON_UNICODE_SECURITY_FRAMEWORK Security REQUIRED)
+    find_library(ZEVRYON_UNICODE_FOUNDATION_FRAMEWORK Foundation REQUIRED)
+    find_library(ZEVRYON_UNICODE_ICONV_LIBRARY iconv REQUIRED)
+    target_link_libraries(
+      zevryon-rust-unicode-runtime
+      INTERFACE
+        "${ZEVRYON_UNICODE_SECURITY_FRAMEWORK}"
+        "${ZEVRYON_UNICODE_FOUNDATION_FRAMEWORK}"
+        "${ZEVRYON_UNICODE_ICONV_LIBRARY}")
+  else()
+    find_package(Threads REQUIRED)
+    target_link_libraries(
+      zevryon-rust-unicode-runtime
+      INTERFACE Threads::Threads dl m rt util)
+  endif()
+
+  add_compile_definitions(
+    ZEVRYON_UTF8_RUST_SHADOW=1
+    ZEVRYON_RUST_UNICODE_SHADOW_STRICT=${ZEVRYON_RUST_UNICODE_SHADOW_STRICT_VALUE})
+  link_libraries(zevryon-rust-unicode-runtime)
+endif()
 
 if(WIN32)
   set(ZEVRYON_RUST_MASSIVEDOC_FFI_LIBRARY
