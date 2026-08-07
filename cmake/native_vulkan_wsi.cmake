@@ -49,7 +49,9 @@ if(TARGET zevryon-native-gpu-sdk-execution AND
       PRIVATE src/native_gpu_sdk_execution_vulkan_wsi.cpp)
     target_sources(
       zevryon-native-window-swapchain
-      PRIVATE src/native_window_swapchain_vulkan.cpp)
+      PRIVATE
+        src/native_window_swapchain_vulkan.cpp
+        src/native_shader_surface_vulkan.cpp)
     target_compile_definitions(
       zevryon-native-gpu-sdk-execution
       PRIVATE ${ZEVRYON_VULKAN_WSI_DEFINITIONS})

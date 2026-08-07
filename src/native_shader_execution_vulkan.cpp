@@ -119,6 +119,13 @@ std::uint32_t pack_color(ShaderColorBgra8 color) noexcept {
         (static_cast<std::uint32_t>(color.alpha) << 24U);
 }
 
+std::uint64_t image_resource_id(VkImage image) noexcept {
+    static_assert(sizeof(VkImage) <= sizeof(std::uint64_t));
+    std::uint64_t output = 0U;
+    std::memcpy(&output, &image, sizeof(VkImage));
+    return output;
+}
+
 bool find_memory_type(
     VkPhysicalDevice physical_device,
     std::uint32_t type_bits,
@@ -434,7 +441,8 @@ public:
             kNativeShaderExecutionIntegerComposition |
             kNativeShaderExecutionPersistentAtlas |
             kNativeShaderExecutionGpuReadback |
-            kNativeShaderExecutionRetainedContext;
+            kNativeShaderExecutionRetainedContext |
+            kNativeShaderExecutionDirectSurfaceExport;
         snapshot_.device_generation = config.context.device_generation;
         snapshot_.runtime_generation = config.context.runtime_generation;
         snapshot_.executor_generation = config.executor_generation;
@@ -449,7 +457,7 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         clear_error(error);
         if (context_ == nullptr || snapshot_.configured == 0U ||
-            readback == nullptr || packet.header.frame_id == 0U ||
+            packet.header.frame_id == 0U ||
             packet.header.packet_checksum != shader_packet_checksum(packet) ||
             packet.header.command_count != packet.commands.size() ||
             packet.header.fill_instance_count != packet.fills.size() ||
@@ -492,7 +500,7 @@ public:
                 !update_descriptors_locked(error)) {
                 return false;
             }
-            if (!record_execute_locked(packet, error)) {
+            if (!record_execute_locked(packet, readback != nullptr, error)) {
                 output_.layout = VK_IMAGE_LAYOUT_UNDEFINED;
                 return false;
             }
@@ -500,15 +508,38 @@ public:
                 destroy_image(context_->device, &output_);
                 destroy_buffer(context_->device, &readback_);
                 snapshot_.output_surface_bytes = 0U;
+                last_surface_ = {};
                 return false;
             }
-            if (!publish_readback_locked(packet, readback, error)) {
+            if (readback != nullptr &&
+                !publish_readback_locked(packet, readback, error)) {
                 return false;
             }
+
+            last_surface_ = {};
+            last_surface_.api_kind = NativeGpuApiKind::Vulkan;
+            last_surface_.format = GpuSurfaceFormat::Bgra8Unorm;
+            last_surface_.state = NativeShaderSurfaceState::ShaderRead;
+            last_surface_.flags =
+                kNativeShaderSurfaceReady |
+                kNativeShaderSurfaceNonOwning |
+                kNativeShaderSurfacePremultipliedAlpha;
+            last_surface_.device_generation = config_.context.device_generation;
+            last_surface_.runtime_generation = config_.context.runtime_generation;
+            last_surface_.executor_generation = config_.executor_generation;
+            last_surface_.output_generation = output_generation_;
+            last_surface_.frame_id = packet.header.frame_id;
+            last_surface_.content_checksum = packet.header.packet_checksum;
+            last_surface_.native_resource = image_resource_id(output_.handle);
+            last_surface_.width = packet.header.surface_width;
+            last_surface_.height = packet.header.surface_height;
+
             snapshot_.executions += 1U;
-            snapshot_.readbacks += 1U;
             snapshot_.last_packet_checksum = packet.header.packet_checksum;
-            snapshot_.last_readback_checksum = readback->checksum;
+            if (readback != nullptr) {
+                snapshot_.readbacks += 1U;
+                snapshot_.last_readback_checksum = readback->checksum;
+            }
             return true;
         } catch (const std::bad_alloc&) {
             return fail(error, NativeShaderExecutionErrorKind::AllocationFailed,
@@ -517,6 +548,27 @@ public:
             return fail(error, NativeShaderExecutionErrorKind::CommandEncodingFailed,
                         "unexpected Vulkan shader execution failure");
         }
+    }
+
+    bool export_surface(
+        NativeShaderSurfaceView* surface,
+        NativeShaderExecutionError* error) noexcept override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        clear_error(error);
+        if (surface == nullptr) {
+            return fail(error, NativeShaderExecutionErrorKind::InvalidInput,
+                        "shader surface output is null");
+        }
+        if (!native_shader_surface_view_valid(last_surface_) ||
+            output_.handle == VK_NULL_HANDLE ||
+            output_.layout != VK_IMAGE_LAYOUT_GENERAL ||
+            image_resource_id(output_.handle) != last_surface_.native_resource) {
+            *surface = {};
+            return fail(error, NativeShaderExecutionErrorKind::StaleGeneration,
+                        "no completed Vulkan shader surface is available");
+        }
+        *surface = last_surface_;
+        return true;
     }
 
     NativeShaderExecutionSnapshot snapshot() const noexcept override {
@@ -869,6 +921,15 @@ private:
             destroy_buffer(context_->device, &readback_);
             return false;
         }
+        if (next_output_generation_ ==
+            (std::numeric_limits<std::uint64_t>::max)()) {
+            destroy_image(context_->device, &output_);
+            destroy_buffer(context_->device, &readback_);
+            return fail(error, NativeShaderExecutionErrorKind::ResourceAllocationFailed,
+                        "Vulkan shader output generation overflowed");
+        }
+        output_generation_ = next_output_generation_++;
+        last_surface_ = {};
         snapshot_.output_surface_bytes = bytes;
         snapshot_.peak_transient_bytes = std::max(
             snapshot_.peak_transient_bytes, bytes);
@@ -1013,6 +1074,7 @@ private:
 
     bool record_execute_locked(
         const GpuShaderPacket& packet,
+        bool capture_readback,
         NativeShaderExecutionError* error) noexcept {
         if (!begin_commands_locked(error)) {
             return false;
@@ -1128,6 +1190,10 @@ private:
                 return fail(error, NativeShaderExecutionErrorKind::InvalidInput,
                             "Vulkan shader command kind is invalid");
             }
+        }
+
+        if (!capture_readback) {
+            return true;
         }
 
         const VkImageMemoryBarrier to_copy = image_barrier(
@@ -1268,6 +1334,9 @@ private:
         }
         config_ = {};
         snapshot_ = {};
+        output_generation_ = 0U;
+        next_output_generation_ = 1U;
+        last_surface_ = {};
     }
 
     mutable std::mutex mutex_;
@@ -1286,6 +1355,9 @@ private:
     VulkanImage output_{};
     VulkanBuffer readback_{};
     std::uint64_t atlas_signature_{0U};
+    std::uint64_t output_generation_{0U};
+    std::uint64_t next_output_generation_{1U};
+    NativeShaderSurfaceView last_surface_{};
 };
 
 } // namespace

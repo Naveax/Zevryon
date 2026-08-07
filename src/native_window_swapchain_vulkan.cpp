@@ -1,5 +1,6 @@
 #include "native_vulkan_wsi.hpp"
 #include "native_vulkan_wsi_context.hpp"
+#include "native_shader_surface_vulkan.hpp"
 
 #if defined(ZEVRYON_HAS_VULKAN_WSI)
 
@@ -428,10 +429,35 @@ public:
                             "Vulkan present rectangle is outside the surface");
             }
         }
-        if (!native_window_pixel_buffer_valid(
+
+        const bool has_pixel_buffer = !request.pixel_buffer.empty();
+        const bool has_shader_surface = !request.shader_surface.empty();
+        if (has_pixel_buffer && has_shader_surface) {
+            return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
+                        "Vulkan present cannot use CPU and shader surfaces together");
+        }
+        if (has_pixel_buffer &&
+            !native_window_pixel_buffer_valid(
                 request.pixel_buffer, snapshot_.config.surface)) {
             return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
                         "Vulkan pixel buffer does not match the surface");
+        }
+
+        detail::VulkanShaderSurfaceSource shader_surface_source{};
+        if (has_shader_surface &&
+            (swapchain_format_ != VK_FORMAT_B8G8R8A8_UNORM ||
+             !detail::decode_vulkan_shader_surface(
+                 request.shader_surface,
+                 snapshot_.config.context.device_generation,
+                 snapshot_.config.context.runtime_generation,
+                 request.frame_id,
+                 request.command_checksum,
+                 snapshot_.config.surface.width,
+                 snapshot_.config.surface.height,
+                 &shader_surface_source))) {
+            snapshot_.stale_rejections += 1U;
+            return fail(error, NativeWindowSwapchainErrorKind::StaleGeneration,
+                        "Vulkan shader surface is stale or incompatible");
         }
         if ((request.flags & kNativeWindowPresentAllowTearing) != 0U &&
             snapshot_.config.present_mode != NativePresentMode::Immediate) {
@@ -471,7 +497,7 @@ public:
                             "vkResetCommandPool failed", result);
             }
             VulkanHostTransfer transfer;
-            if (!request.pixel_buffer.empty() &&
+            if (has_pixel_buffer &&
                 !create_host_transfer(
                     context_, request.pixel_buffer, &transfer, error)) {
                 return false;
@@ -487,45 +513,58 @@ public:
             const bool render = !request.damage_rects.empty() ||
                 (request.flags & kNativeWindowPresentFullRedraw) != 0U;
             if (render) {
-                transition_image_locked(
-                    frame.command_buffer,
-                    slot.image_handle,
-                    &recorded_layout,
-                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-                if (!request.pixel_buffer.empty()) {
-                    VkBufferImageCopy copy{};
-                    copy.bufferOffset = 0U;
-                    copy.bufferRowLength = request.pixel_buffer.row_bytes / 4U;
-                    copy.bufferImageHeight = request.pixel_buffer.height;
-                    copy.imageSubresource.aspectMask =
-                        VK_IMAGE_ASPECT_COLOR_BIT;
-                    copy.imageSubresource.mipLevel = 0U;
-                    copy.imageSubresource.baseArrayLayer = 0U;
-                    copy.imageSubresource.layerCount = 1U;
-                    copy.imageExtent.width = request.pixel_buffer.width;
-                    copy.imageExtent.height = request.pixel_buffer.height;
-                    copy.imageExtent.depth = 1U;
-                    vkCmdCopyBufferToImage(
-                        frame.command_buffer, transfer.buffer,
-                        slot.image_handle,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1U, &copy);
+                if (has_shader_surface) {
+                    if (!detail::encode_vulkan_shader_surface_copy(
+                            frame.command_buffer,
+                            shader_surface_source,
+                            slot.image_handle,
+                            &recorded_layout)) {
+                        return fail(
+                            error,
+                            NativeWindowSwapchainErrorKind::PresentFailed,
+                            "Vulkan shader surface copy encoding failed");
+                    }
                 } else {
-                    VkClearColorValue clear{};
-                    clear.float32[0] = static_cast<float>(
-                        (request.command_checksum >> 0U) & 0xFFU) / 255.0F;
-                    clear.float32[1] = static_cast<float>(
-                        (request.command_checksum >> 8U) & 0xFFU) / 255.0F;
-                    clear.float32[2] = static_cast<float>(
-                        (request.command_checksum >> 16U) & 0xFFU) / 255.0F;
-                    clear.float32[3] = 1.0F;
-                    VkImageSubresourceRange range{};
-                    range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-                    range.levelCount = 1U;
-                    range.layerCount = 1U;
-                    vkCmdClearColorImage(
-                        frame.command_buffer, slot.image_handle,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                        &clear, 1U, &range);
+                    transition_image_locked(
+                        frame.command_buffer,
+                        slot.image_handle,
+                        &recorded_layout,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                    if (has_pixel_buffer) {
+                        VkBufferImageCopy copy{};
+                        copy.bufferOffset = 0U;
+                        copy.bufferRowLength = request.pixel_buffer.row_bytes / 4U;
+                        copy.bufferImageHeight = request.pixel_buffer.height;
+                        copy.imageSubresource.aspectMask =
+                            VK_IMAGE_ASPECT_COLOR_BIT;
+                        copy.imageSubresource.mipLevel = 0U;
+                        copy.imageSubresource.baseArrayLayer = 0U;
+                        copy.imageSubresource.layerCount = 1U;
+                        copy.imageExtent.width = request.pixel_buffer.width;
+                        copy.imageExtent.height = request.pixel_buffer.height;
+                        copy.imageExtent.depth = 1U;
+                        vkCmdCopyBufferToImage(
+                            frame.command_buffer, transfer.buffer,
+                            slot.image_handle,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1U, &copy);
+                    } else {
+                        VkClearColorValue clear{};
+                        clear.float32[0] = static_cast<float>(
+                            (request.command_checksum >> 0U) & 0xFFU) / 255.0F;
+                        clear.float32[1] = static_cast<float>(
+                            (request.command_checksum >> 8U) & 0xFFU) / 255.0F;
+                        clear.float32[2] = static_cast<float>(
+                            (request.command_checksum >> 16U) & 0xFFU) / 255.0F;
+                        clear.float32[3] = 1.0F;
+                        VkImageSubresourceRange range{};
+                        range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                        range.levelCount = 1U;
+                        range.layerCount = 1U;
+                        vkCmdClearColorImage(
+                            frame.command_buffer, slot.image_handle,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                            &clear, 1U, &range);
+                    }
                 }
             }
             transition_image_locked(
@@ -539,7 +578,7 @@ public:
                             "vkEndCommandBuffer failed", result);
             }
             const VkPipelineStageFlags wait_stage =
-                VK_PIPELINE_STAGE_TRANSFER_BIT;
+                VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
             VkSubmitInfo submit{};
             submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
             submit.waitSemaphoreCount = 1U;
@@ -548,7 +587,7 @@ public:
             submit.commandBufferCount = 1U;
             submit.pCommandBuffers = &frame.command_buffer;
             submit.signalSemaphoreCount = 1U;
-            submit.pSignalSemaphores = &frame.render_finished;
+            submit.pSignalSemaphores = &slot.render_finished;
             result = vkQueueSubmit(
                 context_->graphics_queue, 1U, &submit, frame.fence);
             if (result != VK_SUCCESS) {
@@ -563,7 +602,7 @@ public:
                             "vkQueueSubmit failed", result);
             }
             slot.layout = recorded_layout;
-            if (!request.pixel_buffer.empty()) {
+            if (has_pixel_buffer) {
                 result = vkWaitForFences(
                     context_->device, 1U, &frame.fence,
                     VK_TRUE, kFenceTimeoutNs);
@@ -576,7 +615,7 @@ public:
             VkPresentInfoKHR present{};
             present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
             present.waitSemaphoreCount = 1U;
-            present.pWaitSemaphores = &frame.render_finished;
+            present.pWaitSemaphores = &slot.render_finished;
             present.swapchainCount = 1U;
             present.pSwapchains = &swapchain_;
             present.pImageIndices = &image_index;
@@ -739,6 +778,7 @@ private:
     struct ImageSlot final {
         NativeWindowSwapchainImage image;
         VkImage image_handle{VK_NULL_HANDLE};
+        VkSemaphore render_finished{VK_NULL_HANDLE};
         VkImageLayout layout{VK_IMAGE_LAYOUT_UNDEFINED};
         std::uint32_t frame_index{0U};
         std::uint8_t acquired{0U};
@@ -749,7 +789,6 @@ private:
         VkCommandPool command_pool{VK_NULL_HANDLE};
         VkCommandBuffer command_buffer{VK_NULL_HANDLE};
         VkSemaphore image_available{VK_NULL_HANDLE};
-        VkSemaphore render_finished{VK_NULL_HANDLE};
         VkFence fence{VK_NULL_HANDLE};
         std::uint64_t fence_value{0U};
         std::uint32_t image_index{0U};
@@ -761,6 +800,7 @@ private:
     struct StagedResources final {
         VkSwapchainKHR swapchain{VK_NULL_HANDLE};
         std::array<VkImage, 16U> images{};
+        std::array<VkSemaphore, 16U> render_finished{};
         std::array<FrameSlot, 16U> frames{};
         std::uint32_t image_count{0U};
         std::uint32_t frame_count{0U};
@@ -1011,6 +1051,24 @@ private:
         }
         staged.image_count = actual_image_count;
 
+        VkSemaphoreCreateInfo render_finished_info{};
+        render_finished_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        for (std::uint32_t index = 0U; index < actual_image_count; ++index) {
+            result = vkCreateSemaphore(
+                retained->device,
+                &render_finished_info,
+                nullptr,
+                &staged.render_finished[index]);
+            if (result != VK_SUCCESS) {
+                destroy_staged_locked(retained, &staged);
+                return fail(
+                    error,
+                    NativeWindowSwapchainErrorKind::SwapchainCreationFailed,
+                    "vkCreateSemaphore for swapchain-image presentation failed",
+                    result);
+            }
+        }
+
         GpuSurfaceDescriptor actual_surface = config.surface;
         actual_surface.width = extent.width;
         actual_surface.height = extent.height;
@@ -1031,17 +1089,20 @@ private:
         }
 
         if (recreation) {
-            destroy_swapchain_resources_no_lock(retained, false);
+            destroy_swapchain_resources_no_lock(retained, true);
         } else {
             context_ = retained;
             (void)retained_guard.release();
         }
         swapchain_ = staged.swapchain;
         staged.swapchain = VK_NULL_HANDLE;
+        swapchain_format_ = selected_format.format;
         bytes_per_image_ = bytes_per_image;
         for (std::uint32_t index = 0U; index < actual_image_count; ++index) {
             images_[index] = {};
             images_[index].image_handle = staged.images[index];
+            images_[index].render_finished = staged.render_finished[index];
+            staged.render_finished[index] = VK_NULL_HANDLE;
             images_[index].layout = VK_IMAGE_LAYOUT_UNDEFINED;
             images_[index].image.image.image.device_generation =
                 config.context.device_generation;
@@ -1126,12 +1187,7 @@ private:
                 return fail(error, NativeWindowSwapchainErrorKind::SwapchainCreationFailed,
                             "vkCreateSemaphore for image acquire failed", result);
             }
-            result = vkCreateSemaphore(
-                context->device, &semaphore, nullptr, &frame.render_finished);
-            if (result != VK_SUCCESS) {
-                return fail(error, NativeWindowSwapchainErrorKind::SwapchainCreationFailed,
-                            "vkCreateSemaphore for render completion failed", result);
-            }
+
             VkFenceCreateInfo fence{};
             fence.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
             fence.flags = VK_FENCE_CREATE_SIGNALED_BIT;
@@ -1270,14 +1326,18 @@ private:
         if (context == nullptr || staged == nullptr) {
             return;
         }
+        for (VkSemaphore& render_finished : staged->render_finished) {
+            if (render_finished != VK_NULL_HANDLE) {
+                vkDestroySemaphore(
+                    context->device, render_finished, nullptr);
+                render_finished = VK_NULL_HANDLE;
+            }
+        }
         for (FrameSlot& frame : staged->frames) {
             if (frame.fence != VK_NULL_HANDLE) {
                 vkDestroyFence(context->device, frame.fence, nullptr);
             }
-            if (frame.render_finished != VK_NULL_HANDLE) {
-                vkDestroySemaphore(
-                    context->device, frame.render_finished, nullptr);
-            }
+
             if (frame.image_available != VK_NULL_HANDLE) {
                 vkDestroySemaphore(
                     context->device, frame.image_available, nullptr);
@@ -1299,6 +1359,7 @@ private:
         bool wait_idle) noexcept {
         if (context == nullptr) {
             swapchain_ = VK_NULL_HANDLE;
+            swapchain_format_ = VK_FORMAT_UNDEFINED;
             return;
         }
         if (wait_idle && context->device != VK_NULL_HANDLE) {
@@ -1308,10 +1369,7 @@ private:
             if (frame.fence != VK_NULL_HANDLE) {
                 vkDestroyFence(context->device, frame.fence, nullptr);
             }
-            if (frame.render_finished != VK_NULL_HANDLE) {
-                vkDestroySemaphore(
-                    context->device, frame.render_finished, nullptr);
-            }
+
             if (frame.image_available != VK_NULL_HANDLE) {
                 vkDestroySemaphore(
                     context->device, frame.image_available, nullptr);
@@ -1326,7 +1384,12 @@ private:
             vkDestroySwapchainKHR(context->device, swapchain_, nullptr);
             swapchain_ = VK_NULL_HANDLE;
         }
+        swapchain_format_ = VK_FORMAT_UNDEFINED;
         for (ImageSlot& image : images_) {
+            if (image.render_finished != VK_NULL_HANDLE) {
+                vkDestroySemaphore(
+                    context->device, image.render_finished, nullptr);
+            }
             image = {};
         }
     }
@@ -1334,6 +1397,7 @@ private:
     void destroy_swapchain_resources_locked(bool wait_idle = true) noexcept {
         if (context_ == nullptr) {
             swapchain_ = VK_NULL_HANDLE;
+            swapchain_format_ = VK_FORMAT_UNDEFINED;
             return;
         }
         std::lock_guard<std::mutex> device_lock(context_->device_mutex);
@@ -1348,6 +1412,7 @@ private:
     NativeWindowSwapchainSnapshot snapshot_;
     VulkanWsiSharedContext* context_{nullptr};
     VkSwapchainKHR swapchain_{VK_NULL_HANDLE};
+    VkFormat swapchain_format_{VK_FORMAT_UNDEFINED};
     std::array<ImageSlot, 16U> images_{};
     std::array<FrameSlot, 16U> frames_{};
 #if defined(VK_KHR_incremental_present)

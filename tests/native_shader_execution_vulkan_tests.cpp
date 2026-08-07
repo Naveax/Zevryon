@@ -157,6 +157,31 @@ int main() {
     assert(snapshot.last_readback_checksum == packets.reference.checksum);
     assert((snapshot.capability_flags &
         kNativeShaderExecutionRetainedContext) != 0U);
+    assert((snapshot.capability_flags &
+        kNativeShaderExecutionDirectSurfaceExport) != 0U);
+
+    // Production direct mode must complete on the retained Vulkan image without
+    // creating a new GPU-to-host readback operation.
+    assert(executor->execute(
+        packets.hot, packets.atlas, nullptr, &error));
+    NativeShaderSurfaceView surface;
+    assert(executor->export_surface(&surface, &error));
+    assert(native_shader_surface_view_valid(surface));
+    assert(surface.api_kind == NativeGpuApiKind::Vulkan);
+    assert(surface.device_generation == context.device_generation);
+    assert(surface.runtime_generation == context.runtime_generation);
+    assert(surface.executor_generation == config.executor_generation);
+    assert(surface.output_generation != 0U);
+    assert(surface.frame_id == packets.hot.header.frame_id);
+    assert(surface.content_checksum == packets.hot.header.packet_checksum);
+    assert(surface.width == packets.hot.header.surface_width);
+    assert(surface.height == packets.hot.header.surface_height);
+    assert(surface.native_resource != 0U);
+
+    snapshot = executor->snapshot();
+    assert(snapshot.executions == 3U);
+    assert(snapshot.readbacks == 2U);
+    assert(snapshot.last_readback_checksum == packets.reference.checksum);
 
     GpuShaderPacket corrupted(&packets.hot_resource);
     corrupted.header = packets.hot.header;
@@ -172,6 +197,7 @@ int main() {
               << " fills=" << packets.hot.header.fill_instance_count
               << " glyphs=" << packets.hot.header.glyph_instance_count
               << " checksum=" << packets.reference.checksum
+              << " direct_surface=PASS"
               << " PASS\n";
     return 0;
 }
