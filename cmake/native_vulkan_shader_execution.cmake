@@ -68,6 +68,19 @@ if(TARGET zevryon-native-shader-execution AND
       zevryon_options(zevryon-native-shader-execution-vulkan-tests)
 
       add_executable(
+        zevryon-native-shader-surface-vulkan-integration-tests
+        tests/native_shader_surface_vulkan_integration_tests.cpp)
+      target_include_directories(
+        zevryon-native-shader-surface-vulkan-integration-tests PRIVATE tests)
+      target_link_libraries(
+        zevryon-native-shader-surface-vulkan-integration-tests
+        PRIVATE
+          zevryon-native-shader-execution
+          zevryon-vulkan-wsi-test-window)
+      zevryon_options(
+        zevryon-native-shader-surface-vulkan-integration-tests)
+
+      add_executable(
         zevryon-native-shader-execution-vulkan-benchmark
         src/native_shader_execution_vulkan_benchmark_main.cpp)
       target_include_directories(
@@ -83,10 +96,14 @@ if(TARGET zevryon-native-shader-execution AND
         target_compile_options(
           zevryon-native-shader-execution-vulkan-tests PRIVATE /UNDEBUG)
         target_compile_options(
+          zevryon-native-shader-surface-vulkan-integration-tests PRIVATE /UNDEBUG)
+        target_compile_options(
           zevryon-native-shader-execution-vulkan-benchmark PRIVATE /UNDEBUG)
       else()
         target_compile_options(
           zevryon-native-shader-execution-vulkan-tests PRIVATE -UNDEBUG)
+        target_compile_options(
+          zevryon-native-shader-surface-vulkan-integration-tests PRIVATE -UNDEBUG)
         target_compile_options(
           zevryon-native-shader-execution-vulkan-benchmark PRIVATE -UNDEBUG)
       endif()
@@ -94,6 +111,9 @@ if(TARGET zevryon-native-shader-execution AND
       add_test(
         NAME native-shader-execution-vulkan-tests
         COMMAND zevryon-native-shader-execution-vulkan-tests)
+      add_test(
+        NAME native-shader-surface-vulkan-integration-tests
+        COMMAND zevryon-native-shader-surface-vulkan-integration-tests)
     endif()
   endif()
 endif()
