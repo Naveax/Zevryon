@@ -152,7 +152,7 @@ bool NativeVulkanTestWindow::create(
         0U,
         class_name,
         L"Zevryon Vulkan WSI",
-        WS_OVERLAPPEDWINDOW,
+        WS_POPUP,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
         static_cast<int>(width),
