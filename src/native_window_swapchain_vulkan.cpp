@@ -578,7 +578,7 @@ public:
                             "vkEndCommandBuffer failed", result);
             }
             const VkPipelineStageFlags wait_stage =
-                VK_PIPELINE_STAGE_TRANSFER_BIT;
+                VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
             VkSubmitInfo submit{};
             submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
             submit.waitSemaphoreCount = 1U;
@@ -587,7 +587,7 @@ public:
             submit.commandBufferCount = 1U;
             submit.pCommandBuffers = &frame.command_buffer;
             submit.signalSemaphoreCount = 1U;
-            submit.pSignalSemaphores = &frame.render_finished;
+            submit.pSignalSemaphores = &slot.render_finished;
             result = vkQueueSubmit(
                 context_->graphics_queue, 1U, &submit, frame.fence);
             if (result != VK_SUCCESS) {
@@ -615,7 +615,7 @@ public:
             VkPresentInfoKHR present{};
             present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
             present.waitSemaphoreCount = 1U;
-            present.pWaitSemaphores = &frame.render_finished;
+            present.pWaitSemaphores = &slot.render_finished;
             present.swapchainCount = 1U;
             present.pSwapchains = &swapchain_;
             present.pImageIndices = &image_index;
@@ -778,6 +778,7 @@ private:
     struct ImageSlot final {
         NativeWindowSwapchainImage image;
         VkImage image_handle{VK_NULL_HANDLE};
+        VkSemaphore render_finished{VK_NULL_HANDLE};
         VkImageLayout layout{VK_IMAGE_LAYOUT_UNDEFINED};
         std::uint32_t frame_index{0U};
         std::uint8_t acquired{0U};
@@ -788,7 +789,6 @@ private:
         VkCommandPool command_pool{VK_NULL_HANDLE};
         VkCommandBuffer command_buffer{VK_NULL_HANDLE};
         VkSemaphore image_available{VK_NULL_HANDLE};
-        VkSemaphore render_finished{VK_NULL_HANDLE};
         VkFence fence{VK_NULL_HANDLE};
         std::uint64_t fence_value{0U};
         std::uint32_t image_index{0U};
@@ -800,6 +800,7 @@ private:
     struct StagedResources final {
         VkSwapchainKHR swapchain{VK_NULL_HANDLE};
         std::array<VkImage, 16U> images{};
+        std::array<VkSemaphore, 16U> render_finished{};
         std::array<FrameSlot, 16U> frames{};
         std::uint32_t image_count{0U};
         std::uint32_t frame_count{0U};
@@ -1050,6 +1051,24 @@ private:
         }
         staged.image_count = actual_image_count;
 
+        VkSemaphoreCreateInfo render_finished_info{};
+        render_finished_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        for (std::uint32_t index = 0U; index < actual_image_count; ++index) {
+            result = vkCreateSemaphore(
+                retained->device,
+                &render_finished_info,
+                nullptr,
+                &staged.render_finished[index]);
+            if (result != VK_SUCCESS) {
+                destroy_staged_locked(retained, &staged);
+                return fail(
+                    error,
+                    NativeWindowSwapchainErrorKind::SwapchainCreationFailed,
+                    "vkCreateSemaphore for swapchain-image presentation failed",
+                    result);
+            }
+        }
+
         GpuSurfaceDescriptor actual_surface = config.surface;
         actual_surface.width = extent.width;
         actual_surface.height = extent.height;
@@ -1070,7 +1089,7 @@ private:
         }
 
         if (recreation) {
-            destroy_swapchain_resources_no_lock(retained, false);
+            destroy_swapchain_resources_no_lock(retained, true);
         } else {
             context_ = retained;
             (void)retained_guard.release();
@@ -1082,6 +1101,8 @@ private:
         for (std::uint32_t index = 0U; index < actual_image_count; ++index) {
             images_[index] = {};
             images_[index].image_handle = staged.images[index];
+            images_[index].render_finished = staged.render_finished[index];
+            staged.render_finished[index] = VK_NULL_HANDLE;
             images_[index].layout = VK_IMAGE_LAYOUT_UNDEFINED;
             images_[index].image.image.image.device_generation =
                 config.context.device_generation;
@@ -1166,12 +1187,7 @@ private:
                 return fail(error, NativeWindowSwapchainErrorKind::SwapchainCreationFailed,
                             "vkCreateSemaphore for image acquire failed", result);
             }
-            result = vkCreateSemaphore(
-                context->device, &semaphore, nullptr, &frame.render_finished);
-            if (result != VK_SUCCESS) {
-                return fail(error, NativeWindowSwapchainErrorKind::SwapchainCreationFailed,
-                            "vkCreateSemaphore for render completion failed", result);
-            }
+
             VkFenceCreateInfo fence{};
             fence.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
             fence.flags = VK_FENCE_CREATE_SIGNALED_BIT;
@@ -1310,14 +1326,18 @@ private:
         if (context == nullptr || staged == nullptr) {
             return;
         }
+        for (VkSemaphore& render_finished : staged->render_finished) {
+            if (render_finished != VK_NULL_HANDLE) {
+                vkDestroySemaphore(
+                    context->device, render_finished, nullptr);
+                render_finished = VK_NULL_HANDLE;
+            }
+        }
         for (FrameSlot& frame : staged->frames) {
             if (frame.fence != VK_NULL_HANDLE) {
                 vkDestroyFence(context->device, frame.fence, nullptr);
             }
-            if (frame.render_finished != VK_NULL_HANDLE) {
-                vkDestroySemaphore(
-                    context->device, frame.render_finished, nullptr);
-            }
+
             if (frame.image_available != VK_NULL_HANDLE) {
                 vkDestroySemaphore(
                     context->device, frame.image_available, nullptr);
@@ -1349,10 +1369,7 @@ private:
             if (frame.fence != VK_NULL_HANDLE) {
                 vkDestroyFence(context->device, frame.fence, nullptr);
             }
-            if (frame.render_finished != VK_NULL_HANDLE) {
-                vkDestroySemaphore(
-                    context->device, frame.render_finished, nullptr);
-            }
+
             if (frame.image_available != VK_NULL_HANDLE) {
                 vkDestroySemaphore(
                     context->device, frame.image_available, nullptr);
@@ -1369,6 +1386,10 @@ private:
         }
         swapchain_format_ = VK_FORMAT_UNDEFINED;
         for (ImageSlot& image : images_) {
+            if (image.render_finished != VK_NULL_HANDLE) {
+                vkDestroySemaphore(
+                    context->device, image.render_finished, nullptr);
+            }
             image = {};
         }
     }
