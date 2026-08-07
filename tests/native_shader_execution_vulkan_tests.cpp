@@ -133,10 +133,71 @@ int main() {
     NativeShaderExecutionError error;
     assert(executor->configure(config, &error));
 
+    // Direct-first execution must not require a host-visible readback buffer.
+    assert(executor->execute(
+        packets.cold, packets.atlas, nullptr, &error));
+    NativeShaderSurfaceView direct_first_surface;
+    assert(executor->export_surface(&direct_first_surface, &error));
+    assert(native_shader_surface_view_valid(direct_first_surface));
+
+    NativeShaderExecutionSnapshot snapshot = executor->snapshot();
+    assert(snapshot.configured == 1U);
+    assert(snapshot.executions == 1U);
+    assert(snapshot.readbacks == 0U);
+
+    // A later certification readback is allocated lazily without rebuilding
+    // the already-valid output image or advancing its output generation.
     ShaderReadback cold_readback;
     assert(executor->execute(
         packets.cold, packets.atlas, &cold_readback, &error));
     assert(readbacks_equal(cold_readback, packets.reference));
+
+    NativeShaderSurfaceView after_lazy_readback;
+    assert(executor->export_surface(&after_lazy_readback, &error));
+    assert(after_lazy_readback.output_generation ==
+        direct_first_surface.output_generation);
+    assert(after_lazy_readback.native_resource ==
+        direct_first_surface.native_resource);
+
+    // Prove direct execution is independent from the readback byte budget.
+    // The old eager allocation path fails this 640x360 direct execution because
+    // the full-frame readback requires 921600 bytes.
+    std::unique_ptr<NativeShaderExecutor> direct_only =
+        make_vulkan_native_shader_executor();
+    assert(direct_only != nullptr);
+    NativeShaderExecutionConfig direct_only_config = config;
+    direct_only_config.executor_generation = 229U;
+    direct_only_config.limits.maximum_readback_bytes = 1U;
+    assert(direct_only->configure(direct_only_config, &error));
+
+    assert(direct_only->execute(
+        packets.hot, packets.atlas, nullptr, &error));
+    NativeShaderSurfaceView direct_only_surface;
+    assert(direct_only->export_surface(&direct_only_surface, &error));
+    assert(native_shader_surface_view_valid(direct_only_surface));
+
+    NativeShaderExecutionSnapshot direct_only_snapshot =
+        direct_only->snapshot();
+    assert(direct_only_snapshot.executions == 1U);
+    assert(direct_only_snapshot.readbacks == 0U);
+
+    ShaderReadback denied_readback;
+    assert(!direct_only->execute(
+        packets.hot, packets.atlas, &denied_readback, &error));
+    assert(error.kind ==
+        NativeShaderExecutionErrorKind::ResourceBudgetExceeded);
+
+    NativeShaderSurfaceView preserved_surface;
+    assert(direct_only->export_surface(&preserved_surface, &error));
+    assert(preserved_surface.output_generation ==
+        direct_only_surface.output_generation);
+    assert(preserved_surface.native_resource ==
+        direct_only_surface.native_resource);
+
+    direct_only_snapshot = direct_only->snapshot();
+    assert(direct_only_snapshot.executions == 1U);
+    assert(direct_only_snapshot.readbacks == 0U);
+    direct_only->shutdown();
 
     owner->shutdown();
     owner.reset();
@@ -146,12 +207,12 @@ int main() {
         packets.hot, packets.atlas, &hot_readback, &error));
     assert(readbacks_equal(hot_readback, packets.reference));
 
-    NativeShaderExecutionSnapshot snapshot = executor->snapshot();
+    snapshot = executor->snapshot();
     assert(snapshot.configured == 1U);
-    assert(snapshot.executions == 2U);
+    assert(snapshot.executions == 3U);
     assert(snapshot.readbacks == 2U);
     assert(snapshot.atlas_upload_batches == 1U);
-    assert(snapshot.atlas_reuses == 1U);
+    assert(snapshot.atlas_reuses == 2U);
     assert(snapshot.persistent_atlas_bytes == 49'152U);
     assert(snapshot.output_surface_bytes == 921'600U);
     assert(snapshot.last_readback_checksum == packets.reference.checksum);
@@ -179,7 +240,7 @@ int main() {
     assert(surface.native_resource != 0U);
 
     snapshot = executor->snapshot();
-    assert(snapshot.executions == 3U);
+    assert(snapshot.executions == 4U);
     assert(snapshot.readbacks == 2U);
     assert(snapshot.last_readback_checksum == packets.reference.checksum);
 
@@ -198,6 +259,7 @@ int main() {
               << " glyphs=" << packets.hot.header.glyph_instance_count
               << " checksum=" << packets.reference.checksum
               << " direct_surface=PASS"
+              << " lazy_readback=PASS"
               << " PASS\n";
     return 0;
 }

@@ -496,6 +496,7 @@ public:
                 !ensure_output_locked(
                     packet.header.surface_width,
                     packet.header.surface_height,
+                    readback != nullptr,
                     error) ||
                 !update_descriptors_locked(error)) {
                 return false;
@@ -888,49 +889,81 @@ private:
     bool ensure_output_locked(
         std::uint32_t width,
         std::uint32_t height,
+        bool require_readback,
         NativeShaderExecutionError* error) noexcept {
         std::uint64_t bytes = 0U;
         if (!checked_multiply(width, height, &bytes) ||
-            !checked_multiply(bytes, 4U, &bytes) ||
-            bytes > config_.limits.maximum_readback_bytes) {
+            !checked_multiply(bytes, 4U, &bytes)) {
             return fail(error, NativeShaderExecutionErrorKind::ResourceBudgetExceeded,
-                        "Vulkan output surface exceeds readback limits");
+                        "Vulkan output surface size overflowed");
         }
-        if (output_.handle != VK_NULL_HANDLE &&
-            output_.width == width && output_.height == height &&
+
+        const bool output_matches =
+            output_.handle != VK_NULL_HANDLE &&
+            output_.width == width &&
+            output_.height == height;
+
+        if (!output_matches) {
+            if (vkDeviceWaitIdle(context_->device) != VK_SUCCESS) {
+                return fail(error, NativeShaderExecutionErrorKind::DeviceLost,
+                            "vkDeviceWaitIdle before output rebuild failed");
+            }
+
+            destroy_image(context_->device, &output_);
+            last_surface_ = {};
+            snapshot_.output_surface_bytes = 0U;
+
+            if (!create_image(
+                    context_, width, height, 1U,
+                    VK_IMAGE_USAGE_STORAGE_BIT |
+                        VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                    VK_IMAGE_VIEW_TYPE_2D,
+                    &output_, error)) {
+                return false;
+            }
+
+            if (next_output_generation_ ==
+                (std::numeric_limits<std::uint64_t>::max)()) {
+                destroy_image(context_->device, &output_);
+                return fail(
+                    error,
+                    NativeShaderExecutionErrorKind::ResourceAllocationFailed,
+                    "Vulkan shader output generation overflowed");
+            }
+
+            output_generation_ = next_output_generation_++;
+            snapshot_.output_surface_bytes = bytes;
+        }
+
+        if (!require_readback) {
+            return true;
+        }
+
+        if (bytes > config_.limits.maximum_readback_bytes) {
+            return fail(error, NativeShaderExecutionErrorKind::ResourceBudgetExceeded,
+                        "Vulkan shader readback exceeds readback limits");
+        }
+
+        if (readback_.handle != VK_NULL_HANDLE &&
+            readback_.mapped != nullptr &&
             readback_.size >= bytes) {
             return true;
         }
+
         if (vkDeviceWaitIdle(context_->device) != VK_SUCCESS) {
             return fail(error, NativeShaderExecutionErrorKind::DeviceLost,
-                        "vkDeviceWaitIdle before output rebuild failed");
+                        "vkDeviceWaitIdle before readback allocation failed");
         }
-        destroy_image(context_->device, &output_);
+
         destroy_buffer(context_->device, &readback_);
-        if (!create_image(
-                context_, width, height, 1U,
-                VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                VK_IMAGE_VIEW_TYPE_2D,
-                &output_, error) ||
-            !create_buffer(
+        if (!create_buffer(
                 context_, bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                 true, &readback_, error)) {
-            destroy_image(context_->device, &output_);
-            destroy_buffer(context_->device, &readback_);
             return false;
         }
-        if (next_output_generation_ ==
-            (std::numeric_limits<std::uint64_t>::max)()) {
-            destroy_image(context_->device, &output_);
-            destroy_buffer(context_->device, &readback_);
-            return fail(error, NativeShaderExecutionErrorKind::ResourceAllocationFailed,
-                        "Vulkan shader output generation overflowed");
-        }
-        output_generation_ = next_output_generation_++;
-        last_surface_ = {};
-        snapshot_.output_surface_bytes = bytes;
+
         snapshot_.peak_transient_bytes = std::max(
             snapshot_.peak_transient_bytes, bytes);
         return true;
