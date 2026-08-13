@@ -93,7 +93,7 @@ fn write_error(error: *mut ZrUtf8DecodeError, value: DecodeError) {
             // SAFETY: The pointer is non-null, aligned, and writable by contract.
             error.write(ZrUtf8DecodeError {
                 kind: value.kind as u32,
-                reserved: 0,
+                detail: value.detail as u32,
                 source_offset: value.source_offset,
             });
         }
@@ -312,28 +312,50 @@ pub extern "C" fn zr_utf8_decoder_failed(storage: *const ZrUtf8DecoderStorage) -
 mod tests {
     use super::*;
     use zevryon_unicode_abi::{
+        ZR_UTF8_ERROR_DETAIL_DECODER_FAILED, ZR_UTF8_ERROR_DETAIL_DECODER_FINISHED,
+        ZR_UTF8_ERROR_DETAIL_DISCONTINUOUS_OFFSET, ZR_UTF8_ERROR_DETAIL_OUTPUT_CAPACITY,
+        ZR_UTF8_ERROR_DETAIL_SOURCE_RANGE_OVERFLOW, ZR_UTF8_ERROR_DISCONTINUOUS_INPUT,
         ZR_UTF8_ERROR_OUTPUT_BUDGET_EXCEEDED, ZR_UTF8_POLICY_REPLACE, ZR_UTF8_POLICY_STRICT,
     };
 
+    fn feed(
+        storage: &mut ZrUtf8DecoderStorage,
+        input: &[u8],
+        offset: u64,
+        output: &mut [ZrDecodedCodePoint],
+        written: &mut usize,
+        error: &mut ZrUtf8DecodeError,
+    ) -> u8 {
+        zr_utf8_decoder_feed(
+            storage,
+            input.as_ptr(),
+            input.len(),
+            offset,
+            output.as_mut_ptr(),
+            output.len(),
+            written,
+            error,
+        )
+    }
+
     #[test]
-    fn ffi_lifecycle_and_output_budget_are_fail_closed() {
+    fn ffi_lifecycle_and_error_details_are_fail_closed() {
+        assert_eq!(zr_utf8_abi_version(), 0x0001_0001);
         let mut storage = ZrUtf8DecoderStorage::default();
         assert_eq!(zr_utf8_decoder_valid(&storage), 0);
         assert_eq!(zr_utf8_decoder_init(&mut storage, ZR_UTF8_POLICY_STRICT), 1);
         assert_eq!(zr_utf8_decoder_valid(&storage), 1);
 
         let input = [0x41u8, 0xc5, 0x9f];
-        let mut output = [ZrDecodedCodePoint::default(); 2];
+        let mut output = [ZrDecodedCodePoint::default(); 3];
         let mut written = 0usize;
         let mut error = ZrUtf8DecodeError::default();
         assert_eq!(
-            zr_utf8_decoder_feed(
+            feed(
                 &mut storage,
-                input.as_ptr(),
-                input.len(),
+                &input,
                 100,
-                output.as_mut_ptr(),
-                output.len(),
+                &mut output,
                 &mut written,
                 &mut error,
             ),
@@ -342,6 +364,47 @@ mod tests {
         assert_eq!(written, 2);
         assert_eq!(output[0].value, 0x41);
         assert_eq!(output[1].value, 0x15f);
+
+        assert_eq!(
+            feed(
+                &mut storage,
+                &[0x42],
+                104,
+                &mut output,
+                &mut written,
+                &mut error,
+            ),
+            0
+        );
+        assert_eq!(error.kind, ZR_UTF8_ERROR_DISCONTINUOUS_INPUT);
+        assert_eq!(error.detail, ZR_UTF8_ERROR_DETAIL_DISCONTINUOUS_OFFSET);
+
+        assert_eq!(
+            feed(
+                &mut storage,
+                &[0x42],
+                103,
+                &mut output,
+                &mut written,
+                &mut error,
+            ),
+            0
+        );
+        assert_eq!(error.kind, ZR_UTF8_ERROR_DISCONTINUOUS_INPUT);
+        assert_eq!(error.detail, ZR_UTF8_ERROR_DETAIL_DECODER_FAILED);
+
+        assert_eq!(zr_utf8_decoder_reset(&mut storage), 1);
+        assert_eq!(
+            feed(
+                &mut storage,
+                &[0x41],
+                0,
+                &mut output,
+                &mut written,
+                &mut error,
+            ),
+            1
+        );
         assert_eq!(
             zr_utf8_decoder_finish(
                 &mut storage,
@@ -352,9 +415,36 @@ mod tests {
             ),
             1
         );
+        assert_eq!(
+            feed(
+                &mut storage,
+                &[0x42],
+                1,
+                &mut output,
+                &mut written,
+                &mut error,
+            ),
+            0
+        );
+        assert_eq!(error.kind, ZR_UTF8_ERROR_DISCONTINUOUS_INPUT);
+        assert_eq!(error.detail, ZR_UTF8_ERROR_DETAIL_DECODER_FINISHED);
 
         assert_eq!(zr_utf8_decoder_reset(&mut storage), 1);
-        assert_eq!(zr_utf8_decoder_policy(&storage), ZR_UTF8_POLICY_STRICT);
+        assert_eq!(
+            feed(
+                &mut storage,
+                &[0x41],
+                u64::MAX,
+                &mut output,
+                &mut written,
+                &mut error,
+            ),
+            0
+        );
+        assert_eq!(error.kind, ZR_UTF8_ERROR_DISCONTINUOUS_INPUT);
+        assert_eq!(error.detail, ZR_UTF8_ERROR_DETAIL_SOURCE_RANGE_OVERFLOW);
+
+        assert_eq!(zr_utf8_decoder_reset(&mut storage), 1);
         assert_eq!(
             zr_utf8_decoder_feed(
                 &mut storage,
@@ -369,6 +459,7 @@ mod tests {
             0
         );
         assert_eq!(error.kind, ZR_UTF8_ERROR_OUTPUT_BUDGET_EXCEEDED);
+        assert_eq!(error.detail, ZR_UTF8_ERROR_DETAIL_OUTPUT_CAPACITY);
         assert_eq!(zr_utf8_decoder_failed(&storage), 1);
 
         zr_utf8_decoder_clear(&mut storage);
