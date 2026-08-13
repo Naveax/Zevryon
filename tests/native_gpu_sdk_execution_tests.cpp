@@ -212,6 +212,50 @@ void certify_initialization_failure() {
     assert(error.kind == NativeGpuApiErrorKind::DeviceLost);
 }
 
+void certify_metal_reference_model_unavailable() {
+    ReferenceNativeGpuSdkApi api(NativeGpuApiKind::Metal);
+    const NativeGpuSdkProbe probe = api.probe();
+    assert(api.kind() == NativeGpuApiKind::Metal);
+    assert(probe.api_kind == NativeGpuApiKind::Metal);
+    assert(probe.availability == NativeGpuSdkAvailability::Unavailable);
+    assert(probe.api_major == 0U);
+    assert(probe.flags == 0U);
+    assert(probe.runtime_generation == 0U);
+    assert(probe.checksum == 0U);
+
+    const NativeGpuSdkLimits limits =
+        default_native_gpu_sdk_limits(NativeGpuApiKind::Metal);
+    assert(limits.maximum_swapchain_images == 0U);
+    assert(limits.maximum_frames_in_flight == 0U);
+    assert(limits.maximum_command_allocators == 0U);
+    assert(limits.maximum_descriptors == 0U);
+    assert(limits.maximum_texture_resources == 0U);
+    assert(limits.maximum_staging_bytes == 0U);
+    assert(limits.maximum_device_local_bytes == 0U);
+    assert(limits.maximum_submission_commands == 0U);
+
+    NativeGpuSdkConfig config = make_config(NativeGpuApiKind::Metal);
+    NativeGpuSdkPlatformDriver driver(&api, config);
+    const NativePlatformCapabilities capabilities = driver.capabilities();
+    assert(capabilities.flags == 0U);
+    assert(capabilities.maximum_commands == 0U);
+    assert(capabilities.maximum_barriers == 0U);
+    assert(capabilities.maximum_descriptors == 0U);
+    assert(capabilities.maximum_swapchain_images == 0U);
+    assert(capabilities.maximum_frames_in_flight == 0U);
+    assert(capabilities.maximum_staging_bytes == 0U);
+
+    NativeGpuSdkError sdk_error;
+    api.set_fail_initialization(true);
+    assert(!api.initialize(config, &sdk_error));
+    assert(sdk_error.kind == NativeGpuSdkErrorKind::UnsupportedBackend);
+
+    NativeGpuApiError api_error;
+    assert(!driver.configure_swapchain(
+        make_surface(), 3U, make_adapter_config(NativeGpuApiKind::Metal), &api_error));
+    assert(api_error.kind == NativeGpuApiErrorKind::InvalidInput);
+}
+
 void certify_metal_unavailable_factory() {
     assert(!native_gpu_sdk_build_has_backend(NativeGpuApiKind::Metal));
     std::unique_ptr<NativeGpuSdkApi> api = make_metal_native_gpu_sdk_api();
@@ -233,6 +277,7 @@ int main() {
     certify_reference_kind(zevryon::text::NativeGpuApiKind::Direct3D12);
     certify_budget_failure();
     certify_initialization_failure();
+    certify_metal_reference_model_unavailable();
     certify_metal_unavailable_factory();
     std::cout << "native GPU SDK execution functional certification: PASS\n";
     return 0;
