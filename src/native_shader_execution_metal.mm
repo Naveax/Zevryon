@@ -223,6 +223,11 @@ std::uint64_t bytes_checksum(std::span<const std::byte> bytes) noexcept {
     return hash;
 }
 
+std::uint64_t object_id(id object) noexcept {
+    return static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(
+        (__bridge void*)object));
+}
+
 std::uint32_t pack_color(ShaderColorBgra8 color) noexcept {
     return static_cast<std::uint32_t>(color.blue) |
         (static_cast<std::uint32_t>(color.green) << 8U) |
@@ -352,7 +357,8 @@ public:
             kNativeShaderExecutionIntegerComposition |
             kNativeShaderExecutionPersistentAtlas |
             kNativeShaderExecutionGpuReadback |
-            kNativeShaderExecutionRetainedContext;
+            kNativeShaderExecutionRetainedContext |
+            kNativeShaderExecutionDirectSurfaceExport;
         snapshot_.device_generation = config.context.device_generation;
         snapshot_.runtime_generation = config.context.runtime_generation;
         snapshot_.executor_generation = config.executor_generation;
@@ -366,7 +372,7 @@ public:
         NativeShaderExecutionError* error) noexcept override {
         std::lock_guard<std::mutex> lock(mutex_);
         clear_error(error);
-        if (context_ == nullptr || pipeline_ == nil || readback == nullptr ||
+        if (context_ == nullptr || pipeline_ == nil ||
             !validate_packet(packet, config_.limits, error)) {
             ++snapshot_.rejected_packets;
             return false;
@@ -374,7 +380,9 @@ public:
         try {
             if (!ensure_atlas(packet, atlas, error) ||
                 !ensure_output(packet.header.surface_width,
-                               packet.header.surface_height, error)) {
+                               packet.header.surface_height,
+                               readback != nullptr,
+                               error)) {
                 return false;
             }
             @autoreleasepool {
@@ -408,24 +416,28 @@ public:
                 }
                 [encoder endEncoding];
 
-                id<MTLBlitCommandEncoder> blit = [command_buffer blitCommandEncoder];
-                if (blit == nil) {
-                    return fail(error, NativeShaderExecutionErrorKind::ReadbackFailed,
-                                "Metal readback blit encoder allocation failed");
+                if (readback != nullptr) {
+                    id<MTLBlitCommandEncoder> blit =
+                        [command_buffer blitCommandEncoder];
+                    if (blit == nil) {
+                        return fail(error, NativeShaderExecutionErrorKind::ReadbackFailed,
+                                    "Metal readback blit encoder allocation failed");
+                    }
+                    [blit copyFromTexture:output_texture_
+                              sourceSlice:0U
+                              sourceLevel:0U
+                             sourceOrigin:MTLOriginMake(0U, 0U, 0U)
+                               sourceSize:MTLSizeMake(
+                                   packet.header.surface_width,
+                                   packet.header.surface_height,
+                                   1U)
+                                 toBuffer:readback_buffer_
+                        destinationOffset:0U
+                   destinationBytesPerRow:readback_row_bytes_
+                 destinationBytesPerImage:readback_buffer_bytes_];
+                    [blit endEncoding];
                 }
-                [blit copyFromTexture:output_texture_
-                          sourceSlice:0U
-                          sourceLevel:0U
-                         sourceOrigin:MTLOriginMake(0U, 0U, 0U)
-                           sourceSize:MTLSizeMake(
-                               packet.header.surface_width,
-                               packet.header.surface_height,
-                               1U)
-                             toBuffer:readback_buffer_
-                    destinationOffset:0U
-               destinationBytesPerRow:readback_row_bytes_
-             destinationBytesPerImage:readback_buffer_bytes_];
-                [blit endEncoding];
+
                 [command_buffer commit];
                 [command_buffer waitUntilCompleted];
                 if (command_buffer.status == MTLCommandBufferStatusError) {
@@ -441,35 +453,59 @@ public:
             std::uint64_t canonical_bytes = 0U;
             if (!checked_multiply(
                     canonical_row_bytes, packet.header.surface_height,
-                    &canonical_bytes) ||
-                canonical_bytes > config_.limits.maximum_readback_bytes ||
-                canonical_bytes > (std::numeric_limits<std::size_t>::max)()) {
+                    &canonical_bytes)) {
                 return fail(error, NativeShaderExecutionErrorKind::ResourceBudgetExceeded,
-                            "Metal readback exceeds configured budget");
+                            "Metal output surface size overflowed");
             }
-            ShaderReadback staged;
-            staged.width = packet.header.surface_width;
-            staged.height = packet.header.surface_height;
-            staged.row_bytes = static_cast<std::uint32_t>(canonical_row_bytes);
-            staged.bgra.resize(static_cast<std::size_t>(canonical_bytes));
-            const auto* source = static_cast<const std::byte*>(readback_buffer_.contents);
-            for (std::uint32_t row = 0U; row < staged.height; ++row) {
-                std::memcpy(
-                    staged.bgra.data() +
-                        static_cast<std::size_t>(row) * staged.row_bytes,
-                    source + static_cast<std::size_t>(row) * readback_row_bytes_,
-                    staged.row_bytes);
+
+            if (readback != nullptr) {
+                if (canonical_bytes > config_.limits.maximum_readback_bytes ||
+                    canonical_bytes > (std::numeric_limits<std::size_t>::max)()) {
+                    return fail(error, NativeShaderExecutionErrorKind::ResourceBudgetExceeded,
+                                "Metal readback exceeds configured budget");
+                }
+                ShaderReadback staged;
+                staged.width = packet.header.surface_width;
+                staged.height = packet.header.surface_height;
+                staged.row_bytes = static_cast<std::uint32_t>(canonical_row_bytes);
+                staged.bgra.resize(static_cast<std::size_t>(canonical_bytes));
+                const auto* source =
+                    static_cast<const std::byte*>(readback_buffer_.contents);
+                for (std::uint32_t row = 0U; row < staged.height; ++row) {
+                    std::memcpy(
+                        staged.bgra.data() +
+                            static_cast<std::size_t>(row) * staged.row_bytes,
+                        source + static_cast<std::size_t>(row) * readback_row_bytes_,
+                        staged.row_bytes);
+                }
+                staged.checksum = shader_bytes_checksum(staged.bgra);
+                *readback = std::move(staged);
+                ++snapshot_.readbacks;
+                snapshot_.last_readback_checksum = readback->checksum;
             }
-            staged.checksum = shader_bytes_checksum(staged.bgra);
-            *readback = std::move(staged);
+
+            last_surface_ = {};
+            last_surface_.api_kind = NativeGpuApiKind::Metal;
+            last_surface_.format = GpuSurfaceFormat::Bgra8Unorm;
+            last_surface_.state = NativeShaderSurfaceState::ShaderRead;
+            last_surface_.flags =
+                kNativeShaderSurfaceReady |
+                kNativeShaderSurfaceNonOwning |
+                kNativeShaderSurfacePremultipliedAlpha;
+            last_surface_.device_generation = config_.context.device_generation;
+            last_surface_.runtime_generation = config_.context.runtime_generation;
+            last_surface_.executor_generation = config_.executor_generation;
+            last_surface_.output_generation = output_generation_;
+            last_surface_.frame_id = packet.header.frame_id;
+            last_surface_.content_checksum = packet.header.packet_checksum;
+            last_surface_.native_resource = object_id(output_texture_);
+            last_surface_.width = packet.header.surface_width;
+            last_surface_.height = packet.header.surface_height;
+
             ++snapshot_.executions;
-            ++snapshot_.readbacks;
             snapshot_.last_packet_checksum = packet.header.packet_checksum;
-            snapshot_.last_readback_checksum = readback->checksum;
             snapshot_.persistent_atlas_bytes = atlas.resident_bytes();
             snapshot_.output_surface_bytes = canonical_bytes;
-            snapshot_.peak_transient_bytes = std::max<std::uint64_t>(
-                snapshot_.peak_transient_bytes, readback_buffer_bytes_);
             return true;
         } catch (const std::bad_alloc&) {
             return fail(error, NativeShaderExecutionErrorKind::AllocationFailed,
@@ -478,6 +514,26 @@ public:
             return fail(error, NativeShaderExecutionErrorKind::CommandEncodingFailed,
                         "unexpected Metal shader execution failure");
         }
+    }
+
+    bool export_surface(
+        NativeShaderSurfaceView* surface,
+        NativeShaderExecutionError* error) noexcept override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        clear_error(error);
+        if (surface == nullptr) {
+            return fail(error, NativeShaderExecutionErrorKind::InvalidInput,
+                        "shader surface output is null");
+        }
+        if (!native_shader_surface_view_valid(last_surface_) ||
+            output_texture_ == nil ||
+            object_id(output_texture_) != last_surface_.native_resource) {
+            *surface = {};
+            return fail(error, NativeShaderExecutionErrorKind::StaleGeneration,
+                        "no completed Metal shader surface is available");
+        }
+        *surface = last_surface_;
+        return true;
     }
 
     NativeShaderExecutionSnapshot snapshot() const noexcept override {
@@ -587,19 +643,58 @@ private:
     bool ensure_output(
         std::uint32_t width,
         std::uint32_t height,
+        bool require_readback,
         NativeShaderExecutionError* error) noexcept {
-        if (output_texture_ != nil && output_width_ == width &&
-            output_height_ == height) {
-            return true;
-        }
         std::uint64_t canonical_bytes = 0U;
         if (!checked_multiply(
                 static_cast<std::uint64_t>(width) * 4U,
-                height, &canonical_bytes) ||
-            canonical_bytes > config_.limits.maximum_readback_bytes) {
+                height, &canonical_bytes)) {
             return fail(error, NativeShaderExecutionErrorKind::ResourceBudgetExceeded,
-                        "Metal output surface exceeds configured budget");
+                        "Metal output surface size overflowed");
         }
+
+        const bool output_matches = output_texture_ != nil &&
+            output_width_ == width && output_height_ == height;
+        if (!output_matches) {
+            if (next_output_generation_ ==
+                (std::numeric_limits<std::uint64_t>::max)()) {
+                return fail(error,
+                            NativeShaderExecutionErrorKind::ResourceAllocationFailed,
+                            "Metal shader output generation overflowed");
+            }
+            MTLTextureDescriptor* descriptor = [MTLTextureDescriptor
+                texture2DDescriptorWithPixelFormat:MTLPixelFormatR32Uint
+                                             width:width
+                                            height:height
+                                         mipmapped:NO];
+            descriptor.usage =
+                MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+            descriptor.storageMode = MTLStorageModePrivate;
+            id<MTLTexture> texture =
+                [context_->device newTextureWithDescriptor:descriptor];
+            if (texture == nil) {
+                return fail(error,
+                            NativeShaderExecutionErrorKind::ResourceAllocationFailed,
+                            "Metal output texture allocation failed");
+            }
+            output_texture_ = texture;
+            output_width_ = width;
+            output_height_ = height;
+            output_generation_ = next_output_generation_++;
+            last_surface_ = {};
+            snapshot_.output_surface_bytes = canonical_bytes;
+        }
+
+        if (!require_readback) {
+            return true;
+        }
+        return ensure_readback(width, height, error);
+    }
+
+    bool ensure_readback(
+        std::uint32_t width,
+        std::uint32_t height,
+        NativeShaderExecutionError* error) noexcept {
         const std::uint64_t aligned_row =
             (static_cast<std::uint64_t>(width) * 4U + 255U) & ~255ULL;
         std::uint64_t aligned_bytes = 0U;
@@ -609,27 +704,24 @@ private:
             return fail(error, NativeShaderExecutionErrorKind::ResourceBudgetExceeded,
                         "Metal aligned readback exceeds configured budget");
         }
-        MTLTextureDescriptor* descriptor = [MTLTextureDescriptor
-            texture2DDescriptorWithPixelFormat:MTLPixelFormatR32Uint
-                                         width:width
-                                        height:height
-                                     mipmapped:NO];
-        descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
-        descriptor.storageMode = MTLStorageModePrivate;
-        id<MTLTexture> texture = [context_->device newTextureWithDescriptor:descriptor];
+        if (readback_buffer_ != nil &&
+            readback_row_bytes_ == static_cast<NSUInteger>(aligned_row) &&
+            readback_buffer_bytes_ >= static_cast<NSUInteger>(aligned_bytes)) {
+            return true;
+        }
+
         id<MTLBuffer> buffer = [context_->device
             newBufferWithLength:static_cast<NSUInteger>(aligned_bytes)
                          options:MTLResourceStorageModeShared];
-        if (texture == nil || buffer == nil) {
+        if (buffer == nil) {
             return fail(error, NativeShaderExecutionErrorKind::ResourceAllocationFailed,
-                        "Metal output or readback allocation failed");
+                        "Metal readback buffer allocation failed");
         }
-        output_texture_ = texture;
         readback_buffer_ = buffer;
-        output_width_ = width;
-        output_height_ = height;
         readback_row_bytes_ = static_cast<NSUInteger>(aligned_row);
         readback_buffer_bytes_ = static_cast<NSUInteger>(aligned_bytes);
+        snapshot_.peak_transient_bytes = std::max<std::uint64_t>(
+            snapshot_.peak_transient_bytes, aligned_bytes);
         return true;
     }
 
@@ -734,6 +826,9 @@ private:
         output_height_ = 0U;
         readback_row_bytes_ = 0U;
         readback_buffer_bytes_ = 0U;
+        output_generation_ = 0U;
+        next_output_generation_ = 1U;
+        last_surface_ = {};
         if (context_ != nullptr) {
             detail::release_metal_window_context(context_);
             context_ = nullptr;
@@ -758,6 +853,9 @@ private:
     std::uint32_t output_height_{0U};
     NSUInteger readback_row_bytes_{0U};
     NSUInteger readback_buffer_bytes_{0U};
+    std::uint64_t output_generation_{0U};
+    std::uint64_t next_output_generation_{1U};
+    NativeShaderSurfaceView last_surface_{};
 };
 
 } // namespace
