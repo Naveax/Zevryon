@@ -1,0 +1,32 @@
+{
+  "schema": "zevryon.z2f.macos-removal-admission.v1",
+  "repository": "Naveax/Zevryon",
+  "base_main": "a55609a7a1bb1a20a15ffe98c5626374bf9fa9ef",
+  "source_authority_head": "010e904697d66b617dfa3d9cd49255b225df91c5",
+  "promotion_evidence_commit": "7e005a4915361e8346dd4d7c3f719a46e46c0a3f",
+  "promotion_evidence_parent": "010e904697d66b617dfa3d9cd49255b225df91c5",
+  "evidence_only_delta": {
+    "ahead_by": 1,
+    "behind_by": 0,
+    "changed_files": [
+      "certification/z2f_macos_removal_promotion.json",
+      "docs/Z2F_MACOS_REMOVAL_PROMOTION.md"
+    ],
+    "allowed_prefixes": ["certification/", "docs/"],
+    "runtime_or_build_files_changed": false
+  },
+  "inherited_ci_authority": {
+    "workflow_run_id": 31716197258,
+    "head_sha": "010e904697d66b617dfa3d9cd49255b225df91c5",
+    "conclusion": "success",
+    "gates": [
+      "Apple backend removal guard",
+      "Linux build and headless tests",
+      "Windows build and headless tests"
+    ]
+  },
+  "admission_rule": "A direct descendant may inherit runtime/build CI receipts only when its complete delta from the certified source authority is evidence-only and contains no source, test, CMake, workflow, build, runtime, script, or generated executable behavior changes.",
+  "admission_result": "evidence-only-descendant-runtime-ci-inheritance-valid",
+  "publication_status": "pending-branch-ref-publication",
+  "merge_status": "not-admitted-for-merge-until-published-ref-is-verified"
+}
