@@ -270,7 +270,8 @@ bool validate_packet(
     const GpuShaderPacket& packet,
     const NativeShaderExecutionLimits& limits,
     NativeShaderExecutionError* error) noexcept {
-    if (packet.header.surface_width == 0U ||
+    if (packet.header.frame_id == 0U ||
+        packet.header.surface_width == 0U ||
         packet.header.surface_height == 0U ||
         packet.header.surface_width > limits.maximum_surface_width ||
         packet.header.surface_height > limits.maximum_surface_height ||
