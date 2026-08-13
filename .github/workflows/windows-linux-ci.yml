@@ -38,6 +38,20 @@ jobs:
           --platform linux
           --compiler gcc-release
           --output evidence/z2r3eu/linux-authority-validation.json
+      - name: Measure exact-head Unicode authority
+        run: >-
+          python3 scripts/z2r3e_measure_unicode_authority.py
+          --sha "${{ github.event.pull_request.head.sha || github.sha }}"
+          --platform linux
+          --compiler gcc-release
+          --output evidence/z2r3eu/linux-performance-validation.json
+      - name: Upload Linux authority evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: z2r3eu-linux-${{ github.event.pull_request.head.sha || github.sha }}
+          path: evidence/z2r3eu
+          if-no-files-found: warn
 
   z2r3eu-windows-authority:
     name: Z2R-3E-U Windows Unicode authority
@@ -54,6 +68,21 @@ jobs:
           --platform windows
           --compiler msvc-release
           --output evidence/z2r3eu/windows-authority-validation.json
+      - name: Measure exact-head Unicode authority
+        shell: pwsh
+        run: >-
+          python scripts/z2r3e_measure_unicode_authority.py
+          --sha "${{ github.event.pull_request.head.sha || github.sha }}"
+          --platform windows
+          --compiler msvc-release
+          --output evidence/z2r3eu/windows-performance-validation.json
+      - name: Upload Windows authority evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: z2r3eu-windows-${{ github.event.pull_request.head.sha || github.sha }}
+          path: evidence/z2r3eu
+          if-no-files-found: warn
 
   linux-build-test:
     name: Linux build and headless tests
