@@ -105,10 +105,9 @@ NativePlatformSwapchainImage image_for(const Fixture& fixture) {
     return image;
 }
 
-void test_compile_all_backends() {
+void test_compile_supported_backends() {
     for (NativeGpuApiKind kind : {
              NativeGpuApiKind::Vulkan,
-             NativeGpuApiKind::Metal,
              NativeGpuApiKind::Direct3D12}) {
         Fixture fixture;
         std::array<std::byte, 32U * 1024U> output_storage{};
@@ -139,6 +138,56 @@ void test_compile_all_backends() {
         assert(output.commands.front().kind == NativePlatformCommandKind::BeginCommandBuffer);
         assert(output.commands.back().kind == NativePlatformCommandKind::Present);
     }
+}
+
+void test_metal_unsupported() {
+    Fixture fixture;
+    std::array<std::byte, 32U * 1024U> output_storage{};
+    std::pmr::monotonic_buffer_resource output_arena{
+        output_storage.data(), output_storage.size(), std::pmr::null_memory_resource()};
+    NativePlatformSubmission output(&output_arena);
+    NativePlatformCompileRequest request;
+    request.commands = &fixture.commands;
+    request.frame = &fixture.frame;
+    request.draw_instances = fixture.draws;
+    request.image = image_for(fixture);
+    request.ticket_id = 1U;
+    request.wait_fence_value = 12U;
+    request.config = config_for(NativeGpuApiKind::Metal);
+    NativePlatformCompileError compile_error;
+    assert(!compile_native_platform_submission(
+        request, &output, nullptr, &compile_error));
+    assert(compile_error.kind == NativePlatformCompileErrorKind::UnsupportedCapability);
+    assert(output.commands.empty());
+    assert(output.barriers.empty());
+    assert(output.descriptors.empty());
+
+    const NativePlatformCapabilities capabilities =
+        default_native_platform_capabilities(NativeGpuApiKind::Metal);
+    assert(capabilities.flags == 0U);
+    assert(capabilities.maximum_commands == 0U);
+    assert(capabilities.maximum_barriers == 0U);
+    assert(capabilities.maximum_descriptors == 0U);
+    assert(capabilities.maximum_swapchain_images == 0U);
+    assert(capabilities.maximum_frames_in_flight == 0U);
+    assert(capabilities.maximum_staging_bytes == 0U);
+
+    ReferenceNativePlatformDriver driver(NativeGpuApiKind::Metal);
+    assert(driver.capabilities() == capabilities);
+    NativeGpuApiError api_error;
+    assert(!driver.configure_swapchain(
+        fixture.frame.surface,
+        3U,
+        config_for(NativeGpuApiKind::Metal),
+        &api_error));
+    assert(api_error.kind == NativeGpuApiErrorKind::InvalidInput);
+
+    MetalNativeGpuCommandApi legacy_api(
+        &driver, config_for(NativeGpuApiKind::Metal));
+    assert(legacy_api.kind() == NativeGpuApiKind::Metal);
+    assert(legacy_api.capabilities() == capabilities);
+    assert(!legacy_api.configure_surface(
+        fixture.frame.surface, 3U, 17U, &api_error));
 }
 
 void test_fail_closed_inputs() {
@@ -176,7 +225,6 @@ void test_fail_closed_inputs() {
 void test_adapter_lifecycle() {
     for (NativeGpuApiKind kind : {
              NativeGpuApiKind::Vulkan,
-             NativeGpuApiKind::Metal,
              NativeGpuApiKind::Direct3D12}) {
         Fixture fixture;
         ReferenceNativePlatformDriver driver(kind);
@@ -236,15 +284,17 @@ void test_backend_capabilities() {
     const NativePlatformCapabilities d3d =
         default_native_platform_capabilities(NativeGpuApiKind::Direct3D12);
     assert((vk.flags & kNativePlatformExplicitBarriers) != 0U);
-    assert((metal.flags & kNativePlatformUnifiedMemory) != 0U);
-    assert((metal.flags & kNativePlatformTearing) == 0U);
+    assert(metal.flags == 0U);
+    assert(metal.maximum_commands == 0U);
+    assert(metal.maximum_swapchain_images == 0U);
     assert((d3d.flags & kNativePlatformTearing) != 0U);
 }
 
 } // namespace
 
 int main() {
-    test_compile_all_backends();
+    test_compile_supported_backends();
+    test_metal_unsupported();
     test_fail_closed_inputs();
     test_adapter_lifecycle();
     test_backend_capabilities();
