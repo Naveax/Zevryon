@@ -1,0 +1,87 @@
+name: Z2F-8B3B3B Metal Direct Surface
+
+on:
+  push:
+    branches:
+      - agent/z2f8b3b3b-metal-direct-surface
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  metal-direct-surface:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Record exact Darwin host
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p certification
+          {
+            echo "github_sha=${GITHUB_SHA}"
+            echo "checkout_sha=$(git rev-parse HEAD)"
+            test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+            test -z "$(git status --porcelain)"
+            echo "uname_s=$(uname -s)"
+            test "$(uname -s)" = "Darwin"
+            uname -a
+            sw_vers
+            xcodebuild -version
+            clang++ --version
+            system_profiler SPHardwareDataType SPDisplaysDataType || true
+          } 2>&1 | tee certification/host.txt
+
+      - name: Configure Metal gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            2>&1 | tee certification/configure.txt
+
+      - name: Build Metal gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build \
+            --config Release \
+            --target zevryon-native-shader-execution-metal-tests \
+            -j 3 \
+            2>&1 | tee certification/build.txt
+
+      - name: Run Metal direct-surface gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ctest \
+            --test-dir build \
+            -C Release \
+            -R '^native-shader-execution-metal-tests$' \
+            --output-on-failure \
+            -V \
+            2>&1 | tee certification/ctest.txt
+
+      - name: Record executable identity
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          find build -type f -name 'zevryon-native-shader-execution-metal-tests' -print -exec shasum -a 256 {} \; \
+            2>&1 | tee certification/executable-sha256.txt
+
+      - name: Upload exact-head certification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: z2f8b3b3b-metal-direct-${{ github.sha }}
+          path: certification
+          if-no-files-found: error
+          retention-days: 30
