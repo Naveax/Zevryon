@@ -1,0 +1,75 @@
+name: Windows and Linux CI
+
+on:
+  push:
+    branches:
+      - main
+      - "agent/**"
+      - "work/**"
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-linux-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apple-backend-removal-guard:
+    name: Apple backend removal guard
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify removed Apple surface stays removed
+        run: python3 scripts/check_no_apple_backends.py .
+
+  linux-build-test:
+    name: Linux build and headless tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build \
+            pkg-config \
+            libfontconfig1-dev \
+            libharfbuzz-dev \
+            fonts-dejavu-core \
+            fonts-noto-core
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DZEVRYON_ENABLE_RUST_CORE=OFF \
+            -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build all targets
+        run: cmake --build build --parallel 2
+      - name: Run headless test suite
+        run: >-
+          ctest --test-dir build --output-on-failure
+          -E "(native-gpu-sdk-platform-smoke|d3d12|vulkan)"
+
+  windows-build-test:
+    name: Windows build and headless tests
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+            -DBUILD_TESTING=ON `
+            -DZEVRYON_ENABLE_RUST_CORE=OFF `
+            -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build all targets
+        shell: pwsh
+        run: cmake --build build --config Release --parallel 2
+      - name: Run headless test suite
+        shell: pwsh
+        run: >-
+          ctest --test-dir build -C Release --output-on-failure
+          -E "(native-gpu-sdk-platform-smoke|d3d12|vulkan)"
