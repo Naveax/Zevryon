@@ -21,6 +21,41 @@ namespace {
 using detail::MetalWindowSharedContext;
 constexpr std::uint64_t kBytesPerPixel = 4U;
 
+constexpr const char* kMetalShaderSurfaceSource = R"METAL(
+#include <metal_stdlib>
+using namespace metal;
+
+struct VertexOutput {
+    float4 position [[position]];
+};
+
+vertex VertexOutput vertex_main(uint vertex_id [[vertex_id]]) {
+    float2 position;
+    if (vertex_id == 0U) {
+        position = float2(-1.0, -1.0);
+    } else if (vertex_id == 1U) {
+        position = float2(-1.0, 3.0);
+    } else {
+        position = float2(3.0, -1.0);
+    }
+    VertexOutput output;
+    output.position = float4(position, 0.0, 1.0);
+    return output;
+}
+
+fragment float4 fragment_main(
+    VertexOutput input [[stage_in]],
+    texture2d<uint, access::read> source [[texture(0)]]) {
+    uint2 coordinate = uint2(input.position.xy);
+    uint value = source.read(coordinate).x;
+    float blue = float(value & 255U) / 255.0;
+    float green = float((value >> 8U) & 255U) / 255.0;
+    float red = float((value >> 16U) & 255U) / 255.0;
+    float alpha = float((value >> 24U) & 255U) / 255.0;
+    return float4(red, green, blue, alpha);
+}
+)METAL";
+
 void clear_error(NativeWindowSwapchainError* error) noexcept {
     if (error != nullptr) {
         error->kind = NativeWindowSwapchainErrorKind::None;
@@ -55,6 +90,47 @@ MTLPixelFormat map_format(GpuSurfaceFormat format) noexcept {
     return format == GpuSurfaceFormat::Rgba8Unorm
         ? MTLPixelFormatRGBA8Unorm
         : MTLPixelFormatBGRA8Unorm;
+}
+
+id<MTLRenderPipelineState> make_shader_surface_pipeline(
+    id<MTLDevice> device,
+    MTLPixelFormat target_format,
+    std::int64_t* native_code) noexcept {
+    if (native_code != nullptr) {
+        *native_code = 0;
+    }
+    if (device == nil || target_format == MTLPixelFormatInvalid) {
+        return nil;
+    }
+    @autoreleasepool {
+        NSError* error = nil;
+        NSString* source = [[NSString alloc]
+            initWithUTF8String:kMetalShaderSurfaceSource];
+        id<MTLLibrary> library =
+            [device newLibraryWithSource:source options:nil error:&error];
+        if (library == nil) {
+            if (native_code != nullptr && error != nil) {
+                *native_code = error.code;
+            }
+            return nil;
+        }
+        id<MTLFunction> vertex = [library newFunctionWithName:@"vertex_main"];
+        id<MTLFunction> fragment = [library newFunctionWithName:@"fragment_main"];
+        if (vertex == nil || fragment == nil) {
+            return nil;
+        }
+        MTLRenderPipelineDescriptor* descriptor =
+            [[MTLRenderPipelineDescriptor alloc] init];
+        descriptor.vertexFunction = vertex;
+        descriptor.fragmentFunction = fragment;
+        descriptor.colorAttachments[0].pixelFormat = target_format;
+        id<MTLRenderPipelineState> pipeline =
+            [device newRenderPipelineStateWithDescriptor:descriptor error:&error];
+        if (pipeline == nil && native_code != nullptr && error != nil) {
+            *native_code = error.code;
+        }
+        return pipeline;
+    }
 }
 
 bool checked_surface_bytes(
@@ -254,6 +330,7 @@ public:
             ImageSlot& slot = slots_[index];
             slot.drawable = drawable;
             slot.texture = texture;
+            slot.shader_surface = nil;
             slot.command_buffer = nil;
             slot.acquired = 1U;
             slot.in_flight = 0U;
@@ -331,11 +408,55 @@ public:
                             "Metal present damage rectangle is outside the surface");
             }
         }
-        if (!native_window_pixel_buffer_valid(
+
+        const bool has_pixel_buffer = !request.pixel_buffer.empty();
+        const bool has_shader_surface = !request.shader_surface.empty();
+        if (has_pixel_buffer && has_shader_surface) {
+            return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
+                        "Metal present cannot use CPU and shader surfaces together");
+        }
+        if (has_pixel_buffer &&
+            !native_window_pixel_buffer_valid(
                 request.pixel_buffer, snapshot_.config.surface)) {
             return fail(error, NativeWindowSwapchainErrorKind::InvalidInput,
                         "Metal pixel buffer does not match the drawable surface");
         }
+
+        id<MTLTexture> shader_surface = nil;
+        if (has_shader_surface) {
+            const NativeShaderSurfaceView& view = request.shader_surface;
+            if (!native_shader_surface_view_valid(view) ||
+                view.api_kind != NativeGpuApiKind::Metal ||
+                view.device_generation !=
+                    snapshot_.config.context.device_generation ||
+                view.runtime_generation !=
+                    snapshot_.config.context.runtime_generation ||
+                view.frame_id != request.frame_id ||
+                view.content_checksum != request.command_checksum ||
+                view.width != snapshot_.config.surface.width ||
+                view.height != snapshot_.config.surface.height) {
+                snapshot_.stale_rejections += 1U;
+                return fail(error, NativeWindowSwapchainErrorKind::StaleGeneration,
+                            "Metal shader surface is stale or incompatible");
+            }
+            shader_surface = (__bridge id<MTLTexture>)(
+                reinterpret_cast<void*>(
+                    static_cast<std::uintptr_t>(view.native_resource)));
+            if (shader_surface == nil ||
+                shader_surface.device != context_->device ||
+                shader_surface.textureType != MTLTextureType2D ||
+                shader_surface.pixelFormat != MTLPixelFormatR32Uint ||
+                shader_surface.width != view.width ||
+                shader_surface.height != view.height ||
+                shader_surface.arrayLength != 1U ||
+                (shader_surface.usage & MTLTextureUsageShaderRead) == 0U ||
+                shader_surface_pipeline_ == nil) {
+                snapshot_.stale_rejections += 1U;
+                return fail(error, NativeWindowSwapchainErrorKind::StaleGeneration,
+                            "Metal shader surface resource is stale or incompatible");
+            }
+        }
+
         if ((request.flags & kNativeWindowPresentAllowTearing) != 0U) {
             return fail(error, NativeWindowSwapchainErrorKind::UnsupportedPresentMode,
                         "Metal CAMetalLayer does not expose explicit tearing control");
@@ -371,7 +492,40 @@ public:
                 return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
                             "Metal presentation command buffer creation failed");
             }
-            if (!request.pixel_buffer.empty()) {
+            if (has_shader_surface) {
+                MTLRenderPassDescriptor* pass =
+                    [MTLRenderPassDescriptor renderPassDescriptor];
+                pass.colorAttachments[0].texture = slot.texture;
+                pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
+                pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+                id<MTLRenderCommandEncoder> encoder =
+                    [command_buffer renderCommandEncoderWithDescriptor:pass];
+                if (encoder == nil) {
+                    return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                                "Metal shader surface render encoder creation failed");
+                }
+                [encoder setRenderPipelineState:shader_surface_pipeline_];
+                [encoder setFragmentTexture:shader_surface atIndex:0U];
+                const MTLViewport viewport{
+                    0.0,
+                    0.0,
+                    static_cast<double>(snapshot_.config.surface.width),
+                    static_cast<double>(snapshot_.config.surface.height),
+                    0.0,
+                    1.0};
+                [encoder setViewport:viewport];
+                const MTLScissorRect scissor{
+                    0U,
+                    0U,
+                    snapshot_.config.surface.width,
+                    snapshot_.config.surface.height};
+                [encoder setScissorRect:scissor];
+                [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                             vertexStart:0U
+                             vertexCount:3U];
+                [encoder endEncoding];
+                slot.shader_surface = shader_surface;
+            } else if (has_pixel_buffer) {
                 const NSUInteger upload_size = static_cast<NSUInteger>(
                     request.pixel_buffer.bytes.size());
                 if (slot.upload_buffer == nil ||
@@ -514,6 +668,7 @@ private:
         NativeWindowSwapchainImage image;
         id<CAMetalDrawable> drawable{nil};
         id<MTLTexture> texture{nil};
+        id<MTLTexture> shader_surface{nil};
         id<MTLBuffer> upload_buffer{nil};
         id<MTLCommandBuffer> command_buffer{nil};
         std::uint64_t fence_value{0U};
@@ -636,6 +791,21 @@ private:
                         "Metal context does not match the exported device graph");
         }
 
+        std::int64_t pipeline_error = 0;
+        id<MTLRenderPipelineState> staged_shader_surface_pipeline =
+            make_shader_surface_pipeline(
+                retained->device,
+                map_format(config.surface.format),
+                &pipeline_error);
+        if (staged_shader_surface_pipeline == nil) {
+            if (!recreation) {
+                detail::release_metal_window_context(retained);
+            }
+            return fail(error, NativeWindowSwapchainErrorKind::PresentFailed,
+                        "Metal shader surface pipeline creation failed",
+                        pipeline_error);
+        }
+
         if (recreation) {
             if (!wait_and_release_all_locked(error)) {
                 return false;
@@ -668,6 +838,7 @@ private:
             snapshot_.recreations += 1U;
         }
         layer_ = layer;
+        shader_surface_pipeline_ = staged_shader_surface_pipeline;
         snapshot_.config = config;
         snapshot_.pending_surface = {};
         snapshot_.configured_image_count = config.image_count;
@@ -712,6 +883,7 @@ private:
     void release_acquired_slot_locked(ImageSlot& slot) noexcept {
         slot.drawable = nil;
         slot.texture = nil;
+        slot.shader_surface = nil;
         slot.command_buffer = nil;
         slot.acquired = 0U;
         slot.in_flight = 0U;
@@ -723,6 +895,7 @@ private:
     void clear_in_flight_slot_locked(ImageSlot& slot) noexcept {
         slot.drawable = nil;
         slot.texture = nil;
+        slot.shader_surface = nil;
         slot.command_buffer = nil;
         slot.acquired = 0U;
         slot.in_flight = 0U;
@@ -734,6 +907,7 @@ private:
         for (ImageSlot& slot : slots_) {
             slot.drawable = nil;
             slot.texture = nil;
+            slot.shader_surface = nil;
             slot.upload_buffer = nil;
             slot.command_buffer = nil;
             slot.image = {};
@@ -750,6 +924,7 @@ private:
             }
         }
         reset_slots_locked();
+        shader_surface_pipeline_ = nil;
         if (context_ != nullptr) {
             detail::release_metal_window_context(context_);
             context_ = nullptr;
@@ -769,6 +944,7 @@ private:
     NativeWindowSwapchainSnapshot snapshot_;
     MetalWindowSharedContext* context_{nullptr};
     CAMetalLayer* layer_{nil};
+    id<MTLRenderPipelineState> shader_surface_pipeline_{nil};
     std::array<ImageSlot, 3U> slots_{};
     std::uint64_t next_image_generation_{1U};
     std::uint64_t next_acquire_serial_{1U};
