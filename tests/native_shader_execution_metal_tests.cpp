@@ -120,10 +120,33 @@ int main() {
     NativeShaderExecutionError error;
     assert(executor->configure(config, &error));
 
+    NativeShaderExecutionSnapshot snapshot = executor->snapshot();
+    assert((snapshot.capability_flags &
+        kNativeShaderExecutionDirectSurfaceExport) != 0U);
+
+    assert(executor->execute(
+        packets.cold, packets.atlas, nullptr, &error));
+    NativeShaderSurfaceView direct_surface;
+    assert(executor->export_surface(&direct_surface, &error));
+    assert(native_shader_surface_view_valid(direct_surface));
+    assert(direct_surface.api_kind == NativeGpuApiKind::Metal);
+
+    snapshot = executor->snapshot();
+    assert(snapshot.executions == 1U);
+    assert(snapshot.readbacks == 0U);
+    assert(snapshot.peak_transient_bytes == 0U);
+
     ShaderReadback cold_readback;
     assert(executor->execute(
         packets.cold, packets.atlas, &cold_readback, &error));
     assert(readbacks_equal(cold_readback, packets.reference));
+
+    NativeShaderSurfaceView after_readback_surface;
+    assert(executor->export_surface(&after_readback_surface, &error));
+    assert(after_readback_surface.output_generation ==
+        direct_surface.output_generation);
+    assert(after_readback_surface.native_resource ==
+        direct_surface.native_resource);
 
     owner->shutdown();
     owner.reset();
@@ -133,17 +156,19 @@ int main() {
         packets.hot, packets.atlas, &hot_readback, &error));
     assert(readbacks_equal(hot_readback, packets.reference));
 
-    NativeShaderExecutionSnapshot snapshot = executor->snapshot();
+    snapshot = executor->snapshot();
     assert(snapshot.configured == 1U);
-    assert(snapshot.executions == 2U);
+    assert(snapshot.executions == 3U);
     assert(snapshot.readbacks == 2U);
     assert(snapshot.atlas_upload_batches == 1U);
-    assert(snapshot.atlas_reuses == 1U);
+    assert(snapshot.atlas_reuses == 2U);
     assert(snapshot.persistent_atlas_bytes == 49'152U);
     assert(snapshot.output_surface_bytes == 921'600U);
     assert(snapshot.last_readback_checksum == packets.reference.checksum);
     assert((snapshot.capability_flags &
         kNativeShaderExecutionRetainedContext) != 0U);
+    assert((snapshot.capability_flags &
+        kNativeShaderExecutionDirectSurfaceExport) != 0U);
 
     GpuShaderPacket corrupted(&packets.hot_resource);
     corrupted.header = packets.hot.header;
@@ -159,6 +184,8 @@ int main() {
               << " fills=" << packets.hot.header.fill_instance_count
               << " glyphs=" << packets.hot.header.glyph_instance_count
               << " checksum=" << packets.reference.checksum
+              << " direct_surface=PASS"
+              << " lazy_readback=PASS"
               << " PASS\n";
     return 0;
 }
