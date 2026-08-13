@@ -242,6 +242,46 @@ int main() {
     assert(present_snapshot.stale_rejections >= 1U);
     assert(present_snapshot.in_flight_frame_count == 0U);
 
+    std::unique_ptr<NativeShaderExecutor> budget_executor =
+        make_metal_native_shader_executor();
+    assert(budget_executor != nullptr);
+    NativeShaderExecutionConfig budget_config = config;
+    budget_config.executor_generation = 319U;
+    budget_config.limits.maximum_readback_bytes = 1U;
+    assert(budget_executor->configure(budget_config, &error));
+    assert(budget_executor->execute(
+        packets.cold, packets.atlas, nullptr, &error));
+
+    NativeShaderSurfaceView budget_surface;
+    assert(budget_executor->export_surface(&budget_surface, &error));
+    assert(native_shader_surface_view_valid(budget_surface));
+    NativeShaderExecutionSnapshot budget_snapshot = budget_executor->snapshot();
+    assert(budget_snapshot.executions == 1U);
+    assert(budget_snapshot.readbacks == 0U);
+    assert(budget_snapshot.peak_transient_bytes == 0U);
+    assert(budget_snapshot.output_surface_bytes == 921'600U);
+
+    ShaderReadback budget_rejected;
+    assert(!budget_executor->execute(
+        packets.cold, packets.atlas, &budget_rejected, &error));
+    assert(error.kind == NativeShaderExecutionErrorKind::ResourceBudgetExceeded);
+    budget_snapshot = budget_executor->snapshot();
+    assert(budget_snapshot.executions == 1U);
+    assert(budget_snapshot.readbacks == 0U);
+    assert(budget_snapshot.peak_transient_bytes == 0U);
+
+    NativeShaderSurfaceView budget_surface_after_reject;
+    assert(budget_executor->export_surface(
+        &budget_surface_after_reject, &error));
+    assert(budget_surface_after_reject.output_generation ==
+        budget_surface.output_generation);
+    assert(budget_surface_after_reject.native_resource ==
+        budget_surface.native_resource);
+    assert(budget_surface_after_reject.frame_id == budget_surface.frame_id);
+    assert(budget_surface_after_reject.content_checksum ==
+        budget_surface.content_checksum);
+    budget_executor->shutdown();
+
     ShaderReadback cold_readback;
     assert(executor->execute(
         packets.cold, packets.atlas, &cold_readback, &error));
@@ -296,6 +336,7 @@ int main() {
               << " direct_present=PASS"
               << " mixed-source=reject"
               << " stale-generation=reject"
+              << " direct-readback-budget=PASS"
               << " PASS\n";
     return 0;
 }
