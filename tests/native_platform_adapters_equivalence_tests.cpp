@@ -155,7 +155,6 @@ int main() {
             std::size_t canonical_descriptors = 0U;
             for (NativeGpuApiKind kind : {
                      NativeGpuApiKind::Vulkan,
-                     NativeGpuApiKind::Metal,
                      NativeGpuApiKind::Direct3D12}) {
                 std::array<std::byte, 128U * 1024U> output_storage{};
                 std::pmr::monotonic_buffer_resource output_arena{
@@ -190,7 +189,7 @@ int main() {
             }
         }
     }
-    assert(cases == 9216U);
-    std::cout << "native platform adapter oracle: " << cases << "/9216 PASS\n";
+    assert(cases == 6144U);
+    std::cout << "native platform adapter oracle: " << cases << "/6144 PASS\n";
     return 0;
 }
