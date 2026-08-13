@@ -1,12 +1,20 @@
 # Z2F-8A: Concrete Native GPU SDK Execution and Offscreen Surface Bridge
 
+## Current support status
+
+Z2F-8A currently binds the certified Z2F-7 `NativePlatformSubmission` contract
+to Vulkan and Direct3D 12 SDK objects. Metal/macOS support has been removed.
+The historical `NativeGpuApiKind::Metal` value and legacy Metal factory symbol
+remain only for ABI/source compatibility and are fail-closed: the probe is
+`Unavailable`, capabilities and default limits are zero, and initialization
+returns `UnsupportedBackend`.
+
 ## Scope
 
-Z2F-8A binds the certified Z2F-7 `NativePlatformSubmission` contract to real
-Vulkan, Metal and Direct3D 12 SDK objects. It creates a native device and queue,
-allocates a bounded ring of offscreen renderable images, records one real GPU
-command buffer/list, submits it to the native queue, waits on a native
-completion primitive and publishes a generation-safe receipt.
+The supported execution paths create a native device and queue, allocate a
+bounded ring of offscreen renderable images, record one real GPU command
+buffer/list, submit it to the native queue, wait on a native completion
+primitive and publish a generation-safe receipt.
 
 The stage remains bounded by configured image count, frames in flight, command
 count, descriptor count, staging bytes and device-local bytes. Total document
@@ -28,9 +36,9 @@ header exposes only stable C++ records:
 - `NativeGpuSdkSnapshot` — bounded resource and lifecycle accounting.
 
 `NativeGpuSdkPlatformDriver` implements the existing Z2F-7
-`NativePlatformDriver` interface. Existing Vulkan/Metal/D3D12 adapter wrappers
-therefore consume the concrete SDK driver without changing the upper
-compositor pipeline.
+`NativePlatformDriver` interface. Supported Vulkan/D3D12 adapter wrappers can
+therefore consume the concrete SDK driver without changing the upper compositor
+pipeline. Retained Metal identities do not create a usable driver.
 
 ## Build-graph isolation
 
@@ -43,10 +51,9 @@ boundary.
 
 This dual construction has the same public records and execution behavior. It
 allows Direct3D 12 device, command-list and WARP certification on a default
-Windows build without installing HarfBuzz, while Linux and macOS certification
-continue to exercise the complete text-to-adapter chain. The standalone path
-must not implement platform-command compilation or duplicate Z2F-7 adapter
-logic.
+Windows build without installing HarfBuzz, while Linux certification exercises
+the complete text-to-adapter chain. macOS is not a supported certification or
+build target.
 
 ## Vulkan execution
 
@@ -67,20 +74,6 @@ waits for native fence completion. CPU Vulkan devices such as Mesa lavapipe are
 accepted only when the configuration permits software devices and are reported
 with an explicit capability flag.
 
-## Metal execution
-
-The Metal translation unit creates:
-
-- `MTLDevice`;
-- `MTLCommandQueue`;
-- a bounded ring of private render-target textures;
-- `MTLCommandBuffer` and `MTLRenderCommandEncoder` per submission.
-
-The render encoder performs a deterministic clear into the acquired texture,
-commits the real command buffer and waits for completion. Metal runtime errors
-are converted to explicit SDK errors; no partially submitted receipt is
-published.
-
 ## Direct3D 12 execution
 
 The Windows backend creates:
@@ -97,10 +90,19 @@ Each submission resets the allocator/list, transitions the acquired resource to
 `RENDER_TARGET`, clears it, transitions it back to the offscreen-present state,
 executes the command list, signals the native fence and waits for completion.
 
+## Removed Metal path
+
+The former Objective-C++ Metal implementation and macOS build graph were
+removed. No `MTLDevice`, `MTLCommandQueue`, Metal texture, command-buffer or
+encoder implementation is shipped. Constructing the retained reference/legacy
+Metal API identity cannot create a device or surface and fails closed before
+normal configuration validation.
+
 ## Failure and generation rules
 
 The execution layer rejects:
 
+- unsupported backend identities, including Metal;
 - zero or mismatched device/runtime generations;
 - non-headless window systems in Z2F-8A;
 - stale surface or acquired-image generations;
@@ -118,31 +120,24 @@ created before an error are destroyed before the method returns.
 
 ## Deterministic certification
 
-The cross-platform reference SDK implementation runs the same bounded lifecycle
-for Vulkan, Metal and Direct3D 12. A 9,216-case independent oracle covers API,
-device, runtime and surface generations; command/descriptor limits;
-acquire/present statuses; device loss; and fence retirement.
+The current cross-platform reference SDK certification covers Vulkan and
+Direct3D 12 successful lifecycles. Metal is covered only as an explicit
+unavailable/unsupported negative contract. The independent supported-backend
+oracle contains 6,144 cases rather than the historical 9,216 three-backend
+cases.
 
-The deterministic benchmark models the certified 16,384-line document and
-80-line viewport boundary using three backends, 80 platform commands, two
-barriers and three descriptors per submission. It fixes record sizes, image
-memory, command topology and per-backend checksums independently of host GPU
-hardware.
-
-Separate platform smoke tests exercise real native queue submission plus fence
-completion:
-
-- Mesa Vulkan/lavapipe on Linux hosted CI with the complete adapter graph;
-- Metal on macOS hosted CI with the complete adapter graph;
-- D3D12 hardware or WARP on Windows hosted CI through the standalone stable-ABI
-  build path.
+Separate real native smoke certification remains hardware/runtime-specific and
+is not implied by ordinary headless CI. Normal Windows/Linux CI compiles the
+native targets and runs the hardware-independent suite; true GPU authority is a
+separate certification boundary.
 
 ## Explicit boundary
 
-Z2F-8A proves real native device, resource, command-buffer and queue execution.
-It does not yet:
+Z2F-8A proves supported native device, resource, command-buffer and queue
+execution for Vulkan and Direct3D 12. It does not:
 
-- create Win32, Cocoa, XCB or Wayland window swapchains;
+- create Win32, XCB or Wayland window swapchains;
+- provide Cocoa/Metal window or GPU execution support;
 - acquire real window-system drawable/back-buffer objects;
 - compile glyph/fill shaders or graphics pipelines;
 - upload atlas pixel payloads through a native staging ring;
@@ -150,5 +145,6 @@ It does not yet:
 - issue partial-present rectangles to a window compositor;
 - survive device loss by rebuilding the full renderer graph.
 
-Those operations belong to Z2F-8B, which will connect the certified execution
-lifecycle to visible operating-system surfaces and final compositor shaders.
+Those supported-platform operations belong to Z2F-8B, which connects the
+certified execution lifecycle to visible operating-system surfaces and final
+compositor shaders.
