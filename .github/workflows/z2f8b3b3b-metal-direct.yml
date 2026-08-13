@@ -23,12 +23,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          checkout_sha="$(git rev-parse HEAD)"
+          test "${checkout_sha}" = "${GITHUB_SHA}"
+          test -z "$(git status --porcelain)"
           mkdir -p certification
           {
             echo "github_sha=${GITHUB_SHA}"
-            echo "checkout_sha=$(git rev-parse HEAD)"
-            test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-            test -z "$(git status --porcelain)"
+            echo "checkout_sha=${checkout_sha}"
             echo "uname_s=$(uname -s)"
             test "$(uname -s)" = "Darwin"
             uname -a
