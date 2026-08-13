@@ -88,11 +88,9 @@ std::unique_ptr<NativeGpuSdkApi> make_vulkan_native_gpu_sdk_api() noexcept {
 }
 #endif
 
-#if !defined(ZEVRYON_HAS_METAL_SDK)
 std::unique_ptr<NativeGpuSdkApi> make_metal_native_gpu_sdk_api() noexcept {
     return make_unavailable(NativeGpuApiKind::Metal);
 }
-#endif
 
 #if !defined(ZEVRYON_HAS_D3D12_SDK)
 std::unique_ptr<NativeGpuSdkApi> make_direct3d12_native_gpu_sdk_api() noexcept {
@@ -111,11 +109,7 @@ bool native_gpu_sdk_build_has_backend(NativeGpuApiKind kind) noexcept {
             return false;
 #endif
         case NativeGpuApiKind::Metal:
-#if defined(ZEVRYON_HAS_METAL_SDK)
-            return true;
-#else
             return false;
-#endif
         case NativeGpuApiKind::Direct3D12:
 #if defined(ZEVRYON_HAS_D3D12_SDK)
             return true;
