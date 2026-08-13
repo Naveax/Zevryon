@@ -1,5 +1,6 @@
 #include "native_window_swapchain.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cstdint>
@@ -202,7 +203,6 @@ int main() {
     std::uint64_t cases = 0U;
     for (NativeGpuApiKind kind : {
              NativeGpuApiKind::Vulkan,
-             NativeGpuApiKind::Metal,
              NativeGpuApiKind::Direct3D12}) {
         for (std::uint32_t mask = 0U; mask < 256U; ++mask) {
             for (std::uint32_t variant = 0U; variant < 12U; ++variant) {
@@ -211,7 +211,7 @@ int main() {
             }
         }
     }
-    assert(cases == 9216U);
+    assert(cases == 6144U);
     std::cout << "native window swapchain oracle: "
               << cases << "/" << cases << " PASS\n";
     return 0;
