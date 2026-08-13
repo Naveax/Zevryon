@@ -1,32 +1,39 @@
 {
-  "schema": "zevryon.z2f.macos-removal-admission.v1",
+  "schema": "zevryon.z2f.macos-removal-admission.v2",
   "repository": "Naveax/Zevryon",
   "base_main": "a55609a7a1bb1a20a15ffe98c5626374bf9fa9ef",
   "source_authority_head": "010e904697d66b617dfa3d9cd49255b225df91c5",
   "promotion_evidence_commit": "7e005a4915361e8346dd4d7c3f719a46e46c0a3f",
-  "promotion_evidence_parent": "010e904697d66b617dfa3d9cd49255b225df91c5",
-  "evidence_only_delta": {
-    "ahead_by": 1,
-    "behind_by": 0,
+  "published_promotion_head": "5ea6f698ae19bc625b0395e8ec056ab007b5eb07",
+  "publication_branch": "agent/z2f8b3b3b-metal-direct-surface",
+  "evidence_only_lineage": {
+    "source_to_published_ahead_by": 2,
+    "source_to_published_behind_by": 0,
     "changed_files": [
+      "certification/z2f_macos_removal_admission.json",
       "certification/z2f_macos_removal_promotion.json",
       "docs/Z2F_MACOS_REMOVAL_PROMOTION.md"
     ],
     "allowed_prefixes": ["certification/", "docs/"],
     "runtime_or_build_files_changed": false
   },
-  "inherited_ci_authority": {
+  "source_ci_authority": {
     "workflow_run_id": 31716197258,
     "head_sha": "010e904697d66b617dfa3d9cd49255b225df91c5",
+    "conclusion": "success"
+  },
+  "published_exact_head_ci": {
+    "workflow_run_id": 31717944278,
+    "head_sha": "5ea6f698ae19bc625b0395e8ec056ab007b5eb07",
     "conclusion": "success",
-    "gates": [
-      "Apple backend removal guard",
-      "Linux build and headless tests",
-      "Windows build and headless tests"
+    "jobs": [
+      {"id": 94507322521, "name": "Apple backend removal guard", "conclusion": "success"},
+      {"id": 94507322664, "name": "Linux build and headless tests", "conclusion": "success"},
+      {"id": 94507322575, "name": "Windows build and headless tests", "conclusion": "success"}
     ]
   },
-  "admission_rule": "A direct descendant may inherit runtime/build CI receipts only when its complete delta from the certified source authority is evidence-only and contains no source, test, CMake, workflow, build, runtime, script, or generated executable behavior changes.",
-  "admission_result": "evidence-only-descendant-runtime-ci-inheritance-valid",
-  "publication_status": "pending-branch-ref-publication",
-  "merge_status": "not-admitted-for-merge-until-published-ref-is-verified"
+  "admission_rule": "Evidence-only descendants may inherit runtime/build authority only when their complete delta contains no source, test, CMake, workflow, build, runtime, script, or generated executable behavior changes. A published promotion head must additionally pass the branch push CI on its exact SHA.",
+  "publication_status": "published-and-exact-head-ci-verified",
+  "promotion_status": "admitted",
+  "merge_admission_condition": "The current branch head may be merged only if the push-triggered Windows and Linux CI for the evidence-only closure commit created by this receipt update concludes success and main remains at the recorded base or is re-audited against a newer main."
 }
