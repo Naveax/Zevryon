@@ -228,7 +228,7 @@ def build_manifest(
         "workloads": workload_results,
         "slice_ready": True,
         "promotion_ready": False,
-        "remaining_slices": ["Z2R-1D4-windows-macos-workload-overhead"],
+        "remaining_slices": ["Z2R-1D4-windows-workload-overhead"],
     }
     manifest["manifest_sha256"] = hashlib.sha256(canonical_bytes(manifest)).hexdigest()
     return manifest
