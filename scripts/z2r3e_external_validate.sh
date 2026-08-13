@@ -74,8 +74,7 @@ trap preserve_evidence EXIT
 git clone \
   --no-tags \
   --filter=blob:none \
-  --single-branch \
-  --branch agent/z2r3eu-unicode-authority \
+  --no-checkout \
   "$repository_url" \
   "$clone_root"
 

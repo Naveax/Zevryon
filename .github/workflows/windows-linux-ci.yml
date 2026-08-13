@@ -24,6 +24,37 @@ jobs:
       - name: Verify removed Apple surface stays removed
         run: python3 scripts/check_no_apple_backends.py .
 
+  z2r3eu-linux-authority:
+    name: Z2R-3E-U Linux Unicode authority
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Validate exact-head Unicode authority
+        run: >-
+          python3 scripts/z2r3e_validate_unicode_authority.py
+          --sha "${{ github.event.pull_request.head.sha || github.sha }}"
+          --platform linux
+          --compiler gcc-release
+          --output evidence/z2r3eu/linux-authority-validation.json
+
+  z2r3eu-windows-authority:
+    name: Z2R-3E-U Windows Unicode authority
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Validate exact-head Unicode authority
+        shell: pwsh
+        run: >-
+          python scripts/z2r3e_validate_unicode_authority.py
+          --sha "${{ github.event.pull_request.head.sha || github.sha }}"
+          --platform windows
+          --compiler msvc-release
+          --output evidence/z2r3eu/windows-authority-validation.json
+
   linux-build-test:
     name: Linux build and headless tests
     runs-on: ubuntu-24.04

@@ -55,7 +55,7 @@ $validationExit = 1
 New-Item -ItemType Directory -Force -Path $workRoot, $OutputDirectory | Out-Null
 
 try {
-    Invoke-Native git clone --no-tags --filter=blob:none --single-branch --branch agent/z2r3eu-unicode-authority $RepositoryUrl $cloneRoot
+    Invoke-Native git clone --no-tags --filter=blob:none --no-checkout $RepositoryUrl $cloneRoot
     Push-Location $cloneRoot
     try {
         Invoke-Native git fetch --no-tags origin $ExpectedHead

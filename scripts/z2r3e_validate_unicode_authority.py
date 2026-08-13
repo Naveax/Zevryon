@@ -12,6 +12,10 @@ from pathlib import Path
 from typing import Sequence
 
 ROOT = Path(__file__).resolve().parents[1]
+SUPPORTED_HOSTS = {
+    "linux": "Linux",
+    "windows": "Windows",
+}
 REGRESSION_TESTS = (
     "unicode-stream-tests",
     "grapheme-segmenter-tests",
@@ -53,6 +57,16 @@ def require_clean_checkout() -> None:
     ).stdout
     if tracked.strip():
         raise RuntimeError("tracked checkout is not clean")
+
+
+def require_supported_host(declared_platform: str) -> None:
+    expected_host = SUPPORTED_HOSTS[declared_platform]
+    actual_host = host_platform.system()
+    if actual_host != expected_host:
+        raise RuntimeError(
+            "platform mismatch: "
+            f"declared {declared_platform}, expected host {expected_host}, got {actual_host}"
+        )
 
 
 def run(command: Sequence[str], *, log: Path) -> None:
@@ -266,7 +280,7 @@ def main() -> int:
     parser.add_argument("--sha", required=True)
     parser.add_argument(
         "--platform",
-        choices=("linux", "windows", "macos"),
+        choices=tuple(SUPPORTED_HOSTS),
         required=True,
     )
     parser.add_argument("--compiler", required=True)
@@ -307,6 +321,7 @@ def main() -> int:
         executable("ctest")
         exact_head(args.sha)
         require_clean_checkout()
+        require_supported_host(args.platform)
         summary["cmake"] = tool_version(["cmake", "--version"])
         summary["cargo"] = tool_version(["cargo", "--version"])
         summary["rustc"] = tool_version(["rustc", "--version"])

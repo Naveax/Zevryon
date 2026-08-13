@@ -12,6 +12,8 @@ promotion manifest: b11298f67aae593d1783a3870589d28fe5809ea3ce539150a85383de9f0e
 semantic SHA-256: 90d18dc834c8994bad4c136148d2c976e3a61237414479603f1866af86c9d753
 ```
 
+Current desktop certification follows the repository support contract on `main`: Windows and Linux are supported; macOS is intentionally unsupported. Z2R-3E-U therefore requires supported-platform authority evidence from Windows and Linux only. A macOS-labeled validation result is not admissible authority evidence.
+
 ## Authority boundary
 
 When authority mode is enabled:
@@ -162,7 +164,7 @@ python scripts/z2r3e_validate_unicode_authority.py \
   --compiler gcc-release
 ```
 
-The harness fails closed unless the checkout matches the supplied SHA and performs:
+The harness accepts only the supported `linux` and `windows` platform identities, requires the declared platform to match the actual host OS, fails closed unless the checkout matches the supplied SHA, and performs:
 
 1. Rust formatting, workspace tests and Clippy with warnings denied;
 2. default Cargo-free C++ rollback configure/build/test;
@@ -171,15 +173,19 @@ The harness fails closed unless the checkout matches the supplied SHA and perfor
 5. Unicode stream, grapheme, script-run and bidi-explicit regressions;
 6. a structured `zevryon.z2r3eu.authority-validation.v1` JSON result and command logs.
 
+The external Linux and Windows wrappers clone the repository without binding validation to a historical work branch, fetch the requested exact commit SHA, detach to that SHA and preserve platform evidence plus a SHA-256 package digest.
+
 ## Mandatory certification before merge
 
 This implementation slice must not be considered certified until all of the following are executed on its exact product head:
 
-- the portable validation harness passes on Linux, Windows and macOS;
+- the portable validation harness passes on Linux and Windows;
 - exact UTF-8 ABI `1.1` kind/detail/message tests pass;
 - deterministic multilingual and malformed corpus parity is reconfirmed;
 - baseline versus authority latency and RSS/PSS are measured;
-- a final SHA-256-bound three-platform authority-readiness manifest is produced.
+- a final SHA-256-bound supported-platform authority-readiness manifest covering Windows and Linux is produced.
+
+macOS is outside the supported desktop certification scope and must not be counted as a missing Z2R-3E-U gate.
 
 ## Rollback
 
