@@ -18,7 +18,7 @@ EXPECTED_WORKLOADS = [
     "font_load_locator",
     "shaping_run_plan",
 ]
-EXPECTED_ADAPTER = {"windows": "directwrite", "macos": "coretext"}
+EXPECTED_ADAPTER = {"windows": "directwrite"}
 
 
 class CertificationError(RuntimeError):
@@ -98,6 +98,7 @@ def validate_probe(probe: Any) -> dict[str, Any]:
 def validate_run(
     report: dict[str, Any], mode: str, platform_name: str
 ) -> dict[str, dict[str, Any]]:
+    require(platform_name in EXPECTED_ADAPTER, "unsupported platform")
     require(report.get("schema") == RUN_SCHEMA, f"{mode} run schema mismatch")
     require(report.get("mode") == mode, f"{mode} mode mismatch")
     require(report.get("platform") == platform_name, f"{mode} platform mismatch")
@@ -175,11 +176,7 @@ def build_manifest(
         )
         baseline_peak = base.get("median_peak_rss_bytes")
         shadow_peak = other.get("median_peak_rss_bytes")
-        peak_ratio = optional_ratio(
-            shadow_peak,
-            baseline_peak,
-            f"{name}.peak_rss",
-        )
+        peak_ratio = optional_ratio(shadow_peak, baseline_peak, f"{name}.peak_rss")
         peak_delta_bytes = None
         memory_passed = peak_ratio is None
         if peak_ratio is not None:
@@ -222,10 +219,7 @@ def build_manifest(
         "platform": platform_name,
         "adapter": EXPECTED_ADAPTER[platform_name],
         "commit_sha": commit_sha,
-        "environment": {
-            "compiler": compiler,
-            "build_type": build_type,
-        },
+        "environment": {"compiler": compiler, "build_type": build_type},
         "authority": {
             "authoritative_backend": "cpp",
             "shadow_backend": "rust",
@@ -261,7 +255,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline", type=Path, required=True)
     parser.add_argument("--shadow", type=Path, required=True)
-    parser.add_argument("--platform", choices=("windows", "macos"), required=True)
+    parser.add_argument("--platform", choices=("windows",), required=True)
     parser.add_argument("--commit-sha", required=True)
     parser.add_argument("--compiler", required=True)
     parser.add_argument("--build-type", default="Release")
@@ -269,9 +263,7 @@ def main() -> int:
     parser.add_argument("--max-p95-ratio", type=float, default=1.50)
     parser.add_argument("--max-wall-ratio", type=float, default=1.75)
     parser.add_argument("--max-peak-rss-ratio", type=float, default=1.50)
-    parser.add_argument(
-        "--max-peak-rss-delta-bytes", type=int, default=8 * 1024 * 1024
-    )
+    parser.add_argument("--max-peak-rss-delta-bytes", type=int, default=8 * 1024 * 1024)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 

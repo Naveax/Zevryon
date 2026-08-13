@@ -1,7 +1,7 @@
 if(TARGET zevryon-native-gpu-sdk-execution)
   # Pixel-view validation is independent from the optional compositor and
-  # platform presenter libraries. D3D12, Vulkan and Metal minimal graphs
-  # therefore remain link-complete without introducing dependency cycles.
+  # platform presenter libraries. D3D12 and Vulkan minimal graphs therefore
+  # remain link-complete without introducing dependency cycles.
   add_library(
     zevryon-native-window-pixel-buffer STATIC
     src/native_window_pixel_buffer.cpp)
@@ -155,9 +155,6 @@ endif()
 
 # Z2F-8B2B binds real Vulkan WSI to the retained single-device context.
 include("${CMAKE_CURRENT_LIST_DIR}/native_vulkan_wsi.cmake")
-
-# Z2F-8B2C binds real CAMetalLayer presentation to one retained Metal graph.
-include("${CMAKE_CURRENT_LIST_DIR}/native_metal_window.cmake")
 
 # Z2F-8B3A composes deterministic pixels and transfers them to native back buffers.
 include("${CMAKE_CURRENT_LIST_DIR}/shared_pixel_compositor.cmake")

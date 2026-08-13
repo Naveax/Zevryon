@@ -1,10 +1,8 @@
-#if defined(_WIN32)
-#include "directwrite_discovery.hpp"
-#elif defined(__APPLE__)
-#include "coretext_discovery.hpp"
-#else
-#error "Z2R-1D4 platform discovery probe supports Windows and macOS only"
+#if !defined(_WIN32)
+#error "Z2R-1D4 platform discovery probe supports Windows only"
 #endif
+
+#include "directwrite_discovery.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -56,23 +54,14 @@ struct BuildResult {
 };
 
 const char* platform_name() noexcept {
-#if defined(_WIN32)
     return "windows";
-#else
-    return "macos";
-#endif
 }
 
 const char* adapter_name() noexcept {
-#if defined(_WIN32)
     return "directwrite";
-#else
-    return "coretext";
-#endif
 }
 
 bool build_generation(std::uint64_t generation_id, BuildResult* output) {
-#if defined(_WIN32)
     DirectWriteDiscoveryStats stats;
     DirectWriteDiscoveryError error;
     if (!build_directwrite_generation(
@@ -98,33 +87,6 @@ bool build_generation(std::uint64_t generation_id, BuildResult* output) {
     output->semantic.variable_faces = stats.variable_faces;
     output->semantic.color_faces = stats.color_faces;
     output->semantic.monospace_faces = stats.monospace_faces;
-#else
-    CoreTextDiscoveryStats stats;
-    CoreTextDiscoveryError error;
-    if (!build_coretext_generation(
-            generation_id,
-            kDiscoveryLimit,
-            kCatalogLimit,
-            &output->generation,
-            &stats,
-            &error)) {
-        std::cerr << "CoreText discovery failed: "
-                  << coretext_discovery_error_kind_name(error.kind)
-                  << " message=" << error.message << '\n';
-        return false;
-    }
-    output->semantic.source_groups_seen = 0U;
-    output->semantic.source_records_seen = stats.descriptors_seen;
-    output->semantic.source_records_skipped = stats.descriptors_skipped;
-    output->semantic.faces_emitted = stats.faces_emitted;
-    output->semantic.duplicate_faces_skipped = stats.duplicate_faces_skipped;
-    output->semantic.coverage_codepoints = stats.coverage_codepoints;
-    output->semantic.coverage_ranges = stats.coverage_ranges;
-    output->semantic.bitmap_planes = stats.bitmap_planes;
-    output->semantic.variable_faces = stats.variable_faces;
-    output->semantic.color_faces = stats.color_faces;
-    output->semantic.monospace_faces = stats.monospace_faces;
-#endif
 
     if (output->generation == nullptr ||
         output->generation->discovery_records().empty() ||
@@ -139,8 +101,7 @@ bool build_generation(std::uint64_t generation_id, BuildResult* output) {
     const auto fingerprint = output->generation->fingerprint();
     output->semantic.fingerprint_high = fingerprint.high;
     output->semantic.fingerprint_low = fingerprint.low;
-    output->semantic.discovery_records =
-        output->generation->discovery_records().size();
+    output->semantic.discovery_records = output->generation->discovery_records().size();
     output->semantic.family_records = output->generation->families().size();
     output->semantic.catalog_faces = output->generation->catalog().faces.size();
     output->semantic.discovery_current_bytes = discovery.current_bytes;
@@ -150,15 +111,12 @@ bool build_generation(std::uint64_t generation_id, BuildResult* output) {
     return output->semantic.faces_emitted ==
                static_cast<std::uint64_t>(output->semantic.discovery_records) &&
            output->semantic.discovery_records == output->semantic.catalog_faces &&
-           output->semantic.discovery_current_bytes <=
-               output->semantic.discovery_peak_bytes &&
-           output->semantic.catalog_current_bytes <=
-               output->semantic.catalog_peak_bytes;
+           output->semantic.discovery_current_bytes <= output->semantic.discovery_peak_bytes &&
+           output->semantic.catalog_current_bytes <= output->semantic.catalog_peak_bytes;
 }
 
 double percentile(const std::vector<double>& sorted, double fraction) {
-    const double position =
-        fraction * static_cast<double>(sorted.size() - 1U);
+    const double position = fraction * static_cast<double>(sorted.size() - 1U);
     const std::size_t lower = static_cast<std::size_t>(position);
     const std::size_t upper = std::min(lower + 1U, sorted.size() - 1U);
     const double weight = position - static_cast<double>(lower);
@@ -173,8 +131,7 @@ void emit_semantic(const SemanticSnapshot& value) {
         << "\"source_records_seen\":" << value.source_records_seen << ','
         << "\"source_records_skipped\":" << value.source_records_skipped << ','
         << "\"faces_emitted\":" << value.faces_emitted << ','
-        << "\"duplicate_faces_skipped\":"
-        << value.duplicate_faces_skipped << ','
+        << "\"duplicate_faces_skipped\":" << value.duplicate_faces_skipped << ','
         << "\"coverage_codepoints\":" << value.coverage_codepoints << ','
         << "\"coverage_ranges\":" << value.coverage_ranges << ','
         << "\"bitmap_planes\":" << value.bitmap_planes << ','
@@ -184,8 +141,7 @@ void emit_semantic(const SemanticSnapshot& value) {
         << "\"discovery_records\":" << value.discovery_records << ','
         << "\"family_records\":" << value.family_records << ','
         << "\"catalog_faces\":" << value.catalog_faces << ','
-        << "\"discovery_current_bytes\":"
-        << value.discovery_current_bytes << ','
+        << "\"discovery_current_bytes\":" << value.discovery_current_bytes << ','
         << "\"discovery_peak_bytes\":" << value.discovery_peak_bytes << ','
         << "\"catalog_current_bytes\":" << value.catalog_current_bytes << ','
         << "\"catalog_peak_bytes\":" << value.catalog_peak_bytes;
@@ -204,9 +160,7 @@ int main() {
          ++iteration) {
         BuildResult result;
         const auto begin = Clock::now();
-        if (!build_generation(
-                static_cast<std::uint64_t>(iteration + 1U),
-                &result)) {
+        if (!build_generation(static_cast<std::uint64_t>(iteration + 1U), &result)) {
             return 1;
         }
         const auto end = Clock::now();

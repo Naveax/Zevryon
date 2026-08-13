@@ -53,6 +53,10 @@ The native `zevryon-massivedoc` executable now provides:
 
 The native store does **not** materialize the complete payload or descriptor set in RAM. The compact arena does not allocate one resident C++ object per logical node.
 
+## Supported desktop platforms
+
+Zevryon supports Windows and Linux desktop targets. macOS is intentionally unsupported. CMake fails closed during configuration on Apple hosts, and no CoreText, Cocoa, or Metal native backend is shipped.
+
 ## Build
 
 ```bash

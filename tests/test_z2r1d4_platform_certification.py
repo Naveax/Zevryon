@@ -41,10 +41,8 @@ def make_probe() -> dict:
     }
 
 
-def make_run(platform: str, mode: str) -> dict:
-    test_names = [f"test-{index}" for index in range(8)] + [
-        "directwrite-discovery-tests" if platform == "windows" else "coretext-discovery-tests"
-    ]
+def make_run(mode: str) -> dict:
+    test_names = [f"test-{index}" for index in range(8)] + ["directwrite-discovery-tests"]
     workloads = []
     for index, name in enumerate(cert.EXPECTED_WORKLOADS):
         workloads.append(
@@ -62,8 +60,8 @@ def make_run(platform: str, mode: str) -> dict:
         )
     return {
         "schema": cert.RUN_SCHEMA,
-        "platform": platform,
-        "adapter": cert.EXPECTED_ADAPTER[platform],
+        "platform": "windows",
+        "adapter": "directwrite",
         "mode": mode,
         "tests": {
             "count": len(test_names),
@@ -75,11 +73,11 @@ def make_run(platform: str, mode: str) -> dict:
     }
 
 
-def platform_manifest(platform: str, commit: str = "c" * 40) -> dict:
+def platform_manifest(commit: str = "c" * 40) -> dict:
     return cert.build_manifest(
-        make_run(platform, "baseline"),
-        make_run(platform, "shadow"),
-        platform_name=platform,
+        make_run("baseline"),
+        make_run("shadow"),
+        platform_name="windows",
         commit_sha=commit,
         compiler="test-compiler",
         build_type="Release",
@@ -92,22 +90,45 @@ def platform_manifest(platform: str, commit: str = "c" * 40) -> dict:
 
 
 def test_platform_manifest_success() -> None:
-    report = platform_manifest("windows")
+    report = platform_manifest()
     assert report["slice_ready"] is True
     assert report["promotion_ready"] is False
+    assert report["platform"] == "windows"
+    assert report["adapter"] == "directwrite"
     assert report["probe"]["mismatches"] == 0
     assert len(report["workloads"]) == 4
 
 
+def test_platform_manifest_rejects_removed_platform() -> None:
+    try:
+        cert.build_manifest(
+            make_run("baseline"),
+            make_run("shadow"),
+            platform_name="macos",
+            commit_sha="c" * 40,
+            compiler="test",
+            build_type="Release",
+            max_p50_ratio=1.50,
+            max_p95_ratio=1.50,
+            max_wall_ratio=1.75,
+            max_peak_rss_ratio=1.50,
+            max_peak_rss_delta_bytes=8 * 1024 * 1024,
+        )
+    except cert.CertificationError as error:
+        assert "unsupported platform" in str(error)
+    else:
+        raise AssertionError("removed platform was accepted")
+
+
 def test_platform_manifest_rejects_semantic_divergence() -> None:
-    baseline = make_run("macos", "baseline")
-    shadow = make_run("macos", "shadow")
+    baseline = make_run("baseline")
+    shadow = make_run("shadow")
     shadow["workloads"][0]["semantic_sha256"] = "f" * 64
     try:
         cert.build_manifest(
             baseline,
             shadow,
-            platform_name="macos",
+            platform_name="windows",
             commit_sha="c" * 40,
             compiler="test",
             build_type="Release",
@@ -124,8 +145,8 @@ def test_platform_manifest_rejects_semantic_divergence() -> None:
 
 
 def test_platform_manifest_rejects_overhead_gate() -> None:
-    baseline = make_run("windows", "baseline")
-    shadow = make_run("windows", "shadow")
+    baseline = make_run("baseline")
+    shadow = make_run("shadow")
     shadow["workloads"][2]["median_p50_ms"] = 2.0
     try:
         cert.build_manifest(
@@ -148,14 +169,14 @@ def test_platform_manifest_rejects_overhead_gate() -> None:
 
 
 def test_platform_manifest_accepts_fixed_runtime_rss_delta() -> None:
-    baseline = make_run("macos", "baseline")
-    shadow = make_run("macos", "shadow")
+    baseline = make_run("baseline")
+    shadow = make_run("shadow")
     baseline["workloads"][2]["median_peak_rss_bytes"] = 1 * 1024 * 1024
     shadow["workloads"][2]["median_peak_rss_bytes"] = 6 * 1024 * 1024
     report = cert.build_manifest(
         baseline,
         shadow,
-        platform_name="macos",
+        platform_name="windows",
         commit_sha="c" * 40,
         compiler="test",
         build_type="Release",
@@ -171,39 +192,14 @@ def test_platform_manifest_accepts_fixed_runtime_rss_delta() -> None:
     assert item["memory_passed"] is True
 
 
-def test_platform_manifest_rejects_large_rss_ratio_and_delta() -> None:
-    baseline = make_run("windows", "baseline")
-    shadow = make_run("windows", "shadow")
-    baseline["workloads"][1]["median_peak_rss_bytes"] = 2 * 1024 * 1024
-    shadow["workloads"][1]["median_peak_rss_bytes"] = 20 * 1024 * 1024
-    try:
-        cert.build_manifest(
-            baseline,
-            shadow,
-            platform_name="windows",
-            commit_sha="c" * 40,
-            compiler="test",
-            build_type="Release",
-            max_p50_ratio=1.50,
-            max_p95_ratio=1.50,
-            max_wall_ratio=1.75,
-            max_peak_rss_ratio=1.50,
-            max_peak_rss_delta_bytes=8 * 1024 * 1024,
-        )
-    except cert.CertificationError as error:
-        assert "performance or memory gate" in str(error)
-    else:
-        raise AssertionError("large RSS ratio and absolute delta were accepted")
-
-
 def test_platform_manifest_rejects_probe_mismatch() -> None:
-    shadow = make_run("macos", "shadow")
+    shadow = make_run("shadow")
     shadow["rust_shadow_probe"]["rust_shadow_mismatches"] = 1
     try:
         cert.build_manifest(
-            make_run("macos", "baseline"),
+            make_run("baseline"),
             shadow,
-            platform_name="macos",
+            platform_name="windows",
             commit_sha="c" * 40,
             compiler="test",
             build_type="Release",
@@ -222,15 +218,15 @@ def test_platform_manifest_rejects_probe_mismatch() -> None:
 def test_final_manifest_success_without_switching_authority() -> None:
     commit = "d" * 40
     report = finalize.build_final_manifest(
-        platform_manifest("windows", commit),
-        platform_manifest("macos", commit),
+        platform_manifest(commit),
         commit_sha=commit,
         prerequisites=copy.deepcopy(finalize.EXPECTED_PREREQUISITES),
     )
     assert report["promotion_ready"] is True
     assert report["all_mandatory_slices_ready"] is True
     assert report["authority"]["authoritative_switch_performed"] is False
-    assert len(report["mandatory_slices"]) == 5
+    assert set(report["platforms"]) == {"windows"}
+    assert len(report["mandatory_slices"]) == 4
 
 
 def test_final_manifest_rejects_prerequisite_change() -> None:
@@ -239,8 +235,7 @@ def test_final_manifest_rejects_prerequisite_change() -> None:
     prerequisites["Z2R-1D2-unicode-text"] = "0" * 64
     try:
         finalize.build_final_manifest(
-            platform_manifest("windows", commit),
-            platform_manifest("macos", commit),
+            platform_manifest(commit),
             commit_sha=commit,
             prerequisites=prerequisites,
         )
@@ -250,15 +245,14 @@ def test_final_manifest_rejects_prerequisite_change() -> None:
         raise AssertionError("changed prerequisite was accepted")
 
 
-def test_final_manifest_requires_same_commit() -> None:
+def test_final_manifest_requires_exact_windows_commit() -> None:
     try:
         finalize.build_final_manifest(
-            platform_manifest("windows", "1" * 40),
-            platform_manifest("macos", "2" * 40),
+            platform_manifest("2" * 40),
             commit_sha="1" * 40,
             prerequisites=copy.deepcopy(finalize.EXPECTED_PREREQUISITES),
         )
     except finalize.FinalizationError as error:
-        assert "macOS commit SHA mismatch" in str(error)
+        assert "Windows commit SHA mismatch" in str(error)
     else:
-        raise AssertionError("mixed platform commits were accepted")
+        raise AssertionError("mismatched Windows commit was accepted")
