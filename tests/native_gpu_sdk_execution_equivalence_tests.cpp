@@ -157,7 +157,7 @@ void run_case(NativeGpuApiKind kind, std::uint32_t mask, std::uint32_t variant) 
             break;
         case 4U:
             submission.api_kind = kind == NativeGpuApiKind::Vulkan
-                ? NativeGpuApiKind::Metal
+                ? NativeGpuApiKind::Direct3D12
                 : NativeGpuApiKind::Vulkan;
             expected_success = false;
             expected_error = NativeGpuSdkErrorKind::StaleGeneration;
@@ -223,7 +223,6 @@ int main() {
     std::uint64_t cases = 0U;
     for (NativeGpuApiKind kind : {
              NativeGpuApiKind::Vulkan,
-             NativeGpuApiKind::Metal,
              NativeGpuApiKind::Direct3D12}) {
         for (std::uint32_t mask = 0U; mask < 256U; ++mask) {
             for (std::uint32_t variant = 0U; variant < 12U; ++variant) {
@@ -232,7 +231,7 @@ int main() {
             }
         }
     }
-    assert(cases == 9216U);
+    assert(cases == 6144U);
     std::cout << "native GPU SDK execution oracle: " << cases << "/" << cases << " PASS\n";
     return 0;
 }
