@@ -36,7 +36,6 @@ bool fail(
 
 bool api_kind_supported(NativeGpuApiKind kind) noexcept {
     return kind == NativeGpuApiKind::Vulkan ||
-        kind == NativeGpuApiKind::Metal ||
         kind == NativeGpuApiKind::Direct3D12;
 }
 
@@ -49,7 +48,7 @@ bool window_system_supported(
                 system == NativeWindowSystem::Xcb ||
                 system == NativeWindowSystem::Wayland;
         case NativeGpuApiKind::Metal:
-            return system == NativeWindowSystem::CocoaLayer;
+            return false;
         case NativeGpuApiKind::Direct3D12:
             return system == NativeWindowSystem::Win32;
         case NativeGpuApiKind::ReferenceCpu:
@@ -734,8 +733,6 @@ NativeWindowSwapchainCapabilities default_native_window_swapchain_capabilities(
         output.flags |=
             kNativeWindowSwapchainMailbox |
             kNativeWindowSwapchainImmediate;
-    } else if (kind == NativeGpuApiKind::Metal) {
-        output.flags |= kNativeWindowSwapchainMailbox;
     } else if (kind == NativeGpuApiKind::Direct3D12) {
         output.flags |=
             kNativeWindowSwapchainImmediate |

@@ -10,7 +10,6 @@ from pathlib import Path
 import re
 import statistics
 import subprocess
-import sys
 import threading
 import time
 from typing import Any
@@ -37,14 +36,8 @@ COMMON_TESTS = [
     "shaping-run-plan-tests",
     "resource-ledger-tests",
 ]
-PLATFORM_TEST = {
-    "windows": "directwrite-discovery-tests",
-    "macos": "coretext-discovery-tests",
-}
-ADAPTER = {
-    "windows": "directwrite",
-    "macos": "coretext",
-}
+PLATFORM_TEST = {"windows": "directwrite-discovery-tests"}
+ADAPTER = {"windows": "directwrite"}
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -216,6 +209,8 @@ def ctest_prefix(build_dir: Path) -> list[str]:
 
 
 def test_inventory(build_dir: Path, platform_name: str) -> list[str]:
+    if platform_name != "windows" or os.name != "nt":
+        raise RuntimeError("Z2R-1D4 platform workloads support Windows only")
     completed = subprocess.run(
         ctest_prefix(build_dir) + ["--show-only=json-v1"],
         capture_output=True,
@@ -311,7 +306,7 @@ def run_workload(name: str, command: list[str], sample_count: int) -> dict[str, 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-dir", type=Path, required=True)
-    parser.add_argument("--platform", choices=("windows", "macos"), required=True)
+    parser.add_argument("--platform", choices=("windows",), required=True)
     parser.add_argument("--mode", choices=("baseline", "shadow"), required=True)
     parser.add_argument("--samples", type=int, default=3)
     parser.add_argument("--output", type=Path, required=True)
@@ -319,11 +314,8 @@ def main() -> int:
 
     if args.samples < 1:
         raise SystemExit("--samples must be positive")
-    expected_platform = "windows" if os.name == "nt" else "macos" if sys.platform == "darwin" else None
-    if expected_platform != args.platform:
-        raise SystemExit(
-            f"runner platform mismatch: requested {args.platform}, actual {expected_platform}"
-        )
+    if os.name != "nt":
+        raise SystemExit("Z2R-1D4 platform workloads support Windows only")
 
     started = time.perf_counter()
     names = test_inventory(args.build_dir, args.platform)

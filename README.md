@@ -53,6 +53,12 @@ The native `zevryon-massivedoc` executable now provides:
 
 The native store does **not** materialize the complete payload or descriptor set in RAM. The compact arena does not allocate one resident C++ object per logical node.
 
+## Supported desktop platforms
+
+Zevryon supports Windows and Linux desktop targets. macOS is intentionally unsupported. CMake fails closed during configuration on Apple hosts, and no CoreText, Cocoa, or Metal native backend is shipped.
+
+Historical `Metal` and `CocoaLayer` enum/type/factory identities may still appear in the stable C++ ABI so existing numeric identities and serialized contracts are not renumbered. They are compatibility tokens only: their current capability/limit records are zero or unavailable and operational use fails closed. Their presence is not a macOS or Metal support declaration.
+
 ## Build
 
 ```bash
@@ -74,18 +80,6 @@ build/zevryon-massivedoc search store ZEVRYON_WORST_CASE_TAIL_MARKER 2
 build/zevryon-massivedoc verify store
 build/zevryon-massivedoc export store payload.bin
 build/zevryon-massivedoc arena-build store 96 18
-build/zevryon-massivedoc arena-stats store
-build/zevryon-massivedoc viewport store 0 720 720 512
+build/zevryon-massivedoc arena-query store 0 8388607 200
+build/zevryon-massivedoc arena-verify store
 ```
-
-Run the reproducible M2 benchmark:
-
-```bash
-PYTHONPATH=. python scripts/massivedoc_benchmark.py \
-  --logical-bytes 67108864 --records 131072 \
-  --output evidence/milestones/m2-compact-viewport-64mib.json
-```
-
-## Current limitation
-
-The disk-backed store, compact height arena, and bounded viewport materializer are implemented. Full HTML/CSS style resolution, text shaping, accessibility projection, and paint are not yet consuming the materialized window; the next milestone is an incremental layout fragment cache and scroll-anchor correction path. Zevryon is not a safe daily browser for sensitive accounts.

@@ -1,22 +1,32 @@
 # Z2F-8B1: Native Window Swapchain Contract and Generation-Safe Lifecycle
 
+## Current support status
+
+Z2F-8B1's current native window support targets Windows and Linux. The generic
+ABI still contains historical Metal and `CocoaLayer` identity values so stable
+record numbering and serialized contracts do not need to be renumbered, but
+those values are unsupported. Metal/Cocoa default swapchain capabilities and
+limits are zero and configuration fails closed. No Cocoa, QuartzCore,
+`CAMetalLayer` or Metal presenter implementation is shipped.
+
 ## Scope
 
 Z2F-8B1 freezes the window-system swapchain contract that sits between the
-certified Z2F-8A native GPU device/queue execution layer and the future visible
+certified Z2F-8A native GPU device/queue execution layer and the visible
 compositor shader pipeline.
 
 The stage deliberately does not create a second GPU device. Instead it defines
 an opaque `NativeGpuSdkContextHandle` that carries the already-certified native
 instance/factory, physical-device/adapter, device, graphics queue and present
-queue identities together with device/runtime generations. Platform WSI
-implementations must consume that handoff so the renderer retains one device
+queue identities together with device/runtime generations. Supported platform
+WSI implementations consume that handoff so the renderer retains one device
 graph.
 
 ## Stable records
 
-The public header contains no Vulkan, Metal, Direct3D, XCB, Wayland, Win32,
-AppKit or QuartzCore SDK types.
+The public header contains no Vulkan, Direct3D, XCB, Wayland or Win32 SDK types.
+Historical Metal/Cocoa enum identities are plain stable C++ values, not SDK
+objects and not a support declaration.
 
 The fixed records are:
 
@@ -35,7 +45,7 @@ that topology.
 
 The certified lifecycle is:
 
-1. configure one window surface and bounded image ring;
+1. configure one supported window surface and bounded image ring;
 2. acquire one generation-safe image lease;
 3. present that exact lease with bounded damage;
 4. retain it until its signal fence is retired;
@@ -45,16 +55,9 @@ The certified lifecycle is:
 8. recreate with strictly newer surface and swapchain generations;
 9. reject all tokens from the old generation.
 
-The state machine distinguishes:
-
-- acquired;
-- not ready due to backpressure;
-- suboptimal;
-- out of date;
-- occluded;
-- device lost.
-
-No status is converted into silent success.
+The state machine distinguishes acquired, not-ready/backpressure, suboptimal,
+out-of-date, occluded and device-lost states. No status is converted into silent
+success.
 
 ## Bounded ownership
 
@@ -68,32 +71,24 @@ The contract fixes independent limits for:
 - bytes owned by in-flight images.
 
 Acquisition is denied before the configured frame-in-flight envelope can be
-exceeded. This prevents a caller from owning an image that cannot legally be
-presented.
-
-Surface byte accounting is checked before publication. Width, height,
+exceeded. Surface byte accounting is checked before publication. Width, height,
 bytes-per-pixel, image count and in-flight multiplication are overflow checked.
 
 ## Resize and recreation
 
-A resize request must:
+A resize request must preserve the surface identifier, advance the surface
+generation and provide a non-zero bounded extent. After a resize request,
+acquisition returns `OutOfDate`. Recreation is rejected until all acquired and
+in-flight images have been released or retired.
 
-- preserve the surface identifier;
-- advance the surface generation;
-- provide a non-zero bounded extent.
+Successful recreation must use the pending surface descriptor, the same
+device/runtime generations, the same window generation and a strictly newer
+swapchain generation.
 
-After a resize request, acquisition returns `OutOfDate`. Recreation is rejected
-until all acquired and in-flight images have been released or retired.
-Successful recreation must use:
-
-- the pending surface descriptor;
-- the same device/runtime generations;
-- the same window generation;
-- a strictly newer swapchain generation.
-
-This models the requirements of Vulkan swapchain replacement, DXGI
-`ResizeBuffers`/swapchain recreation and `CAMetalLayer` drawable reconfiguration
-without exposing platform types in the public ABI.
+This models supported Vulkan swapchain replacement and DXGI
+`ResizeBuffers`/swapchain recreation without exposing platform SDK types in the
+public ABI. Historical `CocoaLayer`/Metal tokens do not participate in current
+recreation support.
 
 ## Present validation
 
@@ -116,8 +111,8 @@ the selected present mode is immediate.
 
 ## Certification
 
-The reference implementation certifies the platform-independent lifecycle
-before native WSI bindings are added.
+The reference implementation certifies the platform-independent lifecycle for
+supported backend identities before native WSI bindings are exercised.
 
 Coverage includes:
 
@@ -131,18 +126,19 @@ Coverage includes:
 - device loss;
 - resize and recreation;
 - fence regression;
-- unsupported present modes and window systems;
+- unsupported present modes, backend identities and window systems;
 - resource and arithmetic limits.
 
-An independent 9,216-case oracle spans Vulkan, Metal and Direct3D 12 contract
-topologies.
+The independent supported-backend oracle spans Vulkan and Direct3D 12 contract
+topologies and contains 6,144 cases. Metal/Cocoa is covered as an explicit
+negative contract, not as a successful third topology.
 
 The deterministic benchmark uses:
 
 - a 16,384-line source-document boundary;
 - an 80-line projected viewport;
-- three backend contracts;
-- three swapchain images per backend;
+- two supported backend contracts;
+- three swapchain images per supported backend;
 - two frames in flight;
 - four damage rectangles;
 - 80 compositor commands per presentation;
@@ -150,15 +146,9 @@ The deterministic benchmark uses:
 
 ## Explicit boundary
 
-Z2F-8B1 freezes ownership, generation and recreation semantics. It does not yet:
-
-- export real Z2F-8A SDK context handles from each backend;
-- call `vkCreate*SurfaceKHR` or `vkCreateSwapchainKHR`;
-- obtain `CAMetalDrawable` objects from a `CAMetalLayer`;
-- create a DXGI swapchain for an `HWND`;
-- compile fill, glyph, selection or caret shaders;
-- upload atlas payloads through a native staging ring;
-- present visible pixels to the operating-system compositor.
-
-Those operations belong to Z2F-8B2. They must implement this contract and reuse
-the existing Z2F-8A device/queue graph rather than creating parallel devices.
+Z2F-8B1 freezes ownership, generation and recreation semantics. Current native
+implementations may export real Vulkan/D3D12 SDK context handles and bind the
+supported Windows/Linux WSI paths. This contract does not provide or promise
+Cocoa, `CAMetalDrawable`, `CAMetalLayer`, Objective-C++ or Metal presentation.
+Those names may appear only where historical ABI identities are intentionally
+retained.

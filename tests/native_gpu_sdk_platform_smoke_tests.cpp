@@ -11,8 +11,6 @@ using namespace zevryon::text;
 NativeGpuApiKind current_backend() noexcept {
 #if defined(_WIN32)
     return NativeGpuApiKind::Direct3D12;
-#elif defined(__APPLE__)
-    return NativeGpuApiKind::Metal;
 #else
     return NativeGpuApiKind::Vulkan;
 #endif
@@ -22,10 +20,9 @@ std::unique_ptr<NativeGpuSdkApi> make_current_api() noexcept {
     switch (current_backend()) {
         case NativeGpuApiKind::Vulkan:
             return make_vulkan_native_gpu_sdk_api();
-        case NativeGpuApiKind::Metal:
-            return make_metal_native_gpu_sdk_api();
         case NativeGpuApiKind::Direct3D12:
             return make_direct3d12_native_gpu_sdk_api();
+        case NativeGpuApiKind::Metal:
         case NativeGpuApiKind::ReferenceCpu:
             break;
     }

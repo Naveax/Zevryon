@@ -39,7 +39,6 @@ bool surface_valid(const GpuSurfaceDescriptor& surface) noexcept {
 
 bool api_kind_supported(NativeGpuApiKind kind) noexcept {
     return kind == NativeGpuApiKind::Vulkan ||
-        kind == NativeGpuApiKind::Metal ||
         kind == NativeGpuApiKind::Direct3D12;
 }
 
@@ -89,10 +88,9 @@ std::uint32_t platform_transition_flags(NativeGpuApiKind kind) noexcept {
     switch (kind) {
         case NativeGpuApiKind::Vulkan:
             return 0x0001U; // image-layout plus access/stage barrier
-        case NativeGpuApiKind::Metal:
-            return 0x0002U; // encoder boundary / load-store transition
         case NativeGpuApiKind::Direct3D12:
             return 0x0004U; // D3D12_RESOURCE_BARRIER transition
+        case NativeGpuApiKind::Metal:
         case NativeGpuApiKind::ReferenceCpu:
             break;
     }
@@ -275,6 +273,16 @@ bool compile_native_platform_submission(
     }
     if (stats != nullptr) {
         *stats = {};
+    }
+    if (request.config.api_kind == NativeGpuApiKind::Metal) {
+        if (output != nullptr) {
+            output->release();
+        }
+        set_compile_error(
+            error,
+            NativePlatformCompileErrorKind::UnsupportedCapability,
+            "Metal support was removed from Zevryon");
+        return false;
     }
     if (output == nullptr || request.commands == nullptr || request.frame == nullptr ||
         !api_kind_supported(request.config.api_kind) ||
@@ -572,7 +580,10 @@ bool compile_native_platform_submission(
 
 NativePlatformCapabilities default_native_platform_capabilities(
     NativeGpuApiKind kind) noexcept {
-    NativePlatformCapabilities result;
+    NativePlatformCapabilities result{};
+    if (kind == NativeGpuApiKind::Metal) {
+        return result;
+    }
     result.maximum_commands = 4096U;
     result.maximum_barriers = 512U;
     result.maximum_descriptors = 512U;
@@ -588,12 +599,6 @@ NativePlatformCapabilities default_native_platform_capabilities(
                 kNativePlatformTearing |
                 kNativePlatformExplicitBarriers;
             break;
-        case NativeGpuApiKind::Metal:
-            result.flags = kNativePlatformTimelineFence |
-                kNativePlatformPartialPresent |
-                kNativePlatformMailboxPresent |
-                kNativePlatformUnifiedMemory;
-            break;
         case NativeGpuApiKind::Direct3D12:
             result.flags = kNativePlatformTimelineFence |
                 kNativePlatformPartialPresent |
@@ -605,6 +610,8 @@ NativePlatformCapabilities default_native_platform_capabilities(
         case NativeGpuApiKind::ReferenceCpu:
             result.flags = kNativePlatformTimelineFence |
                 kNativePlatformPartialPresent;
+            break;
+        case NativeGpuApiKind::Metal:
             break;
     }
     return result;
@@ -632,6 +639,13 @@ bool ReferenceNativePlatformDriver::configure_swapchain(
     std::uint32_t image_count,
     const NativePlatformAdapterConfig& config,
     NativeGpuApiError* error) noexcept {
+    if (kind_ == NativeGpuApiKind::Metal) {
+        set_api_error(
+            error,
+            NativeGpuApiErrorKind::InvalidInput,
+            "Metal support was removed from Zevryon");
+        return false;
+    }
     if (!surface_valid(surface) || !api_kind_supported(kind_) || config.api_kind != kind_ ||
         config.device_generation == 0U || config.driver_generation == 0U ||
         image_count == 0U || image_count > capabilities_.maximum_swapchain_images) {

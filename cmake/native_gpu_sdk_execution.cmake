@@ -19,15 +19,6 @@ if(Vulkan_FOUND)
   set(ZEVRYON_NATIVE_GPU_SDK_HAS_RUNTIME_BACKEND ON)
 endif()
 
-if(APPLE)
-  enable_language(OBJCXX)
-  list(APPEND ZEVRYON_NATIVE_GPU_SDK_SOURCES src/native_gpu_sdk_execution_metal.mm)
-  set_source_files_properties(
-    src/native_gpu_sdk_execution_metal.mm
-    PROPERTIES COMPILE_FLAGS "-fobjc-arc")
-  set(ZEVRYON_NATIVE_GPU_SDK_HAS_RUNTIME_BACKEND ON)
-endif()
-
 if(WIN32)
   list(APPEND ZEVRYON_NATIVE_GPU_SDK_SOURCES src/native_gpu_sdk_execution_d3d12.cpp)
   set(ZEVRYON_NATIVE_GPU_SDK_HAS_RUNTIME_BACKEND ON)
@@ -48,14 +39,6 @@ if(Vulkan_FOUND)
   target_compile_definitions(
     zevryon-native-gpu-sdk-execution PRIVATE ZEVRYON_HAS_VULKAN_SDK=1)
   target_link_libraries(zevryon-native-gpu-sdk-execution PRIVATE Vulkan::Vulkan)
-endif()
-
-if(APPLE)
-  target_compile_definitions(
-    zevryon-native-gpu-sdk-execution PRIVATE ZEVRYON_HAS_METAL_SDK=1)
-  target_link_libraries(
-    zevryon-native-gpu-sdk-execution
-    PRIVATE "-framework Foundation" "-framework Metal" "-framework QuartzCore")
 endif()
 
 if(WIN32)

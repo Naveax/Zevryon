@@ -112,7 +112,7 @@ void basic_lifecycle() {
 }
 
 void skipped_and_suboptimal() {
-    const NativeGpuApiKind kind = NativeGpuApiKind::Metal;
+    const NativeGpuApiKind kind = NativeGpuApiKind::Vulkan;
     ReferenceNativeWindowSwapchainApi api(
         default_native_window_swapchain_capabilities(
             kind, window_system_for(kind)));
@@ -245,20 +245,44 @@ void backpressure_and_statuses() {
 }
 
 void invalid_modes_and_context() {
-    const NativeGpuApiKind kind = NativeGpuApiKind::Metal;
+    const NativeGpuApiKind kind = NativeGpuApiKind::Direct3D12;
     ReferenceNativeWindowSwapchainApi api(
         default_native_window_swapchain_capabilities(
             kind, window_system_for(kind)));
     NativeWindowSwapchainError error;
     NativeWindowSwapchainConfig config = make_config(kind);
-    config.present_mode = NativePresentMode::Immediate;
-    config.flags |= kNativeWindowSwapchainAllowImmediate;
+    config.present_mode = NativePresentMode::Mailbox;
+    config.flags |= kNativeWindowSwapchainAllowMailbox;
     assert(!api.configure(config, &error));
     assert(error.kind == NativeWindowSwapchainErrorKind::UnsupportedPresentMode);
 
     config = make_config(kind);
     config.context.device = 0U;
     assert(!api.configure(config, &error));
+    assert(error.kind == NativeWindowSwapchainErrorKind::NativeContextUnavailable);
+}
+
+void metal_is_unsupported() {
+    const NativeWindowSwapchainCapabilities capabilities =
+        default_native_window_swapchain_capabilities(
+            NativeGpuApiKind::Metal, NativeWindowSystem::CocoaLayer);
+    const NativeWindowSwapchainLimits limits =
+        default_native_window_swapchain_limits(
+            NativeGpuApiKind::Metal, NativeWindowSystem::CocoaLayer);
+    assert(!native_window_swapchain_build_has_backend(
+        NativeGpuApiKind::Metal, NativeWindowSystem::CocoaLayer));
+    assert(capabilities.flags == 0U);
+    assert(capabilities.maximum_image_count == 0U);
+    assert(capabilities.maximum_frames_in_flight == 0U);
+    assert(capabilities.maximum_surface_bytes == 0U);
+    assert(limits.maximum_image_count == 0U);
+    assert(limits.maximum_frames_in_flight == 0U);
+    assert(limits.maximum_surface_bytes == 0U);
+    assert(limits.maximum_in_flight_bytes == 0U);
+
+    ReferenceNativeWindowSwapchainApi api(capabilities);
+    NativeWindowSwapchainError error;
+    assert(!api.configure(make_config(NativeGpuApiKind::Metal), &error));
     assert(error.kind == NativeWindowSwapchainErrorKind::NativeContextUnavailable);
 }
 
@@ -271,6 +295,7 @@ int main() {
     resize_and_recreate();
     backpressure_and_statuses();
     invalid_modes_and_context();
+    metal_is_unsupported();
     std::cout << "native window swapchain tests: PASS\n";
     return 0;
 }

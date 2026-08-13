@@ -161,13 +161,12 @@ int main(int argc, char** argv) {
         iterations = static_cast<std::size_t>(std::stoul(argv[1]));
     }
     Fixture fixture;
-    const std::array<NativeGpuApiKind, 3U> kinds{
+    const std::array<NativeGpuApiKind, 2U> kinds{
         NativeGpuApiKind::Vulkan,
-        NativeGpuApiKind::Metal,
         NativeGpuApiKind::Direct3D12};
 
     std::uint64_t checksum = kFnvOffset;
-    std::array<std::uint64_t, 3U> backend_checksums{};
+    std::array<std::uint64_t, 2U> backend_checksums{};
     for (std::size_t backend = 0U; backend < kinds.size(); ++backend) {
         std::array<std::byte, 64U * 1024U> output_storage{};
         std::pmr::monotonic_buffer_resource output_arena{
@@ -235,13 +234,13 @@ int main(int argc, char** argv) {
               << "  \"input_frame_commands\": 68,\n"
               << "  \"input_native_commands\": " << fixture.commands.commands.size() << ",\n"
               << "  \"input_draw_instances\": " << fixture.draws.size() << ",\n"
-              << "  \"backend_count\": 3,\n"
+              << "  \"backend_count\": 2,\n"
               << "  \"commands_per_backend\": 80,\n"
               << "  \"barriers_per_backend\": 2,\n"
               << "  \"descriptors_per_backend\": 3,\n"
-              << "  \"total_backend_commands\": 240,\n"
+              << "  \"total_backend_commands\": 160,\n"
               << "  \"logical_retained_bytes_per_backend\": " << logical_retained_per_backend << ",\n"
-              << "  \"logical_retained_bytes_total\": " << logical_retained_per_backend * 3U << ",\n"
+              << "  \"logical_retained_bytes_total\": " << logical_retained_per_backend * 2U << ",\n"
               << "  \"adapter_scratch_hard_limit_bytes\": 262144,\n"
               << "  \"capability_record_bytes\": " << sizeof(NativePlatformCapabilities) << ",\n"
               << "  \"adapter_config_bytes\": " << sizeof(NativePlatformAdapterConfig) << ",\n"
@@ -250,8 +249,7 @@ int main(int argc, char** argv) {
               << "  \"descriptor_record_bytes\": " << sizeof(NativePlatformDescriptorBinding) << ",\n"
               << "  \"swapchain_image_bytes\": " << sizeof(NativePlatformSwapchainImage) << ",\n"
               << "  \"vulkan_checksum\": " << backend_checksums[0] << ",\n"
-              << "  \"metal_checksum\": " << backend_checksums[1] << ",\n"
-              << "  \"d3d12_checksum\": " << backend_checksums[2] << ",\n"
+              << "  \"d3d12_checksum\": " << backend_checksums[1] << ",\n"
               << "  \"checksum\": " << checksum << ",\n"
               << "  \"p50_ms\": " << distribution.p50 << ",\n"
               << "  \"p95_ms\": " << distribution.p95 << ",\n"

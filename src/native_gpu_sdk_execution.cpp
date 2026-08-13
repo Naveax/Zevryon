@@ -89,6 +89,10 @@ NativePlatformCapabilities map_capabilities(
     const NativeGpuSdkProbe& probe,
     const NativeGpuSdkLimits& limits) noexcept {
     NativePlatformCapabilities output;
+    if (probe.api_kind == NativeGpuApiKind::Metal ||
+        probe.availability != NativeGpuSdkAvailability::RuntimeReady) {
+        return output;
+    }
     if ((probe.flags & kNativeGpuSdkTimelineFence) != 0U) {
         output.flags |= kNativePlatformTimelineFence;
     }
@@ -97,11 +101,6 @@ NativePlatformCapabilities map_capabilities(
         output.flags |= kNativePlatformMailboxPresent |
                         kNativePlatformImmediatePresent |
                         kNativePlatformExplicitBarriers;
-    } else if (probe.api_kind == NativeGpuApiKind::Metal) {
-        output.flags |= kNativePlatformMailboxPresent;
-        if ((probe.flags & kNativeGpuSdkUnifiedMemory) != 0U) {
-            output.flags |= kNativePlatformUnifiedMemory;
-        }
     } else if (probe.api_kind == NativeGpuApiKind::Direct3D12) {
         output.flags |= kNativePlatformImmediatePresent |
                         kNativePlatformTearing |
@@ -191,14 +190,15 @@ bool NativeGpuSdkApi::export_context(
 ReferenceNativeGpuSdkApi::ReferenceNativeGpuSdkApi(NativeGpuApiKind kind) noexcept
     : kind_(kind) {
     snapshot_.probe.api_kind = kind;
+    if (kind == NativeGpuApiKind::Metal) {
+        snapshot_.probe.availability = NativeGpuSdkAvailability::Unavailable;
+        return;
+    }
     snapshot_.probe.availability = NativeGpuSdkAvailability::RuntimeReady;
     snapshot_.probe.api_major = 1U;
     snapshot_.probe.flags = kNativeGpuSdkRealDevice |
                             kNativeGpuSdkOffscreenSurface |
                             kNativeGpuSdkTimelineFence;
-    if (kind == NativeGpuApiKind::Metal) {
-        snapshot_.probe.flags |= kNativeGpuSdkUnifiedMemory;
-    }
     snapshot_.probe.runtime_generation = 1U;
     std::uint64_t checksum = kFnvOffset;
     hash_value(&checksum, kind);
@@ -220,6 +220,10 @@ bool ReferenceNativeGpuSdkApi::initialize(
     NativeGpuSdkError* error) noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     clear_error(error);
+    if (kind_ == NativeGpuApiKind::Metal) {
+        return fail(error, NativeGpuSdkErrorKind::UnsupportedBackend,
+                    "Metal support was removed from Zevryon");
+    }
     if (fail_initialization_) {
         return fail(error, NativeGpuSdkErrorKind::DeviceCreationFailed,
                     "reference device initialization was forced to fail");
@@ -566,7 +570,10 @@ void NativeGpuSdkPlatformDriver::shutdown() noexcept {
 }
 
 NativeGpuSdkLimits default_native_gpu_sdk_limits(NativeGpuApiKind kind) noexcept {
-    NativeGpuSdkLimits limits;
+    NativeGpuSdkLimits limits{};
+    if (kind == NativeGpuApiKind::Metal) {
+        return limits;
+    }
     limits.maximum_swapchain_images = 3U;
     limits.maximum_frames_in_flight = 2U;
     limits.maximum_command_allocators = 3U;
@@ -575,9 +582,6 @@ NativeGpuSdkLimits default_native_gpu_sdk_limits(NativeGpuApiKind kind) noexcept
     limits.maximum_staging_bytes = 4U * 1024U * 1024U;
     limits.maximum_device_local_bytes = 64U * 1024U * 1024U;
     limits.maximum_submission_commands = 4096U;
-    if (kind == NativeGpuApiKind::Metal) {
-        limits.maximum_staging_bytes = 2U * 1024U * 1024U;
-    }
     return limits;
 }
 

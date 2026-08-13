@@ -38,28 +38,27 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 def canonical_bytes(value: Any) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode(
-        "utf-8"
-    )
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
 
 
-def validate_platform(report: dict[str, Any], platform_name: str) -> dict[str, Any]:
-    require(report.get("schema") == PLATFORM_SCHEMA, f"{platform_name} schema mismatch")
-    require(report.get("slice") == PLATFORM_SLICE, f"{platform_name} slice mismatch")
-    require(report.get("platform") == platform_name, f"{platform_name} identity mismatch")
-    require(report.get("slice_ready") is True, f"{platform_name} slice is not ready")
-    require(report.get("promotion_ready") is False, f"{platform_name} report promoted alone")
-    require(len(str(report.get("manifest_sha256", ""))) == 64, f"{platform_name} manifest SHA invalid")
+def validate_windows(report: dict[str, Any]) -> dict[str, Any]:
+    require(report.get("schema") == PLATFORM_SCHEMA, "windows schema mismatch")
+    require(report.get("slice") == PLATFORM_SLICE, "windows slice mismatch")
+    require(report.get("platform") == "windows", "windows identity mismatch")
+    require(report.get("adapter") == "directwrite", "windows adapter mismatch")
+    require(report.get("slice_ready") is True, "windows slice is not ready")
+    require(report.get("promotion_ready") is False, "windows report promoted alone")
+    require(len(str(report.get("manifest_sha256", ""))) == 64, "windows manifest SHA invalid")
     authority = report.get("authority")
-    require(isinstance(authority, dict), f"{platform_name} authority block missing")
-    require(authority.get("authoritative_backend") == "cpp", f"{platform_name} authority changed")
-    require(authority.get("shadow_backend") == "rust", f"{platform_name} shadow backend changed")
-    require(authority.get("rust_authoritative") is False, f"{platform_name} Rust became authoritative")
+    require(isinstance(authority, dict), "windows authority block missing")
+    require(authority.get("authoritative_backend") == "cpp", "windows authority changed")
+    require(authority.get("shadow_backend") == "rust", "windows shadow backend changed")
+    require(authority.get("rust_authoritative") is False, "windows Rust became authoritative")
     workloads = report.get("workloads")
-    require(isinstance(workloads, list) and len(workloads) == 4, f"{platform_name} workload scope invalid")
-    require(all(item.get("passed") is True for item in workloads), f"{platform_name} workload failed")
+    require(isinstance(workloads, list) and len(workloads) == 4, "windows workload scope invalid")
+    require(all(item.get("passed") is True for item in workloads), "windows workload failed")
     probe = report.get("probe")
-    require(isinstance(probe, dict) and probe.get("mismatches") == 0, f"{platform_name} probe mismatch")
+    require(isinstance(probe, dict) and probe.get("mismatches") == 0, "windows probe mismatch")
     return {
         "adapter": report.get("adapter"),
         "manifest_sha256": report["manifest_sha256"],
@@ -71,27 +70,20 @@ def validate_platform(report: dict[str, Any], platform_name: str) -> dict[str, A
 
 def build_final_manifest(
     windows: dict[str, Any],
-    macos: dict[str, Any],
     *,
     commit_sha: str,
     prerequisites: dict[str, str],
 ) -> dict[str, Any]:
     require(prerequisites == EXPECTED_PREREQUISITES, "prerequisite certification set mismatch")
-    windows_summary = validate_platform(windows, "windows")
-    macos_summary = validate_platform(macos, "macos")
+    windows_summary = validate_windows(windows)
     require(windows.get("commit_sha") == commit_sha, "Windows commit SHA mismatch")
-    require(macos.get("commit_sha") == commit_sha, "macOS commit SHA mismatch")
 
     manifest: dict[str, Any] = {
         "schema": FINAL_SCHEMA,
         "program": "Z2R-1D",
         "commit_sha": commit_sha,
         "mandatory_slices": [
-            {
-                "slice": name,
-                "manifest_sha256": digest,
-                "ready": True,
-            }
+            {"slice": name, "manifest_sha256": digest, "ready": True}
             for name, digest in EXPECTED_PREREQUISITES.items()
         ]
         + [
@@ -100,18 +92,9 @@ def build_final_manifest(
                 "platform": "windows",
                 "manifest_sha256": windows["manifest_sha256"],
                 "ready": True,
-            },
-            {
-                "slice": PLATFORM_SLICE,
-                "platform": "macos",
-                "manifest_sha256": macos["manifest_sha256"],
-                "ready": True,
-            },
+            }
         ],
-        "platforms": {
-            "windows": windows_summary,
-            "macos": macos_summary,
-        },
+        "platforms": {"windows": windows_summary},
         "authority": {
             "current_authoritative_backend": "cpp",
             "certified_shadow_backend": "rust",
@@ -143,7 +126,6 @@ def parse_prerequisite(values: list[str]) -> dict[str, str]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--windows", type=Path, required=True)
-    parser.add_argument("--macos", type=Path, required=True)
     parser.add_argument("--commit-sha", required=True)
     parser.add_argument("--prerequisite", action="append", default=[])
     parser.add_argument("--output", type=Path, required=True)
@@ -152,7 +134,6 @@ def main() -> int:
     try:
         manifest = build_final_manifest(
             load_json(args.windows),
-            load_json(args.macos),
             commit_sha=args.commit_sha,
             prerequisites=parse_prerequisite(args.prerequisite),
         )
@@ -167,9 +148,7 @@ def main() -> int:
             {
                 "schema": manifest["schema"],
                 "promotion_ready": manifest["promotion_ready"],
-                "authoritative_switch_performed": manifest["authority"][
-                    "authoritative_switch_performed"
-                ],
+                "authoritative_switch_performed": manifest["authority"]["authoritative_switch_performed"],
                 "manifest_sha256": manifest["manifest_sha256"],
             },
             sort_keys=True,
