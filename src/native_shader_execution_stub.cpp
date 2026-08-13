@@ -30,8 +30,7 @@ NativeShaderExecutionLimits default_native_shader_execution_limits(
     NativeGpuApiKind kind) noexcept {
     NativeShaderExecutionLimits limits{};
     if (kind == NativeGpuApiKind::Direct3D12 ||
-        kind == NativeGpuApiKind::Vulkan ||
-        kind == NativeGpuApiKind::Metal) {
+        kind == NativeGpuApiKind::Vulkan) {
         limits.maximum_commands = 512U;
         limits.maximum_fill_instances = 4096U;
         limits.maximum_glyph_instances = 65'536U;
@@ -59,12 +58,10 @@ make_vulkan_native_shader_executor() noexcept {
 }
 #endif
 
-#if !defined(ZEVRYON_HAS_METAL_SHADER_EXECUTION)
 std::unique_ptr<NativeShaderExecutor>
 make_metal_native_shader_executor() noexcept {
     return nullptr;
 }
-#endif
 
 bool native_shader_execution_build_has_backend(
     NativeGpuApiKind kind) noexcept {
@@ -74,9 +71,6 @@ bool native_shader_execution_build_has_backend(
 #endif
 #if defined(ZEVRYON_HAS_VULKAN_SHADER_EXECUTION)
     available = available || kind == NativeGpuApiKind::Vulkan;
-#endif
-#if defined(ZEVRYON_HAS_METAL_SHADER_EXECUTION)
-    available = available || kind == NativeGpuApiKind::Metal;
 #endif
     (void)kind;
     return available;
