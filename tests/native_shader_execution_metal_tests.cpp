@@ -316,6 +316,22 @@ int main() {
     assert((snapshot.capability_flags &
         kNativeShaderExecutionDirectSurfaceExport) != 0U);
 
+    const std::uint64_t hot_frame_id = packets.hot.header.frame_id;
+    const std::uint64_t hot_checksum = packets.hot.header.packet_checksum;
+    packets.hot.header.frame_id = 0U;
+    packets.hot.header.packet_checksum = shader_packet_checksum(packets.hot);
+    ShaderReadback zero_frame_rejected;
+    assert(!executor->execute(
+        packets.hot, packets.atlas, &zero_frame_rejected, &error));
+    assert(error.kind == NativeShaderExecutionErrorKind::InvalidInput);
+    snapshot = executor->snapshot();
+    assert(snapshot.executions == 3U);
+    assert(snapshot.readbacks == 2U);
+    assert(snapshot.rejected_packets == 1U);
+    packets.hot.header.frame_id = hot_frame_id;
+    packets.hot.header.packet_checksum = shader_packet_checksum(packets.hot);
+    assert(packets.hot.header.packet_checksum == hot_checksum);
+
     GpuShaderPacket corrupted(&packets.hot_resource);
     corrupted.header = packets.hot.header;
     corrupted.header.packet_checksum ^= 1U;
@@ -337,6 +353,7 @@ int main() {
               << " mixed-source=reject"
               << " stale-generation=reject"
               << " direct-readback-budget=PASS"
+              << " zero-frame=reject"
               << " PASS\n";
     return 0;
 }
