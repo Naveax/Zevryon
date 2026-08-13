@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdint>
 #include <iostream>
+#include <memory>
 #include <memory_resource>
 
 namespace {
@@ -202,23 +203,37 @@ void certify_budget_failure() {
 }
 
 void certify_initialization_failure() {
-    ReferenceNativeGpuSdkApi api(NativeGpuApiKind::Metal);
+    ReferenceNativeGpuSdkApi api(NativeGpuApiKind::Vulkan);
     api.set_fail_initialization(true);
-    NativeGpuSdkPlatformDriver driver(&api, make_config(NativeGpuApiKind::Metal));
+    NativeGpuSdkPlatformDriver driver(&api, make_config(NativeGpuApiKind::Vulkan));
     NativeGpuApiError error;
     assert(!driver.configure_swapchain(
-        make_surface(), 3U, make_adapter_config(NativeGpuApiKind::Metal), &error));
+        make_surface(), 3U, make_adapter_config(NativeGpuApiKind::Vulkan), &error));
     assert(error.kind == NativeGpuApiErrorKind::DeviceLost);
+}
+
+void certify_metal_unavailable_factory() {
+    assert(!native_gpu_sdk_build_has_backend(NativeGpuApiKind::Metal));
+    std::unique_ptr<NativeGpuSdkApi> api = make_metal_native_gpu_sdk_api();
+    assert(api != nullptr);
+    const NativeGpuSdkProbe probe = api->probe();
+    assert(probe.api_kind == NativeGpuApiKind::Metal);
+    assert(probe.availability == NativeGpuSdkAvailability::Unavailable);
+
+    NativeGpuSdkError error;
+    const NativeGpuSdkConfig config = make_config(NativeGpuApiKind::Metal);
+    assert(!api->initialize(config, &error));
+    assert(error.kind == NativeGpuSdkErrorKind::UnsupportedBackend);
 }
 
 } // namespace
 
 int main() {
     certify_reference_kind(zevryon::text::NativeGpuApiKind::Vulkan);
-    certify_reference_kind(zevryon::text::NativeGpuApiKind::Metal);
     certify_reference_kind(zevryon::text::NativeGpuApiKind::Direct3D12);
     certify_budget_failure();
     certify_initialization_failure();
+    certify_metal_unavailable_factory();
     std::cout << "native GPU SDK execution functional certification: PASS\n";
     return 0;
 }
