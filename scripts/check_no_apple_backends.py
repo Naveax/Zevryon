@@ -25,6 +25,23 @@ FORBIDDEN_BUILD_FRAGMENTS = (
     "runs-on: macos",
     "runs-on: [macos",
 )
+FORBIDDEN_ACTIVE_SOURCE_FRAGMENTS = (
+    "defined(__apple__)",
+    "zevryon_has_metal_",
+)
+TEXT_SUFFIXES = {
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cxx",
+    ".h",
+    ".hh",
+    ".hpp",
+    ".hxx",
+    ".cmake",
+    ".yml",
+    ".yaml",
+}
 
 
 def is_under(path: Path, root: str) -> bool:
@@ -95,13 +112,21 @@ def main() -> int:
         if any(token in rel_lower for token in FORBIDDEN_PATH_TOKENS):
             failures.append(f"Apple backend path is forbidden: {rel.as_posix()}")
 
-        if path.suffix.lower() in {".cmake", ".yml", ".yaml"} or path.name == "CMakeLists.txt":
+        is_text_source = path.suffix.lower() in TEXT_SUFFIXES or path.name == "CMakeLists.txt"
+        if is_text_source:
             text_lower = read_text(path).lower()
-            for fragment in FORBIDDEN_BUILD_FRAGMENTS:
+            for fragment in FORBIDDEN_ACTIVE_SOURCE_FRAGMENTS:
                 if fragment in text_lower:
                     failures.append(
-                        f"forbidden Apple build fragment {fragment!r} in {rel.as_posix()}"
+                        f"forbidden Apple compile fragment {fragment!r} in {rel.as_posix()}"
                     )
+
+            if path.suffix.lower() in {".cmake", ".yml", ".yaml"} or path.name == "CMakeLists.txt":
+                for fragment in FORBIDDEN_BUILD_FRAGMENTS:
+                    if fragment in text_lower:
+                        failures.append(
+                            f"forbidden Apple build fragment {fragment!r} in {rel.as_posix()}"
+                        )
 
     if failures:
         print("Apple backend removal guard: FAIL", file=sys.stderr)
