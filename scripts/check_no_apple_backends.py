@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import re
 import sys
 
 ACTIVE_ROOTS = ("src", "tests", "cmake", ".github/workflows")
 LEGACY_FAIL_CLOSED_SHIM = Path("cmake/coretext_discovery.cmake")
+PLATFORM_ADAPTER_SOURCE = Path("src/native_platform_adapters.cpp")
+README_PATH = Path("README.md")
 FORBIDDEN_SUFFIXES = {".m", ".mm"}
 FORBIDDEN_PATH_TOKENS = ("metal", "cocoa", "coretext")
 FORBIDDEN_BUILD_FRAGMENTS = (
@@ -56,6 +59,60 @@ def active_path(path: Path) -> bool:
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
+
+
+def check_platform_disclosure(root: Path, failures: list[str]) -> None:
+    readme = root / README_PATH
+    if not readme.is_file():
+        failures.append("README.md is missing platform support disclosure")
+        return
+    text = read_text(readme)
+    required = (
+        "Zevryon supports Windows and Linux desktop targets.",
+        "macOS is intentionally unsupported.",
+        "compatibility tokens only",
+        "not a macOS or Metal support declaration",
+    )
+    for fragment in required:
+        if fragment not in text:
+            failures.append(
+                f"README platform support disclosure missing {fragment!r}"
+            )
+
+
+def check_platform_adapter_semantics(root: Path, failures: list[str]) -> None:
+    source = root / PLATFORM_ADAPTER_SOURCE
+    if not source.is_file():
+        failures.append(
+            f"missing platform adapter source: {PLATFORM_ADAPTER_SOURCE.as_posix()}"
+        )
+        return
+
+    text = read_text(source)
+    compact = re.sub(r"\s+", " ", text)
+
+    positive_support_patterns = (
+        r"kind == NativeGpuApiKind::Vulkan \|\| kind == NativeGpuApiKind::Metal",
+        r"case NativeGpuApiKind::Metal: result\.flags =",
+    )
+    for pattern in positive_support_patterns:
+        if re.search(pattern, compact):
+            failures.append(
+                "native platform adapter re-advertises Metal as a supported backend"
+            )
+
+    required_patterns = (
+        r"return kind == NativeGpuApiKind::Vulkan \|\| kind == NativeGpuApiKind::Direct3D12;",
+        r"request\.config\.api_kind == NativeGpuApiKind::Metal",
+        r"NativePlatformCompileErrorKind::UnsupportedCapability, \"Metal support was removed from Zevryon\"",
+        r"if \(kind == NativeGpuApiKind::Metal\) \{ return result; \}",
+        r"if \(kind_ == NativeGpuApiKind::Metal\)",
+    )
+    for pattern in required_patterns:
+        if not re.search(pattern, compact):
+            failures.append(
+                f"Metal platform-adapter fail-closed contract missing pattern {pattern!r}"
+            )
 
 
 def main() -> int:
@@ -128,6 +185,9 @@ def main() -> int:
                             f"forbidden Apple build fragment {fragment!r} in {rel.as_posix()}"
                         )
 
+    check_platform_disclosure(root, failures)
+    check_platform_adapter_semantics(root, failures)
+
     if failures:
         print("Apple backend removal guard: FAIL", file=sys.stderr)
         for failure in failures:
@@ -136,6 +196,7 @@ def main() -> int:
 
     print("Apple backend removal guard: PASS")
     print("concrete macOS/Metal/CoreText/Cocoa build surface absent")
+    print("retained Metal/Cocoa ABI identities are fail-closed")
     return 0
 
 
