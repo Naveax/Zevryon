@@ -4,12 +4,14 @@
 #include "shader_draw_packet_fixture.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <memory>
 #include <memory_resource>
+#include <span>
 #include <vector>
 
 namespace {
@@ -73,6 +75,43 @@ NativeGpuSdkConfig owner_config(const NativeWindowSurfaceHandle& window) {
     return config;
 }
 
+NativeWindowSwapchainConfig swapchain_config(
+    const NativeGpuSdkContextHandle& context,
+    const NativeWindowSurfaceHandle& window) {
+    NativeWindowSwapchainConfig config{};
+    config.context = context;
+    config.window = window;
+    config.surface.surface_id = 0x4D4554414CULL;
+    config.surface.generation_id = 1U;
+    config.surface.width = 640U;
+    config.surface.height = 360U;
+    config.surface.format = GpuSurfaceFormat::Bgra8Unorm;
+    config.surface.premultiplied_alpha = 1U;
+    config.swapchain_generation = 1U;
+    config.present_mode = NativePresentMode::Fifo;
+    config.image_count = 3U;
+    config.flags = kNativeWindowSwapchainRequireNativeContext;
+    config.limits = default_native_window_swapchain_limits(
+        NativeGpuApiKind::Metal,
+        NativeWindowSystem::CocoaLayer);
+    config.limits.maximum_image_count = 3U;
+    config.limits.maximum_frames_in_flight = 2U;
+    config.limits.maximum_damage_rects = 64U;
+    return config;
+}
+
+NativeWindowPixelBufferView reference_pixels(const ShaderReadback& reference) {
+    NativeWindowPixelBufferView view{};
+    view.bytes = std::span<const std::byte>(reference.bgra);
+    view.width = reference.width;
+    view.height = reference.height;
+    view.row_bytes = reference.row_bytes;
+    view.format = GpuSurfaceFormat::Bgra8Unorm;
+    view.premultiplied_alpha = 1U;
+    view.checksum = reference.checksum;
+    return view;
+}
+
 bool readbacks_equal(const ShaderReadback& left, const ShaderReadback& right) {
     return left.width == right.width && left.height == right.height &&
         left.row_bytes == right.row_bytes && left.checksum == right.checksum &&
@@ -120,6 +159,13 @@ int main() {
     NativeShaderExecutionError error;
     assert(executor->configure(config, &error));
 
+    std::unique_ptr<NativeWindowSwapchainApi> presenter =
+        make_metal_native_window_swapchain_api();
+    assert(presenter != nullptr);
+    NativeWindowSwapchainError present_error;
+    assert(presenter->configure(
+        swapchain_config(context, window->handle()), &present_error));
+
     NativeShaderExecutionSnapshot snapshot = executor->snapshot();
     assert((snapshot.capability_flags &
         kNativeShaderExecutionDirectSurfaceExport) != 0U);
@@ -135,6 +181,66 @@ int main() {
     assert(snapshot.executions == 1U);
     assert(snapshot.readbacks == 0U);
     assert(snapshot.peak_transient_bytes == 0U);
+
+    const std::array<NativeDamageRect, 1U> full{{{0, 0, 640U, 360U}}};
+    NativeWindowSwapchainImage image{};
+    NativeWindowAcquireStatus acquire_status{};
+    assert(presenter->acquire(401U, &image, &acquire_status, &present_error));
+    assert(acquire_status == NativeWindowAcquireStatus::Acquired);
+
+    NativeWindowPresentRequest mixed{};
+    mixed.image = image;
+    mixed.damage_rects = full;
+    mixed.frame_id = direct_surface.frame_id;
+    mixed.ticket_id = 401U;
+    mixed.command_checksum = direct_surface.content_checksum;
+    mixed.command_count = packets.cold.header.command_count;
+    mixed.flags = kNativeWindowPresentFullRedraw;
+    mixed.shader_surface = direct_surface;
+    mixed.pixel_buffer = reference_pixels(packets.reference);
+    NativeWindowPresentReceipt receipt{};
+    assert(!presenter->present(mixed, &receipt, &present_error));
+    assert(present_error.kind == NativeWindowSwapchainErrorKind::InvalidInput);
+
+    NativeWindowPresentRequest direct_present{};
+    direct_present.image = image;
+    direct_present.damage_rects = full;
+    direct_present.frame_id = direct_surface.frame_id;
+    direct_present.ticket_id = 401U;
+    direct_present.command_checksum = direct_surface.content_checksum;
+    direct_present.command_count = packets.cold.header.command_count;
+    direct_present.flags = kNativeWindowPresentFullRedraw;
+    direct_present.shader_surface = direct_surface;
+    assert(presenter->present(direct_present, &receipt, &present_error));
+    assert(receipt.status == NativeWindowPresentStatus::Presented);
+    assert(receipt.signal_fence_value != 0U);
+    assert(presenter->retire_completed(
+        receipt.signal_fence_value, &present_error));
+    window->pump_events();
+
+    assert(presenter->acquire(402U, &image, &acquire_status, &present_error));
+    assert(acquire_status == NativeWindowAcquireStatus::Acquired);
+    NativeShaderSurfaceView stale_surface = direct_surface;
+    stale_surface.runtime_generation += 1U;
+    NativeWindowPresentRequest stale_present = direct_present;
+    stale_present.image = image;
+    stale_present.ticket_id = 402U;
+    stale_present.shader_surface = stale_surface;
+    assert(!presenter->present(stale_present, &receipt, &present_error));
+    assert(present_error.kind == NativeWindowSwapchainErrorKind::StaleGeneration);
+
+    direct_present.image = image;
+    direct_present.ticket_id = 402U;
+    assert(presenter->present(direct_present, &receipt, &present_error));
+    assert(receipt.status == NativeWindowPresentStatus::Presented);
+    assert(presenter->retire_completed(
+        receipt.signal_fence_value, &present_error));
+    window->pump_events();
+
+    const NativeWindowSwapchainSnapshot present_snapshot = presenter->snapshot();
+    assert(present_snapshot.presented_frames >= 2U);
+    assert(present_snapshot.stale_rejections >= 1U);
+    assert(present_snapshot.in_flight_frame_count == 0U);
 
     ShaderReadback cold_readback;
     assert(executor->execute(
@@ -177,6 +283,7 @@ int main() {
     assert(!executor->execute(corrupted, packets.atlas, &rejected, &error));
     assert(error.kind == NativeShaderExecutionErrorKind::InvalidInput);
 
+    presenter->shutdown();
     executor->shutdown();
     window.reset();
     std::cout << "real Metal integer shader execution: commands="
@@ -186,6 +293,9 @@ int main() {
               << " checksum=" << packets.reference.checksum
               << " direct_surface=PASS"
               << " lazy_readback=PASS"
+              << " direct_present=PASS"
+              << " mixed-source=reject"
+              << " stale-generation=reject"
               << " PASS\n";
     return 0;
 }
