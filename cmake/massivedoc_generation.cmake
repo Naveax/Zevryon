@@ -1,8 +1,16 @@
+find_package(Threads REQUIRED)
+
 target_sources(
   zevryon-massivedoc-core
   PRIVATE
     src/massivedoc_generation.cpp
+    src/massivedoc_generation_background.cpp
+    src/massivedoc_generation_sync.cpp
     src/massivedoc_positional_io.cpp)
+
+target_link_libraries(
+  zevryon-massivedoc-core
+  PUBLIC Threads::Threads)
 
 if(BUILD_TESTING)
   add_executable(
@@ -37,6 +45,17 @@ if(BUILD_TESTING)
   add_test(
     NAME massivedoc-generation-compaction-tests
     COMMAND zevryon-massivedoc-generation-compaction-tests)
+
+  add_executable(
+    zevryon-massivedoc-generation-background-tests
+    tests/massivedoc_generation_background_tests.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-generation-background-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-generation-background-tests)
+  add_test(
+    NAME massivedoc-generation-background-tests
+    COMMAND zevryon-massivedoc-generation-background-tests)
 
   add_executable(
     zevryon-massivedoc-positional-io-tests
