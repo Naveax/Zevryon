@@ -71,6 +71,10 @@ public:
         std::size_t max_records,
         ViewportResult* result,
         std::string* error) const;
+    bool move_logical_record(
+        std::uint64_t from_index,
+        std::uint64_t to_index,
+        std::string* error);
     bool update_height(
         std::uint64_t record_index,
         std::uint32_t new_height_q8,

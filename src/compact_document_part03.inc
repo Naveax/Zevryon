@@ -1,3 +1,17 @@
+bool CompactArenaReader::move_logical_record(
+    std::uint64_t from_index,
+    std::uint64_t to_index,
+    std::string* error) {
+    if (!opened_ || error == nullptr) {
+        if (error != nullptr) {
+            *error = "invalid logical move";
+        }
+        return false;
+    }
+    error->clear();
+    return sequence_.move(from_index, to_index, error);
+}
+
 bool CompactArenaReader::update_height(
     std::uint64_t record_index,
     std::uint32_t new_height_q8,
@@ -11,15 +25,27 @@ bool CompactArenaReader::update_height(
         return false;
     }
     error->clear();
+
+    SequencePosition sequence_position;
+    std::string sequence_error;
+    if (!sequence_.at(record_index, &sequence_position, &sequence_error)) {
+        *error = "cannot resolve logical sequence height: " + sequence_error;
+        return false;
+    }
+    const std::uint64_t source_record_index = sequence_position.record.source_record_index;
+    if (source_record_index >= stats_.logical_records) {
+        *error = "logical sequence source record is outside persisted arena";
+        return false;
+    }
     const std::size_t block_index = static_cast<std::size_t>(
-        record_index / stats_.config.records_per_block);
+        source_record_index / stats_.config.records_per_block);
     if (block_index >= block_heights_q8_.size()) {
         *error = "height update block is outside arena";
         return false;
     }
 
     const auto arena_root = root_ / "arena";
-    const std::uint64_t height_offset = record_index * kHeightEntryBytes;
+    const std::uint64_t height_offset = source_record_index * kHeightEntryBytes;
     std::fstream heights(arena_root / "record-heights.idx", std::ios::binary | std::ios::in | std::ios::out);
     std::array<std::byte, kHeightEntryBytes> old_height_bytes{};
     if (!heights || !seek_stream(heights, height_offset) || !read_exact(heights, old_height_bytes)) {
@@ -31,15 +57,8 @@ bool CompactArenaReader::update_height(
         *error = "invalid existing record height";
         return false;
     }
-
-    SequencePosition sequence_position;
-    std::string sequence_error;
-    if (!sequence_.at(record_index, &sequence_position, &sequence_error)) {
-        *error = "cannot resolve logical sequence height: " + sequence_error;
-        return false;
-    }
     if (sequence_position.record.height_q8 != *old_height) {
-        *error = "logical sequence height differs from persisted arena";
+        *error = "logical sequence height differs from persisted source record";
         return false;
     }
 
@@ -101,7 +120,7 @@ bool CompactArenaReader::update_height(
     };
 
     if (!blocks || !write_height_value(new_height_q8)) {
-        *error = "cannot persist record height";
+        *error = "cannot persist source-record height";
         return false;
     }
     if (!write_block_value(new_block_height)) {

@@ -248,6 +248,80 @@ int main() {
         return 1;
     }
 
+    const auto pre_move_snapshot = reopened.logical_snapshot();
+    if (!require(reopened.move_logical_record(0U, 2U, &error), error)) {
+        return 1;
+    }
+    zevryon::massivedoc::SequencePosition moved_source_zero;
+    zevryon::massivedoc::SequencePosition frozen_source_zero;
+    if (!require(reopened.logical_snapshot().at(2U, &moved_source_zero, &error), error) ||
+        !require(moved_source_zero.record.logical_id == 1000U, "arena move preserves logical id") ||
+        !require(moved_source_zero.record.source_record_index == 0U,
+                 "arena move preserves physical source identity") ||
+        !require(moved_source_zero.record.height_q8 == kFirstHeight,
+                 "arena move carries corrected height") ||
+        !require(pre_move_snapshot.at(0U, &frozen_source_zero, &error), error) ||
+        !require(frozen_source_zero.record.source_record_index == 0U,
+                 "pre-move arena snapshot remains frozen")) {
+        return 1;
+    }
+    zevryon::massivedoc::ViewportResult moved_viewport;
+    if (!require(
+            reopened.materialize(
+                moved_source_zero.y_q8,
+                1U,
+                0U,
+                4U,
+                &moved_viewport,
+                &error),
+            error) ||
+        !require(!moved_viewport.records.empty(), "moved record materializes") ||
+        !require(moved_viewport.records.front().record_index == 2U,
+                 "moved record exposes new logical ordinal") ||
+        !require(moved_viewport.records.front().source_record_index == 0U,
+                 "moved record exposes immutable physical locator")) {
+        return 1;
+    }
+
+    constexpr std::uint32_t kMovedHeight = 444U * 256U;
+    zevryon::massivedoc::HeightUpdateResult moved_update;
+    if (!require(reopened.update_height(2U, kMovedHeight, &moved_update, &error), error) ||
+        !require(moved_update.record_index == 2U, "moved height update keeps logical ordinal") ||
+        !require(moved_update.block_index == 0U,
+                 "moved height persists in physical source block") ||
+        !require(reopened.logical_snapshot().at(2U, &moved_source_zero, &error), error) ||
+        !require(moved_source_zero.record.source_record_index == 0U,
+                 "moved height update preserves physical locator") ||
+        !require(moved_source_zero.record.height_q8 == kMovedHeight,
+                 "moved live record receives corrected height")) {
+        return 1;
+    }
+    const std::uint64_t moved_total = first_update.total_height_q8 - kFirstHeight + kMovedHeight;
+    if (!require(moved_update.total_height_q8 == moved_total,
+                 "moved height update preserves global total invariant")) {
+        return 1;
+    }
+
+    zevryon::massivedoc::CompactArenaReader after_move_reopen(root);
+    if (!require(after_move_reopen.open(&error), error) ||
+        !require(after_move_reopen.stats().total_height_q8 == moved_total,
+                 "physical height update survives reopen") ||
+        !require(after_move_reopen.logical_snapshot().at(0U, &moved_source_zero, &error), error) ||
+        !require(moved_source_zero.record.logical_id == 1000U,
+                 "non-durable move restores physical order on reopen") ||
+        !require(moved_source_zero.record.source_record_index == 0U,
+                 "reopen restores source zero at physical ordinal") ||
+        !require(moved_source_zero.record.height_q8 == kMovedHeight,
+                 "reopen loads height from physical source slot")) {
+        return 1;
+    }
+    error.clear();
+    if (!require(
+            !after_move_reopen.move_logical_record(kRecords, 0U, &error),
+            "out-of-range logical move rejected")) {
+        return 1;
+    }
+
     error_code.clear();
     std::filesystem::remove_all(root, error_code);
     if (!require(!error_code, "compact test cleanup failed: " + error_code.message())) {
