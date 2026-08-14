@@ -54,6 +54,11 @@ bool generation_load_journal(
         offset += static_cast<std::uint64_t>(kJournalRecordBytes);
     }
 
+    // Windows will not replace the journal while this read handle is still open.
+    // Release it before quarantine/repair so the recovery transaction has the
+    // same observable semantics on Windows and POSIX.
+    stream.close();
+
     if (offset != total_bytes) {
         if (!generation_quarantine_and_repair_journal_tail(
                 store_root, offset, total_bytes, error)) {
