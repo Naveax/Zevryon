@@ -43,8 +43,9 @@ SequenceAggregate oracle_aggregate(const std::vector<SequenceRecord>& records, s
     return aggregate;
 }
 
+template <typename SequenceLike>
 bool verify_sequence(
-    ChunkedOrderStatisticsSequence& sequence,
+    const SequenceLike& sequence,
     const std::vector<SequenceRecord>& oracle,
     std::string* error) {
     const SequenceAggregate expected = oracle_aggregate(oracle, oracle.size());
@@ -184,6 +185,82 @@ inline bool run_order_statistics_sequence_tests() {
     }
     if (!verify_sequence(sequence, oracle, &error)) {
         return false;
+    }
+
+    const auto snapshot_before = sequence.snapshot();
+    const std::vector<SequenceRecord> snapshot_before_oracle = oracle;
+
+    const SequenceRecord inserted_snapshot_record{900001U, 73U, 333U * 256U, 0x40U};
+    if (!sequence_require(sequence.insert(0U, inserted_snapshot_record, &error), error)) {
+        return false;
+    }
+    oracle.insert(oracle.begin(), inserted_snapshot_record);
+
+    const std::size_t snapshot_height_index = oracle.size() / 3U;
+    std::uint32_t snapshot_old_height = 0U;
+    constexpr std::uint32_t kSnapshotHeight = 777U * 256U;
+    if (!sequence_require(
+            sequence.update_height(
+                static_cast<std::uint64_t>(snapshot_height_index),
+                kSnapshotHeight,
+                &snapshot_old_height,
+                &error),
+            error) ||
+        !sequence_require(snapshot_old_height == oracle[snapshot_height_index].height_q8, "snapshot height old value")) {
+        return false;
+    }
+    oracle[snapshot_height_index].height_q8 = kSnapshotHeight;
+
+    SequenceRecord snapshot_erased;
+    const std::size_t snapshot_erase_index = oracle.size() - 1U;
+    if (!sequence_require(
+            sequence.erase(static_cast<std::uint64_t>(snapshot_erase_index), &snapshot_erased, &error), error) ||
+        !sequence_require(same_record(snapshot_erased, oracle[snapshot_erase_index]), "snapshot erase identity")) {
+        return false;
+    }
+    oracle.erase(oracle.begin() + static_cast<std::ptrdiff_t>(snapshot_erase_index));
+
+    const std::size_t snapshot_move_to = oracle.size() - 1U;
+    if (!sequence_require(sequence.move(0U, static_cast<std::uint64_t>(snapshot_move_to), &error), error)) {
+        return false;
+    }
+    const SequenceRecord moved_snapshot_record = oracle.front();
+    oracle.erase(oracle.begin());
+    oracle.insert(oracle.begin() + static_cast<std::ptrdiff_t>(snapshot_move_to), moved_snapshot_record);
+
+    if (!verify_sequence(snapshot_before, snapshot_before_oracle, &error) ||
+        !verify_sequence(sequence, oracle, &error)) {
+        return false;
+    }
+
+    const auto snapshot_after = sequence.snapshot();
+    const std::vector<SequenceRecord> snapshot_after_oracle = oracle;
+    std::uint64_t snapshot_old_summary = 0U;
+    constexpr std::uint64_t kSnapshotSummary = 0x123456789abcdef0ULL;
+    if (!sequence_require(
+            sequence.update_search_summary(0U, kSnapshotSummary, &snapshot_old_summary, &error), error) ||
+        !sequence_require(snapshot_old_summary == oracle[0].search_summary, "snapshot search old value")) {
+        return false;
+    }
+    oracle[0].search_summary = kSnapshotSummary;
+
+    if (!verify_sequence(snapshot_before, snapshot_before_oracle, &error) ||
+        !verify_sequence(snapshot_after, snapshot_after_oracle, &error) ||
+        !verify_sequence(sequence, oracle, &error)) {
+        return false;
+    }
+
+    std::vector<ChunkedOrderStatisticsSequence::Snapshot> snapshot_copies;
+    snapshot_copies.reserve(10000U);
+    for (std::size_t copy = 0U; copy < 10000U; ++copy) {
+        snapshot_copies.push_back(sequence.snapshot());
+    }
+    for (const auto& copy : snapshot_copies) {
+        if (!sequence_require(
+                copy.stats().aggregate.record_count == sequence.stats().aggregate.record_count,
+                "O(1) snapshot copy record count")) {
+            return false;
+        }
     }
 
     ChunkedOrderStatisticsSequence scale(64U);

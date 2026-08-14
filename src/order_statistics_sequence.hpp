@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -36,7 +35,28 @@ struct SequenceStats {
 };
 
 class ChunkedOrderStatisticsSequence {
+    struct Impl;
+
 public:
+    class Snapshot {
+    public:
+        Snapshot() = default;
+
+        const SequenceStats& stats() const noexcept;
+        bool empty() const noexcept;
+        bool at(std::uint64_t record_index, SequencePosition* position, std::string* error) const;
+        bool locate_text_offset(std::uint64_t text_offset, SequencePosition* position, std::string* error) const;
+        bool locate_height_offset(std::uint64_t y_q8, SequencePosition* position, std::string* error) const;
+        bool prefix(std::uint64_t record_count, SequenceAggregate* aggregate, std::string* error) const;
+
+    private:
+        friend class ChunkedOrderStatisticsSequence;
+        explicit Snapshot(std::shared_ptr<const Impl> impl, SequenceStats stats) noexcept;
+
+        std::shared_ptr<const Impl> impl_;
+        SequenceStats stats_{};
+    };
+
     explicit ChunkedOrderStatisticsSequence(std::uint32_t max_records_per_chunk = 256U);
     ~ChunkedOrderStatisticsSequence();
 
@@ -47,6 +67,7 @@ public:
 
     const SequenceStats& stats() const noexcept;
     bool empty() const noexcept;
+    Snapshot snapshot() const noexcept;
 
     bool at(std::uint64_t record_index, SequencePosition* position, std::string* error) const;
     bool locate_text_offset(std::uint64_t text_offset, SequencePosition* position, std::string* error) const;
@@ -68,11 +89,10 @@ public:
         std::string* error);
 
 private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
+    std::shared_ptr<const Impl> impl_;
     SequenceStats stats_{};
 
-    void refresh_stats() noexcept;
+    void commit_root(std::shared_ptr<const Impl> next) noexcept;
 };
 
 } // namespace zevryon::massivedoc

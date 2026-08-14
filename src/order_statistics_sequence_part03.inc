@@ -1,5 +1,52 @@
+bool ChunkedOrderStatisticsSequence::Snapshot::empty() const noexcept { return stats_.aggregate.record_count == 0U; }
+
+bool ChunkedOrderStatisticsSequence::Snapshot::at(
+    std::uint64_t record_index,
+    SequencePosition* position,
     std::string* error) const {
-    if (aggregate == nullptr || error == nullptr || record_count > stats_.aggregate.record_count) {
+    if (!impl_ || position == nullptr || error == nullptr || record_index >= stats_.aggregate.record_count) {
+        if (error != nullptr) {
+            *error = "invalid sequence access";
+        }
+        return false;
+    }
+    error->clear();
+    return Impl::locate_by_records(impl_->root, record_index, position, error);
+}
+
+bool ChunkedOrderStatisticsSequence::Snapshot::locate_text_offset(
+    std::uint64_t text_offset,
+    SequencePosition* position,
+    std::string* error) const {
+    if (!impl_ || position == nullptr || error == nullptr || text_offset >= stats_.aggregate.text_bytes) {
+        if (error != nullptr) {
+            *error = "invalid sequence text offset";
+        }
+        return false;
+    }
+    error->clear();
+    return Impl::locate_by_metric(impl_->root, text_offset, Impl::Metric::Text, position, error);
+}
+
+bool ChunkedOrderStatisticsSequence::Snapshot::locate_height_offset(
+    std::uint64_t y_q8,
+    SequencePosition* position,
+    std::string* error) const {
+    if (!impl_ || position == nullptr || error == nullptr || y_q8 >= stats_.aggregate.layout_height_q8) {
+        if (error != nullptr) {
+            *error = "invalid sequence height offset";
+        }
+        return false;
+    }
+    error->clear();
+    return Impl::locate_by_metric(impl_->root, y_q8, Impl::Metric::Height, position, error);
+}
+
+bool ChunkedOrderStatisticsSequence::Snapshot::prefix(
+    std::uint64_t record_count,
+    SequenceAggregate* aggregate,
+    std::string* error) const {
+    if (!impl_ || aggregate == nullptr || error == nullptr || record_count > stats_.aggregate.record_count) {
         if (error != nullptr) {
             *error = "invalid sequence prefix";
         }
@@ -8,6 +55,55 @@
     error->clear();
     *aggregate = SequenceAggregate{};
     return Impl::prefix_impl(impl_->root.get(), record_count, aggregate, error);
+}
+
+ChunkedOrderStatisticsSequence::ChunkedOrderStatisticsSequence(std::uint32_t max_records_per_chunk) {
+    const std::uint32_t max_chunk = std::clamp(max_records_per_chunk, 8U, 4096U);
+    impl_ = std::make_shared<Impl>(max_chunk, nullptr);
+    stats_ = Impl::make_stats(impl_->root, impl_->max_records_per_chunk);
+}
+
+ChunkedOrderStatisticsSequence::~ChunkedOrderStatisticsSequence() = default;
+ChunkedOrderStatisticsSequence::ChunkedOrderStatisticsSequence(ChunkedOrderStatisticsSequence&&) noexcept = default;
+ChunkedOrderStatisticsSequence& ChunkedOrderStatisticsSequence::operator=(ChunkedOrderStatisticsSequence&&) noexcept = default;
+
+void ChunkedOrderStatisticsSequence::commit_root(std::shared_ptr<const Impl> next) noexcept {
+    impl_ = std::move(next);
+    stats_ = Impl::make_stats(impl_->root, impl_->max_records_per_chunk);
+}
+
+const SequenceStats& ChunkedOrderStatisticsSequence::stats() const noexcept { return stats_; }
+bool ChunkedOrderStatisticsSequence::empty() const noexcept { return stats_.aggregate.record_count == 0U; }
+ChunkedOrderStatisticsSequence::Snapshot ChunkedOrderStatisticsSequence::snapshot() const noexcept {
+    return Snapshot(impl_, stats_);
+}
+
+bool ChunkedOrderStatisticsSequence::at(
+    std::uint64_t record_index,
+    SequencePosition* position,
+    std::string* error) const {
+    return snapshot().at(record_index, position, error);
+}
+
+bool ChunkedOrderStatisticsSequence::locate_text_offset(
+    std::uint64_t text_offset,
+    SequencePosition* position,
+    std::string* error) const {
+    return snapshot().locate_text_offset(text_offset, position, error);
+}
+
+bool ChunkedOrderStatisticsSequence::locate_height_offset(
+    std::uint64_t y_q8,
+    SequencePosition* position,
+    std::string* error) const {
+    return snapshot().locate_height_offset(y_q8, position, error);
+}
+
+bool ChunkedOrderStatisticsSequence::prefix(
+    std::uint64_t record_count,
+    SequenceAggregate* aggregate,
+    std::string* error) const {
+    return snapshot().prefix(record_count, aggregate, error);
 }
 
 bool ChunkedOrderStatisticsSequence::insert(
@@ -28,10 +124,17 @@ bool ChunkedOrderStatisticsSequence::insert(
         return false;
     }
     error->clear();
-    if (!impl_->insert_impl(&impl_->root, record_index, record, error)) {
+    Impl::NodePtr root;
+    if (!Impl::insert_impl(
+            impl_->root,
+            record_index,
+            record,
+            impl_->max_records_per_chunk,
+            &root,
+            error)) {
         return false;
     }
-    refresh_stats();
+    commit_root(std::make_shared<Impl>(impl_->max_records_per_chunk, std::move(root)));
     return true;
 }
 
@@ -46,10 +149,11 @@ bool ChunkedOrderStatisticsSequence::erase(
         return false;
     }
     error->clear();
-    if (!impl_->erase_impl(&impl_->root, record_index, erased, error)) {
+    Impl::NodePtr root;
+    if (!Impl::erase_impl(impl_->root, record_index, erased, &root, error)) {
         return false;
     }
-    refresh_stats();
+    commit_root(std::make_shared<Impl>(impl_->max_records_per_chunk, std::move(root)));
     return true;
 }
 
@@ -68,17 +172,21 @@ bool ChunkedOrderStatisticsSequence::move(
         return true;
     }
     SequenceRecord record;
-    if (!impl_->erase_impl(&impl_->root, from_index, &record, error)) {
+    Impl::NodePtr erased_root;
+    if (!Impl::erase_impl(impl_->root, from_index, &record, &erased_root, error)) {
         return false;
     }
-    if (!impl_->insert_impl(&impl_->root, to_index, record, error)) {
-        // This path is expected to be unreachable for a previously admitted record. Restore best-effort.
-        std::string restore_error;
-        static_cast<void>(impl_->insert_impl(&impl_->root, std::min(from_index, Impl::aggregate_of(impl_->root).record_count), record, &restore_error));
-        refresh_stats();
+    Impl::NodePtr moved_root;
+    if (!Impl::insert_impl(
+            erased_root,
+            to_index,
+            record,
+            impl_->max_records_per_chunk,
+            &moved_root,
+            error)) {
         return false;
     }
-    refresh_stats();
+    commit_root(std::make_shared<Impl>(impl_->max_records_per_chunk, std::move(moved_root)));
     return true;
 }
 
@@ -93,45 +201,23 @@ bool ChunkedOrderStatisticsSequence::update_height(
         }
         return false;
     }
-    error->clear();
-    std::vector<Impl::Node*> path;
-    Impl::Node* node = impl_->root.get();
-    std::uint64_t index = record_index;
-    while (node != nullptr) {
-        path.push_back(node);
-        const std::uint64_t left_count = node->left ? node->left->aggregate.record_count : 0U;
-        if (index < left_count) {
-            node = node->left.get();
-            continue;
-        }
-        const std::uint64_t local_count = static_cast<std::uint64_t>(node->chunk.size());
-        if (index < left_count + local_count) {
-            const std::size_t local = static_cast<std::size_t>(index - left_count);
-            const std::uint32_t old = node->chunk.heights_q8[local];
-            if (new_height_q8 > old && stats_.aggregate.layout_height_q8 > std::numeric_limits<std::uint64_t>::max() - (new_height_q8 - old)) {
-                *error = "sequence aggregate overflow during height update";
-                return false;
-            }
-            node->chunk.heights_q8[local] = new_height_q8;
-            for (auto iterator = path.rbegin(); iterator != path.rend(); ++iterator) {
-                if (!Impl::refresh(*iterator)) {
-                    node->chunk.heights_q8[local] = old;
-                    for (auto rollback = path.rbegin(); rollback != path.rend(); ++rollback) {
-                        static_cast<void>(Impl::refresh(*rollback));
-                    }
-                    *error = "sequence aggregate overflow during height update";
-                    return false;
-                }
-            }
-            *old_height_q8 = old;
-            refresh_stats();
-            return true;
-        }
-        index -= left_count + local_count;
-        node = node->right.get();
+    SequencePosition current;
+    if (!at(record_index, &current, error)) {
+        return false;
     }
-    *error = "sequence height update index is outside the sequence";
-    return false;
+    if (new_height_q8 > current.record.height_q8 &&
+        stats_.aggregate.layout_height_q8 >
+            std::numeric_limits<std::uint64_t>::max() - (new_height_q8 - current.record.height_q8)) {
+        *error = "sequence aggregate overflow during height update";
+        return false;
+    }
+    error->clear();
+    Impl::NodePtr root;
+    if (!Impl::update_height_impl(impl_->root, record_index, new_height_q8, old_height_q8, &root, error)) {
+        return false;
+    }
+    commit_root(std::make_shared<Impl>(impl_->max_records_per_chunk, std::move(root)));
+    return true;
 }
 
 bool ChunkedOrderStatisticsSequence::update_search_summary(
@@ -146,32 +232,12 @@ bool ChunkedOrderStatisticsSequence::update_search_summary(
         return false;
     }
     error->clear();
-    std::vector<Impl::Node*> path;
-    Impl::Node* node = impl_->root.get();
-    std::uint64_t index = record_index;
-    while (node != nullptr) {
-        path.push_back(node);
-        const std::uint64_t left_count = node->left ? node->left->aggregate.record_count : 0U;
-        if (index < left_count) {
-            node = node->left.get();
-            continue;
-        }
-        const std::uint64_t local_count = static_cast<std::uint64_t>(node->chunk.size());
-        if (index < left_count + local_count) {
-            const std::size_t local = static_cast<std::size_t>(index - left_count);
-            *old_summary = node->chunk.search_summaries[local];
-            node->chunk.search_summaries[local] = new_summary;
-            for (auto iterator = path.rbegin(); iterator != path.rend(); ++iterator) {
-                static_cast<void>(Impl::refresh(*iterator));
-            }
-            refresh_stats();
-            return true;
-        }
-        index -= left_count + local_count;
-        node = node->right.get();
+    Impl::NodePtr root;
+    if (!Impl::update_search_impl(impl_->root, record_index, new_summary, old_summary, &root, error)) {
+        return false;
     }
-    *error = "sequence search-summary update index is outside the sequence";
-    return false;
+    commit_root(std::make_shared<Impl>(impl_->max_records_per_chunk, std::move(root)));
+    return true;
 }
 
 } // namespace zevryon::massivedoc
