@@ -101,4 +101,12 @@ if(BUILD_TESTING)
   add_test(
     NAME massivedoc-positional-search-tests
     COMMAND zevryon-massivedoc-positional-search-tests)
+
+  add_executable(
+    zevryon-massivedoc-legacy-open-probe
+    tests/massivedoc_legacy_open_probe.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-legacy-open-probe
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-legacy-open-probe)
 endif()
