@@ -75,6 +75,10 @@ public:
         std::uint64_t length,
         const std::function<std::size_t(std::span<std::byte>)>& reader,
         std::string* error);
+    bool snapshot_prefix(
+        const std::filesystem::path& snapshot_root,
+        StoreStats* stats,
+        std::string* error);
     bool finalize(CorpusMetadata metadata, StoreStats* stats, std::string* error);
 
 private:

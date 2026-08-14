@@ -103,6 +103,17 @@ if(BUILD_TESTING)
     COMMAND zevryon-massivedoc-positional-search-tests)
 
   add_executable(
+    zevryon-massivedoc-progressive-import-tests
+    tests/massivedoc_progressive_import_tests.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-progressive-import-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-progressive-import-tests)
+  add_test(
+    NAME massivedoc-progressive-import-tests
+    COMMAND zevryon-massivedoc-progressive-import-tests)
+
+  add_executable(
     zevryon-massivedoc-legacy-open-probe
     tests/massivedoc_legacy_open_probe.cpp)
   target_link_libraries(
