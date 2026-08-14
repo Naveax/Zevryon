@@ -1,6 +1,7 @@
 #pragma once
 
 #include "massivedoc_block_cache.hpp"
+#include "massivedoc_cold_window.hpp"
 #include "massivedoc_generation.hpp"
 #include "massivedoc_positional_io.hpp"
 
@@ -13,6 +14,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -44,6 +46,7 @@ struct StoreConfig {
 struct StoreReadConfig {
     std::size_t io_window_bytes{kIoWindowBytes};
     ImmutableBlockCacheConfig block_cache{};
+    std::size_t cold_window_bytes{0U};
 };
 
 struct StoreStats {
@@ -100,6 +103,13 @@ public:
     const StoreStats& stats() const noexcept;
     ImmutableBlockCacheStats block_cache_stats() const noexcept;
     void evict_block_cache_to_cold() noexcept;
+    bool touch_record_slice_cold(
+        std::uint64_t record_index,
+        std::uint64_t byte_offset,
+        std::size_t max_bytes,
+        std::string* error);
+    ColdMappedWindowStats cold_window_stats() const noexcept;
+    void release_cold_window() noexcept;
     bool verify(std::string* error) const;
     bool export_payload(const std::filesystem::path& output, std::string* error) const;
     std::vector<SearchHit> find(std::string_view query, std::size_t max_hits, std::string* error) const;
@@ -117,6 +127,7 @@ public:
 private:
     struct Impl;
     Impl* impl_{nullptr};
+    std::unique_ptr<ColdMappedWindow> cold_window_;
 };
 
 bool import_zmdoc_corpus(

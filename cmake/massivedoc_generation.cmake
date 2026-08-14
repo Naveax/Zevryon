@@ -4,6 +4,7 @@ target_sources(
   zevryon-massivedoc-core
   PRIVATE
     src/massivedoc_block_cache.cpp
+    src/massivedoc_cold_window.cpp
     src/massivedoc_generation.cpp
     src/massivedoc_generation_background.cpp
     src/massivedoc_generation_sync.cpp
@@ -24,6 +25,17 @@ if(BUILD_TESTING)
   add_test(
     NAME massivedoc-block-cache-tests
     COMMAND zevryon-massivedoc-block-cache-tests)
+
+  add_executable(
+    zevryon-massivedoc-cold-window-tests
+    tests/massivedoc_cold_window_tests.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-cold-window-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-cold-window-tests)
+  add_test(
+    NAME massivedoc-cold-window-tests
+    COMMAND zevryon-massivedoc-cold-window-tests)
 
   add_executable(
     zevryon-massivedoc-generation-tests
@@ -120,4 +132,12 @@ if(BUILD_TESTING)
     zevryon-massivedoc-legacy-open-probe
     PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-massivedoc-legacy-open-probe)
+
+  add_executable(
+    zevryon-massivedoc-cold-pss-probe
+    tests/massivedoc_cold_pss_probe.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-cold-pss-probe
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-cold-pss-probe)
 endif()
