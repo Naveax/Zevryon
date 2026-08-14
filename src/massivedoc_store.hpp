@@ -1,5 +1,6 @@
 #pragma once
 
+#include "massivedoc_block_cache.hpp"
 #include "massivedoc_generation.hpp"
 #include "massivedoc_positional_io.hpp"
 
@@ -42,6 +43,7 @@ struct StoreConfig {
 
 struct StoreReadConfig {
     std::size_t io_window_bytes{kIoWindowBytes};
+    ImmutableBlockCacheConfig block_cache{};
 };
 
 struct StoreStats {
@@ -92,6 +94,8 @@ public:
 
     bool open(std::string* error);
     const StoreStats& stats() const noexcept;
+    ImmutableBlockCacheStats block_cache_stats() const noexcept;
+    void evict_block_cache_to_cold() noexcept;
     bool verify(std::string* error) const;
     bool export_payload(const std::filesystem::path& output, std::string* error) const;
     std::vector<SearchHit> find(std::string_view query, std::size_t max_hits, std::string* error) const;

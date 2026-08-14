@@ -1,22 +1,16 @@
             return false;
         }
-        BoundedPositionalReader segment(
-            segment_path(impl_->root, chunk.segment_id),
-            impl_->read_config.io_window_bytes);
-        if (!segment.open(error)) {
-            *error = "cannot open record segment positional reader: " + *error;
-            return false;
-        }
         std::uint64_t segment_offset = chunk.offset;
         std::uint64_t remaining = chunk.length;
         while (remaining != 0U) {
             const std::size_t amount = static_cast<std::size_t>(
                 std::min<std::uint64_t>(remaining, buffer.size()));
-            if (!segment.read_exact_at(
+            if (!impl_->read_segment_exact(
+                    chunk.segment_id,
                     segment_offset,
                     std::span<std::byte>(buffer.data(), amount),
                     error)) {
-                *error = "cannot read record segment positionally: " + *error;
+                *error = "cannot read record segment through immutable block cache: " + *error;
                 return false;
             }
             if (!consumer(std::span<const std::byte>(buffer.data(), amount))) {
@@ -80,13 +74,6 @@ bool StoreReader::read_record_slice(
             *error = "record slice segment offset overflow";
             return false;
         }
-        BoundedPositionalReader segment(
-            segment_path(impl_->root, chunk.segment_id),
-            impl_->read_config.io_window_bytes);
-        if (!segment.open(error)) {
-            *error = "cannot open record slice positional reader: " + *error;
-            return false;
-        }
         std::uint64_t segment_offset = chunk.offset + offset_in_chunk;
         std::uint64_t chunk_remaining = chunk.length - offset_in_chunk;
         while (chunk_remaining != 0U && remaining_output != 0U) {
@@ -94,11 +81,12 @@ bool StoreReader::read_record_slice(
                 remaining_output,
                 static_cast<std::size_t>(
                     std::min<std::uint64_t>(chunk_remaining, buffer.size())));
-            if (!segment.read_exact_at(
+            if (!impl_->read_segment_exact(
+                    chunk.segment_id,
                     segment_offset,
                     std::span<std::byte>(buffer.data(), amount),
                     error)) {
-                *error = "cannot read record slice positionally: " + *error;
+                *error = "cannot read record slice through immutable block cache: " + *error;
                 return false;
             }
             output->insert(
@@ -197,8 +185,6 @@ std::vector<SearchHit> StoreReader::find(
         reinterpret_cast<const std::byte*>(query.data()),
         query.size());
     std::vector<std::byte> io_buffer(impl_->read_config.io_window_bytes);
-    std::unique_ptr<BoundedPositionalReader> segment_reader;
-    std::uint32_t open_segment = std::numeric_limits<std::uint32_t>::max();
 
     for (std::uint64_t block = 0U;
          block < impl_->stats.search_block_count && hits.size() < max_hits;
@@ -274,27 +260,18 @@ std::vector<SearchHit> StoreReader::find(
                         error)) {
                     return {};
                 }
-                if (segment_reader == nullptr || open_segment != chunk.segment_id) {
-                    segment_reader = std::make_unique<BoundedPositionalReader>(
-                        segment_path(impl_->root, chunk.segment_id),
-                        impl_->read_config.io_window_bytes);
-                    if (!segment_reader->open(error)) {
-                        *error = "cannot open candidate segment positional reader: " + *error;
-                        return {};
-                    }
-                    open_segment = chunk.segment_id;
-                }
 
                 std::uint64_t segment_offset = chunk.offset;
                 std::uint64_t remaining = chunk.length;
                 while (remaining != 0U && !found) {
                     const std::size_t amount = static_cast<std::size_t>(
                         std::min<std::uint64_t>(remaining, io_buffer.size()));
-                    if (!segment_reader->read_exact_at(
+                    if (!impl_->read_segment_exact(
+                            chunk.segment_id,
                             segment_offset,
                             std::span<std::byte>(io_buffer.data(), amount),
                             error)) {
-                        *error = "cannot read candidate segment positionally: " + *error;
+                        *error = "cannot read candidate segment through immutable block cache: " + *error;
                         return {};
                     }
                     std::vector<std::byte> window;

@@ -48,6 +48,7 @@ struct StoreReader::Impl {
     std::array<std::uint8_t, 32> expected_sha{};
     std::unique_ptr<BoundedPositionalReader> records_reader;
     std::unique_ptr<BoundedPositionalReader> chunks_reader;
+    std::unique_ptr<ImmutableBlockCache> segment_cache;
     bool opened{false};
 
     bool read_record_descriptor(std::uint64_t index, RecordDescriptor* descriptor, std::string* error) const {
@@ -103,6 +104,64 @@ struct StoreReader::Impl {
         *descriptor = *parsed;
         return true;
     }
+
+    bool load_segment_block(
+        std::uint32_t segment_id,
+        std::uint64_t block_offset,
+        std::size_t maximum_bytes,
+        std::vector<std::byte>* output,
+        std::string* error) const {
+        output->clear();
+        BoundedPositionalReader segment(
+            segment_path(root, segment_id),
+            read_config.io_window_bytes);
+        if (!segment.open(error)) {
+            *error = "cannot open immutable segment block positionally: " + *error;
+            return false;
+        }
+        if (block_offset >= segment.file_size()) {
+            *error = "immutable segment block offset out of range";
+            return false;
+        }
+        const std::uint64_t available = segment.file_size() - block_offset;
+        const std::size_t amount = static_cast<std::size_t>(
+            std::min<std::uint64_t>(available, maximum_bytes));
+        output->resize(amount);
+        if (!segment.read_exact_at(block_offset, *output, error)) {
+            *error = "cannot read immutable segment block positionally: " + *error;
+            return false;
+        }
+        return true;
+    }
+
+    bool read_segment_exact(
+        std::uint32_t segment_id,
+        std::uint64_t offset,
+        std::span<std::byte> destination,
+        std::string* error) {
+        if (segment_cache == nullptr) {
+            *error = "immutable segment block cache is unavailable";
+            return false;
+        }
+        return segment_cache->read_exact(
+            segment_id,
+            offset,
+            destination,
+            [this](
+                std::uint32_t source_id,
+                std::uint64_t block_offset,
+                std::size_t maximum_bytes,
+                std::vector<std::byte>* output,
+                std::string* loader_error) {
+                return load_segment_block(
+                    source_id,
+                    block_offset,
+                    maximum_bytes,
+                    output,
+                    loader_error);
+            },
+            error);
+    }
 };
 
 StoreReader::StoreReader(
@@ -125,6 +184,10 @@ bool StoreReader::open(std::string* error) {
     if (impl_->read_config.io_window_bytes == 0U ||
         impl_->read_config.io_window_bytes > kMaximumIoWindowBytes) {
         *error = "store reader I/O window is outside the supported bounded range";
+        return false;
+    }
+    if (!validate_immutable_block_cache_config(impl_->read_config.block_cache, error)) {
+        *error = "store reader immutable block cache config is invalid: " + *error;
         return false;
     }
     std::array<std::byte, kManifestBytes> manifest{};
@@ -260,12 +323,27 @@ bool StoreReader::open(std::string* error) {
             return false;
         }
     }
+    impl_->segment_cache = std::make_unique<ImmutableBlockCache>(
+        impl_->read_config.block_cache);
     impl_->opened = true;
     return true;
 }
 
 const StoreStats& StoreReader::stats() const noexcept {
     return impl_->stats;
+}
+
+ImmutableBlockCacheStats StoreReader::block_cache_stats() const noexcept {
+    if (impl_->segment_cache == nullptr) {
+        return {};
+    }
+    return impl_->segment_cache->stats();
+}
+
+void StoreReader::evict_block_cache_to_cold() noexcept {
+    if (impl_->segment_cache != nullptr) {
+        impl_->segment_cache->evict_all_to_cold();
+    }
 }
 
 bool StoreReader::read_record(
