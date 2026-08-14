@@ -85,12 +85,23 @@ bool build_store_trigram_index(
         if (!writer.begin_record(record_index, error)) {
             return false;
         }
-        if (!reader.read_record(
-                record_index,
-                [&](std::span<const std::byte> bytes) {
-                    return writer.feed(bytes, error);
-                },
-                error)) {
+        bool feed_ok = true;
+        const bool read_ok = reader.read_record(
+            record_index,
+            [&](std::span<const std::byte> bytes) {
+                if (static_cast<bool>(cancelled) && cancelled()) {
+                    *error = "trigram index build cancelled";
+                    feed_ok = false;
+                    return false;
+                }
+                if (!writer.feed(bytes, error)) {
+                    feed_ok = false;
+                    return false;
+                }
+                return true;
+            },
+            error);
+        if (!read_ok || !feed_ok) {
             return false;
         }
         if (!writer.end_record(error)) {
