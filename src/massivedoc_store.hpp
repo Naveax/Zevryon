@@ -4,6 +4,7 @@
 #include "massivedoc_cold_window.hpp"
 #include "massivedoc_generation.hpp"
 #include "massivedoc_positional_io.hpp"
+#include "massivedoc_trigram_index.hpp"
 
 #if defined(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)
 #include "massivedoc_descriptor_shadow.hpp"

@@ -26,4 +26,15 @@ if(BUILD_TESTING)
   add_test(
     NAME massivedoc-trigram-store-tests
     COMMAND zevryon-massivedoc-trigram-store-tests)
+
+  add_executable(
+    zevryon-massivedoc-trigram-find-tests
+    tests/massivedoc_trigram_find_tests.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-trigram-find-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-trigram-find-tests)
+  add_test(
+    NAME massivedoc-trigram-find-tests
+    COMMAND zevryon-massivedoc-trigram-find-tests)
 endif()
