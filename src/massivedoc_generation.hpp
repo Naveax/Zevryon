@@ -32,6 +32,24 @@ struct GenerationRecovery {
     std::vector<GenerationSegmentInventory> segments;
 };
 
+enum class GenerationCompactionCut : std::uint32_t {
+    none = 0U,
+    after_journal_temp = 1U,
+    after_journal_replace = 2U,
+};
+
+struct GenerationCompactionConfig {
+    std::uint32_t retain_committed_generations{2U};
+};
+
+struct GenerationCompactionResult {
+    std::uint64_t authority_generation{0U};
+    std::uint64_t journal_bytes_before{0U};
+    std::uint64_t journal_bytes_after{0U};
+    std::uint64_t retained_committed_generations{0U};
+    std::uint64_t quarantined_stale_manifests{0U};
+};
+
 std::filesystem::path store_generation_path(
     const std::filesystem::path& store_root,
     std::uint64_t generation);
@@ -56,6 +74,13 @@ bool publish_legacy_store_manifest(
 bool recover_store_generation(
     const std::filesystem::path& store_root,
     GenerationRecovery* recovery,
+    std::string* error);
+
+bool compact_store_generation_metadata(
+    const std::filesystem::path& store_root,
+    GenerationCompactionConfig config,
+    GenerationCompactionCut cut,
+    GenerationCompactionResult* result,
     std::string* error);
 
 } // namespace zevryon::massivedoc

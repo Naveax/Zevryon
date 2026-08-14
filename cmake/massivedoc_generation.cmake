@@ -28,6 +28,17 @@ if(BUILD_TESTING)
     COMMAND zevryon-massivedoc-generation-runtime-tests)
 
   add_executable(
+    zevryon-massivedoc-generation-compaction-tests
+    tests/massivedoc_generation_compaction_tests.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-generation-compaction-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-generation-compaction-tests)
+  add_test(
+    NAME massivedoc-generation-compaction-tests
+    COMMAND zevryon-massivedoc-generation-compaction-tests)
+
+  add_executable(
     zevryon-massivedoc-positional-io-tests
     tests/massivedoc_positional_io_tests.cpp)
   target_link_libraries(
