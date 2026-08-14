@@ -36,4 +36,10 @@ bool load_logical_order_snapshot(
     LogicalOrderSnapshot* snapshot,
     std::string* error);
 
+bool publish_logical_order_snapshot(
+    const std::filesystem::path& store_root,
+    std::uint64_t generation,
+    std::span<const std::uint64_t> source_record_indices,
+    std::string* error);
+
 } // namespace zevryon::massivedoc
