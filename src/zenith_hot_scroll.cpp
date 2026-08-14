@@ -31,7 +31,7 @@ struct ScrollAnchor {
 };
 
 struct CheckpointKey {
-    std::uint64_t record_index{0};
+    std::uint64_t source_record_index{0};
     std::uint32_t width_q8{0};
 
     bool operator==(const CheckpointKey&) const noexcept = default;
@@ -40,7 +40,7 @@ struct CheckpointKey {
 struct CheckpointKeyHash {
     std::size_t operator()(const CheckpointKey& key) const noexcept {
         std::size_t value = static_cast<std::size_t>(
-            key.record_index ^ (key.record_index >> 32U));
+            key.source_record_index ^ (key.source_record_index >> 32U));
         value ^= static_cast<std::size_t>(key.width_q8) +
                  static_cast<std::size_t>(0x9e3779b9U) + (value << 6U) +
                  (value >> 2U);
@@ -49,7 +49,7 @@ struct CheckpointKeyHash {
 };
 
 struct SourceWindowKey {
-    std::uint64_t record_index{0};
+    std::uint64_t source_record_index{0};
     std::uint64_t source_offset{0};
     std::size_t request_bytes{0};
 
@@ -59,7 +59,7 @@ struct SourceWindowKey {
 struct SourceWindowKeyHash {
     std::size_t operator()(const SourceWindowKey& key) const noexcept {
         std::size_t value = static_cast<std::size_t>(
-            key.record_index ^ (key.record_index >> 32U));
+            key.source_record_index ^ (key.source_record_index >> 32U));
         const auto mix = [&value](std::uint64_t part) {
             const std::size_t folded = static_cast<std::size_t>(part ^ (part >> 32U));
             value ^= folded + static_cast<std::size_t>(0x9e3779b9U) +
@@ -332,11 +332,12 @@ struct ZenithHotScrollSession::Impl {
             return true;
         }
 
-        const CheckpointKey key{record.record_index, checkpoint_config.width_q8};
+        const CheckpointKey key{record.source_record_index, checkpoint_config.width_q8};
         auto found = checkpoint_cache.find(key);
         if (found != checkpoint_cache.end()) {
             const LayoutCheckpointStats& cached = found->second.index.stats();
-            if (cached.logical_id == record.logical_id &&
+            if (cached.record_index == record.source_record_index &&
+                cached.logical_id == record.logical_id &&
                 cached.source_bytes == record.source_bytes) {
                 checkpoint_lru.splice(
                     checkpoint_lru.begin(), checkpoint_lru, found->second.lru_position);
@@ -352,7 +353,7 @@ struct ZenithHotScrollSession::Impl {
         ++statistics.checkpoint_cache_misses;
         std::error_code exists_error;
         const bool exists = std::filesystem::exists(
-            layout_checkpoint_path(root, record.record_index, checkpoint_config),
+            layout_checkpoint_path(root, record.source_record_index, checkpoint_config),
             exists_error);
         if (exists_error || !exists) {
             error->clear();
@@ -362,7 +363,7 @@ struct ZenithHotScrollSession::Impl {
         LayoutCheckpointIndex loaded;
         if (!loaded.open(
                 root,
-                record.record_index,
+                record.source_record_index,
                 record.logical_id,
                 record.source_bytes,
                 checkpoint_config,
@@ -413,7 +414,7 @@ struct ZenithHotScrollSession::Impl {
             return false;
         }
         *physical_bytes_read = 0U;
-        const SourceWindowKey key{record.record_index, source_offset, request_bytes};
+        const SourceWindowKey key{record.source_record_index, source_offset, request_bytes};
         auto found = source_cache.find(key);
         if (found != source_cache.end()) {
             source_lru.splice(source_lru.begin(), source_lru, found->second.lru_position);
@@ -425,7 +426,7 @@ struct ZenithHotScrollSession::Impl {
 
         ++statistics.source_window_cache_misses;
         if (!store.read_record_slice(
-                record.record_index,
+                record.source_record_index,
                 source_offset,
                 request_bytes,
                 &source_scratch,
@@ -485,10 +486,10 @@ struct ZenithHotScrollSession::Impl {
         *truncated = false;
 
         const LayoutCheckpointStats& checkpoint_stats = checkpoint.stats();
-        if (checkpoint_stats.record_index != record.record_index ||
+        if (checkpoint_stats.record_index != record.source_record_index ||
             checkpoint_stats.logical_id != record.logical_id ||
             checkpoint_stats.source_bytes != record.source_bytes) {
-            *error = "hot-scroll checkpoint does not match record";
+            *error = "hot-scroll checkpoint does not match record source identity";
             return false;
         }
         const LayoutCheckpointConfig& checkpoint_config = checkpoint_stats.config;
@@ -748,7 +749,7 @@ bool ZenithHotScrollSession::layout(
         const LayoutCheckpointStats& checkpoint_stats = checkpoint->stats();
         ++result->checkpoint_hits;
         ++result->measured_records;
-        if (charged_indices.insert(record.record_index).second) {
+        if (charged_indices.insert(record.source_record_index).second) {
             result->checkpoint_index_bytes = saturating_add(
                 result->checkpoint_index_bytes, checkpoint_stats.physical_bytes);
         }
@@ -817,7 +818,7 @@ bool ZenithHotScrollSession::layout(
             return true;
         }
         ++result->checkpoint_hits;
-        if (charged_indices.insert(record.record_index).second) {
+        if (charged_indices.insert(record.source_record_index).second) {
             result->checkpoint_index_bytes = saturating_add(
                 result->checkpoint_index_bytes,
                 checkpoint->stats().physical_bytes);
