@@ -1,6 +1,8 @@
+#include "logical_order_persistence.hpp"
 #include "compact_document_part00.inc"
 #include "compact_document_part01.inc"
 #include "compact_document_part02.inc"
+#include "logical_order_persistence_part00.inc"
 #include "compact_document_part03.inc"
 #include "order_statistics_sequence_part00.inc"
 #include "order_statistics_sequence_part01.inc"
