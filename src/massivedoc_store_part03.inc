@@ -1,13 +1,37 @@
-    std::ofstream stream(impl_->root / "manifest.zmd", std::ios::binary | std::ios::trunc);
-    if (!stream || !write_all(stream, manifest)) {
-        *error = "failed to write store manifest";
+    const std::uint64_t segment_count = static_cast<std::uint64_t>(impl_->segment_id) + 1U;
+    std::vector<GenerationSegmentInventory> generation_segments;
+    generation_segments.reserve(static_cast<std::size_t>(segment_count));
+    std::error_code segment_size_error;
+    for (std::uint64_t segment = 0U; segment < segment_count; ++segment) {
+        const auto segment_id = static_cast<std::uint32_t>(segment);
+        const std::uint64_t byte_length =
+            std::filesystem::file_size(segment_path(impl_->root, segment_id), segment_size_error);
+        if (segment_size_error) {
+            *error = "cannot size store segment for generation publication: " + segment_size_error.message();
+            return false;
+        }
+        generation_segments.push_back(GenerationSegmentInventory{segment_id, byte_length});
+    }
+    if (!publish_store_generation(
+            impl_->root,
+            1U,
+            manifest,
+            digest,
+            generation_segments,
+            GenerationPublicationCut::none,
+            error)) {
         return false;
     }
-    stream.flush();
+
+    // The committed generation is canonical. The historical manifest remains a best-effort
+    // compatibility mirror for older tooling and must not redefine transaction success.
+    std::string compatibility_error;
+    (void)publish_legacy_store_manifest(impl_->root, manifest, &compatibility_error);
+
     impl_->finalized = true;
     if (stats != nullptr) {
         stats->corpus = metadata;
-        stats->segment_count = static_cast<std::uint64_t>(impl_->segment_id) + 1U;
+        stats->segment_count = segment_count;
         stats->chunk_count = impl_->chunk_count;
         stats->search_block_count = impl_->search_blocks;
         stats->payload_sha256 = hex_digest(digest);
@@ -83,15 +107,38 @@ StoreReader::~StoreReader() {
 }
 
 bool StoreReader::open(std::string* error) {
-    std::ifstream stream(impl_->root / "manifest.zmd", std::ios::binary);
-    if (!stream) {
-        *error = "cannot open store manifest";
+    if (error == nullptr) {
         return false;
     }
+    error->clear();
     std::array<std::byte, kManifestBytes> manifest{};
-    if (!read_exact(stream, manifest)) {
-        *error = "truncated store manifest";
+    GenerationRecovery recovery;
+    if (!recover_store_generation(impl_->root, &recovery, error)) {
         return false;
+    }
+    if (recovery.protocol_present) {
+        if (!recovery.found) {
+            *error = "no committed store generation could be recovered";
+            return false;
+        }
+        if (recovery.authority_manifest.size() != kManifestBytes) {
+            *error = "recovered store generation has an invalid authority manifest size";
+            return false;
+        }
+        std::copy(
+            recovery.authority_manifest.begin(),
+            recovery.authority_manifest.end(),
+            manifest.begin());
+    } else {
+        std::ifstream stream(impl_->root / "manifest.zmd", std::ios::binary);
+        if (!stream) {
+            *error = "cannot open store manifest";
+            return false;
+        }
+        if (!read_exact(stream, manifest)) {
+            *error = "truncated store manifest";
+            return false;
+        }
     }
     for (std::size_t index = 0U; index < kManifestMagic.size(); ++index) {
         if (std::to_integer<unsigned char>(manifest[index]) != static_cast<unsigned char>(kManifestMagic[index])) {

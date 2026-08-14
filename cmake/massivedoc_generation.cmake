@@ -1,0 +1,27 @@
+target_sources(
+  zevryon-massivedoc-core
+  PRIVATE src/massivedoc_generation.cpp)
+
+if(BUILD_TESTING)
+  add_executable(
+    zevryon-massivedoc-generation-tests
+    tests/massivedoc_generation_tests.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-generation-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-generation-tests)
+  add_test(
+    NAME massivedoc-generation-tests
+    COMMAND zevryon-massivedoc-generation-tests)
+
+  add_executable(
+    zevryon-massivedoc-generation-runtime-tests
+    tests/massivedoc_generation_runtime_tests.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-generation-runtime-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-generation-runtime-tests)
+  add_test(
+    NAME massivedoc-generation-runtime-tests
+    COMMAND zevryon-massivedoc-generation-runtime-tests)
+endif()
