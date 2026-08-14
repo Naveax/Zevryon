@@ -1,0 +1,104 @@
+{
+  "schema": "zevryon.m2.order-statistics-sequence-promotion.v1",
+  "repository": "Naveax/Zevryon",
+  "branch": "agent/m2-order-statistics-sequence",
+  "base_main": "b93c93c1df178d4335f8000eced890b8f36356d2",
+  "source_authority_head": "d17628a3d51922d50fd295f84b436e13e935846a",
+  "source_authority_ahead_by": 21,
+  "source_authority_behind_by": 0,
+  "source_authority_changed_path_count": 33,
+  "source_ci": {
+    "workflow": "Windows and Linux CI",
+    "run_id": 31795891050,
+    "head_sha": "d17628a3d51922d50fd295f84b436e13e935846a",
+    "conclusion": "success",
+    "jobs": [
+      {"name": "Z2R-3E-U Windows Unicode authority", "job_id": 94752812080, "conclusion": "success"},
+      {"name": "Linux build and headless tests", "job_id": 94752812105, "conclusion": "success"},
+      {"name": "Z2R-3E-U Linux Unicode authority", "job_id": 94752812108, "conclusion": "success"},
+      {"name": "Windows build and headless tests", "job_id": 94752812207, "conclusion": "success"},
+      {"name": "Apple backend removal guard", "job_id": 94752812222, "conclusion": "success"}
+    ]
+  },
+  "admitted_capabilities": [
+    "bounded-chunk persistent order-statistics sequence",
+    "immutable physical source_record_index independent from logical ordinal",
+    "O(1) immutable snapshots and O(1) shared-root transaction fork",
+    "logical move/reorder with final-index semantics",
+    "physical payload/checkpoint/raw-window dereference after logical reorder",
+    "physical height persistence after logical reorder",
+    "generation-based durable logical-order persistence",
+    "fail-closed committed-generation validation",
+    "torn temporary generation recovery",
+    "cross-platform durable publication on Windows and Linux",
+    "reopen recovery through CompactArenaReader",
+    "reopen recovery through LayoutWindowEngine",
+    "reopen recovery through ZenithHotScrollSession"
+  ],
+  "explicit_non_capabilities": [
+    "durable compact-arena insert",
+    "durable compact-arena erase",
+    "arbitrary structural editing beyond the admitted move/reorder boundary"
+  ],
+  "source_identity_rule": {
+    "logical_identity": "record_index",
+    "physical_identity": "source_record_index",
+    "physical_consumers": [
+      "StoreReader payload reads",
+      "persistent layout checkpoint identity/pathing",
+      "hot-scroll checkpoint cache",
+      "hot-scroll raw source-window cache",
+      "record-heights.idx physical slot",
+      "height-blocks.idx physical block"
+    ]
+  },
+  "durability_rule": {
+    "generation_path": "arena/logical-order.g<16-hex-generation>.zmd",
+    "publication_order": "candidate-root -> durable generation -> committed reload/validation -> live-root publish",
+    "missing_generation": "identity-order generation 0 for backward compatibility",
+    "torn_temp": "ignored",
+    "corrupt_committed_generation": "fail-closed",
+    "committed_generation_overwrite": false
+  },
+  "expected_changed_paths": [
+    "docs/M2_ORDER_STATISTICS_SEQUENCE.md",
+    "docs/M2_SESSION_LOGICAL_MOVE.md",
+    "docs/M2_SOURCE_IDENTITY_CONSUMERS.md",
+    "src/compact_document.cpp",
+    "src/compact_document.hpp",
+    "src/compact_document_part02.inc",
+    "src/compact_document_part03.inc",
+    "src/layout_checkpoint_part03.inc",
+    "src/layout_window.cpp",
+    "src/layout_window.hpp",
+    "src/logical_order_persistence.hpp",
+    "src/logical_order_persistence_part00.inc",
+    "src/logical_order_publication_part00.inc",
+    "src/order_statistics_sequence.hpp",
+    "src/order_statistics_sequence_fork.inc",
+    "src/order_statistics_sequence_part00.inc",
+    "src/order_statistics_sequence_part01.inc",
+    "src/order_statistics_sequence_part02.inc",
+    "src/order_statistics_sequence_part03.inc",
+    "src/zenith_hot_scroll.cpp",
+    "src/zenith_hot_scroll.hpp",
+    "src/zenith_layout_window.cpp",
+    "tests/compact_document_tests.cpp",
+    "tests/compact_durable_order_test_support.hpp",
+    "tests/durable_consumer_reopen_test_support.hpp",
+    "tests/layout_checkpoint_tests.cpp",
+    "tests/layout_window_tests.cpp",
+    "tests/logical_order_persistence_test_support.hpp",
+    "tests/logical_order_publication_test_support.hpp",
+    "tests/order_statistics_sequence_fork_test_support.hpp",
+    "tests/order_statistics_sequence_test_support.hpp",
+    "tests/order_statistics_sequence_test_support_impl.hpp",
+    "tests/zenith_hot_scroll_tests.cpp"
+  ],
+  "evidence_only_promotion_paths": [
+    "certification/m2_order_statistics_sequence_promotion.json",
+    "docs/M2_ORDER_STATISTICS_SEQUENCE_PROMOTION.md"
+  ],
+  "promotion_rule": "The direct child containing only the two evidence-only promotion paths may be promoted only after its own push-triggered Windows and Linux CI run concludes success on that exact head.",
+  "promotion_status": "source-authority-green-awaiting-evidence-head-exact-ci"
+}
