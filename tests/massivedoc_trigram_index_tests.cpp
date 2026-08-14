@@ -1,7 +1,8 @@
 #include "massivedoc_trigram_index.hpp"
 
+#include <algorithm>
 #include <array>
-#include <cassert>
+#include <cstdlib>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -16,8 +17,58 @@
 namespace {
 using namespace zevryon::massivedoc;
 
+#define REQUIRE(condition) \
+    do { \
+        if (!(condition)) { \
+            std::cerr << "REQUIRE failed: " #condition " at " << __FILE__ << ':' << __LINE__ << "\n"; \
+            std::exit(1); \
+        } \
+    } while (false)
+
+
 std::span<const std::byte> bytes_of(std::string_view text) {
     return {reinterpret_cast<const std::byte*>(text.data()), text.size()};
+}
+
+template <typename T>
+T read_le(std::istream& stream) {
+    std::array<std::byte, sizeof(T)> bytes{};
+    stream.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    REQUIRE(stream.gcount() == static_cast<std::streamsize>(bytes.size()));
+    T value = 0U;
+    for (std::size_t index = 0U; index < bytes.size(); ++index) {
+        value |= static_cast<T>(std::to_integer<unsigned char>(bytes[index])) << (index * 8U);
+    }
+    return value;
+}
+
+std::uint32_t trigram_value(char a, char b, char c) {
+    return (static_cast<std::uint32_t>(static_cast<unsigned char>(a)) << 16U) |
+           (static_cast<std::uint32_t>(static_cast<unsigned char>(b)) << 8U) |
+           static_cast<std::uint32_t>(static_cast<unsigned char>(c));
+}
+
+std::uint64_t posting_file_offset_for(
+    const std::filesystem::path& root,
+    std::uint32_t wanted) {
+    std::ifstream stream(root / "search.tri", std::ios::binary);
+    REQUIRE(stream);
+    stream.seekg(32, std::ios::beg);
+    const std::uint64_t distinct = read_le<std::uint64_t>(stream);
+    stream.seekg(48, std::ios::beg);
+    const std::uint64_t directory_offset = read_le<std::uint64_t>(stream);
+    const std::uint64_t postings_offset = read_le<std::uint64_t>(stream);
+    for (std::uint64_t index = 0U; index < distinct; ++index) {
+        stream.seekg(static_cast<std::streamoff>(directory_offset + index * 40U), std::ios::beg);
+        const std::uint32_t trigram = read_le<std::uint32_t>(stream);
+        (void)read_le<std::uint32_t>(stream); // posting CRC
+        const std::uint64_t relative = read_le<std::uint64_t>(stream);
+        if (trigram == wanted) {
+            return postings_offset + relative;
+        }
+    }
+    REQUIRE(false);
+    return 0U;
 }
 
 struct Fixture {
@@ -47,7 +98,7 @@ Fixture build_fixture() {
     std::string error;
     for (std::size_t block = 0U; block < fixture.blocks.size(); ++block) {
         for (const auto& record : fixture.blocks[block]) {
-            assert(writer.begin_record(static_cast<std::uint64_t>(block), &error));
+            REQUIRE(writer.begin_record(static_cast<std::uint64_t>(block), &error));
             // Force feed boundaries through trigrams.
             const auto bytes = bytes_of(record);
             std::size_t offset = 0U;
@@ -55,24 +106,24 @@ Fixture build_fixture() {
             std::size_t turn = 0U;
             while (offset < bytes.size()) {
                 const std::size_t amount = std::min(pattern[turn % pattern.size()], bytes.size() - offset);
-                assert(writer.feed(bytes.subspan(offset, amount), &error));
+                REQUIRE(writer.feed(bytes.subspan(offset, amount), &error));
                 offset += amount;
                 ++turn;
             }
-            assert(writer.end_record(&error));
+            REQUIRE(writer.end_record(&error));
         }
     }
     TrigramIndexStats stats;
-    assert(writer.finish(
+    REQUIRE(writer.finish(
         static_cast<std::uint64_t>(fixture.blocks.size()),
         &stats,
         [] { return false; },
         &error));
-    assert(stats.block_count == fixture.blocks.size());
-    assert(stats.distinct_trigrams != 0U);
-    assert(stats.posting_pairs != 0U);
-    assert(stats.bloom_bytes == fixture.blocks.size() * kTrigramBloomBytes);
-    assert(stats.peak_sort_entries != 0U);
+    REQUIRE(stats.block_count == fixture.blocks.size());
+    REQUIRE(stats.distinct_trigrams != 0U);
+    REQUIRE(stats.posting_pairs != 0U);
+    REQUIRE(stats.bloom_bytes == fixture.blocks.size() * (kTrigramBloomBytes + sizeof(std::uint32_t)));
+    REQUIRE(stats.peak_sort_entries != 0U);
     return fixture;
 }
 
@@ -108,7 +159,7 @@ std::set<std::uint64_t> candidate_blocks(
     if (!ok) {
         std::cerr << "candidate query failed for [" << query << "]: " << error << "\n";
     }
-    assert(ok);
+    REQUIRE(ok);
     return result;
 }
 
@@ -118,8 +169,8 @@ void test_equivalence_no_false_negatives() {
     config.io_window_bytes = 17U;
     TrigramIndexReader reader(fixture.root, config);
     std::string error;
-    assert(reader.open(&error));
-    assert(reader.block_count() == fixture.blocks.size());
+    REQUIRE(reader.open(&error));
+    REQUIRE(reader.block_count() == fixture.blocks.size());
 
     const std::array<std::string_view, 10> queries{
         "needle", "alpha", "quick brown", "abc", "7890", "middle",
@@ -128,37 +179,37 @@ void test_equivalence_no_false_negatives() {
         const auto exact = exact_blocks(fixture, query);
         const auto candidates = candidate_blocks(&reader, query);
         for (const auto block : exact) {
-            assert(candidates.contains(block));
+            REQUIRE(candidates.contains(block));
         }
     }
 
     // Trigrams must never bridge records. This query exists only if the end of one record
     // is concatenated with the beginning of the next record in block 4.
     const auto cross_record = candidate_blocks(&reader, "needle-prefix");
-    assert(!cross_record.contains(4U));
+    REQUIRE(!cross_record.contains(4U));
 
     TrigramQueryStats stats;
     const auto needle_candidates = candidate_blocks(&reader, "needle", &stats);
-    assert(needle_candidates.contains(0U));
-    assert(needle_candidates.contains(2U));
-    assert(stats.posting_streams_opened >= 1U);
-    assert(stats.posting_streams_opened <= kTrigramIntersectionStreams);
+    REQUIRE(needle_candidates.contains(0U));
+    REQUIRE(needle_candidates.contains(2U));
+    REQUIRE(stats.posting_streams_opened >= 1U);
+    REQUIRE(stats.posting_streams_opened <= kTrigramIntersectionStreams);
 }
 
 void test_short_query_visits_all_blocks() {
     const Fixture fixture = build_fixture();
     TrigramIndexReader reader(fixture.root);
     std::string error;
-    assert(reader.open(&error));
+    REQUIRE(reader.open(&error));
     const auto candidates = candidate_blocks(&reader, "ab");
-    assert(candidates.size() == fixture.blocks.size());
+    REQUIRE(candidates.size() == fixture.blocks.size());
 }
 
 void test_cancellation_is_observed() {
     const Fixture fixture = build_fixture();
     TrigramIndexReader reader(fixture.root);
     std::string error;
-    assert(reader.open(&error));
+    REQUIRE(reader.open(&error));
     int checks = 0;
     TrigramQueryStats stats;
     const bool ok = reader.visit_candidate_blocks(
@@ -167,10 +218,11 @@ void test_cancellation_is_observed() {
         [&checks] { return ++checks >= 1; },
         &stats,
         &error);
-    assert(!ok);
-    assert(stats.cancelled);
-    assert(error == "trigram query cancelled");
+    REQUIRE(!ok);
+    REQUIRE(stats.cancelled);
+    REQUIRE(error == "trigram query cancelled");
 }
+
 
 void test_external_sort_merge_path() {
     const auto root = std::filesystem::temp_directory_path() / "zevryon-m4-trigram-merge-tests";
@@ -186,44 +238,113 @@ void test_external_sort_merge_path() {
     std::string payload;
     payload.resize(30000U);
     for (std::size_t index = 0U; index < payload.size(); ++index) {
-        payload[index] = static_cast<char>(
-            static_cast<unsigned int>('a') +
-            static_cast<unsigned int>((index * 17U + index / 13U) % 26U));
+        payload[index] = static_cast<char>(static_cast<unsigned int>('a') + static_cast<unsigned int>((index * 17U + index / 13U) % 26U));
     }
     payload.replace(21000U, 12U, "merge-needle");
-    assert(writer.begin_record(0U, &error));
+    REQUIRE(writer.begin_record(0U, &error));
     const auto bytes = bytes_of(payload);
     for (std::size_t offset = 0U; offset < bytes.size();) {
         const std::size_t amount = std::min<std::size_t>(37U, bytes.size() - offset);
-        assert(writer.feed(bytes.subspan(offset, amount), &error));
+        REQUIRE(writer.feed(bytes.subspan(offset, amount), &error));
         offset += amount;
     }
-    assert(writer.end_record(&error));
+    REQUIRE(writer.end_record(&error));
     TrigramIndexStats stats;
-    assert(writer.finish(1U, &stats, [] { return false; }, &error));
-    assert(stats.spool_bytes > 64U * 1024U);
-    assert(stats.merge_passes >= 1U);
-    assert(stats.peak_sort_entries <= (64U * 1024U) / 16U);
+    REQUIRE(writer.finish(1U, &stats, [] { return false; }, &error));
+    REQUIRE(stats.spool_bytes > 64U * 1024U);
+    REQUIRE(stats.merge_passes >= 1U);
+    REQUIRE(stats.peak_sort_entries <= (64U * 1024U) / 16U);
 
     TrigramIndexReader reader(root, config);
-    assert(reader.open(&error));
+    REQUIRE(reader.open(&error));
     const auto candidates = candidate_blocks(&reader, "merge-needle");
-    assert(candidates == std::set<std::uint64_t>{0U});
+    REQUIRE(candidates == std::set<std::uint64_t>{0U});
+}
+
+void test_corrupt_selected_posting_fails_before_candidates_escape() {
+    const Fixture fixture = build_fixture();
+    const std::uint64_t offset = posting_file_offset_for(
+        fixture.root, trigram_value('n', 'e', 'e'));
+    {
+        std::fstream stream(
+            fixture.root / "search.tri",
+            std::ios::binary | std::ios::in | std::ios::out);
+        REQUIRE(stream);
+        stream.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
+        char byte = 0;
+        stream.read(&byte, 1);
+        REQUIRE(stream.gcount() == 1);
+        byte = static_cast<char>(static_cast<unsigned char>(byte) ^ 0x01U);
+        stream.seekp(static_cast<std::streamoff>(offset), std::ios::beg);
+        stream.write(&byte, 1);
+        REQUIRE(stream);
+    }
+    TrigramIndexReader reader(fixture.root);
+    std::string error;
+    REQUIRE(reader.open(&error));
+    std::size_t emitted = 0U;
+    TrigramQueryStats stats;
+    const bool ok = reader.visit_candidate_blocks(
+        "needle",
+        [&emitted](std::uint64_t) {
+            ++emitted;
+            return true;
+        },
+        [] { return false; },
+        &stats,
+        &error);
+    REQUIRE(!ok);
+    REQUIRE(emitted == 0U);
+    REQUIRE(error == "trigram posting checksum mismatch");
+}
+
+void test_corrupt_bloom_fails_before_candidate_escape() {
+    const Fixture fixture = build_fixture();
+    {
+        std::fstream stream(
+            fixture.root / "search.blm",
+            std::ios::binary | std::ios::in | std::ios::out);
+        REQUIRE(stream);
+        char byte = 0;
+        stream.read(&byte, 1);
+        REQUIRE(stream.gcount() == 1);
+        byte = static_cast<char>(static_cast<unsigned char>(byte) ^ 0x01U);
+        stream.seekp(0, std::ios::beg);
+        stream.write(&byte, 1);
+        REQUIRE(stream);
+    }
+    TrigramIndexReader reader(fixture.root);
+    std::string error;
+    REQUIRE(reader.open(&error));
+    std::size_t emitted = 0U;
+    TrigramQueryStats stats;
+    const bool ok = reader.visit_candidate_blocks(
+        "needle",
+        [&emitted](std::uint64_t) {
+            ++emitted;
+            return true;
+        },
+        [] { return false; },
+        &stats,
+        &error);
+    REQUIRE(!ok);
+    REQUIRE(emitted == 0U);
+    REQUIRE(error == "trigram Bloom checksum mismatch");
 }
 
 void test_corrupt_header_fails_closed() {
     const Fixture fixture = build_fixture();
     {
         std::fstream stream(fixture.root / "search.tri", std::ios::binary | std::ios::in | std::ios::out);
-        assert(stream);
+        REQUIRE(stream);
         const char bad = 'X';
         stream.write(&bad, 1);
-        assert(stream);
+        REQUIRE(stream);
     }
     TrigramIndexReader reader(fixture.root);
     std::string error;
-    assert(!reader.open(&error));
-    assert(!error.empty());
+    REQUIRE(!reader.open(&error));
+    REQUIRE(!error.empty());
 }
 
 void test_truncated_postings_fail_on_query() {
@@ -231,15 +352,15 @@ void test_truncated_postings_fail_on_query() {
     std::error_code error_code;
     const auto path = fixture.root / "search.tri";
     const auto size = std::filesystem::file_size(path, error_code);
-    assert(!error_code);
-    assert(size > 1U);
+    REQUIRE(!error_code);
+    REQUIRE(size > 1U);
     std::filesystem::resize_file(path, size - 1U, error_code);
-    assert(!error_code);
+    REQUIRE(!error_code);
     TrigramIndexReader reader(fixture.root);
     std::string error;
     // Extent mismatch is detected at open, before any result can escape.
-    assert(!reader.open(&error));
-    assert(!error.empty());
+    REQUIRE(!reader.open(&error));
+    REQUIRE(!error.empty());
 }
 
 } // namespace
@@ -249,6 +370,8 @@ int main() {
     test_short_query_visits_all_blocks();
     test_cancellation_is_observed();
     test_external_sort_merge_path();
+    test_corrupt_selected_posting_fails_before_candidates_escape();
+    test_corrupt_bloom_fails_before_candidate_escape();
     test_corrupt_header_fails_closed();
     test_truncated_postings_fail_on_query();
     std::cout << "Zevryon MassiveDoc trigram index tests passed\n";

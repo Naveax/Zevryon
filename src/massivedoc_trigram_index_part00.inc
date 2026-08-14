@@ -18,9 +18,10 @@ namespace zevryon::massivedoc {
 namespace {
 
 constexpr std::array<char, 8> kIndexMagic{'Z', 'M', 'D', 'T', 'R', 'I', '0', '1'};
-constexpr std::uint32_t kIndexVersion = 1U;
+constexpr std::uint32_t kIndexVersion = 2U;
 constexpr std::size_t kHeaderBytes = 80U;
-constexpr std::size_t kDirectoryEntryBytes = 32U;
+constexpr std::size_t kDirectoryEntryBytes = 40U;
+constexpr std::size_t kBloomFrameBytes = kTrigramBloomBytes + sizeof(std::uint32_t);
 constexpr std::size_t kSpoolEntryBytes = 12U;
 constexpr std::size_t kCopyWindowBytes = 64U * 1024U;
 constexpr std::uint32_t kBloomBits = static_cast<std::uint32_t>(kTrigramBloomBytes * 8U);
@@ -32,6 +33,7 @@ struct SpoolEntry {
 
 struct DirectoryEntry {
     std::uint32_t trigram{0U};
+    std::uint32_t postings_crc32{0U};
     std::uint64_t postings_offset{0U};
     std::uint64_t postings_bytes{0U};
     std::uint64_t block_count{0U};
@@ -215,6 +217,3 @@ bool copy_file_bounded(
     }
     return true;
 }
-
-std::vector<std::byte> serialize_directory(const DirectoryEntry& entry) {
-    std::vector<std::byte> bytes;

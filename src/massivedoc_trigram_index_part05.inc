@@ -1,3 +1,53 @@
+
+    bool advance(std::string* error) {
+        if (decoded_count_ >= expected_count_) {
+            valid_ = false;
+            if (next_offset_ != end_) {
+                *error = "trigram posting stream has trailing bytes";
+                return false;
+            }
+            return true;
+        }
+        std::uint64_t delta = 0U;
+        unsigned int shift = 0U;
+        bool complete = false;
+        for (unsigned int byte_number = 0U; byte_number < 10U; ++byte_number) {
+            unsigned char byte = 0U;
+            if (!read_byte(&byte, error)) {
+                return false;
+            }
+            const std::uint64_t low = static_cast<std::uint64_t>(byte & 0x7fU);
+            if (shift >= 64U || (shift == 63U && low > 1U)) {
+                *error = "trigram posting varint overflow";
+                return false;
+            }
+            delta |= low << shift;
+            if ((byte & 0x80U) == 0U) {
+                complete = true;
+                break;
+            }
+            shift += 7U;
+        }
+        if (!complete) {
+            *error = "unterminated trigram posting varint";
+            return false;
+        }
+        std::uint64_t block = delta;
+        if (decoded_count_ != 0U) {
+            if (delta == 0U || current_ > std::numeric_limits<std::uint64_t>::max() - delta) {
+                *error = "invalid trigram posting delta";
+                return false;
+            }
+            block = current_ + delta;
+        }
+        if (block >= block_count_) {
+            *error = "trigram posting block out of range";
+            return false;
+        }
+        current_ = block;
+        ++decoded_count_;
+        valid_ = true;
+        if (decoded_count_ == expected_count_ && next_offset_ != end_) {
             // Exact trailing-byte validation is deferred until the next advance so callers can observe the final value.
         }
         return true;
@@ -143,6 +193,9 @@ bool TrigramIndexReader::visit_candidate_blocks(
     std::vector<std::unique_ptr<PostingCursor>> cursors;
     cursors.reserve(selected.size());
     for (const auto& entry : selected) {
+        if (!impl_->validate_postings(entry, error)) {
+            return false;
+        }
         if (entry.postings_offset > impl_->postings_bytes ||
             entry.postings_bytes > impl_->postings_bytes - entry.postings_offset ||
             impl_->postings_offset > std::numeric_limits<std::uint64_t>::max() - entry.postings_offset) {
@@ -165,56 +218,3 @@ bool TrigramIndexReader::visit_candidate_blocks(
         stats->posting_streams_opened = static_cast<std::uint64_t>(cursors.size());
     }
 
-    for (;;) {
-        if (cancellation_requested(cancelled)) {
-            if (stats != nullptr) {
-                stats->cancelled = true;
-            }
-            *error = "trigram query cancelled";
-            return false;
-        }
-        for (const auto& cursor : cursors) {
-            if (!cursor->valid()) {
-                return true;
-            }
-        }
-        std::uint64_t target = 0U;
-        for (const auto& cursor : cursors) {
-            target = std::max(target, cursor->current());
-        }
-        bool all_equal = true;
-        for (auto& cursor : cursors) {
-            while (cursor->valid() && cursor->current() < target) {
-                if (!cursor->advance(error)) {
-                    return false;
-                }
-                if (stats != nullptr) {
-                    ++stats->posting_blocks_advanced;
-                }
-            }
-            if (!cursor->valid()) {
-                return true;
-            }
-            if (cursor->current() != target) {
-                all_equal = false;
-                target = std::max(target, cursor->current());
-            }
-        }
-        if (!all_equal) {
-            continue;
-        }
-        if (stats != nullptr) {
-            ++stats->bloom_blocks_checked;
-        }
-        if (impl_->bloom_allows(target, query, error)) {
-            if (!visitor(target)) {
-                return true;
-            }
-            if (stats != nullptr) {
-                ++stats->candidate_blocks_emitted;
-            }
-        }
-        for (auto& cursor : cursors) {
-            if (!cursor->advance(error)) {
-                return false;
-            }

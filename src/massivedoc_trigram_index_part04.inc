@@ -1,9 +1,83 @@
-        std::array<std::byte, kTrigramBloomBytes> bytes{};
-        if (!bloom->read_exact_at(block * static_cast<std::uint64_t>(kTrigramBloomBytes), bytes, error)) {
+            } else {
+                high = middle;
+            }
+        }
+        if (low >= distinct_trigrams) {
+            *found = false;
+            return true;
+        }
+        DirectoryEntry candidate;
+        if (!read_directory(low, &candidate, error)) {
+            return false;
+        }
+        if (candidate.trigram != trigram) {
+            *found = false;
+            return true;
+        }
+        *entry = candidate;
+        *found = true;
+        return true;
+    }
+
+    bool validate_postings(const DirectoryEntry& entry, std::string* error) const {
+        if (entry.postings_offset > postings_bytes ||
+            entry.postings_bytes > postings_bytes - entry.postings_offset ||
+            postings_offset > std::numeric_limits<std::uint64_t>::max() - entry.postings_offset) {
+            *error = "trigram posting directory extent overflow";
+            return false;
+        }
+        const std::size_t window = std::max<std::size_t>(
+            1U, std::min<std::size_t>(config.io_window_bytes, 64U * 1024U));
+        std::vector<std::byte> buffer(window);
+        std::uint64_t offset = postings_offset + entry.postings_offset;
+        std::uint64_t remaining = entry.postings_bytes;
+        std::uint32_t crc = 0U;
+        while (remaining != 0U) {
+            const std::size_t amount = static_cast<std::size_t>(
+                std::min<std::uint64_t>(remaining, buffer.size()));
+            if (!index->read_exact_at(
+                    offset, std::span<std::byte>(buffer.data(), amount), error)) {
+                *error = "cannot validate trigram posting stream: " + *error;
+                return false;
+            }
+            crc = crc32_update(crc, std::span<const std::byte>(buffer.data(), amount));
+            offset += static_cast<std::uint64_t>(amount);
+            remaining -= static_cast<std::uint64_t>(amount);
+        }
+        if (crc != entry.postings_crc32) {
+            *error = "trigram posting checksum mismatch";
+            return false;
+        }
+        return true;
+    }
+
+    bool bloom_allows(
+        std::uint64_t block,
+        std::string_view query,
+        bool* allowed,
+        std::string* error) const {
+        *allowed = false;
+        if (block >= block_count) {
+            *error = "trigram Bloom block out of range";
+            return false;
+        }
+        if (block > std::numeric_limits<std::uint64_t>::max() / kBloomFrameBytes) {
+            *error = "trigram Bloom offset overflow";
+            return false;
+        }
+        std::array<std::byte, kBloomFrameBytes> frame{};
+        if (!bloom->read_exact_at(block * static_cast<std::uint64_t>(kBloomFrameBytes), frame, error)) {
             *error = "cannot read trigram Bloom summary: " + *error;
             return false;
         }
+        const auto stored_crc = read_le<std::uint32_t>(frame, kTrigramBloomBytes);
+        if (!stored_crc || crc32_update(0U, std::span<const std::byte>(frame.data(), kTrigramBloomBytes)) != *stored_crc) {
+            *error = "trigram Bloom checksum mismatch";
+            return false;
+        }
+        const auto bytes = std::span<const std::byte>(frame.data(), kTrigramBloomBytes);
         if (query.size() < 3U) {
+            *allowed = true;
             return true;
         }
         for (std::size_t index_query = 2U; index_query < query.size(); ++index_query) {
@@ -12,9 +86,10 @@
                 static_cast<unsigned char>(query[index_query - 1U]),
                 static_cast<unsigned char>(query[index_query]));
             if (!bloom_has(bytes, trigram)) {
-                return false;
+                return true;
             }
         }
+        *allowed = true;
         return true;
     }
 };
@@ -83,7 +158,7 @@ bool TrigramIndexReader::open(std::string* error) {
         return false;
     }
     if (*version != kIndexVersion || *header_bytes != kHeaderBytes ||
-        *bloom_bytes != kTrigramBloomBytes || *max_streams != kTrigramIntersectionStreams ||
+        *bloom_bytes != kBloomFrameBytes || *max_streams != kTrigramIntersectionStreams ||
         *directory_offset != kHeaderBytes || *reserved != 0U) {
         *error = "unsupported trigram index header contract";
         return false;
@@ -105,8 +180,8 @@ bool TrigramIndexReader::open(std::string* error) {
         *error = "trigram index extent mismatch";
         return false;
     }
-    if (*blocks > std::numeric_limits<std::uint64_t>::max() / kTrigramBloomBytes ||
-        impl_->bloom->file_size() != *blocks * static_cast<std::uint64_t>(kTrigramBloomBytes)) {
+    if (*blocks > std::numeric_limits<std::uint64_t>::max() / kBloomFrameBytes ||
+        impl_->bloom->file_size() != *blocks * static_cast<std::uint64_t>(kBloomFrameBytes)) {
         *error = "trigram Bloom extent mismatch";
         return false;
     }
@@ -118,31 +193,6 @@ bool TrigramIndexReader::open(std::string* error) {
     impl_->postings_offset = *postings_offset;
     impl_->postings_bytes = *postings_bytes;
 
-    std::optional<std::uint32_t> previous_trigram;
-    std::uint64_t previous_end = 0U;
-    std::uint64_t counted_pairs = 0U;
-    for (std::uint64_t index_directory = 0U; index_directory < impl_->distinct_trigrams; ++index_directory) {
-        DirectoryEntry entry;
-        if (!impl_->read_directory(index_directory, &entry, error)) {
-            return false;
-        }
-        if ((previous_trigram && entry.trigram <= *previous_trigram) ||
-            entry.block_count == 0U || entry.postings_bytes == 0U ||
-            entry.postings_offset != previous_end ||
-            entry.postings_offset > impl_->postings_bytes ||
-            entry.postings_bytes > impl_->postings_bytes - entry.postings_offset ||
-            counted_pairs > std::numeric_limits<std::uint64_t>::max() - entry.block_count) {
-            *error = "invalid trigram directory ordering or extent";
-            return false;
-        }
-        previous_trigram = entry.trigram;
-        previous_end = entry.postings_offset + entry.postings_bytes;
-        counted_pairs += entry.block_count;
-    }
-    if (previous_end != impl_->postings_bytes || counted_pairs != impl_->posting_pairs) {
-        *error = "trigram directory aggregate mismatch";
-        return false;
-    }
     impl_->opened = true;
     return true;
 }
@@ -168,53 +218,3 @@ public:
     bool initialize(std::string* error) {
         return advance(error);
     }
-
-    bool advance(std::string* error) {
-        if (decoded_count_ >= expected_count_) {
-            valid_ = false;
-            if (next_offset_ != end_) {
-                *error = "trigram posting stream has trailing bytes";
-                return false;
-            }
-            return true;
-        }
-        std::uint64_t delta = 0U;
-        unsigned int shift = 0U;
-        bool complete = false;
-        for (unsigned int byte_number = 0U; byte_number < 10U; ++byte_number) {
-            unsigned char byte = 0U;
-            if (!read_byte(&byte, error)) {
-                return false;
-            }
-            const std::uint64_t low = static_cast<std::uint64_t>(byte & 0x7fU);
-            if (shift >= 64U || (shift == 63U && low > 1U)) {
-                *error = "trigram posting varint overflow";
-                return false;
-            }
-            delta |= low << shift;
-            if ((byte & 0x80U) == 0U) {
-                complete = true;
-                break;
-            }
-            shift += 7U;
-        }
-        if (!complete) {
-            *error = "unterminated trigram posting varint";
-            return false;
-        }
-        std::uint64_t block = delta;
-        if (decoded_count_ != 0U) {
-            if (delta == 0U || current_ > std::numeric_limits<std::uint64_t>::max() - delta) {
-                *error = "invalid trigram posting delta";
-                return false;
-            }
-            block = current_ + delta;
-        }
-        if (block >= block_count_) {
-            *error = "trigram posting block out of range";
-            return false;
-        }
-        current_ = block;
-        ++decoded_count_;
-        valid_ = true;
-        if (decoded_count_ == expected_count_ && next_offset_ != end_) {

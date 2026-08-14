@@ -1,9 +1,14 @@
+std::vector<std::byte> serialize_directory(const DirectoryEntry& entry) {
+    std::vector<std::byte> bytes;
     bytes.reserve(kDirectoryEntryBytes);
     append_le(bytes, entry.trigram);
-    append_le(bytes, std::uint32_t{0U});
+    append_le(bytes, entry.postings_crc32);
     append_le(bytes, entry.postings_offset);
     append_le(bytes, entry.postings_bytes);
     append_le(bytes, entry.block_count);
+    const std::uint32_t entry_crc = crc32_update(0U, bytes);
+    append_le(bytes, entry_crc);
+    append_le(bytes, std::uint32_t{0U});
     return bytes;
 }
 
@@ -12,14 +17,18 @@ std::optional<DirectoryEntry> parse_directory(std::span<const std::byte> bytes) 
         return std::nullopt;
     }
     const auto trigram = read_le<std::uint32_t>(bytes, 0U);
-    const auto reserved = read_le<std::uint32_t>(bytes, 4U);
+    const auto postings_crc = read_le<std::uint32_t>(bytes, 4U);
     const auto offset = read_le<std::uint64_t>(bytes, 8U);
     const auto posting_bytes = read_le<std::uint64_t>(bytes, 16U);
     const auto count = read_le<std::uint64_t>(bytes, 24U);
-    if (!trigram || !reserved || !offset || !posting_bytes || !count || *reserved != 0U) {
+    const auto stored_entry_crc = read_le<std::uint32_t>(bytes, 32U);
+    const auto reserved = read_le<std::uint32_t>(bytes, 36U);
+    if (!trigram || !postings_crc || !offset || !posting_bytes || !count ||
+        !stored_entry_crc || !reserved || *reserved != 0U ||
+        crc32_update(0U, bytes.first(32U)) != *stored_entry_crc) {
         return std::nullopt;
     }
-    return DirectoryEntry{*trigram, *offset, *posting_bytes, *count};
+    return DirectoryEntry{*trigram, *postings_crc, *offset, *posting_bytes, *count};
 }
 
 void encode_varint(std::uint64_t value, std::vector<std::byte>* output) {
@@ -140,6 +149,13 @@ struct TrigramIndexWriter::Impl {
             *error = "failed to write trigram block Bloom summary";
             return false;
         }
+        std::vector<std::byte> checksum;
+        checksum.reserve(sizeof(std::uint32_t));
+        append_le(checksum, crc32_update(0U, current_bloom));
+        if (!write_all(bloom, checksum)) {
+            *error = "failed to write trigram block Bloom checksum";
+            return false;
+        }
         current_bloom.fill(std::byte{0});
         return true;
     }
@@ -202,19 +218,3 @@ bool TrigramIndexWriter::begin_record(std::uint64_t block_index, std::string* er
             return false;
         }
         if (!impl_->flush_bloom(error)) {
-            return false;
-        }
-        impl_->current_block = block_index;
-    }
-    impl_->previous_count = 0U;
-    impl_->in_record = true;
-    return true;
-}
-
-bool TrigramIndexWriter::feed(std::span<const std::byte> bytes, std::string* error) {
-    if (impl_ == nullptr || !impl_->in_record || impl_->finished) {
-        *error = "trigram writer feed requires an active record";
-        return false;
-    }
-    for (const std::byte raw : bytes) {
-        const unsigned char current = std::to_integer<unsigned char>(raw);

@@ -1,3 +1,19 @@
+            return false;
+        }
+        impl_->current_block = block_index;
+    }
+    impl_->previous_count = 0U;
+    impl_->in_record = true;
+    return true;
+}
+
+bool TrigramIndexWriter::feed(std::span<const std::byte> bytes, std::string* error) {
+    if (impl_ == nullptr || !impl_->in_record || impl_->finished) {
+        *error = "trigram writer feed requires an active record";
+        return false;
+    }
+    for (const std::byte raw : bytes) {
+        const unsigned char current = std::to_integer<unsigned char>(raw);
         if (impl_->previous_count >= 2U) {
             const std::uint32_t trigram = make_trigram(
                 impl_->previous[0], impl_->previous[1], current);
@@ -180,6 +196,7 @@ bool TrigramIndexWriter::finish(
     std::uint64_t group_offset = 0U;
     std::uint64_t group_bytes = 0U;
     std::uint64_t group_count = 0U;
+    std::uint32_t group_crc = 0U;
     std::uint64_t previous_block = 0U;
     bool have_previous_block = false;
 
@@ -189,6 +206,7 @@ bool TrigramIndexWriter::finish(
         }
         const DirectoryEntry entry{
             *current_trigram,
+            group_crc,
             group_offset,
             group_bytes,
             group_count,
@@ -200,21 +218,3 @@ bool TrigramIndexWriter::finish(
         }
         ++distinct;
         return true;
-    };
-
-    for (;;) {
-        if ((posting_pairs & 0xfffU) == 0U && cancellation_requested(cancelled)) {
-            *error = "trigram index build cancelled";
-            return false;
-        }
-        SpoolEntry entry;
-        bool eof = false;
-        if (!read_spool_entry(sorted, &entry, &eof, error)) {
-            return false;
-        }
-        if (eof) {
-            break;
-        }
-        if (!current_trigram || *current_trigram != entry.trigram) {
-            if (!flush_group()) {
-                return false;
