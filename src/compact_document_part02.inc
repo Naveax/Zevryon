@@ -59,6 +59,7 @@ bool CompactArenaReader::open(std::string* error) {
     }
     error->clear();
     opened_ = false;
+    logical_order_generation_ = 0U;
     sequence_ = ChunkedOrderStatisticsSequence{256U};
     block_heights_q8_.clear();
     fenwick_q8_.clear();
@@ -190,7 +191,7 @@ bool CompactArenaReader::open(std::string* error) {
             };
             std::string sequence_error;
             if (!sequence_.insert(sequence_.stats().aggregate.record_count, record, &sequence_error)) {
-                *error = "cannot build logical sequence: " + sequence_error;
+                *error = "cannot build physical source sequence: " + sequence_error;
                 return false;
             }
         }
@@ -201,13 +202,52 @@ bool CompactArenaReader::open(std::string* error) {
         record_index += static_cast<std::uint64_t>(count);
     }
 
-    const auto& sequence_stats = sequence_.stats();
+    const auto& physical_sequence_stats = sequence_.stats();
     if (record_index != stats_.logical_records ||
-        sequence_stats.aggregate.record_count != stats_.logical_records ||
-        sequence_stats.aggregate.layout_height_q8 != stats_.total_height_q8) {
-        *error = "logical sequence aggregate mismatch";
+        physical_sequence_stats.aggregate.record_count != stats_.logical_records ||
+        physical_sequence_stats.aggregate.layout_height_q8 != stats_.total_height_q8) {
+        *error = "physical source sequence aggregate mismatch";
         return false;
     }
+
+    LogicalOrderSnapshot persisted_order;
+    if (!load_logical_order_snapshot(
+            root_, stats_.logical_records, &persisted_order, error)) {
+        return false;
+    }
+    const auto physical_snapshot = sequence_.snapshot();
+    ChunkedOrderStatisticsSequence restored{256U};
+    for (std::uint64_t logical_index = 0U;
+         logical_index < stats_.logical_records;
+         ++logical_index) {
+        const std::uint64_t source_record_index =
+            persisted_order.source_record_indices[static_cast<std::size_t>(logical_index)];
+        SequencePosition physical_position;
+        std::string sequence_error;
+        if (!physical_snapshot.at(
+                source_record_index, &physical_position, &sequence_error)) {
+            *error = "cannot resolve persisted physical source record: " + sequence_error;
+            return false;
+        }
+        if (physical_position.record.source_record_index != source_record_index) {
+            *error = "physical source sequence identity mismatch";
+            return false;
+        }
+        if (!restored.insert(
+                restored.stats().aggregate.record_count,
+                physical_position.record,
+                &sequence_error)) {
+            *error = "cannot restore persisted logical order: " + sequence_error;
+            return false;
+        }
+    }
+    if (restored.stats().aggregate.record_count != stats_.logical_records ||
+        restored.stats().aggregate.layout_height_q8 != stats_.total_height_q8) {
+        *error = "restored logical order aggregate mismatch";
+        return false;
+    }
+    sequence_ = std::move(restored);
+    logical_order_generation_ = persisted_order.generation;
 
     opened_ = true;
     return true;

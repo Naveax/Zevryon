@@ -2,14 +2,53 @@ bool CompactArenaReader::move_logical_record(
     std::uint64_t from_index,
     std::uint64_t to_index,
     std::string* error) {
-    if (!opened_ || error == nullptr) {
+    if (!opened_ || error == nullptr || from_index >= stats_.logical_records ||
+        to_index >= stats_.logical_records) {
         if (error != nullptr) {
             *error = "invalid logical move";
         }
         return false;
     }
     error->clear();
-    return sequence_.move(from_index, to_index, error);
+    if (from_index == to_index) {
+        return true;
+    }
+    if (logical_order_generation_ == std::numeric_limits<std::uint64_t>::max()) {
+        *error = "logical order generation exhausted";
+        return false;
+    }
+
+    auto candidate = sequence_.fork_shared_root();
+    std::string sequence_error;
+    if (!candidate.move(from_index, to_index, &sequence_error)) {
+        *error = "cannot build logical move candidate: " + sequence_error;
+        return false;
+    }
+
+    const auto candidate_snapshot = candidate.snapshot();
+    std::vector<std::uint64_t> source_record_indices;
+    source_record_indices.reserve(static_cast<std::size_t>(stats_.logical_records));
+    for (std::uint64_t logical_index = 0U;
+         logical_index < stats_.logical_records;
+         ++logical_index) {
+        SequencePosition position;
+        if (!candidate_snapshot.at(logical_index, &position, &sequence_error)) {
+            *error = "cannot serialize logical move candidate: " + sequence_error;
+            return false;
+        }
+        source_record_indices.push_back(position.record.source_record_index);
+    }
+
+    const std::uint64_t next_generation = logical_order_generation_ + 1U;
+    if (!publish_logical_order_snapshot(
+            root_, next_generation, source_record_indices, error)) {
+        opened_ = false;
+        return false;
+    }
+
+    sequence_ = std::move(candidate);
+    logical_order_generation_ = next_generation;
+    return true;
 }
 
 bool CompactArenaReader::update_height(

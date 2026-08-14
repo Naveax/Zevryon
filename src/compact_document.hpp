@@ -90,6 +90,7 @@ private:
     ChunkedOrderStatisticsSequence sequence_;
     std::vector<std::uint64_t> block_heights_q8_;
     std::vector<std::uint64_t> fenwick_q8_;
+    std::uint64_t logical_order_generation_{0};
     bool opened_{false};
 };
 
