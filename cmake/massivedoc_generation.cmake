@@ -48,4 +48,15 @@ if(BUILD_TESTING)
   add_test(
     NAME massivedoc-positional-store-tests
     COMMAND zevryon-massivedoc-positional-store-tests)
+
+  add_executable(
+    zevryon-massivedoc-positional-search-tests
+    tests/massivedoc_positional_search_tests.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-positional-search-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-positional-search-tests)
+  add_test(
+    NAME massivedoc-positional-search-tests
+    COMMAND zevryon-massivedoc-positional-search-tests)
 endif()
