@@ -1,5 +1,7 @@
 #pragma once
 
+#include "order_statistics_sequence.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -60,6 +62,7 @@ public:
 
     bool open(std::string* error);
     const ArenaStats& stats() const noexcept;
+    ChunkedOrderStatisticsSequence::Snapshot logical_snapshot() const noexcept;
     bool materialize(
         std::uint64_t scroll_y_q8,
         std::uint64_t viewport_height_q8,
@@ -76,10 +79,10 @@ public:
 private:
     std::uint64_t fenwick_prefix(std::size_t block_count) const noexcept;
     void fenwick_replace(std::size_t block_index, std::uint64_t old_value, std::uint64_t new_value) noexcept;
-    std::size_t block_for_offset(std::uint64_t offset_q8) const noexcept;
 
     std::filesystem::path root_;
     ArenaStats stats_{};
+    ChunkedOrderStatisticsSequence sequence_;
     std::vector<std::uint64_t> block_heights_q8_;
     std::vector<std::uint64_t> fenwick_q8_;
     bool opened_{false};

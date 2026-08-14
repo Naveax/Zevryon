@@ -80,6 +80,20 @@ int main() {
     if (!require(arena.open(&error), error)) {
         return 1;
     }
+    const auto initial_root = arena.logical_snapshot();
+    if (!require(initial_root.stats().aggregate.record_count == kRecords, "logical root record count") ||
+        !require(initial_root.stats().aggregate.layout_height_q8 == arena.stats().total_height_q8,
+                 "logical root height aggregate")) {
+        return 1;
+    }
+    zevryon::massivedoc::SequencePosition first_position;
+    if (!require(initial_root.at(0U, &first_position, &error), error) ||
+        !require(first_position.record.logical_id == 1000U, "logical root retains first id") ||
+        !require(first_position.record.text_bytes == 32U, "logical root retains first source length") ||
+        !require(first_position.y_q8 == 0U, "logical root begins at y zero")) {
+        return 1;
+    }
+
     zevryon::massivedoc::ViewportResult top;
     if (!require(arena.materialize(0U, 720U * 256U, 360U * 256U, 128U, &top, &error), error) ||
         !require(!top.records.empty(), "top viewport is non-empty") ||
@@ -94,6 +108,14 @@ int main() {
         !require(!middle.records.empty(), "middle viewport is non-empty") ||
         !require(middle.records.front().record_index > 0U, "middle does not scan from first record") ||
         !require(middle.records.size() <= 64U, "middle respects materialization cap")) {
+        return 1;
+    }
+    zevryon::massivedoc::SequencePosition middle_position;
+    if (!require(initial_root.locate_height_offset(middle.query_start_q8, &middle_position, &error), error) ||
+        !require(middle_position.record_index == middle.records.front().record_index,
+                 "viewport first record comes from sequence height select") ||
+        !require(middle_position.y_q8 == middle.records.front().y_q8,
+                 "viewport y comes from sequence prefix aggregate")) {
         return 1;
     }
     for (std::size_t index = 1; index < middle.records.size(); ++index) {
@@ -128,9 +150,17 @@ int main() {
         }
         expected_total = expected_total - update.old_height_q8 + update.new_height_q8;
         if (!require(update.total_height_q8 == expected_total, "height update total invariant") ||
-            !require(arena.stats().total_height_q8 == expected_total, "reader total follows update")) {
+            !require(arena.stats().total_height_q8 == expected_total, "reader total follows update") ||
+            !require(arena.logical_snapshot().stats().aggregate.layout_height_q8 == expected_total,
+                     "logical root total follows update")) {
             return 1;
         }
+    }
+    if (!require(initial_root.stats().aggregate.layout_height_q8 == arena_stats.total_height_q8,
+                 "pre-update snapshot remains isolated") ||
+        !require(arena.logical_snapshot().stats().aggregate.layout_height_q8 == expected_total,
+                 "live logical root diverges from old snapshot")) {
+        return 1;
     }
 
     zevryon::massivedoc::HeightUpdateResult invalid_update;
@@ -141,7 +171,9 @@ int main() {
 
     zevryon::massivedoc::CompactArenaReader reopened(root);
     if (!require(reopened.open(&error), error) ||
-        !require(reopened.stats().total_height_q8 == expected_total, "height updates persist after reopen")) {
+        !require(reopened.stats().total_height_q8 == expected_total, "height updates persist after reopen") ||
+        !require(reopened.logical_snapshot().stats().aggregate.layout_height_q8 == expected_total,
+                 "reopened logical root matches persisted height total")) {
         return 1;
     }
     zevryon::massivedoc::HeightUpdateResult first_update;
@@ -152,7 +184,9 @@ int main() {
     zevryon::massivedoc::ViewportResult updated_top;
     if (!require(reopened.materialize(0U, 720U * 256U, 0U, 32U, &updated_top, &error), error) ||
         !require(!updated_top.records.empty(), "updated top viewport is non-empty") ||
-        !require(updated_top.records.front().height_q8 == kFirstHeight, "viewport uses persisted height update")) {
+        !require(updated_top.records.front().height_q8 == kFirstHeight, "viewport uses persisted height update") ||
+        !require(reopened.logical_snapshot().stats().aggregate.layout_height_q8 == first_update.total_height_q8,
+                 "updated viewport root publishes corrected total")) {
         return 1;
     }
 

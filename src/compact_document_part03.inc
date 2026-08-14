@@ -1,27 +1,3 @@
-            if (record_end > result->query_start_q8 && current_y < result->query_end_q8) {
-                if (result->records.size() >= max_records) {
-                    result->truncated = true;
-                    return true;
-                }
-                result->records.push_back(MaterializedRecord{
-                    record_index + local,
-                    descriptors[local].logical_id,
-                    current_y,
-                    *height,
-                    descriptors[local].length,
-                });
-            }
-            current_y = record_end;
-            if (current_y >= result->query_end_q8) {
-                return true;
-            }
-        }
-        record_index += count;
-        ++block_index;
-    }
-    return true;
-}
-
 bool CompactArenaReader::update_height(
     std::uint64_t record_index,
     std::uint32_t new_height_q8,
@@ -53,6 +29,17 @@ bool CompactArenaReader::update_height(
     const auto old_height = read_le<std::uint32_t>(old_height_bytes, 0U);
     if (!old_height || *old_height == 0U) {
         *error = "invalid existing record height";
+        return false;
+    }
+
+    SequencePosition sequence_position;
+    std::string sequence_error;
+    if (!sequence_.at(record_index, &sequence_position, &sequence_error)) {
+        *error = "cannot resolve logical sequence height: " + sequence_error;
+        return false;
+    }
+    if (sequence_position.record.height_q8 != *old_height) {
+        *error = "logical sequence height differs from persisted arena";
         return false;
     }
 
@@ -128,6 +115,23 @@ bool CompactArenaReader::update_height(
         *error = "cannot persist arena header";
         return false;
     }
+
+    std::uint32_t sequence_old_height = 0U;
+    if (!sequence_.update_height(
+            record_index,
+            new_height_q8,
+            &sequence_old_height,
+            &sequence_error)) {
+        const bool header_rolled_back = write_header_value(stats_.total_height_q8);
+        const bool block_rolled_back = write_block_value(old_block_height);
+        const bool height_rolled_back = write_height_value(*old_height);
+        *error = "cannot publish logical sequence height update: " + sequence_error;
+        if (!header_rolled_back || !block_rolled_back || !height_rolled_back) {
+            *error += "; persistence rollback failed";
+        }
+        return false;
+    }
+    static_cast<void>(sequence_old_height);
 
     fenwick_replace(block_index, old_block_height, new_block_height);
     block_heights_q8_[block_index] = new_block_height;
