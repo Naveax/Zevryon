@@ -114,9 +114,9 @@ void test_store_reader_shares_segment_cache_across_slice_and_search() {
     require(reader.open(&error), error);
 
     std::vector<std::byte> slice;
-    require(reader.read_record_slice(0U, 0U, 4U, &slice, &error), error);
+    require(reader.read_record_slice(0U, 0U, 3U, &slice, &error), error);
     require(
-        std::string_view(reinterpret_cast<const char*>(slice.data()), slice.size()) == "alph",
+        std::string_view(reinterpret_cast<const char*>(slice.data()), slice.size()) == "alp",
         "cached slice content mismatch");
     auto stats = reader.block_cache_stats();
     require(stats.cold_misses == 1U, "first store payload block was not a cold miss");
@@ -124,7 +124,7 @@ void test_store_reader_shares_segment_cache_across_slice_and_search() {
     require(stats.warm_blocks == 1U, "first store payload block was not admitted warm");
 
     slice.clear();
-    require(reader.read_record_slice(0U, 0U, 4U, &slice, &error), error);
+    require(reader.read_record_slice(0U, 0U, 3U, &slice, &error), error);
     stats = reader.block_cache_stats();
     require(stats.warm_hits == 1U, "second store payload block access was not warm");
     require(stats.promotions == 1U && stats.hot_blocks == 1U, "store payload block was not promoted hot");
