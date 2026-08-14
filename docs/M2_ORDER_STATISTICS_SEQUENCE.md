@@ -42,11 +42,13 @@ This gives O(1) snapshot creation and permits readers to retain immutable roots 
 
 `CompactArenaReader::open()` validates the persistent arena indices and builds the live logical-order root from the exact `records.idx` descriptors plus `arena/record-heights.idx` values. Each persisted height block is cross-checked against the records admitted into the sequence before the reader becomes usable.
 
-Viewport materialization no longer uses the block Fenwick table as its document-order/select authority. It captures one immutable logical snapshot, resolves the first visible ordinal with `locate_height_offset()`, and obtains subsequent record identity, source-byte count, height and Y prefix from that same root. The persisted block table remains only as a compact durability/checking structure for the current height file.
+Every admitted arena record now stores its immutable physical `records.idx` ordinal in `source_record_index`. Initial construction has `logical ordinal == source_record_index`, but the two values are distinct fields so later logical moves do not need to redefine payload identity.
+
+Viewport materialization captures one immutable logical snapshot, resolves the first visible ordinal with `locate_height_offset()`, and exposes both the current logical `record_index` and immutable `source_record_index` in `MaterializedRecord`. Source-byte count, height and Y prefix still come from that same root. The persisted block table remains only as a compact durability/checking structure for the current height file.
 
 `logical_snapshot()` exposes the immutable root to higher-level browser/layout readers without copying the document-order structure. Height correction checks that the persisted height and logical root agree before mutation, persists the existing arena files, then publishes the new copy-on-write root. A failed root publication attempts to roll the persisted files back to the previous values.
 
-The sequence can now carry physical source identity independently, but the current arena loader has not yet populated/threaded that field through all consumers. Arena-level reorder/insert/delete therefore remains closed until the next source-locator integration pass proves payload, checkpoint and cache reads use physical identity rather than mutable ordinal.
+The physical locator is now populated and visible at the materialization boundary. Arena-level reorder/insert/delete remains closed until layout, checkpoint and source/cache consumers are proven to dereference `source_record_index` rather than mutable logical ordinal.
 
 ## Operations and bounds
 
@@ -87,7 +89,8 @@ The compact-document test target runs a deterministic sequence oracle that cover
 - 10,000 O(1)-shape snapshot handle copies;
 - a 100,000-record append scale case with tail height-select and bounded chunk/tree-height assertions;
 - immutable source locator surviving move, erase and a pre-mutation snapshot;
-- compact-arena root reconstruction from persisted descriptors/heights;
+- compact-arena root reconstruction assigning exact physical source ordinals;
+- materialization exposing the same source locator as the selected sequence record;
 - viewport start selection and Y prefixes coming from the immutable sequence root;
 - reader-level snapshot isolation across persisted height corrections;
 - reopened roots matching the persisted corrected height aggregate.
@@ -98,7 +101,7 @@ Cross-platform repository CI remains the admission authority. Local strict-warni
 
 This line still does **not** claim M2 complete. Still required:
 
-1. populate `source_record_index` from the compact arena's immutable physical source records and thread it through materialization, layout, checkpoint and cache consumers;
+1. thread `source_record_index` through layout payload reads, layout-checkpoint identity/pathing, hot-scroll source-window keys and related caches while keeping logical ordinals for anchors/order;
 2. only after that consumer split is verified, admit arena-level reorder/move semantics without risking reads from the wrong source payload;
 3. remove any remaining browser document-order vector/O(n) position-map ownership in favor of the shared sequence root;
 4. persistence/durability integration for logical-order mutations. Crash-safe generation manifests and append journaling remain a later storage-hardening boundary and are not credited by the in-memory sequence/snapshot/runtime-integration passes.

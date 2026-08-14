@@ -186,6 +186,7 @@ bool CompactArenaReader::open(std::string* error) {
                 descriptors[local].length,
                 *height,
                 0U,
+                record_index + static_cast<std::uint64_t>(local),
             };
             std::string sequence_error;
             if (!sequence_.insert(sequence_.stats().aggregate.record_count, record, &sequence_error)) {
@@ -285,6 +286,7 @@ bool CompactArenaReader::materialize(
                 position.y_q8,
                 position.record.height_q8,
                 position.record.text_bytes,
+                position.record.source_record_index,
             });
         }
         if (record_end >= result->query_end_q8) {

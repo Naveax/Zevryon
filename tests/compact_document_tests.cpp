@@ -133,6 +133,8 @@ int main() {
     if (!require(initial_root.at(0U, &first_position, &error), error) ||
         !require(first_position.record.logical_id == 1000U, "logical root retains first id") ||
         !require(first_position.record.text_bytes == 32U, "logical root retains first source length") ||
+        !require(first_position.record.source_record_index == 0U,
+                 "logical root retains first physical source locator") ||
         !require(first_position.y_q8 == 0U, "logical root begins at y zero")) {
         return 1;
     }
@@ -141,6 +143,8 @@ int main() {
     if (!require(arena.materialize(0U, 720U * 256U, 360U * 256U, 128U, &top, &error), error) ||
         !require(!top.records.empty(), "top viewport is non-empty") ||
         !require(top.records.front().record_index == 0U, "top begins at first record") ||
+        !require(top.records.front().source_record_index == 0U,
+                 "top materialization exposes physical source locator") ||
         !require(top.records.size() <= 128U, "top respects materialization cap")) {
         return 1;
     }
@@ -157,15 +161,22 @@ int main() {
     if (!require(initial_root.locate_height_offset(middle.query_start_q8, &middle_position, &error), error) ||
         !require(middle_position.record_index == middle.records.front().record_index,
                  "viewport first record comes from sequence height select") ||
+        !require(middle_position.record.source_record_index == middle.records.front().source_record_index,
+                 "viewport source locator comes from sequence identity") ||
         !require(middle_position.y_q8 == middle.records.front().y_q8,
                  "viewport y comes from sequence prefix aggregate")) {
         return 1;
     }
-    for (std::size_t index = 1; index < middle.records.size(); ++index) {
-        if (!require(middle.records[index - 1U].record_index + 1U == middle.records[index].record_index,
-                     "materialized records remain contiguous") ||
-            !require(middle.records[index - 1U].y_q8 < middle.records[index].y_q8,
-                     "materialized positions remain sorted")) {
+    for (std::size_t index = 0U; index < middle.records.size(); ++index) {
+        if (!require(middle.records[index].source_record_index == middle.records[index].record_index,
+                     "initial physical locator matches immutable store ordinal")) {
+            return 1;
+        }
+        if (index != 0U &&
+            (!require(middle.records[index - 1U].record_index + 1U == middle.records[index].record_index,
+                      "materialized records remain contiguous") ||
+             !require(middle.records[index - 1U].y_q8 < middle.records[index].y_q8,
+                      "materialized positions remain sorted"))) {
             return 1;
         }
     }
@@ -177,6 +188,8 @@ int main() {
     if (!require(arena.materialize(end_y, 720U * 256U, 0U, 256U, &end, &error), error) ||
         !require(!end.records.empty(), "end viewport is non-empty") ||
         !require(end.records.back().record_index == kRecords - 1U, "end reaches final record") ||
+        !require(end.records.back().source_record_index == kRecords - 1U,
+                 "end retains physical source locator") ||
         !require(end.records.back().logical_id == kRecords - 1U + 1000U, "logical id retained")) {
         return 1;
     }
@@ -228,6 +241,8 @@ int main() {
     if (!require(reopened.materialize(0U, 720U * 256U, 0U, 32U, &updated_top, &error), error) ||
         !require(!updated_top.records.empty(), "updated top viewport is non-empty") ||
         !require(updated_top.records.front().height_q8 == kFirstHeight, "viewport uses persisted height update") ||
+        !require(updated_top.records.front().source_record_index == 0U,
+                 "height correction preserves source locator") ||
         !require(reopened.logical_snapshot().stats().aggregate.layout_height_q8 == first_update.total_height_q8,
                  "updated viewport root publishes corrected total")) {
         return 1;

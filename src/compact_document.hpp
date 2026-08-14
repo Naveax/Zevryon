@@ -32,6 +32,7 @@ struct MaterializedRecord {
     std::uint64_t y_q8{0};
     std::uint32_t height_q8{0};
     std::uint64_t source_bytes{0};
+    std::uint64_t source_record_index{0};
 };
 
 struct ViewportResult {
