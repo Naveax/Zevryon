@@ -131,6 +131,47 @@ int main() {
         return 1;
     }
 
+    if (!require(engine.move_logical_record(0U, 1U, &error), error)) {
+        return 1;
+    }
+    zevryon::massivedoc::LayoutWindowResult moved_top;
+    if (!require(engine.layout(0U, 800U * 256U, 720U * 256U, 0U, 256U, &moved_top, &error), error) ||
+        !require(!moved_top.fragments.empty(), "moved layout has fragments")) {
+        return 1;
+    }
+    bool saw_moved_first = false;
+    bool saw_moved_first_hard_break = false;
+    bool saw_moved_second = false;
+    bool saw_moved_second_hard_break = false;
+    for (const auto& fragment : moved_top.fragments) {
+        if (fragment.logical_id == 100U) {
+            saw_moved_first = true;
+            saw_moved_first_hard_break = saw_moved_first_hard_break || fragment.hard_break;
+            if (!require(fragment.record_index == 1U,
+                         "moved first payload emits its new logical ordinal")) {
+                return 1;
+            }
+        } else if (fragment.logical_id == 101U) {
+            saw_moved_second = true;
+            saw_moved_second_hard_break = saw_moved_second_hard_break || fragment.hard_break;
+            if (!require(fragment.record_index == 0U,
+                         "moved second payload emits its new logical ordinal")) {
+                return 1;
+            }
+        }
+    }
+    if (!require(saw_moved_first, "moved first record remains visible") ||
+        !require(saw_moved_second, "moved second record remains visible") ||
+        !require(saw_moved_first_hard_break,
+                 "moved first record still reads newline-bearing physical payload") ||
+        !require(!saw_moved_second_hard_break,
+                 "moved second record does not inherit another source payload")) {
+        return 1;
+    }
+    if (!require(engine.move_logical_record(1U, 0U, &error), error)) {
+        return 1;
+    }
+
     zevryon::massivedoc::LayoutWindowResult narrow;
     if (!require(engine.layout(0U, 40U * 256U, 2000U * 256U, 0U, 256U, &narrow, &error), error) ||
         !require(!narrow.fragments.empty(), "narrow UTF-8 layout has fragments")) {

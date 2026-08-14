@@ -1,5 +1,7 @@
 #pragma once
 
+#include "order_statistics_sequence.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -30,6 +32,7 @@ struct MaterializedRecord {
     std::uint64_t y_q8{0};
     std::uint32_t height_q8{0};
     std::uint64_t source_bytes{0};
+    std::uint64_t source_record_index{0};
 };
 
 struct ViewportResult {
@@ -60,6 +63,7 @@ public:
 
     bool open(std::string* error);
     const ArenaStats& stats() const noexcept;
+    ChunkedOrderStatisticsSequence::Snapshot logical_snapshot() const noexcept;
     bool materialize(
         std::uint64_t scroll_y_q8,
         std::uint64_t viewport_height_q8,
@@ -67,6 +71,10 @@ public:
         std::size_t max_records,
         ViewportResult* result,
         std::string* error) const;
+    bool move_logical_record(
+        std::uint64_t from_index,
+        std::uint64_t to_index,
+        std::string* error);
     bool update_height(
         std::uint64_t record_index,
         std::uint32_t new_height_q8,
@@ -76,12 +84,13 @@ public:
 private:
     std::uint64_t fenwick_prefix(std::size_t block_count) const noexcept;
     void fenwick_replace(std::size_t block_index, std::uint64_t old_value, std::uint64_t new_value) noexcept;
-    std::size_t block_for_offset(std::uint64_t offset_q8) const noexcept;
 
     std::filesystem::path root_;
     ArenaStats stats_{};
+    ChunkedOrderStatisticsSequence sequence_;
     std::vector<std::uint64_t> block_heights_q8_;
     std::vector<std::uint64_t> fenwick_q8_;
+    std::uint64_t logical_order_generation_{0};
     bool opened_{false};
 };
 

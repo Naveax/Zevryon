@@ -1,24 +1,53 @@
-            if (record_end > result->query_start_q8 && current_y < result->query_end_q8) {
-                if (result->records.size() >= max_records) {
-                    result->truncated = true;
-                    return true;
-                }
-                result->records.push_back(MaterializedRecord{
-                    record_index + local,
-                    descriptors[local].logical_id,
-                    current_y,
-                    *height,
-                    descriptors[local].length,
-                });
-            }
-            current_y = record_end;
-            if (current_y >= result->query_end_q8) {
-                return true;
-            }
+bool CompactArenaReader::move_logical_record(
+    std::uint64_t from_index,
+    std::uint64_t to_index,
+    std::string* error) {
+    if (!opened_ || error == nullptr || from_index >= stats_.logical_records ||
+        to_index >= stats_.logical_records) {
+        if (error != nullptr) {
+            *error = "invalid logical move";
         }
-        record_index += count;
-        ++block_index;
+        return false;
     }
+    error->clear();
+    if (from_index == to_index) {
+        return true;
+    }
+    if (logical_order_generation_ == std::numeric_limits<std::uint64_t>::max()) {
+        *error = "logical order generation exhausted";
+        return false;
+    }
+
+    auto candidate = sequence_.fork_shared_root();
+    std::string sequence_error;
+    if (!candidate.move(from_index, to_index, &sequence_error)) {
+        *error = "cannot build logical move candidate: " + sequence_error;
+        return false;
+    }
+
+    const auto candidate_snapshot = candidate.snapshot();
+    std::vector<std::uint64_t> source_record_indices;
+    source_record_indices.reserve(static_cast<std::size_t>(stats_.logical_records));
+    for (std::uint64_t logical_index = 0U;
+         logical_index < stats_.logical_records;
+         ++logical_index) {
+        SequencePosition position;
+        if (!candidate_snapshot.at(logical_index, &position, &sequence_error)) {
+            *error = "cannot serialize logical move candidate: " + sequence_error;
+            return false;
+        }
+        source_record_indices.push_back(position.record.source_record_index);
+    }
+
+    const std::uint64_t next_generation = logical_order_generation_ + 1U;
+    if (!publish_logical_order_snapshot(
+            root_, next_generation, source_record_indices, error)) {
+        opened_ = false;
+        return false;
+    }
+
+    sequence_ = std::move(candidate);
+    logical_order_generation_ = next_generation;
     return true;
 }
 
@@ -35,15 +64,27 @@ bool CompactArenaReader::update_height(
         return false;
     }
     error->clear();
+
+    SequencePosition sequence_position;
+    std::string sequence_error;
+    if (!sequence_.at(record_index, &sequence_position, &sequence_error)) {
+        *error = "cannot resolve logical sequence height: " + sequence_error;
+        return false;
+    }
+    const std::uint64_t source_record_index = sequence_position.record.source_record_index;
+    if (source_record_index >= stats_.logical_records) {
+        *error = "logical sequence source record is outside persisted arena";
+        return false;
+    }
     const std::size_t block_index = static_cast<std::size_t>(
-        record_index / stats_.config.records_per_block);
+        source_record_index / stats_.config.records_per_block);
     if (block_index >= block_heights_q8_.size()) {
         *error = "height update block is outside arena";
         return false;
     }
 
     const auto arena_root = root_ / "arena";
-    const std::uint64_t height_offset = record_index * kHeightEntryBytes;
+    const std::uint64_t height_offset = source_record_index * kHeightEntryBytes;
     std::fstream heights(arena_root / "record-heights.idx", std::ios::binary | std::ios::in | std::ios::out);
     std::array<std::byte, kHeightEntryBytes> old_height_bytes{};
     if (!heights || !seek_stream(heights, height_offset) || !read_exact(heights, old_height_bytes)) {
@@ -53,6 +94,10 @@ bool CompactArenaReader::update_height(
     const auto old_height = read_le<std::uint32_t>(old_height_bytes, 0U);
     if (!old_height || *old_height == 0U) {
         *error = "invalid existing record height";
+        return false;
+    }
+    if (sequence_position.record.height_q8 != *old_height) {
+        *error = "logical sequence height differs from persisted source record";
         return false;
     }
 
@@ -114,7 +159,7 @@ bool CompactArenaReader::update_height(
     };
 
     if (!blocks || !write_height_value(new_height_q8)) {
-        *error = "cannot persist record height";
+        *error = "cannot persist source-record height";
         return false;
     }
     if (!write_block_value(new_block_height)) {
@@ -128,6 +173,23 @@ bool CompactArenaReader::update_height(
         *error = "cannot persist arena header";
         return false;
     }
+
+    std::uint32_t sequence_old_height = 0U;
+    if (!sequence_.update_height(
+            record_index,
+            new_height_q8,
+            &sequence_old_height,
+            &sequence_error)) {
+        const bool header_rolled_back = write_header_value(stats_.total_height_q8);
+        const bool block_rolled_back = write_block_value(old_block_height);
+        const bool height_rolled_back = write_height_value(*old_height);
+        *error = "cannot publish logical sequence height update: " + sequence_error;
+        if (!header_rolled_back || !block_rolled_back || !height_rolled_back) {
+            *error += "; persistence rollback failed";
+        }
+        return false;
+    }
+    static_cast<void>(sequence_old_height);
 
     fenwick_replace(block_index, old_block_height, new_block_height);
     block_heights_q8_[block_index] = new_block_height;

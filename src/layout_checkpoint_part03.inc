@@ -20,9 +20,9 @@
     *truncated = false;
 
     const LayoutCheckpointStats& stats = checkpoint.stats();
-    if (stats.record_index != record.record_index || stats.logical_id != record.logical_id ||
+    if (stats.record_index != record.source_record_index || stats.logical_id != record.logical_id ||
         stats.source_bytes != record.source_bytes) {
-        *error = "checkpoint does not match materialized record";
+        *error = "checkpoint does not match materialized record source identity";
         return false;
     }
     const LayoutCheckpointConfig& config = stats.config;
@@ -99,7 +99,7 @@
         const std::uint64_t remaining = record.source_bytes - source_offset;
         const std::size_t request = static_cast<std::size_t>(
             std::min<std::uint64_t>(kIoWindowBytes, remaining));
-        if (!reader.read_record_slice(record.record_index, source_offset, request, &chunk, error)) {
+        if (!reader.read_record_slice(record.source_record_index, source_offset, request, &chunk, error)) {
             return false;
         }
         if (chunk.empty()) {

@@ -71,6 +71,10 @@ public:
     LayoutWindowEngine& operator=(const LayoutWindowEngine&) = delete;
 
     bool open(std::string* error);
+    bool move_logical_record(
+        std::uint64_t from_index,
+        std::uint64_t to_index,
+        std::string* error);
     bool layout(
         std::uint64_t scroll_y_q8,
         std::uint32_t viewport_width_q8,

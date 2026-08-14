@@ -32,6 +32,8 @@ int main() {
 
     constexpr std::uint64_t kRecordBytes = 8ULL * 1024ULL * 1024ULL;
     constexpr std::uint64_t kLogicalId = 77U;
+    constexpr std::uint64_t kLogicalOrdinal = 9001U;
+    constexpr std::uint64_t kSourceRecordIndex = 0U;
     zevryon::massivedoc::StoreWriter writer(
         root, {.segment_bytes = 1024U * 1024U, .records_per_search_block = 64U});
     std::uint64_t generated = 0U;
@@ -72,8 +74,9 @@ int main() {
     zevryon::massivedoc::LayoutCheckpointStats built;
     if (!require(
             zevryon::massivedoc::build_layout_checkpoint(
-                root, 0U, config, &built, &error),
+                root, kSourceRecordIndex, config, &built, &error),
             error) ||
+        !require(built.record_index == kSourceRecordIndex, "checkpoint records physical source identity") ||
         !require(built.source_bytes == kRecordBytes, "checkpoint records source length") ||
         !require(built.logical_id == kLogicalId, "checkpoint records logical identity") ||
         !require(built.entry_count > 100U, "checkpoint creates sparse entries") ||
@@ -85,7 +88,7 @@ int main() {
 
     zevryon::massivedoc::LayoutCheckpointIndex index;
     if (!require(
-            index.open(root, 0U, kLogicalId, kRecordBytes, config, &error),
+            index.open(root, kSourceRecordIndex, kLogicalId, kRecordBytes, config, &error),
             error) ||
         !require(
             index.entries().size() == static_cast<std::size_t>(built.entry_count),
@@ -94,11 +97,12 @@ int main() {
     }
 
     zevryon::massivedoc::MaterializedRecord record;
-    record.record_index = 0U;
+    record.record_index = kLogicalOrdinal;
     record.logical_id = kLogicalId;
     record.y_q8 = 0U;
     record.height_q8 = built.measured_height_q8;
     record.source_bytes = kRecordBytes;
+    record.source_record_index = kSourceRecordIndex;
     const std::uint64_t visible_start =
         static_cast<std::uint64_t>(built.measured_height_q8) / 2U;
     const std::uint64_t visible_end = visible_start + 1080U * 256U;
@@ -133,15 +137,43 @@ int main() {
         return 1;
     }
     for (const auto& fragment : fragments) {
-        if (!require(fragment.record_index == 0U, "checkpoint fragment identity") ||
+        if (!require(fragment.record_index == kLogicalOrdinal,
+                     "checkpoint fragment preserves logical ordinal") ||
+            !require(fragment.logical_id == kLogicalId, "checkpoint fragment preserves logical id") ||
             !require(fragment.source_end > fragment.source_start, "checkpoint fragment advances") ||
             !require(fragment.source_end <= kRecordBytes, "checkpoint fragment remains in record")) {
             return 1;
         }
     }
 
+    zevryon::massivedoc::MaterializedRecord wrong_source = record;
+    wrong_source.source_record_index = 1U;
+    fragments.clear();
+    source_bytes_read = 0U;
+    checkpoint_source_offset = 0U;
+    truncated = false;
+    error.clear();
+    if (!require(
+            !zevryon::massivedoc::scan_layout_window_from_checkpoint(
+                root,
+                wrong_source,
+                index,
+                visible_start,
+                visible_end,
+                256U,
+                &fragments,
+                &source_bytes_read,
+                &checkpoint_source_offset,
+                &truncated,
+                &error),
+            "checkpoint scan rejects mismatched physical source identity") ||
+        !require(error.find("source identity") != std::string::npos,
+                 "physical source mismatch remains diagnostic")) {
+        return 1;
+    }
+
     const auto checkpoint_path =
-        zevryon::massivedoc::layout_checkpoint_path(root, 0U, config);
+        zevryon::massivedoc::layout_checkpoint_path(root, kSourceRecordIndex, config);
     std::fstream corrupt(
         checkpoint_path, std::ios::binary | std::ios::in | std::ios::out);
     if (!require(static_cast<bool>(corrupt), "open checkpoint for corruption test")) {
@@ -157,7 +189,7 @@ int main() {
     zevryon::massivedoc::LayoutCheckpointIndex corrupted;
     error.clear();
     if (!require(
-            !corrupted.open(root, 0U, kLogicalId, kRecordBytes, config, &error),
+            !corrupted.open(root, kSourceRecordIndex, kLogicalId, kRecordBytes, config, &error),
             "corrupted checkpoint must be rejected") ||
         !require(
             error.find("checksum") != std::string::npos,

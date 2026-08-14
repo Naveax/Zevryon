@@ -18,6 +18,7 @@ namespace {
 
 struct CacheKey {
     std::uint64_t record_index{0};
+    std::uint64_t source_record_index{0};
     std::uint32_t width_q8{0};
     std::uint32_t average_advance_q8{0};
     std::uint32_t line_height_q8{0};
@@ -30,10 +31,11 @@ struct CacheKey {
 struct CacheKeyHash {
     std::size_t operator()(const CacheKey& key) const noexcept {
         std::size_t value = static_cast<std::size_t>(key.record_index ^ (key.record_index >> 32U));
-        const auto mix = [&value](std::uint32_t part) {
-            value ^= static_cast<std::size_t>(part) + static_cast<std::size_t>(0x9e3779b9U) + (value << 6U) +
-                     (value >> 2U);
+        const auto mix = [&value](std::uint64_t part) {
+            const std::size_t folded = static_cast<std::size_t>(part ^ (part >> 32U));
+            value ^= folded + static_cast<std::size_t>(0x9e3779b9U) + (value << 6U) + (value >> 2U);
         };
+        mix(key.source_record_index);
         mix(key.width_q8);
         mix(key.average_advance_q8);
         mix(key.line_height_q8);
@@ -200,9 +202,13 @@ struct LayoutWindowEngine::Impl {
     std::list<CacheKey> lru;
     std::unordered_map<CacheKey, CacheEntry, CacheKeyHash> cache;
 
-    CacheKey key_for(std::uint64_t record_index, std::uint32_t viewport_width_q8) const noexcept {
+    CacheKey key_for(
+        std::uint64_t record_index,
+        std::uint64_t source_record_index,
+        std::uint32_t viewport_width_q8) const noexcept {
         return CacheKey{
             record_index,
+            source_record_index,
             bucket_width(viewport_width_q8, config.width_bucket_q8),
             config.average_advance_q8,
             config.line_height_q8,
@@ -369,7 +375,7 @@ struct LayoutWindowEngine::Impl {
         };
 
         const bool read_ok = store.read_record(
-            record.record_index,
+            record.source_record_index,
             [&](std::span<const std::byte> bytes) {
                 output->bytes_read += static_cast<std::uint64_t>(bytes.size());
                 for (const std::byte raw : bytes) {
@@ -453,6 +459,19 @@ bool LayoutWindowEngine::open(std::string* error) {
     return true;
 }
 
+bool LayoutWindowEngine::move_logical_record(
+    std::uint64_t from_index,
+    std::uint64_t to_index,
+    std::string* error) {
+    if (!impl_->opened || error == nullptr) {
+        if (error != nullptr) {
+            *error = "invalid layout logical move";
+        }
+        return false;
+    }
+    return impl_->arena.move_logical_record(from_index, to_index, error);
+}
+
 bool LayoutWindowEngine::layout(
     std::uint64_t scroll_y_q8,
     std::uint32_t viewport_width_q8,
@@ -481,7 +500,10 @@ bool LayoutWindowEngine::layout(
     ScrollAnchor anchor = select_scroll_anchor(initial, scroll_y_q8);
 
     for (const MaterializedRecord& record : initial.records) {
-        const CacheKey key = impl_->key_for(record.record_index, viewport_width_q8);
+        const CacheKey key = impl_->key_for(
+            record.record_index,
+            record.source_record_index,
+            viewport_width_q8);
         CacheEntry* cached = impl_->find_cache(key);
         std::uint32_t measured_height = 0U;
         bool saturated = false;
@@ -543,7 +565,10 @@ bool LayoutWindowEngine::layout(
             result->truncated = true;
             break;
         }
-        const CacheKey key = impl_->key_for(record.record_index, viewport_width_q8);
+        const CacheKey key = impl_->key_for(
+            record.record_index,
+            record.source_record_index,
+            viewport_width_q8);
         CacheEntry* cached = impl_->find_cache(key);
         ScanResult scan;
         const std::vector<LayoutFragment>* local_fragments = nullptr;
