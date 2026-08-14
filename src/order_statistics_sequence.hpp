@@ -11,6 +11,7 @@ struct SequenceRecord {
     std::uint64_t text_bytes{0};
     std::uint32_t height_q8{0};
     std::uint64_t search_summary{0};
+    std::uint64_t source_record_index{0};
 };
 
 struct SequenceAggregate {

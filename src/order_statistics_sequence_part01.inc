@@ -117,6 +117,7 @@
                     left_chunk.text_bytes.push_back(value.text_bytes);
                     left_chunk.heights_q8.push_back(value.height_q8);
                     left_chunk.search_summaries.push_back(value.search_summary);
+                    left_chunk.source_record_indices.push_back(value.source_record_index);
                 }
                 for (std::size_t item = split_at; item < chunk.size(); ++item) {
                     const SequenceRecord value = chunk.at(item);
@@ -124,6 +125,7 @@
                     right_chunk.text_bytes.push_back(value.text_bytes);
                     right_chunk.heights_q8.push_back(value.height_q8);
                     right_chunk.search_summaries.push_back(value.search_summary);
+                    right_chunk.source_record_indices.push_back(value.source_record_index);
                 }
                 NodePtr next_right;
                 if (!insert_front(root->right, std::move(right_chunk), max_records_per_chunk, &next_right, error) ||

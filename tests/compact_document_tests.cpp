@@ -32,11 +32,54 @@ int main() {
         return 1;
     }
 
+    std::string error;
+    zevryon::massivedoc::ChunkedOrderStatisticsSequence source_identity_sequence(8U);
+    if (!require(
+            source_identity_sequence.insert(
+                0U,
+                zevryon::massivedoc::SequenceRecord{11U, 101U, 256U, 0x1U, 7001U},
+                &error),
+            error) ||
+        !require(
+            source_identity_sequence.insert(
+                1U,
+                zevryon::massivedoc::SequenceRecord{12U, 102U, 512U, 0x2U, 7002U},
+                &error),
+            error) ||
+        !require(
+            source_identity_sequence.insert(
+                2U,
+                zevryon::massivedoc::SequenceRecord{13U, 103U, 768U, 0x4U, 7003U},
+                &error),
+            error)) {
+        return 1;
+    }
+    const auto source_identity_snapshot = source_identity_sequence.snapshot();
+    if (!require(source_identity_sequence.move(0U, 2U, &error), error)) {
+        return 1;
+    }
+    zevryon::massivedoc::SequencePosition moved_position;
+    zevryon::massivedoc::SequencePosition frozen_position;
+    if (!require(source_identity_sequence.at(2U, &moved_position, &error), error) ||
+        !require(moved_position.record.logical_id == 11U, "moved record keeps logical identity") ||
+        !require(moved_position.record.source_record_index == 7001U,
+                 "moved record keeps immutable source locator") ||
+        !require(source_identity_snapshot.at(0U, &frozen_position, &error), error) ||
+        !require(frozen_position.record.source_record_index == 7001U,
+                 "snapshot keeps original source locator")) {
+        return 1;
+    }
+    zevryon::massivedoc::SequenceRecord erased_source_record;
+    if (!require(source_identity_sequence.erase(2U, &erased_source_record, &error), error) ||
+        !require(erased_source_record.source_record_index == 7001U,
+                 "erase returns immutable source locator")) {
+        return 1;
+    }
+
     const auto root = std::filesystem::temp_directory_path() / "zevryon-compact-document-tests";
     std::error_code error_code;
     std::filesystem::remove_all(root, error_code);
 
-    std::string error;
     zevryon::massivedoc::StoreWriter writer(root, {.segment_bytes = 4096U, .records_per_search_block = 64U});
     constexpr std::uint64_t kRecords = 1000U;
     std::uint64_t payload_bytes = 0;

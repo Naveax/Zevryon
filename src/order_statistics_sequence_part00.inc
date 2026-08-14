@@ -24,11 +24,18 @@ struct ChunkedOrderStatisticsSequence::Impl {
         std::vector<std::uint64_t> text_bytes;
         std::vector<std::uint32_t> heights_q8;
         std::vector<std::uint64_t> search_summaries;
+        std::vector<std::uint64_t> source_record_indices;
 
         std::size_t size() const noexcept { return logical_ids.size(); }
 
         SequenceRecord at(std::size_t index) const noexcept {
-            return SequenceRecord{logical_ids[index], text_bytes[index], heights_q8[index], search_summaries[index]};
+            return SequenceRecord{
+                logical_ids[index],
+                text_bytes[index],
+                heights_q8[index],
+                search_summaries[index],
+                source_record_indices[index],
+            };
         }
 
         void reserve(std::size_t count) {
@@ -36,6 +43,7 @@ struct ChunkedOrderStatisticsSequence::Impl {
             text_bytes.reserve(count);
             heights_q8.reserve(count);
             search_summaries.reserve(count);
+            source_record_indices.reserve(count);
         }
 
         void insert(std::size_t index, const SequenceRecord& record) {
@@ -44,6 +52,7 @@ struct ChunkedOrderStatisticsSequence::Impl {
             text_bytes.insert(text_bytes.begin() + offset, record.text_bytes);
             heights_q8.insert(heights_q8.begin() + offset, record.height_q8);
             search_summaries.insert(search_summaries.begin() + offset, record.search_summary);
+            source_record_indices.insert(source_record_indices.begin() + offset, record.source_record_index);
         }
 
         SequenceRecord erase(std::size_t index) {
@@ -53,6 +62,7 @@ struct ChunkedOrderStatisticsSequence::Impl {
             text_bytes.erase(text_bytes.begin() + offset);
             heights_q8.erase(heights_q8.begin() + offset);
             search_summaries.erase(search_summaries.begin() + offset);
+            source_record_indices.erase(source_record_indices.begin() + offset);
             return record;
         }
     };
