@@ -1,3 +1,27 @@
+    std::uint64_t group_bytes = 0U;
+    std::uint64_t group_count = 0U;
+    std::uint32_t group_crc = 0U;
+    std::uint64_t previous_block = 0U;
+    bool have_previous_block = false;
+
+    auto flush_group = [&]() -> bool {
+        if (!current_trigram) {
+            return true;
+        }
+        const DirectoryEntry entry{
+            *current_trigram,
+            group_crc,
+            group_offset,
+            group_bytes,
+            group_count,
+        };
+        const auto bytes = serialize_directory(entry);
+        if (!write_all(directory, bytes)) {
+            *error = "failed to write trigram directory entry";
+            return false;
+        }
+        ++distinct;
+        return true;
     };
 
     for (;;) {
@@ -80,7 +104,10 @@
     append_le(header, directory_offset);
     append_le(header, postings_file_offset);
     append_le(header, postings_offset);
-    if (header.size() != 72U) {
+    for (const std::uint8_t byte : source_identity) {
+        header.push_back(static_cast<std::byte>(byte));
+    }
+    if (header.size() != 104U) {
         *error = "internal trigram header prefix size mismatch";
         return false;
     }
@@ -122,99 +149,65 @@
         *error = "cannot publish trigram index: " + fs_error.message();
         return false;
     }
+    if (total_blocks >
+        (std::numeric_limits<std::uint64_t>::max() - kBloomHeaderBytes) / kBloomFrameBytes) {
+        *error = "trigram Bloom size overflow";
+        return false;
+    }
+    std::vector<std::byte> bloom_header;
+    bloom_header.reserve(kBloomHeaderBytes);
+    for (const char character : kBloomMagic) {
+        bloom_header.push_back(static_cast<std::byte>(character));
+    }
+    append_le(bloom_header, kBloomVersion);
+    append_le(bloom_header, static_cast<std::uint32_t>(kBloomHeaderBytes));
+    append_le(bloom_header, static_cast<std::uint32_t>(kBloomFrameBytes));
+    append_le(bloom_header, std::uint32_t{0U});
+    append_le(bloom_header, total_blocks);
+    for (const std::uint8_t byte : source_identity) {
+        bloom_header.push_back(static_cast<std::byte>(byte));
+    }
+    if (bloom_header.size() != 64U) {
+        *error = "internal trigram Bloom header prefix size mismatch";
+        return false;
+    }
+    append_le(bloom_header, crc32_update(0U, bloom_header));
+    append_le(bloom_header, std::uint32_t{0U});
+    append_le(bloom_header, std::uint32_t{0U});
+    append_le(bloom_header, std::uint32_t{0U});
+    if (bloom_header.size() != kBloomHeaderBytes) {
+        *error = "internal trigram Bloom header size mismatch";
+        return false;
+    }
+    const auto bloom_output_temp = impl_->temp_root / "search.blm.final.tmp";
+    {
+        std::ofstream output(bloom_output_temp, std::ios::binary | std::ios::trunc);
+        if (!output || !write_all(output, bloom_header) ||
+            !copy_file_bounded(impl_->bloom_temp_path, output, error)) {
+            if (error->empty()) {
+                *error = "failed to assemble trigram Bloom summaries";
+            }
+            return false;
+        }
+        output.flush();
+        if (!output) {
+            *error = "failed to flush trigram Bloom summary output";
+            return false;
+        }
+    }
     fs_error.clear();
     std::filesystem::remove(impl_->root / "search.blm", fs_error);
     fs_error.clear();
-    std::filesystem::rename(impl_->bloom_temp_path, impl_->root / "search.blm", fs_error);
+    std::filesystem::rename(bloom_output_temp, impl_->root / "search.blm", fs_error);
     if (fs_error) {
         *error = "cannot publish trigram Bloom summaries: " + fs_error.message();
         return false;
     }
 
-    if (total_blocks > std::numeric_limits<std::uint64_t>::max() / kBloomFrameBytes) {
-        *error = "trigram Bloom size overflow";
-        return false;
-    }
-    const std::uint64_t expected_bloom_bytes =
+    const std::uint64_t expected_bloom_bytes = kBloomHeaderBytes +
         total_blocks * static_cast<std::uint64_t>(kBloomFrameBytes);
     std::error_code size_error;
     const std::uint64_t index_size = std::filesystem::file_size(impl_->root / "search.tri", size_error);
     if (size_error) {
         *error = "cannot stat published trigram index";
         return false;
-    }
-    const std::uint64_t bloom_size = std::filesystem::file_size(impl_->root / "search.blm", size_error);
-    if (size_error || bloom_size != expected_bloom_bytes) {
-        *error = "published trigram Bloom size mismatch";
-        return false;
-    }
-
-    if (stats != nullptr) {
-        stats->block_count = total_blocks;
-        stats->posting_pairs = posting_pairs;
-        stats->distinct_trigrams = distinct;
-        stats->spool_bytes = impl_->spool_entries * static_cast<std::uint64_t>(kSpoolEntryBytes);
-        stats->index_bytes = index_size;
-        stats->bloom_bytes = bloom_size;
-        stats->merge_passes = pass;
-    }
-    impl_->finished = true;
-    std::filesystem::remove_all(impl_->temp_root, fs_error);
-    return true;
-}
-
-struct TrigramIndexReader::Impl {
-    std::filesystem::path root;
-    TrigramIndexConfig config;
-    std::unique_ptr<BoundedPositionalReader> index;
-    std::unique_ptr<BoundedPositionalReader> bloom;
-    std::uint64_t block_count{0U};
-    std::uint64_t distinct_trigrams{0U};
-    std::uint64_t posting_pairs{0U};
-    std::uint64_t directory_offset{0U};
-    std::uint64_t postings_offset{0U};
-    std::uint64_t postings_bytes{0U};
-    bool opened{false};
-
-    bool read_directory(std::uint64_t position, DirectoryEntry* entry, std::string* error) const {
-        if (position >= distinct_trigrams) {
-            *error = "trigram directory position out of range";
-            return false;
-        }
-        if (position > (std::numeric_limits<std::uint64_t>::max() - directory_offset) / kDirectoryEntryBytes) {
-            *error = "trigram directory offset overflow";
-            return false;
-        }
-        const std::uint64_t offset = directory_offset +
-            position * static_cast<std::uint64_t>(kDirectoryEntryBytes);
-        std::array<std::byte, kDirectoryEntryBytes> bytes{};
-        if (!index->read_exact_at(offset, bytes, error)) {
-            *error = "cannot read trigram directory: " + *error;
-            return false;
-        }
-        const auto parsed = parse_directory(bytes);
-        if (!parsed) {
-            *error = "invalid trigram directory entry";
-            return false;
-        }
-        if (parsed->block_count == 0U || parsed->postings_bytes == 0U ||
-            parsed->postings_offset > postings_bytes ||
-            parsed->postings_bytes > postings_bytes - parsed->postings_offset) {
-            *error = "invalid trigram directory entry extent";
-            return false;
-        }
-        *entry = *parsed;
-        return true;
-    }
-
-    bool lookup(std::uint32_t trigram, DirectoryEntry* entry, bool* found, std::string* error) const {
-        std::uint64_t low = 0U;
-        std::uint64_t high = distinct_trigrams;
-        while (low < high) {
-            const std::uint64_t middle = low + (high - low) / 2U;
-            DirectoryEntry candidate;
-            if (!read_directory(middle, &candidate, error)) {
-                return false;
-            }
-            if (candidate.trigram < trigram) {
-                low = middle + 1U;

@@ -1,3 +1,12 @@
+        }
+        if (!input) {
+            *error = "failed to read trigram temporary file";
+            return false;
+        }
+    }
+    return true;
+}
+
 std::vector<std::byte> serialize_directory(const DirectoryEntry& entry) {
     std::vector<std::byte> bytes;
     bytes.reserve(kDirectoryEntryBytes);
@@ -202,19 +211,3 @@ bool TrigramIndexWriter::begin_record(std::uint64_t block_index, std::string* er
         return false;
     }
     if (!impl_->spool || !impl_->bloom) {
-        *error = "trigram writer temporary files are not open";
-        return false;
-    }
-    if (!impl_->have_block) {
-        if (block_index != 0U) {
-            *error = "trigram block sequence must begin at zero";
-            return false;
-        }
-        impl_->current_block = block_index;
-        impl_->have_block = true;
-    } else if (block_index != impl_->current_block) {
-        if (block_index != impl_->current_block + 1U) {
-            *error = "trigram block sequence must be contiguous";
-            return false;
-        }
-        if (!impl_->flush_bloom(error)) {

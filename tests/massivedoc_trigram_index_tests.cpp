@@ -30,6 +30,14 @@ std::span<const std::byte> bytes_of(std::string_view text) {
     return {reinterpret_cast<const std::byte*>(text.data()), text.size()};
 }
 
+std::array<std::uint8_t, kTrigramSourceIdentityBytes> fixture_identity() {
+    std::array<std::uint8_t, kTrigramSourceIdentityBytes> identity{};
+    for (std::size_t index = 0U; index < identity.size(); ++index) {
+        identity[index] = static_cast<std::uint8_t>(index * 7U + 3U);
+    }
+    return identity;
+}
+
 template <typename T>
 T read_le(std::istream& stream) {
     std::array<std::byte, sizeof(T)> bytes{};
@@ -114,15 +122,17 @@ Fixture build_fixture() {
         }
     }
     TrigramIndexStats stats;
+    const auto source_identity = fixture_identity();
     REQUIRE(writer.finish(
         static_cast<std::uint64_t>(fixture.blocks.size()),
+        source_identity,
         &stats,
         [] { return false; },
         &error));
     REQUIRE(stats.block_count == fixture.blocks.size());
     REQUIRE(stats.distinct_trigrams != 0U);
     REQUIRE(stats.posting_pairs != 0U);
-    REQUIRE(stats.bloom_bytes == fixture.blocks.size() * (kTrigramBloomBytes + sizeof(std::uint32_t)));
+    REQUIRE(stats.bloom_bytes == 80U + fixture.blocks.size() * (kTrigramBloomBytes + sizeof(std::uint32_t)));
     REQUIRE(stats.peak_sort_entries != 0U);
     return fixture;
 }
@@ -169,7 +179,7 @@ void test_equivalence_no_false_negatives() {
     config.io_window_bytes = 17U;
     TrigramIndexReader reader(fixture.root, config);
     std::string error;
-    REQUIRE(reader.open(&error));
+    REQUIRE(reader.open(fixture_identity(), &error));
     REQUIRE(reader.block_count() == fixture.blocks.size());
 
     const std::array<std::string_view, 10> queries{
@@ -200,7 +210,7 @@ void test_short_query_visits_all_blocks() {
     const Fixture fixture = build_fixture();
     TrigramIndexReader reader(fixture.root);
     std::string error;
-    REQUIRE(reader.open(&error));
+    REQUIRE(reader.open(fixture_identity(), &error));
     const auto candidates = candidate_blocks(&reader, "ab");
     REQUIRE(candidates.size() == fixture.blocks.size());
 }
@@ -209,7 +219,7 @@ void test_cancellation_is_observed() {
     const Fixture fixture = build_fixture();
     TrigramIndexReader reader(fixture.root);
     std::string error;
-    REQUIRE(reader.open(&error));
+    REQUIRE(reader.open(fixture_identity(), &error));
     int checks = 0;
     TrigramQueryStats stats;
     const bool ok = reader.visit_candidate_blocks(
@@ -250,13 +260,14 @@ void test_external_sort_merge_path() {
     }
     REQUIRE(writer.end_record(&error));
     TrigramIndexStats stats;
-    REQUIRE(writer.finish(1U, &stats, [] { return false; }, &error));
+    const auto source_identity = fixture_identity();
+    REQUIRE(writer.finish(1U, source_identity, &stats, [] { return false; }, &error));
     REQUIRE(stats.spool_bytes > 64U * 1024U);
     REQUIRE(stats.merge_passes >= 1U);
     REQUIRE(stats.peak_sort_entries <= (64U * 1024U) / 16U);
 
     TrigramIndexReader reader(root, config);
-    REQUIRE(reader.open(&error));
+    REQUIRE(reader.open(fixture_identity(), &error));
     const auto candidates = candidate_blocks(&reader, "merge-needle");
     REQUIRE(candidates == std::set<std::uint64_t>{0U});
 }
@@ -281,7 +292,7 @@ void test_corrupt_selected_posting_fails_before_candidates_escape() {
     }
     TrigramIndexReader reader(fixture.root);
     std::string error;
-    REQUIRE(reader.open(&error));
+    REQUIRE(reader.open(fixture_identity(), &error));
     std::size_t emitted = 0U;
     TrigramQueryStats stats;
     const bool ok = reader.visit_candidate_blocks(
@@ -305,17 +316,18 @@ void test_corrupt_bloom_fails_before_candidate_escape() {
             fixture.root / "search.blm",
             std::ios::binary | std::ios::in | std::ios::out);
         REQUIRE(stream);
+        stream.seekg(80, std::ios::beg);
         char byte = 0;
         stream.read(&byte, 1);
         REQUIRE(stream.gcount() == 1);
         byte = static_cast<char>(static_cast<unsigned char>(byte) ^ 0x01U);
-        stream.seekp(0, std::ios::beg);
+        stream.seekp(80, std::ios::beg);
         stream.write(&byte, 1);
         REQUIRE(stream);
     }
     TrigramIndexReader reader(fixture.root);
     std::string error;
-    REQUIRE(reader.open(&error));
+    REQUIRE(reader.open(fixture_identity(), &error));
     std::size_t emitted = 0U;
     TrigramQueryStats stats;
     const bool ok = reader.visit_candidate_blocks(
@@ -332,6 +344,16 @@ void test_corrupt_bloom_fails_before_candidate_escape() {
     REQUIRE(error == "trigram Bloom checksum mismatch");
 }
 
+void test_source_identity_mismatch_fails_closed() {
+    const Fixture fixture = build_fixture();
+    auto wrong = fixture_identity();
+    wrong[0] ^= 0xffU;
+    TrigramIndexReader reader(fixture.root);
+    std::string error;
+    REQUIRE(!reader.open(wrong, &error));
+    REQUIRE(error == "trigram source identity mismatch");
+}
+
 void test_corrupt_header_fails_closed() {
     const Fixture fixture = build_fixture();
     {
@@ -343,7 +365,7 @@ void test_corrupt_header_fails_closed() {
     }
     TrigramIndexReader reader(fixture.root);
     std::string error;
-    REQUIRE(!reader.open(&error));
+    REQUIRE(!reader.open(fixture_identity(), &error));
     REQUIRE(!error.empty());
 }
 
@@ -359,7 +381,7 @@ void test_truncated_postings_fail_on_query() {
     TrigramIndexReader reader(fixture.root);
     std::string error;
     // Extent mismatch is detected at open, before any result can escape.
-    REQUIRE(!reader.open(&error));
+    REQUIRE(!reader.open(fixture_identity(), &error));
     REQUIRE(!error.empty());
 }
 
@@ -372,6 +394,7 @@ int main() {
     test_external_sort_merge_path();
     test_corrupt_selected_posting_fails_before_candidates_escape();
     test_corrupt_bloom_fails_before_candidate_escape();
+    test_source_identity_mismatch_fails_closed();
     test_corrupt_header_fails_closed();
     test_truncated_postings_fail_on_query();
     std::cout << "Zevryon MassiveDoc trigram index tests passed\n";

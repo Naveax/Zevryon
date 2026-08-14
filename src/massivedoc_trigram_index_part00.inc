@@ -18,8 +18,11 @@ namespace zevryon::massivedoc {
 namespace {
 
 constexpr std::array<char, 8> kIndexMagic{'Z', 'M', 'D', 'T', 'R', 'I', '0', '1'};
-constexpr std::uint32_t kIndexVersion = 2U;
-constexpr std::size_t kHeaderBytes = 80U;
+constexpr std::array<char, 8> kBloomMagic{'Z', 'M', 'D', 'B', 'L', 'M', '0', '1'};
+constexpr std::uint32_t kIndexVersion = 3U;
+constexpr std::uint32_t kBloomVersion = 1U;
+constexpr std::size_t kHeaderBytes = 112U;
+constexpr std::size_t kBloomHeaderBytes = 80U;
 constexpr std::size_t kDirectoryEntryBytes = 40U;
 constexpr std::size_t kBloomFrameBytes = kTrigramBloomBytes + sizeof(std::uint32_t);
 constexpr std::size_t kSpoolEntryBytes = 12U;
@@ -209,11 +212,3 @@ bool copy_file_bounded(
         }
         if (input.eof()) {
             break;
-        }
-        if (!input) {
-            *error = "failed to read trigram temporary file";
-            return false;
-        }
-    }
-    return true;
-}

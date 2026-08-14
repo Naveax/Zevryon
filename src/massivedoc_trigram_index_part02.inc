@@ -1,3 +1,19 @@
+        *error = "trigram writer temporary files are not open";
+        return false;
+    }
+    if (!impl_->have_block) {
+        if (block_index != 0U) {
+            *error = "trigram block sequence must begin at zero";
+            return false;
+        }
+        impl_->current_block = block_index;
+        impl_->have_block = true;
+    } else if (block_index != impl_->current_block) {
+        if (block_index != impl_->current_block + 1U) {
+            *error = "trigram block sequence must be contiguous";
+            return false;
+        }
+        if (!impl_->flush_bloom(error)) {
             return false;
         }
         impl_->current_block = block_index;
@@ -51,6 +67,7 @@ bool TrigramIndexWriter::end_record(std::string* error) {
 
 bool TrigramIndexWriter::finish(
     std::uint64_t total_blocks,
+    std::span<const std::uint8_t, kTrigramSourceIdentityBytes> source_identity,
     TrigramIndexStats* stats,
     const TrigramCancellationCheck& cancelled,
     std::string* error) {
@@ -194,27 +211,3 @@ bool TrigramIndexWriter::finish(
     std::uint64_t distinct = 0U;
     std::optional<std::uint32_t> current_trigram;
     std::uint64_t group_offset = 0U;
-    std::uint64_t group_bytes = 0U;
-    std::uint64_t group_count = 0U;
-    std::uint32_t group_crc = 0U;
-    std::uint64_t previous_block = 0U;
-    bool have_previous_block = false;
-
-    auto flush_group = [&]() -> bool {
-        if (!current_trigram) {
-            return true;
-        }
-        const DirectoryEntry entry{
-            *current_trigram,
-            group_crc,
-            group_offset,
-            group_bytes,
-            group_count,
-        };
-        const auto bytes = serialize_directory(entry);
-        if (!write_all(directory, bytes)) {
-            *error = "failed to write trigram directory entry";
-            return false;
-        }
-        ++distinct;
-        return true;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -13,6 +14,7 @@ namespace zevryon::massivedoc {
 
 constexpr std::size_t kTrigramBloomBytes = 256U;
 constexpr std::size_t kTrigramIntersectionStreams = 8U;
+constexpr std::size_t kTrigramSourceIdentityBytes = 32U;
 
 struct TrigramIndexConfig {
     std::size_t io_window_bytes{64U * 1024U};
@@ -57,6 +59,7 @@ public:
     bool end_record(std::string* error);
     bool finish(
         std::uint64_t total_blocks,
+        std::span<const std::uint8_t, kTrigramSourceIdentityBytes> source_identity,
         TrigramIndexStats* stats,
         const TrigramCancellationCheck& cancelled,
         std::string* error);
@@ -76,7 +79,9 @@ public:
     TrigramIndexReader(const TrigramIndexReader&) = delete;
     TrigramIndexReader& operator=(const TrigramIndexReader&) = delete;
 
-    bool open(std::string* error);
+    bool open(
+        std::span<const std::uint8_t, kTrigramSourceIdentityBytes> expected_source_identity,
+        std::string* error);
     bool visit_candidate_blocks(
         std::string_view query,
         const TrigramCandidateVisitor& visitor,

@@ -1,3 +1,79 @@
+    }
+    const std::uint64_t bloom_size = std::filesystem::file_size(impl_->root / "search.blm", size_error);
+    if (size_error || bloom_size != expected_bloom_bytes) {
+        *error = "published trigram Bloom size mismatch";
+        return false;
+    }
+
+    if (stats != nullptr) {
+        stats->block_count = total_blocks;
+        stats->posting_pairs = posting_pairs;
+        stats->distinct_trigrams = distinct;
+        stats->spool_bytes = impl_->spool_entries * static_cast<std::uint64_t>(kSpoolEntryBytes);
+        stats->index_bytes = index_size;
+        stats->bloom_bytes = bloom_size;
+        stats->merge_passes = pass;
+    }
+    impl_->finished = true;
+    std::filesystem::remove_all(impl_->temp_root, fs_error);
+    return true;
+}
+
+struct TrigramIndexReader::Impl {
+    std::filesystem::path root;
+    TrigramIndexConfig config;
+    std::unique_ptr<BoundedPositionalReader> index;
+    std::unique_ptr<BoundedPositionalReader> bloom;
+    std::uint64_t block_count{0U};
+    std::uint64_t distinct_trigrams{0U};
+    std::uint64_t posting_pairs{0U};
+    std::uint64_t directory_offset{0U};
+    std::uint64_t postings_offset{0U};
+    std::uint64_t postings_bytes{0U};
+    bool opened{false};
+
+    bool read_directory(std::uint64_t position, DirectoryEntry* entry, std::string* error) const {
+        if (position >= distinct_trigrams) {
+            *error = "trigram directory position out of range";
+            return false;
+        }
+        if (position > (std::numeric_limits<std::uint64_t>::max() - directory_offset) / kDirectoryEntryBytes) {
+            *error = "trigram directory offset overflow";
+            return false;
+        }
+        const std::uint64_t offset = directory_offset +
+            position * static_cast<std::uint64_t>(kDirectoryEntryBytes);
+        std::array<std::byte, kDirectoryEntryBytes> bytes{};
+        if (!index->read_exact_at(offset, bytes, error)) {
+            *error = "cannot read trigram directory: " + *error;
+            return false;
+        }
+        const auto parsed = parse_directory(bytes);
+        if (!parsed) {
+            *error = "invalid trigram directory entry";
+            return false;
+        }
+        if (parsed->block_count == 0U || parsed->postings_bytes == 0U ||
+            parsed->postings_offset > postings_bytes ||
+            parsed->postings_bytes > postings_bytes - parsed->postings_offset) {
+            *error = "invalid trigram directory entry extent";
+            return false;
+        }
+        *entry = *parsed;
+        return true;
+    }
+
+    bool lookup(std::uint32_t trigram, DirectoryEntry* entry, bool* found, std::string* error) const {
+        std::uint64_t low = 0U;
+        std::uint64_t high = distinct_trigrams;
+        while (low < high) {
+            const std::uint64_t middle = low + (high - low) / 2U;
+            DirectoryEntry candidate;
+            if (!read_directory(middle, &candidate, error)) {
+                return false;
+            }
+            if (candidate.trigram < trigram) {
+                low = middle + 1U;
             } else {
                 high = middle;
             }
@@ -61,12 +137,15 @@
             *error = "trigram Bloom block out of range";
             return false;
         }
-        if (block > std::numeric_limits<std::uint64_t>::max() / kBloomFrameBytes) {
+        if (block > (std::numeric_limits<std::uint64_t>::max() - kBloomHeaderBytes) / kBloomFrameBytes) {
             *error = "trigram Bloom offset overflow";
             return false;
         }
         std::array<std::byte, kBloomFrameBytes> frame{};
-        if (!bloom->read_exact_at(block * static_cast<std::uint64_t>(kBloomFrameBytes), frame, error)) {
+        if (!bloom->read_exact_at(
+                kBloomHeaderBytes + block * static_cast<std::uint64_t>(kBloomFrameBytes),
+                frame,
+                error)) {
             *error = "cannot read trigram Bloom summary: " + *error;
             return false;
         }
@@ -109,7 +188,9 @@ TrigramIndexReader::~TrigramIndexReader() {
     delete impl_;
 }
 
-bool TrigramIndexReader::open(std::string* error) {
+bool TrigramIndexReader::open(
+    std::span<const std::uint8_t, kTrigramSourceIdentityBytes> expected_source_identity,
+    std::string* error) {
     impl_->opened = false;
     impl_->index = std::make_unique<BoundedPositionalReader>(
         impl_->root / "search.tri",
@@ -130,91 +211,3 @@ bool TrigramIndexReader::open(std::string* error) {
         return false;
     }
     std::array<std::byte, kHeaderBytes> header{};
-    if (!impl_->index->read_exact_at(0U, header, error)) {
-        *error = "cannot read trigram header: " + *error;
-        return false;
-    }
-    for (std::size_t index_magic = 0U; index_magic < kIndexMagic.size(); ++index_magic) {
-        if (header[index_magic] != static_cast<std::byte>(kIndexMagic[index_magic])) {
-            *error = "trigram index magic mismatch";
-            return false;
-        }
-    }
-    const auto version = read_le<std::uint32_t>(header, 8U);
-    const auto header_bytes = read_le<std::uint32_t>(header, 12U);
-    const auto bloom_bytes = read_le<std::uint32_t>(header, 16U);
-    const auto max_streams = read_le<std::uint32_t>(header, 20U);
-    const auto blocks = read_le<std::uint64_t>(header, 24U);
-    const auto distinct = read_le<std::uint64_t>(header, 32U);
-    const auto pairs = read_le<std::uint64_t>(header, 40U);
-    const auto directory_offset = read_le<std::uint64_t>(header, 48U);
-    const auto postings_offset = read_le<std::uint64_t>(header, 56U);
-    const auto postings_bytes = read_le<std::uint64_t>(header, 64U);
-    const auto stored_crc = read_le<std::uint32_t>(header, 72U);
-    const auto reserved = read_le<std::uint32_t>(header, 76U);
-    if (!version || !header_bytes || !bloom_bytes || !max_streams || !blocks || !distinct ||
-        !pairs || !directory_offset || !postings_offset || !postings_bytes || !stored_crc || !reserved) {
-        *error = "trigram header parse failure";
-        return false;
-    }
-    if (*version != kIndexVersion || *header_bytes != kHeaderBytes ||
-        *bloom_bytes != kBloomFrameBytes || *max_streams != kTrigramIntersectionStreams ||
-        *directory_offset != kHeaderBytes || *reserved != 0U) {
-        *error = "unsupported trigram index header contract";
-        return false;
-    }
-    const std::uint32_t actual_crc = crc32_update(0U, std::span<const std::byte>(header.data(), 72U));
-    if (actual_crc != *stored_crc) {
-        *error = "trigram header CRC mismatch";
-        return false;
-    }
-    if (*distinct > (std::numeric_limits<std::uint64_t>::max() - *directory_offset) / kDirectoryEntryBytes) {
-        *error = "trigram directory extent overflow";
-        return false;
-    }
-    const std::uint64_t expected_postings_offset =
-        *directory_offset + *distinct * static_cast<std::uint64_t>(kDirectoryEntryBytes);
-    if (*postings_offset != expected_postings_offset ||
-        *postings_bytes > std::numeric_limits<std::uint64_t>::max() - *postings_offset ||
-        *postings_offset + *postings_bytes != impl_->index->file_size()) {
-        *error = "trigram index extent mismatch";
-        return false;
-    }
-    if (*blocks > std::numeric_limits<std::uint64_t>::max() / kBloomFrameBytes ||
-        impl_->bloom->file_size() != *blocks * static_cast<std::uint64_t>(kBloomFrameBytes)) {
-        *error = "trigram Bloom extent mismatch";
-        return false;
-    }
-
-    impl_->block_count = *blocks;
-    impl_->distinct_trigrams = *distinct;
-    impl_->posting_pairs = *pairs;
-    impl_->directory_offset = *directory_offset;
-    impl_->postings_offset = *postings_offset;
-    impl_->postings_bytes = *postings_bytes;
-
-    impl_->opened = true;
-    return true;
-}
-
-namespace {
-
-class PostingCursor {
-public:
-    PostingCursor(
-        const BoundedPositionalReader* reader,
-        std::uint64_t absolute_offset,
-        std::uint64_t byte_length,
-        std::uint64_t expected_count,
-        std::uint64_t block_count,
-        std::size_t window_bytes)
-        : reader_(reader),
-          end_(absolute_offset + byte_length),
-          next_offset_(absolute_offset),
-          expected_count_(expected_count),
-          block_count_(block_count),
-          buffer_(std::max<std::size_t>(1U, std::min<std::size_t>(window_bytes, 4096U))) {}
-
-    bool initialize(std::string* error) {
-        return advance(error);
-    }
