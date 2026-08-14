@@ -1,5 +1,6 @@
 #pragma once
 
+#include "layout_checkpoint.hpp"
 #include "layout_window.hpp"
 
 #include <cstddef>
@@ -35,6 +36,10 @@ public:
     ZenithHotScrollSession& operator=(const ZenithHotScrollSession&) = delete;
 
     bool open(std::string* error);
+    bool move_logical_record(
+        std::uint64_t from_index,
+        std::uint64_t to_index,
+        std::string* error);
     bool layout(
         std::uint64_t scroll_y_q8,
         std::uint32_t viewport_width_q8,
@@ -44,7 +49,6 @@ public:
         LayoutWindowResult* result,
         bool* used_checkpoint_path,
         std::string* error);
-
     void clear_source_window_cache() noexcept;
     const ZenithHotScrollStats& stats() const noexcept;
     std::uint64_t total_height_q8() const noexcept;

@@ -31,7 +31,9 @@ int main() {
     fs_error.clear();
 
     constexpr std::uint64_t kRecordBytes = 8ULL * 1024ULL * 1024ULL;
+    constexpr std::uint64_t kSecondRecordBytes = 256ULL * 1024ULL;
     constexpr std::uint64_t kLogicalId = 2026U;
+    constexpr std::uint64_t kSecondLogicalId = 2027U;
     zevryon::massivedoc::StoreWriter writer(
         root, {.segment_bytes = 1024U * 1024U, .records_per_search_block = 64U});
     std::uint64_t generated = 0U;
@@ -54,12 +56,35 @@ int main() {
         return 1;
     }
 
+    std::uint64_t second_generated = 0U;
+    if (!require(
+            writer.append_stream(
+                kSecondLogicalId,
+                kSecondRecordBytes,
+                [&second_generated](std::span<std::byte> target) {
+                    for (std::size_t index = 0U; index < target.size(); ++index) {
+                        const std::uint64_t absolute =
+                            second_generated + static_cast<std::uint64_t>(index);
+                        const char value = (absolute % 64U) == 63U ? '\n' : 'y';
+                        target[index] = static_cast<std::byte>(
+                            static_cast<unsigned char>(value));
+                    }
+                    second_generated += static_cast<std::uint64_t>(target.size());
+                    return target.size();
+                },
+                &error),
+            error) ||
+        !require(second_generated == kSecondRecordBytes,
+                 "second hot-scroll fixture generated completely")) {
+        return 1;
+    }
+
     zevryon::massivedoc::CorpusMetadata metadata;
-    metadata.logical_utf8_bytes = kRecordBytes;
-    metadata.logical_records = 1U;
-    metadata.logical_nodes = 8U;
-    metadata.style_runs = 4U;
-    metadata.resource_references = 1U;
+    metadata.logical_utf8_bytes = kRecordBytes + kSecondRecordBytes;
+    metadata.logical_records = 2U;
+    metadata.logical_nodes = 16U;
+    metadata.style_runs = 8U;
+    metadata.resource_references = 2U;
     metadata.largest_record_bytes = kRecordBytes;
     zevryon::massivedoc::StoreStats store_stats;
     if (!require(writer.finalize(metadata, &store_stats, &error), error)) {
@@ -81,6 +106,7 @@ int main() {
 
     zevryon::massivedoc::LayoutConfig layout_config;
     layout_config.checkpoint_stride_bytes = 16U * 1024U;
+    layout_config.checkpoint_min_record_bytes = 1U;
     layout_config.max_checkpoint_cache_bytes = 256U * 1024U;
     layout_config.max_source_window_cache_bytes = 128U * 1024U;
     zevryon::massivedoc::LayoutCheckpointConfig checkpoint_config;
@@ -98,6 +124,15 @@ int main() {
         !require(
             checkpoint_stats.physical_bytes < kRecordBytes / 500U,
             "16 KiB checkpoint overhead remains below 0.2 percent")) {
+        return 1;
+    }
+    zevryon::massivedoc::LayoutCheckpointStats second_checkpoint_stats;
+    if (!require(
+            zevryon::massivedoc::build_layout_checkpoint(
+                root, 1U, checkpoint_config, &second_checkpoint_stats, &error),
+            error) ||
+        !require(second_checkpoint_stats.logical_id == kSecondLogicalId,
+                 "second checkpoint preserves physical source identity")) {
         return 1;
     }
 
@@ -211,6 +246,76 @@ int main() {
         !require(
             cumulative.source_window_cache_peak_bytes <= layout_config.max_source_window_cache_bytes,
             "source-window peak charge stays bounded")) {
+        return 1;
+    }
+
+    if (!require(session.move_logical_record(0U, 1U, &error), error)) {
+        return 1;
+    }
+    zevryon::massivedoc::LayoutWindowResult moved;
+    used_checkpoint = false;
+    if (!require(
+            session.layout(
+                0U,
+                800U * 256U,
+                viewport_height_q8,
+                0U,
+                256U,
+                &moved,
+                &used_checkpoint,
+                &error),
+            error) ||
+        !require(used_checkpoint, "moved top query remains checkpoint accelerated") ||
+        !require(!moved.fragments.empty(), "moved top query returns fragments") ||
+        !require(moved.checkpoint_cache_misses >= 1U,
+                 "moved physical record has an independent checkpoint cache key") ||
+        !require(moved.source_window_cache_misses >= 1U,
+                 "moved physical record has an independent source-window cache key")) {
+        return 1;
+    }
+    bool saw_moved_source = false;
+    bool saw_moved_hard_break = false;
+    for (const auto& fragment : moved.fragments) {
+        if (fragment.logical_id != kSecondLogicalId) {
+            continue;
+        }
+        saw_moved_source = true;
+        saw_moved_hard_break = saw_moved_hard_break || fragment.hard_break;
+        if (!require(fragment.record_index == 0U,
+                     "moved checkpoint payload emits its new logical ordinal")) {
+            return 1;
+        }
+    }
+    if (!require(saw_moved_source,
+                 "moved query resolves the second physical source") ||
+        !require(saw_moved_hard_break,
+                 "moved query keeps newline behavior of the second physical payload")) {
+        return 1;
+    }
+
+    zevryon::massivedoc::LayoutWindowResult moved_repeated;
+    used_checkpoint = false;
+    if (!require(
+            session.layout(
+                0U,
+                800U * 256U,
+                viewport_height_q8,
+                0U,
+                256U,
+                &moved_repeated,
+                &used_checkpoint,
+                &error),
+            error) ||
+        !require(used_checkpoint, "repeated moved query remains accelerated") ||
+        !require(moved_repeated.source_bytes_read == 0U,
+                 "repeated moved query reuses physical source window") ||
+        !require(moved_repeated.checkpoint_cache_hits >= 2U,
+                 "repeated moved query reuses physical checkpoint") ||
+        !require(moved_repeated.source_window_cache_hits >= 1U,
+                 "repeated moved query reuses physical source cache")) {
+        return 1;
+    }
+    if (!require(session.move_logical_record(1U, 0U, &error), error)) {
         return 1;
     }
 
