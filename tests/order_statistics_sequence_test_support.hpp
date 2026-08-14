@@ -6,12 +6,14 @@
 
 #include "logical_order_persistence_test_support.hpp"
 #include "logical_order_publication_test_support.hpp"
+#include "order_statistics_sequence_fork_test_support.hpp"
 
 namespace zevryon_test {
 
 inline bool run_order_statistics_sequence_tests() {
     return run_logical_order_persistence_tests() &&
            run_logical_order_publication_tests() &&
+           run_order_statistics_sequence_fork_tests() &&
            run_order_statistics_sequence_core_tests();
 }
 

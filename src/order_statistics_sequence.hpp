@@ -69,6 +69,7 @@ public:
     const SequenceStats& stats() const noexcept;
     bool empty() const noexcept;
     Snapshot snapshot() const noexcept;
+    ChunkedOrderStatisticsSequence fork_shared_root() const;
 
     bool at(std::uint64_t record_index, SequencePosition* position, std::string* error) const;
     bool locate_text_offset(std::uint64_t text_offset, SequencePosition* position, std::string* error) const;

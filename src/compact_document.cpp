@@ -19,3 +19,4 @@
 #include "order_statistics_sequence_part01.inc"
 #include "order_statistics_sequence_part02.inc"
 #include "order_statistics_sequence_part03.inc"
+#include "order_statistics_sequence_fork.inc"
