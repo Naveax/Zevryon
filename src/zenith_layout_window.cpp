@@ -146,7 +146,7 @@ bool open_checkpoint_if_available(
     }
     std::error_code exists_error;
     const bool exists = std::filesystem::exists(
-        layout_checkpoint_path(store_root, record.record_index, checkpoint_config),
+        layout_checkpoint_path(store_root, record.source_record_index, checkpoint_config),
         exists_error);
     if (exists_error || !exists) {
         error->clear();
@@ -154,7 +154,7 @@ bool open_checkpoint_if_available(
     }
     if (!checkpoint->open(
             store_root,
-            record.record_index,
+            record.source_record_index,
             record.logical_id,
             record.source_bytes,
             checkpoint_config,
@@ -233,7 +233,7 @@ bool layout_window_with_persistent_checkpoints(
         const LayoutCheckpointStats& stats = checkpoint.stats();
         ++result->checkpoint_hits;
         ++result->measured_records;
-        if (charged_indices.insert(record.record_index).second) {
+        if (charged_indices.insert(record.source_record_index).second) {
             result->checkpoint_index_bytes += stats.physical_bytes;
         }
         result->height_saturated = result->height_saturated || stats.height_saturated;
@@ -292,7 +292,7 @@ bool layout_window_with_persistent_checkpoints(
             return true;
         }
         ++result->checkpoint_hits;
-        if (charged_indices.insert(record.record_index).second) {
+        if (charged_indices.insert(record.source_record_index).second) {
             result->checkpoint_index_bytes += checkpoint.stats().physical_bytes;
         }
         const std::uint64_t local_start = corrected.query_start_q8 > record.y_q8

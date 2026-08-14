@@ -12,37 +12,40 @@ A consumer must not substitute one identity for the other after logical reorderi
 
 ## Checkpoint scan admission
 
-`scan_layout_window_from_checkpoint()` now:
+`scan_layout_window_from_checkpoint()` now matches checkpoint physical identity against `source_record_index`, reads MassiveDoc slices with that physical locator, and keeps `LayoutFragment::record_index` logical. The v1 checkpoint header field remains named `record_index` for format compatibility but semantically stores the immutable physical source record.
 
-- matches the checkpoint header's physical record identity against `source_record_index`;
-- reads MassiveDoc slices with `source_record_index`;
-- continues to stamp produced `LayoutFragment::record_index` with the current logical ordinal;
-- rejects a checkpoint whose physical source identity differs even when logical metadata otherwise matches.
-
-The checkpoint on-disk header field remains named `record_index` in the v1 format for compatibility, but in this boundary it represents the immutable physical source-record index. A later format cleanup may rename the field without changing this semantic authority.
-
-The checkpoint test intentionally sets logical ordinal `9001` and physical source record index `0`. The only fixture payload exists at physical record `0`; the scan succeeds, reads that source record and still emits fragments with logical `record_index=9001`. Changing only the physical source identity to `1` fails closed.
+The checkpoint oracle intentionally uses logical ordinal `9001` with physical source record `0`. The only payload exists at physical record `0`; scan succeeds and still emits logical fragment index `9001`. Changing only the physical source identity to `1` fails closed.
 
 ## Ordinary LayoutWindow admission
 
-`LayoutWindowEngine` now treats the two identities separately:
+`LayoutWindowEngine` treats the identities separately:
 
 - `StoreReader::read_record()` dereferences `source_record_index`;
-- generated fragments continue to carry logical `record_index`;
-- scroll-anchor comparisons and arena height correction continue to use logical `record_index`;
-- the layout cache key contains **both** logical and physical identity plus the layout bucket/configuration.
+- generated fragments, scroll anchors and arena height correction retain logical `record_index`;
+- the layout cache key contains both logical and physical identity plus layout configuration.
 
-Both identities are required in the cache key because cached fragments embed the logical ordinal while their text geometry derives from the immutable physical payload. A moved record must therefore miss an entry created under its old logical ordinal rather than replaying fragments stamped with stale order identity. Conversely, two logical records must not alias merely because they point at the same physical source identity.
+Both identities are required because cached fragments embed logical order while their geometry derives from physical payload. A moved record therefore cannot reuse fragments stamped with its old logical ordinal.
 
-This pass is preparatory: current compact-arena order is still initially identical to physical source order, so the existing layout corpus cannot create a divergent logical/physical pair through the public arena API yet. The earlier checkpoint oracle supplies the behavioral divergence proof for the source identity model; final end-to-end LayoutWindow divergence will be required when arena move/reorder is admitted.
+This pass is preparatory because public arena reorder is still closed; the final moved-record integration oracle remains mandatory before reorder admission.
+
+## Zenith checkpoint-aware layout admission
+
+`layout_window_with_persistent_checkpoints()` now selects source-derived checkpoint state by immutable physical identity:
+
+- checkpoint path lookup uses `source_record_index`;
+- checkpoint open verification uses `source_record_index`;
+- checkpoint index-byte charging/deduplication is keyed by `source_record_index`;
+- scroll anchors, layout fragments and height correction continue to use logical `record_index`.
+
+This matches checkpoint scan semantics and prevents a logical move from looking for a checkpoint under the moved ordinal rather than the payload record that generated it.
 
 ## Remaining consumer split
 
-Arena reorder is still closed. Remaining consumers must be migrated and certified independently:
+Arena reorder remains closed. Remaining work:
 
-1. Zenith checkpoint path/open selection and physical index accounting;
-2. hot-scroll source-window reads and cache identity;
-3. any other source-derived cache/checkpoint keys discovered by the audit;
-4. final end-to-end moved-record oracle across ordinary layout, checkpoint-aware layout and hot-scroll.
+1. hot-scroll source-window reads and raw-source cache identity;
+2. audit any remaining source-derived cache/checkpoint keys;
+3. add a final end-to-end moved-record oracle across ordinary layout, checkpoint-aware layout and hot-scroll;
+4. only then expose logical move/reorder at the compact-arena boundary.
 
-Only after those consumers use immutable source identity may logical move/reorder be exposed at the compact-arena boundary.
+Durability/journaling for logical-order mutations remains a later M2 storage-hardening pass.
