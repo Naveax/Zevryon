@@ -103,15 +103,6 @@ std::optional<ChunkDescriptor> parse_chunk(std::span<const std::byte> bytes) {
     return ChunkDescriptor{*segment_id, *offset, *length};
 }
 
-bool seek_stream(std::istream& stream, std::uint64_t offset) {
-    if (offset > static_cast<std::uint64_t>(std::numeric_limits<std::streamoff>::max())) {
-        return false;
-    }
-    stream.clear();
-    stream.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
-    return static_cast<bool>(stream);
-}
-
 std::uint64_t directory_size(const std::filesystem::path& root) {
     std::error_code error;
     std::uint64_t total = 0U;

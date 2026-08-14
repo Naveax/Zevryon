@@ -1,20 +1,22 @@
             return false;
         }
-        std::ifstream segment(segment_path(impl_->root, chunk.segment_id), std::ios::binary);
-        if (!segment || !seek_stream(segment, chunk.offset)) {
-            *error = "cannot open or seek segment";
-            return false;
-        }
+        std::uint64_t segment_offset = chunk.offset;
         std::uint64_t remaining = chunk.length;
         while (remaining != 0U) {
-            const std::size_t amount = static_cast<std::size_t>(std::min<std::uint64_t>(remaining, buffer.size()));
-            if (!read_exact(segment, std::span<std::byte>(buffer.data(), amount))) {
-                *error = "truncated segment payload";
+            const std::size_t amount = static_cast<std::size_t>(
+                std::min<std::uint64_t>(remaining, buffer.size()));
+            if (!impl_->read_segment_exact(
+                    chunk.segment_id,
+                    segment_offset,
+                    std::span<std::byte>(buffer.data(), amount),
+                    error)) {
+                *error = "cannot read record segment through immutable block cache: " + *error;
                 return false;
             }
             if (!consumer(std::span<const std::byte>(buffer.data(), amount))) {
                 return true;
             }
+            segment_offset += static_cast<std::uint64_t>(amount);
             read_total += static_cast<std::uint64_t>(amount);
             remaining -= static_cast<std::uint64_t>(amount);
         }
@@ -50,10 +52,14 @@ bool StoreReader::read_record_slice(
     output->reserve(wanted);
     std::uint64_t logical_position = 0U;
     std::size_t remaining_output = wanted;
-    std::vector<std::byte> buffer(kIoWindowBytes);
+    std::vector<std::byte> buffer(impl_->read_config.io_window_bytes);
     for (std::uint32_t relative = 0U; relative < record.chunk_count && remaining_output != 0U; ++relative) {
         ChunkDescriptor chunk;
         if (!impl_->read_chunk_descriptor(record.first_chunk + relative, &chunk, error)) {
+            return false;
+        }
+        if (chunk.length > std::numeric_limits<std::uint64_t>::max() - logical_position) {
+            *error = "record slice chunk range overflow";
             return false;
         }
         const std::uint64_t chunk_end = logical_position + chunk.length;
@@ -61,22 +67,33 @@ bool StoreReader::read_record_slice(
             logical_position = chunk_end;
             continue;
         }
-        const std::uint64_t offset_in_chunk = byte_offset > logical_position ? byte_offset - logical_position : 0U;
-        std::ifstream segment(segment_path(impl_->root, chunk.segment_id), std::ios::binary);
-        if (!segment || !seek_stream(segment, chunk.offset + offset_in_chunk)) {
-            *error = "cannot open or seek record slice segment";
+        const std::uint64_t offset_in_chunk =
+            byte_offset > logical_position ? byte_offset - logical_position : 0U;
+        if (offset_in_chunk > chunk.length ||
+            chunk.offset > std::numeric_limits<std::uint64_t>::max() - offset_in_chunk) {
+            *error = "record slice segment offset overflow";
             return false;
         }
+        std::uint64_t segment_offset = chunk.offset + offset_in_chunk;
         std::uint64_t chunk_remaining = chunk.length - offset_in_chunk;
         while (chunk_remaining != 0U && remaining_output != 0U) {
             const std::size_t amount = std::min<std::size_t>(
                 remaining_output,
-                static_cast<std::size_t>(std::min<std::uint64_t>(chunk_remaining, buffer.size())));
-            if (!read_exact(segment, std::span<std::byte>(buffer.data(), amount))) {
-                *error = "truncated record slice segment";
+                static_cast<std::size_t>(
+                    std::min<std::uint64_t>(chunk_remaining, buffer.size())));
+            if (!impl_->read_segment_exact(
+                    chunk.segment_id,
+                    segment_offset,
+                    std::span<std::byte>(buffer.data(), amount),
+                    error)) {
+                *error = "cannot read record slice through immutable block cache: " + *error;
                 return false;
             }
-            output->insert(output->end(), buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(amount));
+            output->insert(
+                output->end(),
+                buffer.begin(),
+                buffer.begin() + static_cast<std::ptrdiff_t>(amount));
+            segment_offset += static_cast<std::uint64_t>(amount);
             remaining_output -= amount;
             chunk_remaining -= static_cast<std::uint64_t>(amount);
         }
@@ -143,7 +160,10 @@ bool StoreReader::export_payload(const std::filesystem::path& output, std::strin
     return true;
 }
 
-std::vector<SearchHit> StoreReader::find(std::string_view query, std::size_t max_hits, std::string* error) const {
+std::vector<SearchHit> StoreReader::find(
+    std::string_view query,
+    std::size_t max_hits,
+    std::string* error) const {
     std::vector<SearchHit> hits;
     if (!impl_->opened) {
         *error = "store is not open";
@@ -152,29 +172,40 @@ std::vector<SearchHit> StoreReader::find(std::string_view query, std::size_t max
     if (query.empty() || max_hits == 0U) {
         return hits;
     }
-    std::ifstream signatures(impl_->root / "search.bgm", std::ios::binary);
-    std::ifstream record_index(impl_->root / "records.idx", std::ios::binary);
-    std::ifstream chunk_index(impl_->root / "chunks.idx", std::ios::binary);
-    if (!signatures || !record_index || !chunk_index) {
-        *error = "cannot open search or descriptor index";
+    BoundedPositionalReader signatures(
+        impl_->root / "search.bgm",
+        impl_->read_config.io_window_bytes);
+    if (!signatures.open(error)) {
+        *error = "cannot open search index positional reader: " + *error;
         return hits;
     }
-    std::array<std::byte, kBigramSignatureBytes> signature{};
-    const auto query_bytes = std::span<const std::byte>(reinterpret_cast<const std::byte*>(query.data()), query.size());
-    std::vector<std::byte> io_buffer(kIoWindowBytes);
-    std::ifstream segment_stream;
-    std::uint32_t open_segment = std::numeric_limits<std::uint32_t>::max();
 
-    for (std::uint64_t block = 0U; block < impl_->stats.search_block_count && hits.size() < max_hits; ++block) {
-        if (!read_exact(signatures, signature)) {
-            *error = "truncated search index";
+    std::array<std::byte, kBigramSignatureBytes> signature{};
+    const auto query_bytes = std::span<const std::byte>(
+        reinterpret_cast<const std::byte*>(query.data()),
+        query.size());
+    std::vector<std::byte> io_buffer(impl_->read_config.io_window_bytes);
+
+    for (std::uint64_t block = 0U;
+         block < impl_->stats.search_block_count && hits.size() < max_hits;
+         ++block) {
+        if (block > std::numeric_limits<std::uint64_t>::max() / kBigramSignatureBytes) {
+            *error = "search signature offset overflow";
             return {};
         }
+        const std::uint64_t signature_offset = block * kBigramSignatureBytes;
+        if (!signatures.read_exact_at(signature_offset, signature, error)) {
+            *error = "cannot read search signature positionally: " + *error;
+            return {};
+        }
+
         bool candidate = true;
         if (query.size() >= 2U) {
             for (std::size_t index = 1U; index < query.size(); ++index) {
-                if (!has_bigram(signature, static_cast<unsigned char>(query[index - 1U]),
-                                static_cast<unsigned char>(query[index]))) {
+                if (!has_bigram(
+                        signature,
+                        static_cast<unsigned char>(query[index - 1U]),
+                        static_cast<unsigned char>(query[index]))) {
                     candidate = false;
                     break;
                 }
@@ -184,5 +215,105 @@ std::vector<SearchHit> StoreReader::find(std::string_view query, std::size_t max
             continue;
         }
 
-        const std::uint64_t first_record = block * impl_->config.records_per_search_block;
-        const std::uint64_t end_record = std::min<std::uint64_t>(
+        const std::uint64_t records_per_block =
+            static_cast<std::uint64_t>(impl_->config.records_per_search_block);
+        if (records_per_block == 0U ||
+            block > std::numeric_limits<std::uint64_t>::max() / records_per_block) {
+            *error = "search record block offset overflow";
+            return {};
+        }
+        const std::uint64_t first_record = block * records_per_block;
+        if (first_record >= impl_->stats.corpus.logical_records) {
+            break;
+        }
+        const std::uint64_t records_remaining =
+            impl_->stats.corpus.logical_records - first_record;
+        const std::uint64_t record_count =
+            std::min(records_remaining, records_per_block);
+        const std::uint64_t end_record = first_record + record_count;
+
+        for (std::uint64_t record_index = first_record;
+             record_index < end_record && hits.size() < max_hits;
+             ++record_index) {
+            RecordDescriptor record;
+            if (!impl_->read_record_descriptor(record_index, &record, error)) {
+                return {};
+            }
+            std::vector<std::byte> carry;
+            carry.reserve(query.size() > 1U ? query.size() - 1U : 0U);
+            std::uint64_t processed = 0U;
+            bool found = false;
+            std::uint64_t found_offset = 0U;
+
+            for (std::uint32_t relative_chunk = 0U;
+                 relative_chunk < record.chunk_count && !found;
+                 ++relative_chunk) {
+                if (record.first_chunk >
+                    std::numeric_limits<std::uint64_t>::max() - relative_chunk) {
+                    *error = "search record chunk index overflow";
+                    return {};
+                }
+                ChunkDescriptor chunk;
+                if (!impl_->read_chunk_descriptor(
+                        record.first_chunk + relative_chunk,
+                        &chunk,
+                        error)) {
+                    return {};
+                }
+
+                std::uint64_t segment_offset = chunk.offset;
+                std::uint64_t remaining = chunk.length;
+                while (remaining != 0U && !found) {
+                    const std::size_t amount = static_cast<std::size_t>(
+                        std::min<std::uint64_t>(remaining, io_buffer.size()));
+                    if (!impl_->read_segment_exact(
+                            chunk.segment_id,
+                            segment_offset,
+                            std::span<std::byte>(io_buffer.data(), amount),
+                            error)) {
+                        *error = "cannot read candidate segment through immutable block cache: " + *error;
+                        return {};
+                    }
+                    std::vector<std::byte> window;
+                    window.reserve(carry.size() + amount);
+                    window.insert(window.end(), carry.begin(), carry.end());
+                    window.insert(
+                        window.end(),
+                        io_buffer.begin(),
+                        io_buffer.begin() + static_cast<std::ptrdiff_t>(amount));
+                    const auto position = std::search(
+                        window.begin(),
+                        window.end(),
+                        query_bytes.begin(),
+                        query_bytes.end());
+                    if (position != window.end()) {
+                        const std::size_t local = static_cast<std::size_t>(
+                            std::distance(window.begin(), position));
+                        if (processed < static_cast<std::uint64_t>(carry.size())) {
+                            *error = "search carry accounting underflow";
+                            return {};
+                        }
+                        found_offset =
+                            processed - static_cast<std::uint64_t>(carry.size()) +
+                            static_cast<std::uint64_t>(local);
+                        found = true;
+                        break;
+                    }
+                    processed += static_cast<std::uint64_t>(amount);
+                    segment_offset += static_cast<std::uint64_t>(amount);
+                    remaining -= static_cast<std::uint64_t>(amount);
+                    const std::size_t keep = std::min<std::size_t>(
+                        query.size() > 1U ? query.size() - 1U : 0U,
+                        window.size());
+                    carry.assign(
+                        window.end() - static_cast<std::ptrdiff_t>(keep),
+                        window.end());
+                }
+            }
+            if (found) {
+                hits.push_back(SearchHit{record_index, record.logical_id, found_offset});
+            }
+        }
+    }
+    return hits;
+}

@@ -112,6 +112,25 @@ jobs:
         run: >-
           ctest --test-dir build --output-on-failure
           -E "(native-gpu-sdk-platform-smoke|d3d12|vulkan)"
+      - name: Run M3 legacy 4 GiB open gate
+        run: >-
+          python3 scripts/m3_legacy_4gib_open_gate.py
+          --probe build/zevryon-massivedoc-legacy-open-probe
+          --work-dir build/m3-legacy-4gib-open
+          --output evidence/m3/legacy-4gib-open.json
+      - name: Run M3 cold-store PSS gate
+        run: >-
+          python3 scripts/m3_cold_store_pss_gate.py
+          --probe build/zevryon-massivedoc-cold-pss-probe
+          --work-dir build/m3-cold-store-pss
+          --output evidence/m3/cold-store-pss.json
+      - name: Upload M3 storage evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m3-storage-${{ github.event.pull_request.head.sha || github.sha }}
+          path: evidence/m3
+          if-no-files-found: warn
 
   windows-build-test:
     name: Windows build and headless tests
