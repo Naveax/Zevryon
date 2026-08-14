@@ -5,6 +5,9 @@ constexpr std::uint32_t kLogicalOrderVersion = 1U;
 constexpr std::size_t kLogicalOrderHeaderBytes = 40U;
 constexpr std::size_t kLogicalOrderTrailerBytes = sizeof(std::uint32_t);
 constexpr std::size_t kLogicalOrderEntryBytes = sizeof(std::uint64_t);
+constexpr std::string_view kLogicalOrderPrefix{"logical-order.g"};
+constexpr std::string_view kLogicalOrderSuffix{".zmd"};
+constexpr std::size_t kLogicalOrderGenerationDigits = 16U;
 
 std::uint32_t logical_order_crc32_update(
     std::uint32_t crc,
@@ -40,11 +43,87 @@ bool identity_logical_order(
     return true;
 }
 
+std::string logical_order_generation_filename(
+    std::uint64_t generation,
+    bool temporary) {
+    std::ostringstream output;
+    output << kLogicalOrderPrefix << std::hex << std::nouppercase << std::setfill('0')
+           << std::setw(static_cast<int>(kLogicalOrderGenerationDigits)) << generation
+           << kLogicalOrderSuffix;
+    if (temporary) {
+        output << ".tmp";
+    }
+    return output.str();
+}
+
+bool parse_generation_filename(
+    std::string_view name,
+    std::uint64_t* generation) noexcept {
+    if (generation == nullptr ||
+        name.size() != kLogicalOrderPrefix.size() + kLogicalOrderGenerationDigits +
+                           kLogicalOrderSuffix.size() ||
+        !name.starts_with(kLogicalOrderPrefix) || !name.ends_with(kLogicalOrderSuffix)) {
+        return false;
+    }
+    const std::string_view digits = name.substr(
+        kLogicalOrderPrefix.size(), kLogicalOrderGenerationDigits);
+    std::uint64_t value = 0U;
+    for (const char character : digits) {
+        std::uint64_t nibble = 0U;
+        if (character >= '0' && character <= '9') {
+            nibble = static_cast<std::uint64_t>(character - '0');
+        } else if (character >= 'a' && character <= 'f') {
+            nibble = static_cast<std::uint64_t>(character - 'a' + 10);
+        } else {
+            return false;
+        }
+        if (value > (std::numeric_limits<std::uint64_t>::max() - nibble) / 16U) {
+            return false;
+        }
+        value = value * 16U + nibble;
+    }
+    if (value == 0U) {
+        return false;
+    }
+    *generation = value;
+    return true;
+}
+
+bool read_logical_order_file(
+    const std::filesystem::path& path,
+    std::uint64_t expected_records,
+    LogicalOrderSnapshot* snapshot,
+    std::string* error) {
+    std::error_code size_error;
+    const std::uint64_t file_bytes = std::filesystem::file_size(path, size_error);
+    if (size_error || file_bytes > static_cast<std::uint64_t>(
+                                      std::numeric_limits<std::size_t>::max())) {
+        *error = "cannot size logical order snapshot";
+        return false;
+    }
+    std::vector<std::byte> bytes(static_cast<std::size_t>(file_bytes));
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream || !read_exact(stream, bytes)) {
+        *error = "cannot read logical order snapshot";
+        return false;
+    }
+    return parse_logical_order_snapshot(bytes, expected_records, snapshot, error);
+}
+
 } // namespace
 
-std::filesystem::path logical_order_snapshot_path(
-    const std::filesystem::path& store_root) {
-    return store_root / "arena" / "logical-order.zmd";
+std::filesystem::path logical_order_generation_path(
+    const std::filesystem::path& store_root,
+    std::uint64_t generation) {
+    return store_root / "arena" /
+           logical_order_generation_filename(generation, false);
+}
+
+std::filesystem::path logical_order_generation_temp_path(
+    const std::filesystem::path& store_root,
+    std::uint64_t generation) {
+    return store_root / "arena" /
+           logical_order_generation_filename(generation, true);
 }
 
 bool parse_logical_order_snapshot(
@@ -171,32 +250,69 @@ bool load_logical_order_snapshot(
     error->clear();
     *snapshot = LogicalOrderSnapshot{};
 
-    const auto path = logical_order_snapshot_path(store_root);
+    const auto arena_root = store_root / "arena";
     std::error_code status_error;
-    const bool exists = std::filesystem::exists(path, status_error);
+    const bool arena_exists = std::filesystem::exists(arena_root, status_error);
     if (status_error) {
-        *error = "cannot inspect logical order snapshot";
+        *error = "cannot inspect logical order arena";
         return false;
     }
-    if (!exists) {
+    if (!arena_exists) {
         return identity_logical_order(expected_records, snapshot, error);
     }
-    if (!std::filesystem::is_regular_file(path, status_error) || status_error) {
-        *error = "logical order snapshot is not a regular file";
-        return false;
-    }
 
-    const std::uint64_t file_bytes = std::filesystem::file_size(path, status_error);
-    if (status_error || file_bytes > static_cast<std::uint64_t>(
-                                      std::numeric_limits<std::size_t>::max())) {
-        *error = "cannot size logical order snapshot";
+    bool found = false;
+    LogicalOrderSnapshot newest;
+    std::filesystem::directory_iterator iterator(arena_root, status_error);
+    const std::filesystem::directory_iterator end;
+    if (status_error) {
+        *error = "cannot enumerate logical order generations";
         return false;
     }
-    std::vector<std::byte> bytes(static_cast<std::size_t>(file_bytes));
-    std::ifstream stream(path, std::ios::binary);
-    if (!stream || !read_exact(stream, bytes)) {
-        *error = "cannot read logical order snapshot";
+    for (; iterator != end; iterator.increment(status_error)) {
+        if (status_error) {
+            *error = "cannot enumerate logical order generations";
+            return false;
+        }
+        const std::filesystem::directory_entry& entry = *iterator;
+        std::error_code type_error;
+        if (!entry.is_regular_file(type_error) || type_error) {
+            if (type_error) {
+                *error = "cannot inspect logical order generation entry";
+                return false;
+            }
+            continue;
+        }
+        const std::string name = entry.path().filename().string();
+        std::uint64_t filename_generation = 0U;
+        if (!parse_generation_filename(name, &filename_generation)) {
+            continue;
+        }
+
+        LogicalOrderSnapshot candidate;
+        std::string candidate_error;
+        if (!read_logical_order_file(
+                entry.path(), expected_records, &candidate, &candidate_error)) {
+            *error = "invalid committed logical order generation " + name +
+                     ": " + candidate_error;
+            return false;
+        }
+        if (candidate.generation != filename_generation) {
+            *error = "logical order generation filename/header mismatch";
+            return false;
+        }
+        if (!found || candidate.generation > newest.generation) {
+            newest = std::move(candidate);
+            found = true;
+        }
+    }
+    if (status_error) {
+        *error = "cannot enumerate logical order generations";
         return false;
     }
-    return parse_logical_order_snapshot(bytes, expected_records, snapshot, error);
+    if (!found) {
+        return identity_logical_order(expected_records, snapshot, error);
+    }
+    *snapshot = std::move(newest);
+    return true;
 }

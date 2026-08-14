@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace zevryon::massivedoc {
@@ -15,8 +16,13 @@ struct LogicalOrderSnapshot {
     std::vector<std::uint64_t> source_record_indices;
 };
 
-std::filesystem::path logical_order_snapshot_path(
-    const std::filesystem::path& store_root);
+std::filesystem::path logical_order_generation_path(
+    const std::filesystem::path& store_root,
+    std::uint64_t generation);
+
+std::filesystem::path logical_order_generation_temp_path(
+    const std::filesystem::path& store_root,
+    std::uint64_t generation);
 
 bool parse_logical_order_snapshot(
     std::span<const std::byte> bytes,

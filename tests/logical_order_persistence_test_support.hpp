@@ -95,7 +95,8 @@ bool write_logical_order_test_file(
 inline bool run_logical_order_persistence_tests() {
     using zevryon::massivedoc::LogicalOrderSnapshot;
     using zevryon::massivedoc::load_logical_order_snapshot;
-    using zevryon::massivedoc::logical_order_snapshot_path;
+    using zevryon::massivedoc::logical_order_generation_path;
+    using zevryon::massivedoc::logical_order_generation_temp_path;
     using zevryon::massivedoc::parse_logical_order_snapshot;
 
     const auto root = std::filesystem::temp_directory_path() /
@@ -112,7 +113,7 @@ inline bool run_logical_order_persistence_tests() {
     LogicalOrderSnapshot identity;
     if (!logical_order_require(
             load_logical_order_snapshot(root, 3U, &identity, &error), error) ||
-        !logical_order_require(!identity.persisted, "absent sidecar uses identity order") ||
+        !logical_order_require(!identity.persisted, "no committed generation uses identity order") ||
         !logical_order_require(identity.generation == 0U, "identity order has generation zero") ||
         !logical_order_require(
             identity.source_record_indices == std::vector<std::uint64_t>({0U, 1U, 2U}),
@@ -120,91 +121,113 @@ inline bool run_logical_order_persistence_tests() {
         return false;
     }
 
-    const auto valid = make_logical_order_snapshot_bytes(7U, {2U, 0U, 1U});
+    const auto generation7 = make_logical_order_snapshot_bytes(7U, {2U, 0U, 1U});
     LogicalOrderSnapshot parsed;
     if (!logical_order_require(
-            parse_logical_order_snapshot(valid, 3U, &parsed, &error), error) ||
-        !logical_order_require(parsed.persisted, "valid sidecar is authoritative") ||
+            parse_logical_order_snapshot(generation7, 3U, &parsed, &error), error) ||
+        !logical_order_require(parsed.persisted, "valid snapshot is authoritative") ||
         !logical_order_require(parsed.generation == 7U, "generation parsed") ||
         !logical_order_require(
             parsed.source_record_indices == std::vector<std::uint64_t>({2U, 0U, 1U}),
-            "permutation parsed exactly")) {
+            "permutation parsed exactly") ||
+        !logical_order_require(
+            write_logical_order_test_file(
+                logical_order_generation_path(root, 7U), generation7, &error),
+            error)) {
         return false;
     }
 
-    const auto path = logical_order_snapshot_path(root);
-    if (!logical_order_require(
-            write_logical_order_test_file(path, valid, &error), error)) {
-        return false;
-    }
     LogicalOrderSnapshot loaded;
     if (!logical_order_require(
             load_logical_order_snapshot(root, 3U, &loaded, &error), error) ||
-        !logical_order_require(loaded.persisted, "present valid sidecar loads") ||
-        !logical_order_require(loaded.generation == 7U, "file generation preserved") ||
-        !logical_order_require(
-            loaded.source_record_indices == parsed.source_record_indices,
-            "file loader preserves parsed permutation")) {
+        !logical_order_require(loaded.generation == 7U, "single committed generation selected")) {
         return false;
     }
 
-    auto truncated = valid;
+    auto torn9 = make_logical_order_snapshot_bytes(9U, {1U, 2U, 0U});
+    torn9.resize(torn9.size() / 2U);
+    if (!logical_order_require(
+            write_logical_order_test_file(
+                logical_order_generation_temp_path(root, 9U), torn9, &error),
+            error) ||
+        !logical_order_require(
+            load_logical_order_snapshot(root, 3U, &loaded, &error), error) ||
+        !logical_order_require(
+            loaded.generation == 7U,
+            "torn temporary generation is ignored")) {
+        return false;
+    }
+
+    const auto generation8 = make_logical_order_snapshot_bytes(8U, {1U, 2U, 0U});
+    if (!logical_order_require(
+            write_logical_order_test_file(
+                logical_order_generation_path(root, 8U), generation8, &error),
+            error) ||
+        !logical_order_require(
+            load_logical_order_snapshot(root, 3U, &loaded, &error), error) ||
+        !logical_order_require(loaded.generation == 8U, "highest committed generation selected") ||
+        !logical_order_require(
+            loaded.source_record_indices == std::vector<std::uint64_t>({1U, 2U, 0U}),
+            "highest generation order selected")) {
+        return false;
+    }
+
+    auto corrupt10 = make_logical_order_snapshot_bytes(10U, {0U, 2U, 1U});
+    corrupt10.back() ^= std::byte{0x01U};
+    const auto corrupt10_path = logical_order_generation_path(root, 10U);
+    if (!logical_order_require(
+            write_logical_order_test_file(corrupt10_path, corrupt10, &error), error) ||
+        !logical_order_require(
+            !load_logical_order_snapshot(root, 3U, &loaded, &error),
+            "corrupt committed generation fails closed")) {
+        return false;
+    }
+    std::filesystem::remove(corrupt10_path, fs_error);
+    if (!logical_order_require(!fs_error, "remove corrupt committed generation")) {
+        return false;
+    }
+
+    const auto mismatched11 = make_logical_order_snapshot_bytes(12U, {0U, 1U, 2U});
+    const auto mismatched11_path = logical_order_generation_path(root, 11U);
+    if (!logical_order_require(
+            write_logical_order_test_file(mismatched11_path, mismatched11, &error), error) ||
+        !logical_order_require(
+            !load_logical_order_snapshot(root, 3U, &loaded, &error),
+            "filename/header generation mismatch rejected")) {
+        return false;
+    }
+    std::filesystem::remove(mismatched11_path, fs_error);
+    if (!logical_order_require(!fs_error, "remove mismatched generation")) {
+        return false;
+    }
+
+    auto truncated = generation7;
     truncated.pop_back();
     if (!logical_order_require(
             !parse_logical_order_snapshot(truncated, 3U, &parsed, &error),
-            "truncated sidecar rejected")) {
+            "truncated snapshot rejected")) {
         return false;
     }
 
-    auto bad_magic = valid;
+    auto bad_magic = generation7;
     bad_magic[0] = static_cast<std::byte>(static_cast<unsigned char>('X'));
     if (!logical_order_require(
             !parse_logical_order_snapshot(bad_magic, 3U, &parsed, &error),
-            "bad magic rejected")) {
-        return false;
-    }
-
-    if (!logical_order_require(
-            !parse_logical_order_snapshot(valid, 4U, &parsed, &error),
+            "bad magic rejected") ||
+        !logical_order_require(
+            !parse_logical_order_snapshot(generation7, 4U, &parsed, &error),
             "record-count mismatch rejected")) {
         return false;
     }
 
-    const auto duplicate = make_logical_order_snapshot_bytes(8U, {2U, 0U, 0U});
+    const auto duplicate = make_logical_order_snapshot_bytes(13U, {2U, 0U, 0U});
+    const auto out_of_range = make_logical_order_snapshot_bytes(14U, {2U, 0U, 3U});
     if (!logical_order_require(
             !parse_logical_order_snapshot(duplicate, 3U, &parsed, &error),
-            "duplicate source rejected")) {
-        return false;
-    }
-
-    const auto out_of_range = make_logical_order_snapshot_bytes(9U, {2U, 0U, 3U});
-    if (!logical_order_require(
+            "duplicate source rejected") ||
+        !logical_order_require(
             !parse_logical_order_snapshot(out_of_range, 3U, &parsed, &error),
             "out-of-range source rejected")) {
-        return false;
-    }
-
-    auto bad_crc = valid;
-    bad_crc.back() ^= std::byte{0x01U};
-    if (!logical_order_require(
-            !parse_logical_order_snapshot(bad_crc, 3U, &parsed, &error),
-            "CRC mismatch rejected")) {
-        return false;
-    }
-
-    auto extra = valid;
-    extra.push_back(std::byte{0U});
-    if (!logical_order_require(
-            !parse_logical_order_snapshot(extra, 3U, &parsed, &error),
-            "trailing bytes rejected")) {
-        return false;
-    }
-
-    if (!logical_order_require(
-            write_logical_order_test_file(path, bad_crc, &error), error) ||
-        !logical_order_require(
-            !load_logical_order_snapshot(root, 3U, &loaded, &error),
-            "corrupt present sidecar fails closed")) {
         return false;
     }
 
