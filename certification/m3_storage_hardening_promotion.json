@@ -1,0 +1,101 @@
+{
+  "schema": "zevryon.m3.storage-hardening-promotion.v1",
+  "repository": "Naveax/Zevryon",
+  "branch": "agent/m3-crash-safe-generations",
+  "base_main": "e132538834b55bb2b40157997b20693201bf6f78",
+  "source_authority_head": "d8d9f11d1bcc1dea12b82d0fa9b2b3f69aa1d9c0",
+  "source_authority_ahead_by": 15,
+  "source_authority_behind_by": 0,
+  "source_authority_changed_path_count": 44,
+  "source_ci": {
+    "workflow": "Windows and Linux CI",
+    "run_id": 31814283673,
+    "head_sha": "d8d9f11d1bcc1dea12b82d0fa9b2b3f69aa1d9c0",
+    "conclusion": "success",
+    "jobs": [
+      {"name": "Linux build and headless tests", "job_id": 94812100317, "conclusion": "success", "ctest": "84/84"},
+      {"name": "Windows build and headless tests", "job_id": 94812100352, "conclusion": "success", "ctest": "48/48"},
+      {"name": "Z2R-3E-U Linux Unicode authority", "job_id": 94812100373, "conclusion": "success"},
+      {"name": "Z2R-3E-U Windows Unicode authority", "job_id": 94812100383, "conclusion": "success"},
+      {"name": "Apple backend removal guard", "job_id": 94812100437, "conclusion": "success"}
+    ]
+  },
+  "storage_evidence": {
+    "artifact_name": "m3-storage-d8d9f11d1bcc1dea12b82d0fa9b2b3f69aa1d9c0",
+    "artifact_id": 9224429305
+  },
+  "exit_gates": {
+    "legacy_4gib_open": {
+      "status": "admitted",
+      "logical_bytes": 4294967296,
+      "bounded_head_tail_reads": true,
+      "legacy_pss_target_mb": 64,
+      "legacy_pss_hard_cap_mb": 80,
+      "no_crash_or_oom": true
+    },
+    "first_viewport_before_primary_completion": {
+      "status": "admitted",
+      "preview_records": 1,
+      "total_records": 3,
+      "remaining_primary_records_at_viewport": 2,
+      "primary_store_committed_at_viewport": false,
+      "preview_store_verified": true,
+      "partial_search_queryable": true,
+      "compact_arena_viewport_materialized": true,
+      "preview_segment_count": 3
+    },
+    "resident_cold_store_pages_in_pss": {
+      "status": "admitted",
+      "baseline_total_pss_mb": 1.145856,
+      "cold_mapped_total_pss_mb": 5.344256,
+      "total_pss_delta_bytes": 4198400,
+      "direct_segment_file_pss_bytes": 4194304,
+      "hot_warm_resident_bytes": 0,
+      "cold_mapped_bytes": 4194304,
+      "cold_peak_mapped_bytes": 4194304,
+      "cold_touched_bytes": 4194304,
+      "source_window_hard_limit_pass": true,
+      "source_window_accounting_clean": true,
+      "legacy_pss_target_pass": true,
+      "legacy_pss_hard_cap_pass": true,
+      "no_crash_or_oom": true
+    }
+  },
+  "admitted_capabilities": [
+    "crash-safe immutable segmented generation publication",
+    "checksummed PREPARE/COMMIT journal recovery",
+    "corrupt and torn metadata quarantine",
+    "bounded positional cross-platform payload I/O including offsets beyond 4 GiB",
+    "generation-local compaction transaction",
+    "bounded single-flight background compaction",
+    "serialized generation publication transactions",
+    "bounded hot/warm/cold immutable-block admission and eviction",
+    "StoreReader shared hot/warm cache integration for record, slice and search payload reads",
+    "exact 4 GiB legacy-profile canonical-generation open without OOM",
+    "immutable progressive prefix generation plus compact-arena first viewport before primary import completion",
+    "bounded read-only file-backed cold residency window included in measured process PSS"
+  ],
+  "explicit_non_capabilities": [
+    "durable compact-arena arbitrary insert/erase beyond admitted M2 move/reorder",
+    "unbounded whole-corpus mmap residency",
+    "unmapped kernel page-cache bytes counted as process PSS",
+    "full 4 GiB payload SHA scan as part of the open-only exit gate",
+    "automatic mmap replacement for every ordinary StoreReader payload miss"
+  ],
+  "cold_store_accounting_rule": {
+    "mapping": "single bounded read-only file-backed window",
+    "linux_measurement": [
+      "/proc/<pid>/smaps_rollup total Pss",
+      "/proc/<pid>/smaps Pss summed only for the exact store/segments file mappings"
+    ],
+    "hot_warm_resident_required_zero_during_cold_gate": true,
+    "ordinary_payload_miss_backend": "bounded positional pread/ReadFile"
+  },
+  "expected_changed_path_count": 44,
+  "evidence_only_promotion_paths": [
+    "certification/m3_storage_hardening_promotion.json",
+    "docs/M3_STORAGE_HARDENING_PROMOTION.md"
+  ],
+  "promotion_rule": "The direct child containing only the two evidence-only promotion paths may be promoted only after its own push-triggered Windows and Linux CI run concludes success on that exact head.",
+  "promotion_status": "source-authority-green-awaiting-evidence-head-exact-ci"
+}
