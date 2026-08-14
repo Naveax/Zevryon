@@ -3,6 +3,7 @@ find_package(Threads REQUIRED)
 target_sources(
   zevryon-massivedoc-core
   PRIVATE
+    src/massivedoc_block_cache.cpp
     src/massivedoc_generation.cpp
     src/massivedoc_generation_background.cpp
     src/massivedoc_generation_sync.cpp
@@ -13,6 +14,17 @@ target_link_libraries(
   PUBLIC Threads::Threads)
 
 if(BUILD_TESTING)
+  add_executable(
+    zevryon-massivedoc-block-cache-tests
+    tests/massivedoc_block_cache_tests.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-block-cache-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-block-cache-tests)
+  add_test(
+    NAME massivedoc-block-cache-tests
+    COMMAND zevryon-massivedoc-block-cache-tests)
+
   add_executable(
     zevryon-massivedoc-generation-tests
     tests/massivedoc_generation_tests.cpp)
