@@ -306,11 +306,11 @@ int main() {
     if (!require(after_move_reopen.open(&error), error) ||
         !require(after_move_reopen.stats().total_height_q8 == moved_total,
                  "physical height update survives reopen") ||
-        !require(after_move_reopen.logical_snapshot().at(0U, &moved_source_zero, &error), error) ||
+        !require(after_move_reopen.logical_snapshot().at(2U, &moved_source_zero, &error), error) ||
         !require(moved_source_zero.record.logical_id == 1000U,
-                 "non-durable move restores physical order on reopen") ||
+                 "durable move preserves logical order on reopen") ||
         !require(moved_source_zero.record.source_record_index == 0U,
-                 "reopen restores source zero at physical ordinal") ||
+                 "reopen restores source zero at persisted logical ordinal") ||
         !require(moved_source_zero.record.height_q8 == kMovedHeight,
                  "reopen loads height from physical source slot")) {
         return 1;
