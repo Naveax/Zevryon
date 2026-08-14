@@ -65,6 +65,17 @@ struct SearchHit {
     std::uint64_t byte_offset{0};
 };
 
+using SearchCancellationCheck = std::function<bool()>;
+
+struct SearchExecutionStats {
+    std::uint64_t trigram_candidate_blocks{0U};
+    std::uint64_t legacy_blocks_checked{0U};
+    std::uint64_t exact_records_scanned{0U};
+    bool used_trigram{false};
+    bool fell_back_from_trigram{false};
+    bool cancelled{false};
+};
+
 class StoreWriter {
 public:
     StoreWriter(const std::filesystem::path& root, StoreConfig config = {});
@@ -113,7 +124,16 @@ public:
     void release_cold_window() noexcept;
     bool verify(std::string* error) const;
     bool export_payload(const std::filesystem::path& output, std::string* error) const;
-    std::vector<SearchHit> find(std::string_view query, std::size_t max_hits, std::string* error) const;
+    std::vector<SearchHit> find(
+        std::string_view query,
+        std::size_t max_hits,
+        std::string* error) const;
+    std::vector<SearchHit> find_bounded(
+        std::string_view query,
+        std::size_t max_hits,
+        const SearchCancellationCheck& cancelled,
+        SearchExecutionStats* execution_stats,
+        std::string* error) const;
     bool read_record(
         std::uint64_t record_index,
         const std::function<bool(std::span<const std::byte>)>& consumer,

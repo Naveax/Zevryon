@@ -164,23 +164,49 @@ std::vector<SearchHit> StoreReader::find(
     std::string_view query,
     std::size_t max_hits,
     std::string* error) const {
+    return find_bounded(query, max_hits, {}, nullptr, error);
+}
+
+std::vector<SearchHit> StoreReader::find_bounded(
+    std::string_view query,
+    std::size_t max_hits,
+    const SearchCancellationCheck& cancelled,
+    SearchExecutionStats* execution_stats,
+    std::string* error) const {
+    if (execution_stats != nullptr) {
+        *execution_stats = {};
+    }
     std::vector<SearchHit> hits;
     if (!impl_->opened) {
         *error = "store is not open";
         return hits;
     }
+    error->clear();
     if (query.empty() || max_hits == 0U) {
         return hits;
     }
+
+    const auto cancellation_requested = [&cancelled]() {
+        return static_cast<bool>(cancelled) && cancelled();
+    };
+    const auto mark_cancelled = [execution_stats, error]() {
+        if (execution_stats != nullptr) {
+            execution_stats->cancelled = true;
+        }
+        *error = "search cancelled";
+    };
 
     const auto query_bytes = std::span<const std::byte>(
         reinterpret_cast<const std::byte*>(query.data()),
         query.size());
     std::vector<std::byte> io_buffer(impl_->read_config.io_window_bytes);
 
-    const auto scan_record = [this, query, query_bytes, &io_buffer, error](
+    const auto scan_record = [this, query, query_bytes, &io_buffer, execution_stats, error](
                                  std::uint64_t record_index,
                                  std::vector<SearchHit>* output) -> bool {
+        if (execution_stats != nullptr) {
+            ++execution_stats->exact_records_scanned;
+        }
         RecordDescriptor record;
         if (!impl_->read_record_descriptor(record_index, &record, error)) {
             return false;
@@ -262,9 +288,8 @@ std::vector<SearchHit> StoreReader::find(
         return true;
     };
 
-    // Derived trigram/Bloom data is an optional acceleration layer. It is allowed to
-    // reduce candidate work only when both files match the canonical payload identity.
-    // Any derived-data failure discards accelerated hits and reruns the legacy path.
+    // Derived trigram/Bloom data is an optional acceleration layer. User cancellation
+    // is not a derived-data failure and therefore must never trigger legacy fallback.
     if (query.size() >= 3U) {
         TrigramIndexConfig trigram_config;
         trigram_config.io_window_bytes = impl_->read_config.io_window_bytes;
@@ -272,12 +297,18 @@ std::vector<SearchHit> StoreReader::find(
         std::string trigram_error;
         if (trigram.open(impl_->expected_sha, &trigram_error) &&
             trigram.block_count() == impl_->stats.corpus.logical_records) {
+            if (execution_stats != nullptr) {
+                execution_stats->used_trigram = true;
+            }
             std::vector<SearchHit> accelerated_hits;
             bool source_ok = true;
             TrigramQueryStats query_stats;
             const bool candidate_ok = trigram.visit_candidate_blocks(
                 query,
                 [&](std::uint64_t record_index) {
+                    if (execution_stats != nullptr) {
+                        ++execution_stats->trigram_candidate_blocks;
+                    }
                     if (record_index >= impl_->stats.corpus.logical_records) {
                         *error = "trigram candidate record index out of range";
                         source_ok = false;
@@ -289,9 +320,13 @@ std::vector<SearchHit> StoreReader::find(
                     }
                     return accelerated_hits.size() < max_hits;
                 },
-                [] { return false; },
+                cancellation_requested,
                 &query_stats,
                 &trigram_error);
+            if (query_stats.cancelled) {
+                mark_cancelled();
+                return {};
+            }
             if (!source_ok) {
                 return {};
             }
@@ -299,9 +334,16 @@ std::vector<SearchHit> StoreReader::find(
                 error->clear();
                 return accelerated_hits;
             }
+            if (execution_stats != nullptr) {
+                execution_stats->fell_back_from_trigram = true;
+            }
             // A checksum/framing/read error in derived data cannot make partial
             // accelerated results authoritative. Start the exact legacy search over.
             error->clear();
+        } else {
+            if (execution_stats != nullptr) {
+                execution_stats->fell_back_from_trigram = true;
+            }
         }
     }
 
@@ -317,6 +359,13 @@ std::vector<SearchHit> StoreReader::find(
     for (std::uint64_t block = 0U;
          block < impl_->stats.search_block_count && hits.size() < max_hits;
          ++block) {
+        if (cancellation_requested()) {
+            mark_cancelled();
+            return {};
+        }
+        if (execution_stats != nullptr) {
+            ++execution_stats->legacy_blocks_checked;
+        }
         if (block > std::numeric_limits<std::uint64_t>::max() / kBigramSignatureBytes) {
             *error = "search signature offset overflow";
             return {};
