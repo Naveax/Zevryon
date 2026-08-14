@@ -1,6 +1,8 @@
 target_sources(
   zevryon-massivedoc-core
-  PRIVATE src/massivedoc_generation.cpp)
+  PRIVATE
+    src/massivedoc_generation.cpp
+    src/massivedoc_positional_io.cpp)
 
 if(BUILD_TESTING)
   add_executable(
@@ -24,4 +26,15 @@ if(BUILD_TESTING)
   add_test(
     NAME massivedoc-generation-runtime-tests
     COMMAND zevryon-massivedoc-generation-runtime-tests)
+
+  add_executable(
+    zevryon-massivedoc-positional-io-tests
+    tests/massivedoc_positional_io_tests.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-positional-io-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-positional-io-tests)
+  add_test(
+    NAME massivedoc-positional-io-tests
+    COMMAND zevryon-massivedoc-positional-io-tests)
 endif()
