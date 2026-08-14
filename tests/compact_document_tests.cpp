@@ -1,5 +1,6 @@
 #include "compact_document.hpp"
 #include "massivedoc_store.hpp"
+#include "order_statistics_sequence_test_support.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -27,6 +28,10 @@ std::vector<std::byte> payload(std::size_t size, char fill) {
 } // namespace
 
 int main() {
+    if (!zevryon_test::run_order_statistics_sequence_tests()) {
+        return 1;
+    }
+
     const auto root = std::filesystem::temp_directory_path() / "zevryon-compact-document-tests";
     std::error_code error_code;
     std::filesystem::remove_all(root, error_code);
