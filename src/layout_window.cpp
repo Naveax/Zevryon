@@ -459,6 +459,19 @@ bool LayoutWindowEngine::open(std::string* error) {
     return true;
 }
 
+bool LayoutWindowEngine::move_logical_record(
+    std::uint64_t from_index,
+    std::uint64_t to_index,
+    std::string* error) {
+    if (!impl_->opened || error == nullptr) {
+        if (error != nullptr) {
+            *error = "invalid layout logical move";
+        }
+        return false;
+    }
+    return impl_->arena.move_logical_record(from_index, to_index, error);
+}
+
 bool LayoutWindowEngine::layout(
     std::uint64_t scroll_y_q8,
     std::uint32_t viewport_width_q8,
