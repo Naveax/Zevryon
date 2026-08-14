@@ -1,6 +1,7 @@
 #pragma once
 
 #include "massivedoc_generation.hpp"
+#include "massivedoc_positional_io.hpp"
 
 #if defined(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)
 #include "massivedoc_descriptor_shadow.hpp"
@@ -23,6 +24,7 @@ constexpr std::uint64_t kDefaultSegmentBytes = 64ULL * 1024ULL * 1024ULL;
 constexpr std::uint32_t kDefaultRecordsPerSearchBlock = 8192U;
 constexpr std::size_t kBigramSignatureBytes = 8192U;
 constexpr std::size_t kIoWindowBytes = 64U * 1024U;
+constexpr std::size_t kMaximumIoWindowBytes = 16U * 1024U * 1024U;
 
 struct CorpusMetadata {
     std::uint64_t logical_utf8_bytes{0};
@@ -36,6 +38,10 @@ struct CorpusMetadata {
 struct StoreConfig {
     std::uint64_t segment_bytes{kDefaultSegmentBytes};
     std::uint32_t records_per_search_block{kDefaultRecordsPerSearchBlock};
+};
+
+struct StoreReadConfig {
+    std::size_t io_window_bytes{kIoWindowBytes};
 };
 
 struct StoreStats {
@@ -76,7 +82,9 @@ private:
 
 class StoreReader {
 public:
-    explicit StoreReader(const std::filesystem::path& root);
+    explicit StoreReader(
+        const std::filesystem::path& root,
+        StoreReadConfig read_config = {});
     ~StoreReader();
 
     StoreReader(const StoreReader&) = delete;

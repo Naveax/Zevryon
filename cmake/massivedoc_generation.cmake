@@ -37,4 +37,15 @@ if(BUILD_TESTING)
   add_test(
     NAME massivedoc-positional-io-tests
     COMMAND zevryon-massivedoc-positional-io-tests)
+
+  add_executable(
+    zevryon-massivedoc-positional-store-tests
+    tests/massivedoc_positional_store_tests.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-positional-store-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-positional-store-tests)
+  add_test(
+    NAME massivedoc-positional-store-tests
+    COMMAND zevryon-massivedoc-positional-store-tests)
 endif()

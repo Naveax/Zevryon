@@ -1,20 +1,28 @@
             return false;
         }
-        std::ifstream segment(segment_path(impl_->root, chunk.segment_id), std::ios::binary);
-        if (!segment || !seek_stream(segment, chunk.offset)) {
-            *error = "cannot open or seek segment";
+        BoundedPositionalReader segment(
+            segment_path(impl_->root, chunk.segment_id),
+            impl_->read_config.io_window_bytes);
+        if (!segment.open(error)) {
+            *error = "cannot open record segment positional reader: " + *error;
             return false;
         }
+        std::uint64_t segment_offset = chunk.offset;
         std::uint64_t remaining = chunk.length;
         while (remaining != 0U) {
-            const std::size_t amount = static_cast<std::size_t>(std::min<std::uint64_t>(remaining, buffer.size()));
-            if (!read_exact(segment, std::span<std::byte>(buffer.data(), amount))) {
-                *error = "truncated segment payload";
+            const std::size_t amount = static_cast<std::size_t>(
+                std::min<std::uint64_t>(remaining, buffer.size()));
+            if (!segment.read_exact_at(
+                    segment_offset,
+                    std::span<std::byte>(buffer.data(), amount),
+                    error)) {
+                *error = "cannot read record segment positionally: " + *error;
                 return false;
             }
             if (!consumer(std::span<const std::byte>(buffer.data(), amount))) {
                 return true;
             }
+            segment_offset += static_cast<std::uint64_t>(amount);
             read_total += static_cast<std::uint64_t>(amount);
             remaining -= static_cast<std::uint64_t>(amount);
         }
@@ -50,10 +58,14 @@ bool StoreReader::read_record_slice(
     output->reserve(wanted);
     std::uint64_t logical_position = 0U;
     std::size_t remaining_output = wanted;
-    std::vector<std::byte> buffer(kIoWindowBytes);
+    std::vector<std::byte> buffer(impl_->read_config.io_window_bytes);
     for (std::uint32_t relative = 0U; relative < record.chunk_count && remaining_output != 0U; ++relative) {
         ChunkDescriptor chunk;
         if (!impl_->read_chunk_descriptor(record.first_chunk + relative, &chunk, error)) {
+            return false;
+        }
+        if (chunk.length > std::numeric_limits<std::uint64_t>::max() - logical_position) {
+            *error = "record slice chunk range overflow";
             return false;
         }
         const std::uint64_t chunk_end = logical_position + chunk.length;
@@ -61,22 +73,39 @@ bool StoreReader::read_record_slice(
             logical_position = chunk_end;
             continue;
         }
-        const std::uint64_t offset_in_chunk = byte_offset > logical_position ? byte_offset - logical_position : 0U;
-        std::ifstream segment(segment_path(impl_->root, chunk.segment_id), std::ios::binary);
-        if (!segment || !seek_stream(segment, chunk.offset + offset_in_chunk)) {
-            *error = "cannot open or seek record slice segment";
+        const std::uint64_t offset_in_chunk =
+            byte_offset > logical_position ? byte_offset - logical_position : 0U;
+        if (offset_in_chunk > chunk.length ||
+            chunk.offset > std::numeric_limits<std::uint64_t>::max() - offset_in_chunk) {
+            *error = "record slice segment offset overflow";
             return false;
         }
+        BoundedPositionalReader segment(
+            segment_path(impl_->root, chunk.segment_id),
+            impl_->read_config.io_window_bytes);
+        if (!segment.open(error)) {
+            *error = "cannot open record slice positional reader: " + *error;
+            return false;
+        }
+        std::uint64_t segment_offset = chunk.offset + offset_in_chunk;
         std::uint64_t chunk_remaining = chunk.length - offset_in_chunk;
         while (chunk_remaining != 0U && remaining_output != 0U) {
             const std::size_t amount = std::min<std::size_t>(
                 remaining_output,
-                static_cast<std::size_t>(std::min<std::uint64_t>(chunk_remaining, buffer.size())));
-            if (!read_exact(segment, std::span<std::byte>(buffer.data(), amount))) {
-                *error = "truncated record slice segment";
+                static_cast<std::size_t>(
+                    std::min<std::uint64_t>(chunk_remaining, buffer.size())));
+            if (!segment.read_exact_at(
+                    segment_offset,
+                    std::span<std::byte>(buffer.data(), amount),
+                    error)) {
+                *error = "cannot read record slice positionally: " + *error;
                 return false;
             }
-            output->insert(output->end(), buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(amount));
+            output->insert(
+                output->end(),
+                buffer.begin(),
+                buffer.begin() + static_cast<std::ptrdiff_t>(amount));
+            segment_offset += static_cast<std::uint64_t>(amount);
             remaining_output -= amount;
             chunk_remaining -= static_cast<std::uint64_t>(amount);
         }

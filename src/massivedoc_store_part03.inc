@@ -44,7 +44,10 @@ struct StoreReader::Impl {
     std::filesystem::path root;
     StoreStats stats;
     StoreConfig config;
+    StoreReadConfig read_config;
     std::array<std::uint8_t, 32> expected_sha{};
+    std::unique_ptr<BoundedPositionalReader> records_reader;
+    std::unique_ptr<BoundedPositionalReader> chunks_reader;
     bool opened{false};
 
     bool read_record_descriptor(std::uint64_t index, RecordDescriptor* descriptor, std::string* error) const {
@@ -52,15 +55,17 @@ struct StoreReader::Impl {
             *error = "record index out of range";
             return false;
         }
-        std::ifstream stream(root / "records.idx", std::ios::binary);
-        const std::uint64_t offset = index * kRecordDescriptorBytes;
-        if (!stream || !seek_stream(stream, offset)) {
-            *error = "cannot seek record index";
+        if (records_reader == nullptr || !records_reader->is_open()) {
+            *error = "record index positional reader is unavailable";
             return false;
         }
+        if (index > std::numeric_limits<std::uint64_t>::max() / kRecordDescriptorBytes) {
+            *error = "record index byte offset overflow";
+            return false;
+        }
+        const std::uint64_t offset = index * kRecordDescriptorBytes;
         std::array<std::byte, kRecordDescriptorBytes> bytes{};
-        if (!read_exact(stream, bytes)) {
-            *error = "cannot read record descriptor";
+        if (!records_reader->read_exact_at(offset, bytes, error)) {
             return false;
         }
         const auto parsed = parse_record(bytes);
@@ -77,15 +82,17 @@ struct StoreReader::Impl {
             *error = "chunk index out of range";
             return false;
         }
-        std::ifstream stream(root / "chunks.idx", std::ios::binary);
-        const std::uint64_t offset = index * kChunkDescriptorBytes;
-        if (!stream || !seek_stream(stream, offset)) {
-            *error = "cannot seek chunk index";
+        if (chunks_reader == nullptr || !chunks_reader->is_open()) {
+            *error = "chunk index positional reader is unavailable";
             return false;
         }
+        if (index > std::numeric_limits<std::uint64_t>::max() / kChunkDescriptorBytes) {
+            *error = "chunk index byte offset overflow";
+            return false;
+        }
+        const std::uint64_t offset = index * kChunkDescriptorBytes;
         std::array<std::byte, kChunkDescriptorBytes> bytes{};
-        if (!read_exact(stream, bytes)) {
-            *error = "cannot read chunk descriptor";
+        if (!chunks_reader->read_exact_at(offset, bytes, error)) {
             return false;
         }
         const auto parsed = parse_chunk(bytes);
@@ -98,8 +105,12 @@ struct StoreReader::Impl {
     }
 };
 
-StoreReader::StoreReader(const std::filesystem::path& root) : impl_(new Impl{}) {
+StoreReader::StoreReader(
+    const std::filesystem::path& root,
+    StoreReadConfig read_config)
+    : impl_(new Impl{}) {
     impl_->root = root;
+    impl_->read_config = read_config;
 }
 
 StoreReader::~StoreReader() {
@@ -111,6 +122,11 @@ bool StoreReader::open(std::string* error) {
         return false;
     }
     error->clear();
+    if (impl_->read_config.io_window_bytes == 0U ||
+        impl_->read_config.io_window_bytes > kMaximumIoWindowBytes) {
+        *error = "store reader I/O window is outside the supported bounded range";
+        return false;
+    }
     std::array<std::byte, kManifestBytes> manifest{};
     GenerationRecovery recovery;
     if (!recover_store_generation(impl_->root, &recovery, error)) {
@@ -185,19 +201,55 @@ bool StoreReader::open(std::string* error) {
     }
     impl_->stats.payload_sha256 = hex_digest(impl_->expected_sha);
     impl_->stats.physical_bytes = directory_size(impl_->root);
-    std::error_code size_error;
-    const std::uint64_t records_size = std::filesystem::file_size(impl_->root / "records.idx", size_error);
-    if (size_error || records_size != impl_->stats.corpus.logical_records * kRecordDescriptorBytes) {
+
+    if (impl_->stats.corpus.logical_records >
+        std::numeric_limits<std::uint64_t>::max() / kRecordDescriptorBytes) {
+        *error = "record index size overflow";
+        return false;
+    }
+    if (impl_->stats.chunk_count >
+        std::numeric_limits<std::uint64_t>::max() / kChunkDescriptorBytes) {
+        *error = "chunk index size overflow";
+        return false;
+    }
+    if (impl_->stats.search_block_count >
+        std::numeric_limits<std::uint64_t>::max() / kBigramSignatureBytes) {
+        *error = "search index size overflow";
+        return false;
+    }
+
+    impl_->records_reader = std::make_unique<BoundedPositionalReader>(
+        impl_->root / "records.idx",
+        impl_->read_config.io_window_bytes);
+    impl_->chunks_reader = std::make_unique<BoundedPositionalReader>(
+        impl_->root / "chunks.idx",
+        impl_->read_config.io_window_bytes);
+    if (!impl_->records_reader->open(error)) {
+        *error = "cannot open record index positional reader: " + *error;
+        return false;
+    }
+    if (!impl_->chunks_reader->open(error)) {
+        *error = "cannot open chunk index positional reader: " + *error;
+        return false;
+    }
+
+    const std::uint64_t expected_records_size =
+        impl_->stats.corpus.logical_records * kRecordDescriptorBytes;
+    if (impl_->records_reader->file_size() != expected_records_size) {
         *error = "record index size mismatch";
         return false;
     }
-    const std::uint64_t chunks_size = std::filesystem::file_size(impl_->root / "chunks.idx", size_error);
-    if (size_error || chunks_size != impl_->stats.chunk_count * kChunkDescriptorBytes) {
+    const std::uint64_t expected_chunks_size =
+        impl_->stats.chunk_count * kChunkDescriptorBytes;
+    if (impl_->chunks_reader->file_size() != expected_chunks_size) {
         *error = "chunk index size mismatch";
         return false;
     }
+    std::error_code size_error;
     const std::uint64_t search_size = std::filesystem::file_size(impl_->root / "search.bgm", size_error);
-    if (size_error || search_size != impl_->stats.search_block_count * kBigramSignatureBytes) {
+    const std::uint64_t expected_search_size =
+        impl_->stats.search_block_count * kBigramSignatureBytes;
+    if (size_error || search_size != expected_search_size) {
         *error = "search index size mismatch";
         return false;
     }
@@ -228,7 +280,7 @@ bool StoreReader::read_record(
     if (!impl_->read_record_descriptor(record_index, &record, error)) {
         return false;
     }
-    std::vector<std::byte> buffer(kIoWindowBytes);
+    std::vector<std::byte> buffer(impl_->read_config.io_window_bytes);
     std::uint64_t read_total = 0U;
     for (std::uint32_t relative = 0U; relative < record.chunk_count; ++relative) {
         ChunkDescriptor chunk;
