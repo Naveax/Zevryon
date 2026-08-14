@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 #![deny(warnings)]
 
-pub const ZR_UTF8_ABI_VERSION: u32 = 0x0001_0000;
+pub const ZR_UTF8_ABI_VERSION: u32 = 0x0001_0001;
 pub const ZR_UTF8_DECODER_STORAGE_BYTES: usize = 128;
 pub const ZR_UTF8_DECODER_STORAGE_ALIGN: usize = 8;
 
@@ -18,6 +18,13 @@ pub const ZR_UTF8_ERROR_SURROGATE_CODE_POINT: u32 = 6;
 pub const ZR_UTF8_ERROR_CODE_POINT_OUT_OF_RANGE: u32 = 7;
 pub const ZR_UTF8_ERROR_TRUNCATED_SEQUENCE: u32 = 8;
 pub const ZR_UTF8_ERROR_OUTPUT_BUDGET_EXCEEDED: u32 = 9;
+
+pub const ZR_UTF8_ERROR_DETAIL_NONE: u32 = 0;
+pub const ZR_UTF8_ERROR_DETAIL_DECODER_FAILED: u32 = 1;
+pub const ZR_UTF8_ERROR_DETAIL_DECODER_FINISHED: u32 = 2;
+pub const ZR_UTF8_ERROR_DETAIL_DISCONTINUOUS_OFFSET: u32 = 3;
+pub const ZR_UTF8_ERROR_DETAIL_SOURCE_RANGE_OVERFLOW: u32 = 4;
+pub const ZR_UTF8_ERROR_DETAIL_OUTPUT_CAPACITY: u32 = 5;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -45,7 +52,7 @@ pub struct ZrUtf8DecodeStats {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ZrUtf8DecodeError {
     pub kind: u32,
-    pub reserved: u32,
+    pub detail: u32,
     pub source_offset: u64,
 }
 
@@ -75,6 +82,7 @@ mod tests {
 
     #[test]
     fn utf8_abi_records_are_stable() {
+        assert_eq!(ZR_UTF8_ABI_VERSION, 0x0001_0001);
         assert_eq!(core::mem::size_of::<ZrDecodedCodePoint>(), 16);
         assert_eq!(core::mem::size_of::<ZrUtf8DecodeStats>(), 48);
         assert_eq!(core::mem::size_of::<ZrUtf8DecodeError>(), 16);
@@ -86,5 +94,7 @@ mod tests {
             core::mem::align_of::<ZrUtf8DecoderStorage>(),
             ZR_UTF8_DECODER_STORAGE_ALIGN
         );
+        assert_eq!(ZR_UTF8_ERROR_DETAIL_NONE, 0);
+        assert_eq!(ZR_UTF8_ERROR_DETAIL_OUTPUT_CAPACITY, 5);
     }
 }

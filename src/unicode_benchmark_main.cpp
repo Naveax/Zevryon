@@ -10,7 +10,6 @@
 #include <limits>
 #include <memory_resource>
 #include <span>
-#include <string>
 #include <vector>
 
 namespace {
@@ -51,9 +50,6 @@ std::vector<std::byte> make_fixture(std::size_t target_bytes) {
         }
     }
 
-    // The repeating pattern may be cut inside a UTF-8 sequence. Replace trailing
-    // continuation bytes and an incomplete lead with ASCII so the fixed-size
-    // benchmark corpus is always valid without changing its byte length.
     std::size_t suffix = fixture.size();
     while (suffix > 0U) {
         const std::uint8_t byte = static_cast<std::uint8_t>(
@@ -84,6 +80,27 @@ double percentile(std::vector<double> values, double percentage) {
     return values[lower] * (1.0 - fraction) + values[upper] * fraction;
 }
 
+void digest_u64(std::uint64_t value, std::uint64_t* digest) noexcept {
+    constexpr std::uint64_t kPrime = 1099511628211ULL;
+    for (unsigned int shift = 0U; shift < 64U; shift += 8U) {
+        *digest ^= (value >> shift) & 0xffU;
+        *digest *= kPrime;
+    }
+}
+
+std::uint64_t digest_output(
+    const std::pmr::vector<zevryon::text::DecodedCodePoint>& output) noexcept {
+    std::uint64_t digest = 1469598103934665603ULL;
+    digest_u64(static_cast<std::uint64_t>(output.size()), &digest);
+    for (const auto& point : output) {
+        digest_u64(point.source_start, &digest);
+        digest_u64(static_cast<std::uint64_t>(point.value), &digest);
+        digest_u64(static_cast<std::uint64_t>(point.source_length), &digest);
+        digest_u64(point.replacement ? 1U : 0U, &digest);
+    }
+    return digest;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -112,6 +129,10 @@ int main(int argc, char** argv) {
     std::vector<double> samples_ms;
     samples_ms.reserve(iterations);
     std::size_t expected_codepoints = 0U;
+    std::uint64_t expected_digest = 0U;
+    bool authority_mode = false;
+    bool reverse_shadow_healthy = true;
+    std::uint64_t reverse_shadow_mismatches = 0U;
 
     for (std::size_t iteration = 0U; iteration < iterations + 32U; ++iteration) {
         output.clear();
@@ -150,12 +171,26 @@ int main(int argc, char** argv) {
             std::cerr << "decoder statistics failed benchmark contract\n";
             return 1;
         }
+
+        const std::uint64_t current_digest = digest_output(output);
         if (expected_codepoints == 0U) {
             expected_codepoints = output.size();
-        } else if (output.size() != expected_codepoints) {
-            std::cerr << "decoded codepoint count changed between iterations\n";
+            expected_digest = current_digest;
+        } else if (output.size() != expected_codepoints ||
+                   current_digest != expected_digest) {
+            std::cerr << "decoded semantic output changed between iterations\n";
             return 1;
         }
+
+        authority_mode = decoder.rust_shadow_enabled();
+        reverse_shadow_healthy = decoder.rust_shadow_healthy();
+        reverse_shadow_mismatches = decoder.rust_shadow_mismatches();
+        if (authority_mode &&
+            (!reverse_shadow_healthy || reverse_shadow_mismatches != 0U)) {
+            std::cerr << "authority reverse shadow is unhealthy\n";
+            return 1;
+        }
+
         if (iteration >= 32U) {
             samples_ms.push_back(
                 std::chrono::duration<double, std::milli>(ended - started).count());
@@ -173,12 +208,17 @@ int main(int argc, char** argv) {
         (p50 / 1000.0);
 
     std::cout << '{'
-              << "\"schema\":\"zevryon.unicode-benchmark.v1\","
+              << "\"schema\":\"zevryon.unicode-benchmark.v2\","
               << "\"fixture_bytes\":" << kFixtureBytes << ','
               << "\"iterations\":" << iterations << ','
               << "\"warmup_iterations\":32,"
               << "\"chunk_bytes\":" << chunk_bytes << ','
               << "\"decoded_codepoints\":" << expected_codepoints << ','
+              << "\"semantic_digest_fnv1a64\":" << expected_digest << ','
+              << "\"authority_mode\":" << (authority_mode ? "true" : "false") << ','
+              << "\"reverse_shadow_healthy\":"
+              << (reverse_shadow_healthy ? "true" : "false") << ','
+              << "\"reverse_shadow_mismatches\":" << reverse_shadow_mismatches << ','
               << "\"p50_ms\":" << p50 << ','
               << "\"p95_ms\":" << p95 << ','
               << "\"p99_ms\":" << p99 << ','

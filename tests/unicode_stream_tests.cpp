@@ -347,19 +347,44 @@ bool test_resource_budget() {
 bool test_shadow_telemetry_contract() {
     Utf8StreamDecoder decoder(Utf8ErrorPolicy::Replace);
 #if defined(ZEVRYON_UTF8_RUST_SHADOW)
-    return require(decoder.rust_shadow_enabled(), "Rust Unicode shadow is enabled") &&
-           require(decoder.rust_shadow_healthy(), "fresh Rust Unicode shadow is healthy") &&
-           require(decoder.rust_shadow_operations() == 0U, "fresh shadow has zero operations") &&
-           require(decoder.rust_shadow_verifications() >= 1U, "constructor verifies Rust state") &&
-           require(decoder.rust_shadow_mismatches() == 0U, "fresh shadow has zero mismatches") &&
+    if (!require(decoder.rust_shadow_enabled(), "Rust Unicode verifier is enabled") ||
+        !require(decoder.rust_shadow_healthy(), "fresh Unicode verifier is healthy") ||
+        !require(decoder.rust_shadow_operations() == 0U, "fresh verifier has zero operations") ||
+        !require(decoder.rust_shadow_verifications() >= 1U, "constructor verifies Rust state") ||
+        !require(decoder.rust_shadow_mismatches() == 0U, "fresh verifier has zero mismatches")) {
+        return false;
+    }
+
+    const std::string telemetry = decoder.rust_shadow_json();
+#if defined(ZEVRYON_UTF8_RUST_AUTHORITATIVE)
+    return require(
+               telemetry.find("\"schema\":\"zevryon.rust-unicode-authority.v1\"") !=
+                   std::string::npos,
+               "authority telemetry exposes schema") &&
            require(
-               decoder.rust_shadow_json().find("zevryon.rust-unicode-shadow.v1") !=
+               telemetry.find("\"authoritative_backend\":\"rust\"") !=
+                   std::string::npos,
+               "authority telemetry reports Rust backend") &&
+           require(
+               telemetry.find("\"reverse_shadow_backend\":\"cpp\"") !=
+                   std::string::npos,
+               "authority telemetry reports C++ reverse shadow") &&
+           require(
+               telemetry.find("\"fallback_permitted\":false") !=
+                   std::string::npos,
+               "authority telemetry forbids fallback") &&
+           require(
+               telemetry.find("\"enabled\":true") != std::string::npos,
+               "authority telemetry reports enabled");
+#else
+    return require(
+               telemetry.find("zevryon.rust-unicode-shadow.v1") !=
                    std::string::npos,
                "shadow telemetry exposes schema") &&
            require(
-               decoder.rust_shadow_json().find("\"enabled\":true") !=
-                   std::string::npos,
+               telemetry.find("\"enabled\":true") != std::string::npos,
                "shadow telemetry reports enabled");
+#endif
 #else
     return require(!decoder.rust_shadow_enabled(), "default C++ build keeps Unicode Rust off") &&
            require(!decoder.rust_shadow_healthy(), "disabled Unicode shadow is not reported healthy") &&
