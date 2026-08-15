@@ -55,10 +55,11 @@ constexpr std::array<UnicodeSearchCombiningClassRange, 3> kCcc{
     UnicodeSearchCombiningClassRange{0x030aU, 0x030aU, 230U},
     UnicodeSearchCombiningClassRange{0x0315U, 0x0315U, 232U},
 };
-constexpr std::array<UnicodeSearchCompositionEntry, 3> kCompose{
+constexpr std::array<UnicodeSearchCompositionEntry, 4> kCompose{
     UnicodeSearchCompositionEntry{0x0041U, 0x030aU, 0x00c5U},
     UnicodeSearchCompositionEntry{0x0061U, 0x0300U, 0x00e0U},
     UnicodeSearchCompositionEntry{0x0061U, 0x030aU, 0x00e5U},
+    UnicodeSearchCompositionEntry{0x0100U, 0x0101U, 0x0102U},
 };
 constexpr UnicodeSearchNormalizationTables kTables{
     "17.0.0-fixture",
@@ -133,6 +134,44 @@ void test_hangul_roundtrip() {
     require(output[0].source_start == 100U && output[0].source_end == 103U, "Hangul source span");
 }
 
+void test_zero_ccc_composition_boundary() {
+    const std::array<SearchSourceCodePoint, 2> source{
+        SearchSourceCodePoint{0x0100U, 0U, 2U},
+        SearchSourceCodePoint{0x0101U, 2U, 4U},
+    };
+    const auto output = normalize(source);
+    require(output.size() == 1U && output[0].value == 0x0102U, "CCC=0 composition pair");
+    require(output[0].source_start == 0U && output[0].source_end == 4U, "CCC=0 composition source span");
+}
+
+void test_normalization_only_modes() {
+    const std::array<SearchSourceCodePoint, 2> source{
+        SearchSourceCodePoint{0x0041U, 0U, 1U},
+        SearchSourceCodePoint{0x030aU, 1U, 3U},
+    };
+    UnicodeSearchNormalizationError error;
+    std::vector<NormalizedSearchCodePoint> output;
+    const auto consumer = [&output](std::span<const NormalizedSearchCodePoint> values) {
+        output.insert(output.end(), values.begin(), values.end());
+        return true;
+    };
+
+    UnicodeSearchNormalizerConfig nfd_config;
+    nfd_config.full_case_fold = false;
+    nfd_config.compose = false;
+    UnicodeSearchNormalizer nfd(kTables, nfd_config);
+    require(nfd.feed(source, consumer, &error) && nfd.finish(consumer, &error), "NFD mode failed");
+    require(output.size() == 2U && output[0].value == 0x0041U && output[1].value == 0x030aU, "NFD mode output");
+
+    output.clear();
+    UnicodeSearchNormalizerConfig nfc_config;
+    nfc_config.full_case_fold = false;
+    nfc_config.compose = true;
+    UnicodeSearchNormalizer nfc(kTables, nfc_config);
+    require(nfc.feed(source, consumer, &error) && nfc.finish(consumer, &error), "NFC mode failed");
+    require(output.size() == 1U && output[0].value == 0x00c5U, "NFC mode output");
+}
+
 void test_pending_bound_is_hard_failure() {
     UnicodeSearchNormalizer normalizer(kTables, UnicodeSearchNormalizerConfig{2U});
     UnicodeSearchNormalizationError error;
@@ -192,6 +231,8 @@ int main() {
     test_full_fold_expansion();
     test_canonical_order_and_composition();
     test_hangul_roundtrip();
+    test_zero_ccc_composition_boundary();
+    test_normalization_only_modes();
     test_pending_bound_is_hard_failure();
     test_consumer_stop_is_not_success();
     test_invalid_table_fails_closed();

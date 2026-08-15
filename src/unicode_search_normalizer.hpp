@@ -52,6 +52,8 @@ struct UnicodeSearchNormalizationTables {
 
 struct UnicodeSearchNormalizerConfig {
     std::size_t max_pending_codepoints{256U};
+    bool full_case_fold{true};
+    bool compose{true};
 };
 
 enum class UnicodeSearchNormalizationErrorKind : std::uint8_t {
@@ -135,6 +137,8 @@ private:
     bool flush_pending(
         const UnicodeSearchNormalizationConsumer& consumer,
         UnicodeSearchNormalizationError* error);
+
+    void prepare_pending_output();
 
     bool append_pending(
         std::uint32_t value,
