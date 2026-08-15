@@ -1,0 +1,129 @@
+{
+  "schema": "zevryon.m4.bounded-search-promotion.v1",
+  "repository": "Naveax/Zevryon",
+  "branch": "agent/m4-bounded-search",
+  "base_main": "4101680d1cb07af67fe280de04187a275e68124a",
+  "source_authority_head": "6b3124c28af9b4da84badd88a1be628971df6a0e",
+  "source_authority_ahead_by": 19,
+  "source_authority_behind_by": 0,
+  "source_authority_changed_path_count": 55,
+  "source_ci": {
+    "workflow": "Windows and Linux CI",
+    "run_id": 31881129599,
+    "head_sha": "6b3124c28af9b4da84badd88a1be628971df6a0e",
+    "conclusion": "success",
+    "jobs": [
+      {"name": "Linux build and headless tests", "job_id": 95003739592, "conclusion": "success", "ctest": "96/96", "exact_match_test": "PASS", "m3_legacy_4gib_gate": "PASS", "m3_cold_store_pss_gate": "PASS"},
+      {"name": "Windows build and headless tests", "job_id": 95003739595, "conclusion": "success", "ctest": "60/60", "exact_match_test": "PASS"},
+      {"name": "Z2R-3E-U Linux Unicode authority", "job_id": 95003739561, "conclusion": "success"},
+      {"name": "Z2R-3E-U Windows Unicode authority", "job_id": 95003739586, "conclusion": "success"},
+      {"name": "Apple backend removal guard", "job_id": 95003739656, "conclusion": "success"}
+    ]
+  },
+  "source_artifacts": {
+    "linux_unicode": {
+      "artifact_id": 9246058280,
+      "digest": "sha256:89e298437ebe253527179676d703041c0d0a2df1586de8fb4a2045c5b68c08fe"
+    },
+    "windows_unicode": {
+      "artifact_id": 9246124345,
+      "digest": "sha256:1579bdafbe000c6a3ff070015569a54d66cf7ce204bbcb9d4a8b12d283fb3474"
+    },
+    "m3_storage_regression": {
+      "artifact_id": 9246069702,
+      "digest": "sha256:720f87ce5c18b33a0c273e91918b82d3fe794af7f7f5e7a0bc2fc54c67bd6c74"
+    }
+  },
+  "unicode17_authority": {
+    "workflow_run_id": 31881129602,
+    "head_sha": "6b3124c28af9b4da84badd88a1be628971df6a0e",
+    "conclusion": "success",
+    "artifact_id": 9246037267,
+    "artifact_digest": "sha256:b41ed7bdc442286a0744c1841730e4bc6366e91eb9511d59ab6f5715038eb241",
+    "unicode_version": "17.0.0",
+    "transform": "Q(X)=NFC(toCasefold(NFD(X)))",
+    "normalization_test_cases": 20034,
+    "normalization_test_result": "PASS",
+    "generated_data_sha256": "40730ad16b9adddbf71f59ec54c8089a3a129751192bca7c47a6a527a68b78ff",
+    "generated_data_fingerprint": "4194e1873cf16402211f44a847617746ad975a599c3a206e88c1a9f43cf3b70c",
+    "no_generated_data_drift": true
+  },
+  "exit_gates": {
+    "bounded_candidate_acceleration": {
+      "status": "admitted",
+      "block_bloom_summaries": true,
+      "compressed_trigram_postings_on_disk": true,
+      "canonical_source_identity": true,
+      "derived_data_fail_closed_fallback": true,
+      "false_negative_candidate_elimination_for_exact_byte_search": false
+    },
+    "cancellation": {
+      "status": "admitted",
+      "bounded_checks": true,
+      "partial_accelerated_results_never_authoritative_after_cancel": true
+    },
+    "unicode_search": {
+      "status": "admitted",
+      "unicode_version": "17.0.0",
+      "official_normalization_conformance": "20034/20034 PASS",
+      "bounded_normalization_and_default_full_casefold": true,
+      "source_byte_span_mapping": true,
+      "invalid_utf8_fail_closed": true,
+      "normalization_bound_overflow_fail_closed": true
+    },
+    "full_document_selection": {
+      "status": "admitted",
+      "construction_complexity": "O(1)",
+      "immutable_logical_order_snapshot": true,
+      "root_aggregate_authority": true
+    },
+    "fixed_memory_export": {
+      "status": "admitted",
+      "logical_order_text_streaming": true,
+      "logical_order_html_streaming": true,
+      "transactional_target_preservation": true,
+      "utf8_validation_for_html": true,
+      "bounded_buffers": true,
+      "cancellation": true
+    },
+    "simd_exact_verification": {
+      "status": "admitted",
+      "production_store_reader_integration": true,
+      "linux_x86_64_sse2_runtime": true,
+      "windows_x86_64_sse2_runtime": true,
+      "scalar_fallback": true,
+      "randomized_scalar_equivalence": true,
+      "store_reader_runtime_stats_proof": true,
+      "arm64_neon_source_present": true,
+      "arm64_neon_runtime_certified": false
+    }
+  },
+  "admitted_capabilities": [
+    "bounded block Bloom summaries and compressed on-disk trigram postings",
+    "canonical source identity binding for derived search data",
+    "opportunistic StoreReader trigram acceleration with authoritative exact verification",
+    "fail-closed fallback from missing, corrupt, stale or incompatible derived search data",
+    "bounded search cancellation without authoritative partial accelerated results",
+    "Unicode 17.0.0 bounded normalization and default full case-fold with official normalization conformance",
+    "source-span-preserving normalized UTF-8 search with explicit invalid-input and bound failures",
+    "O(1) immutable full-document logical selection descriptor",
+    "fixed-memory transactional logical-order text and escaped HTML export",
+    "cross-architecture exact-byte matcher with scalar fallback and x86-64 SSE2 runtime certification",
+    "production StoreReader exact verifier routed through the admitted matcher with runtime counters"
+  ],
+  "explicit_non_capabilities": [
+    "ARM64 NEON runtime certification without an ARM64 CI runner",
+    "locale-specific collation or locale-specific case mapping beyond Unicode default full case-fold",
+    "normalized-query trigram acceleration; the admitted Unicode path prioritizes exact normalized semantics over a raw-byte derived index",
+    "semantic DOM reconstruction in HTML export; the admitted HTML export is bounded escaped source-text streaming",
+    "unbounded whole-document buffering for search, selection or export"
+  ],
+  "issue_receipt_comment_id": 5301967741,
+  "expected_source_changed_path_count": 55,
+  "evidence_only_promotion_paths": [
+    "certification/m4_bounded_search_promotion.json",
+    "docs/M4_BOUNDED_SEARCH_PROMOTION.md"
+  ],
+  "promotion_rule": "The direct child containing only the two evidence-only promotion paths may be promoted only after its own push-triggered Windows and Linux CI run concludes success on that exact head. Merge credit requires a subsequent successful push-triggered post-merge CI run on the exact canonical main head.",
+  "promotion_status": "source-authority-green-awaiting-evidence-head-exact-ci"
+}
