@@ -164,14 +164,192 @@ std::vector<SearchHit> StoreReader::find(
     std::string_view query,
     std::size_t max_hits,
     std::string* error) const {
+    return find_bounded(query, max_hits, {}, nullptr, error);
+}
+
+std::vector<SearchHit> StoreReader::find_bounded(
+    std::string_view query,
+    std::size_t max_hits,
+    const SearchCancellationCheck& cancelled,
+    SearchExecutionStats* execution_stats,
+    std::string* error) const {
+    if (execution_stats != nullptr) {
+        *execution_stats = {};
+    }
     std::vector<SearchHit> hits;
     if (!impl_->opened) {
         *error = "store is not open";
         return hits;
     }
+    error->clear();
     if (query.empty() || max_hits == 0U) {
         return hits;
     }
+
+    const auto cancellation_requested = [&cancelled]() {
+        return static_cast<bool>(cancelled) && cancelled();
+    };
+    const auto mark_cancelled = [execution_stats, error]() {
+        if (execution_stats != nullptr) {
+            execution_stats->cancelled = true;
+        }
+        *error = "search cancelled";
+    };
+
+    const auto query_bytes = std::span<const std::byte>(
+        reinterpret_cast<const std::byte*>(query.data()),
+        query.size());
+    std::vector<std::byte> io_buffer(impl_->read_config.io_window_bytes);
+
+    const auto scan_record = [this, query, query_bytes, &io_buffer, execution_stats, error](
+                                 std::uint64_t record_index,
+                                 std::vector<SearchHit>* output) -> bool {
+        if (execution_stats != nullptr) {
+            ++execution_stats->exact_records_scanned;
+        }
+        RecordDescriptor record;
+        if (!impl_->read_record_descriptor(record_index, &record, error)) {
+            return false;
+        }
+        std::vector<std::byte> carry;
+        carry.reserve(query.size() > 1U ? query.size() - 1U : 0U);
+        std::uint64_t processed = 0U;
+        bool found = false;
+        std::uint64_t found_offset = 0U;
+
+        for (std::uint32_t relative_chunk = 0U;
+             relative_chunk < record.chunk_count && !found;
+             ++relative_chunk) {
+            if (record.first_chunk >
+                std::numeric_limits<std::uint64_t>::max() - relative_chunk) {
+                *error = "search record chunk index overflow";
+                return false;
+            }
+            ChunkDescriptor chunk;
+            if (!impl_->read_chunk_descriptor(
+                    record.first_chunk + relative_chunk,
+                    &chunk,
+                    error)) {
+                return false;
+            }
+
+            std::uint64_t segment_offset = chunk.offset;
+            std::uint64_t remaining = chunk.length;
+            while (remaining != 0U && !found) {
+                const std::size_t amount = static_cast<std::size_t>(
+                    std::min<std::uint64_t>(remaining, io_buffer.size()));
+                if (!impl_->read_segment_exact(
+                        chunk.segment_id,
+                        segment_offset,
+                        std::span<std::byte>(io_buffer.data(), amount),
+                        error)) {
+                    *error = "cannot read candidate segment through immutable block cache: " + *error;
+                    return false;
+                }
+                std::vector<std::byte> window;
+                window.reserve(carry.size() + amount);
+                window.insert(window.end(), carry.begin(), carry.end());
+                window.insert(
+                    window.end(),
+                    io_buffer.begin(),
+                    io_buffer.begin() + static_cast<std::ptrdiff_t>(amount));
+                ExactByteMatchStats match_stats;
+                const std::size_t local = find_exact_bytes(
+                    std::span<const std::byte>(window.data(), window.size()),
+                    query_bytes,
+                    &match_stats);
+                if (execution_stats != nullptr) {
+                    execution_stats->exact_simd_batches += match_stats.simd_batches;
+                    execution_stats->exact_scalar_candidates += match_stats.scalar_candidates;
+                    execution_stats->exact_compares += match_stats.exact_compares;
+                }
+                if (local != kExactByteMatchNotFound) {
+                    if (processed < static_cast<std::uint64_t>(carry.size())) {
+                        *error = "search carry accounting underflow";
+                        return false;
+                    }
+                    found_offset =
+                        processed - static_cast<std::uint64_t>(carry.size()) +
+                        static_cast<std::uint64_t>(local);
+                    found = true;
+                    break;
+                }
+                processed += static_cast<std::uint64_t>(amount);
+                segment_offset += static_cast<std::uint64_t>(amount);
+                remaining -= static_cast<std::uint64_t>(amount);
+                const std::size_t keep = std::min<std::size_t>(
+                    query.size() > 1U ? query.size() - 1U : 0U,
+                    window.size());
+                carry.assign(
+                    window.end() - static_cast<std::ptrdiff_t>(keep),
+                    window.end());
+            }
+        }
+        if (found) {
+            output->push_back(SearchHit{record_index, record.logical_id, found_offset});
+        }
+        return true;
+    };
+
+    // Derived trigram/Bloom data is an optional acceleration layer. User cancellation
+    // is not a derived-data failure and therefore must never trigger legacy fallback.
+    if (query.size() >= 3U) {
+        TrigramIndexConfig trigram_config;
+        trigram_config.io_window_bytes = impl_->read_config.io_window_bytes;
+        TrigramIndexReader trigram(impl_->root, trigram_config);
+        std::string trigram_error;
+        if (trigram.open(impl_->expected_sha, &trigram_error) &&
+            trigram.block_count() == impl_->stats.corpus.logical_records) {
+            if (execution_stats != nullptr) {
+                execution_stats->used_trigram = true;
+            }
+            std::vector<SearchHit> accelerated_hits;
+            bool source_ok = true;
+            TrigramQueryStats query_stats;
+            const bool candidate_ok = trigram.visit_candidate_blocks(
+                query,
+                [&](std::uint64_t record_index) {
+                    if (execution_stats != nullptr) {
+                        ++execution_stats->trigram_candidate_blocks;
+                    }
+                    if (record_index >= impl_->stats.corpus.logical_records) {
+                        *error = "trigram candidate record index out of range";
+                        source_ok = false;
+                        return false;
+                    }
+                    if (!scan_record(record_index, &accelerated_hits)) {
+                        source_ok = false;
+                        return false;
+                    }
+                    return accelerated_hits.size() < max_hits;
+                },
+                cancellation_requested,
+                &query_stats,
+                &trigram_error);
+            if (query_stats.cancelled) {
+                mark_cancelled();
+                return {};
+            }
+            if (!source_ok) {
+                return {};
+            }
+            if (candidate_ok) {
+                error->clear();
+                return accelerated_hits;
+            }
+            if (execution_stats != nullptr) {
+                execution_stats->fell_back_from_trigram = true;
+            }
+            // A checksum/framing/read error in derived data cannot make partial
+            // accelerated results authoritative. Start the exact legacy search over.
+            error->clear();
+        } else {
+            if (execution_stats != nullptr) {
+                execution_stats->fell_back_from_trigram = true;
+            }
+        }
+    }
+
     BoundedPositionalReader signatures(
         impl_->root / "search.bgm",
         impl_->read_config.io_window_bytes);
@@ -181,14 +359,16 @@ std::vector<SearchHit> StoreReader::find(
     }
 
     std::array<std::byte, kBigramSignatureBytes> signature{};
-    const auto query_bytes = std::span<const std::byte>(
-        reinterpret_cast<const std::byte*>(query.data()),
-        query.size());
-    std::vector<std::byte> io_buffer(impl_->read_config.io_window_bytes);
-
     for (std::uint64_t block = 0U;
          block < impl_->stats.search_block_count && hits.size() < max_hits;
          ++block) {
+        if (cancellation_requested()) {
+            mark_cancelled();
+            return {};
+        }
+        if (execution_stats != nullptr) {
+            ++execution_stats->legacy_blocks_checked;
+        }
         if (block > std::numeric_limits<std::uint64_t>::max() / kBigramSignatureBytes) {
             *error = "search signature offset overflow";
             return {};
@@ -235,83 +415,8 @@ std::vector<SearchHit> StoreReader::find(
         for (std::uint64_t record_index = first_record;
              record_index < end_record && hits.size() < max_hits;
              ++record_index) {
-            RecordDescriptor record;
-            if (!impl_->read_record_descriptor(record_index, &record, error)) {
+            if (!scan_record(record_index, &hits)) {
                 return {};
-            }
-            std::vector<std::byte> carry;
-            carry.reserve(query.size() > 1U ? query.size() - 1U : 0U);
-            std::uint64_t processed = 0U;
-            bool found = false;
-            std::uint64_t found_offset = 0U;
-
-            for (std::uint32_t relative_chunk = 0U;
-                 relative_chunk < record.chunk_count && !found;
-                 ++relative_chunk) {
-                if (record.first_chunk >
-                    std::numeric_limits<std::uint64_t>::max() - relative_chunk) {
-                    *error = "search record chunk index overflow";
-                    return {};
-                }
-                ChunkDescriptor chunk;
-                if (!impl_->read_chunk_descriptor(
-                        record.first_chunk + relative_chunk,
-                        &chunk,
-                        error)) {
-                    return {};
-                }
-
-                std::uint64_t segment_offset = chunk.offset;
-                std::uint64_t remaining = chunk.length;
-                while (remaining != 0U && !found) {
-                    const std::size_t amount = static_cast<std::size_t>(
-                        std::min<std::uint64_t>(remaining, io_buffer.size()));
-                    if (!impl_->read_segment_exact(
-                            chunk.segment_id,
-                            segment_offset,
-                            std::span<std::byte>(io_buffer.data(), amount),
-                            error)) {
-                        *error = "cannot read candidate segment through immutable block cache: " + *error;
-                        return {};
-                    }
-                    std::vector<std::byte> window;
-                    window.reserve(carry.size() + amount);
-                    window.insert(window.end(), carry.begin(), carry.end());
-                    window.insert(
-                        window.end(),
-                        io_buffer.begin(),
-                        io_buffer.begin() + static_cast<std::ptrdiff_t>(amount));
-                    const auto position = std::search(
-                        window.begin(),
-                        window.end(),
-                        query_bytes.begin(),
-                        query_bytes.end());
-                    if (position != window.end()) {
-                        const std::size_t local = static_cast<std::size_t>(
-                            std::distance(window.begin(), position));
-                        if (processed < static_cast<std::uint64_t>(carry.size())) {
-                            *error = "search carry accounting underflow";
-                            return {};
-                        }
-                        found_offset =
-                            processed - static_cast<std::uint64_t>(carry.size()) +
-                            static_cast<std::uint64_t>(local);
-                        found = true;
-                        break;
-                    }
-                    processed += static_cast<std::uint64_t>(amount);
-                    segment_offset += static_cast<std::uint64_t>(amount);
-                    remaining -= static_cast<std::uint64_t>(amount);
-                    const std::size_t keep = std::min<std::size_t>(
-                        query.size() > 1U ? query.size() - 1U : 0U,
-                        window.size());
-                    carry.assign(
-                        window.end() - static_cast<std::ptrdiff_t>(keep),
-                        window.end());
-                }
-            }
-            if (found) {
-                hits.push_back(SearchHit{record_index, record.logical_id, found_offset});
             }
         }
     }

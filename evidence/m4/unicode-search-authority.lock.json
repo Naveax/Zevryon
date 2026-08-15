@@ -1,0 +1,45 @@
+{
+  "authority_artifact_digest": "sha256:9506eb24f8975706aa6e78a4fa4ec400277cf87c18baaf20c38d952de31b8801",
+  "authority_artifact_id": 9243591908,
+  "authority_job_id": 94981175729,
+  "authority_run_id": 31871672791,
+  "conformance": {
+    "cases": 20034,
+    "result": "PASS",
+    "suite": "NormalizationTest-17.0.0"
+  },
+  "generated": {
+    "fingerprint": "4194e1873cf16402211f44a847617746ad975a599c3a206e88c1a9f43cf3b70c",
+    "metadata_sha256": "e4f3de779220986f6efe5be8661c5b7124ba5295c002cff9c348a5ae1e28e73d",
+    "path": "src/unicode_search_normalization_data.generated.hpp",
+    "sha256": "40730ad16b9adddbf71f59ec54c8089a3a129751192bca7c47a6a527a68b78ff"
+  },
+  "generated_data_commit": "938b1d883edef80a7cd61b5393db823fdf442027",
+  "generator": {
+    "path": "scripts/generate_unicode_search_normalization.py",
+    "sha256": "4b32d3110dc132182d5182b62fd585320689c72a7beac52b70e296b837ba71fd"
+  },
+  "schema": "zevryon.m4.unicode-search-authority-lock.v1",
+  "source_base": "https://www.unicode.org/Public/17.0.0/ucd/",
+  "source_generation_head": "426b0d90a8737015e35719cb8972f9f7c5d911ee",
+  "sources": {
+    "CaseFolding.txt": {
+      "bytes": 87539,
+      "sha256": "ff8d8fefbf123574205085d6714c36149eb946d717a0c585c27f0f4ef58c4183"
+    },
+    "DerivedNormalizationProps.txt": {
+      "bytes": 1377582,
+      "sha256": "71fd6a206a2c0cdd41feb6b7f656aa31091db45e9cedc926985d718397f9e488"
+    },
+    "NormalizationTest.txt": {
+      "bytes": 2827429,
+      "sha256": "5019ffd530751a741900c849c0e010332f142a3612234639bd200b82138a87db"
+    },
+    "UnicodeData.txt": {
+      "bytes": 2198209,
+      "sha256": "2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c"
+    }
+  },
+  "transform": "Q(X)=NFC(toCasefold(NFD(X)))",
+  "unicode_version": "17.0.0"
+}

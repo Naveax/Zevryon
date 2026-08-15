@@ -5,5 +5,6 @@ if(APPLE)
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/massivedoc_generation.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/massivedoc_trigram.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/font_resource_sfnt.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/harfbuzz_shaping.cmake")

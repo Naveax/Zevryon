@@ -82,6 +82,8 @@ std::string stats_json(const StoreStats& stats) {
     return output.str();
 }
 
+#include "massivedoc_store_unicode_search.inc"
+
 } // namespace zevryon::massivedoc
 
 #include "massivedoc_store_preview.inc"

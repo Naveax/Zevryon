@@ -4,6 +4,8 @@
 #include "massivedoc_cold_window.hpp"
 #include "massivedoc_generation.hpp"
 #include "massivedoc_positional_io.hpp"
+#include "massivedoc_trigram_index.hpp"
+#include "massivedoc_unicode_search_runtime.hpp"
 
 #if defined(ZEVRYON_RUST_MASSIVEDOC_CODEC_SHADOW)
 #include "massivedoc_descriptor_shadow.hpp"
@@ -64,6 +66,34 @@ struct SearchHit {
     std::uint64_t byte_offset{0};
 };
 
+using SearchCancellationCheck = std::function<bool()>;
+
+struct SearchExecutionStats {
+    std::uint64_t trigram_candidate_blocks{0U};
+    std::uint64_t legacy_blocks_checked{0U};
+    std::uint64_t exact_records_scanned{0U};
+    std::uint64_t exact_simd_batches{0U};
+    std::uint64_t exact_scalar_candidates{0U};
+    std::uint64_t exact_compares{0U};
+    bool used_trigram{false};
+    bool fell_back_from_trigram{false};
+    bool cancelled{false};
+};
+
+struct UnicodeSearchOptions {
+    std::size_t max_query_bytes{64U * 1024U};
+    std::size_t max_query_codepoints{4096U};
+    std::size_t max_pending_codepoints{256U};
+};
+
+struct UnicodeSearchExecutionStats {
+    bool cancelled{false};
+    std::uint64_t records_scanned{0U};
+    std::uint64_t source_bytes_decoded{0U};
+    std::uint64_t normalized_codepoints{0U};
+    std::uint64_t query_normalized_codepoints{0U};
+};
+
 class StoreWriter {
 public:
     StoreWriter(const std::filesystem::path& root, StoreConfig config = {});
@@ -112,7 +142,23 @@ public:
     void release_cold_window() noexcept;
     bool verify(std::string* error) const;
     bool export_payload(const std::filesystem::path& output, std::string* error) const;
-    std::vector<SearchHit> find(std::string_view query, std::size_t max_hits, std::string* error) const;
+    std::vector<SearchHit> find(
+        std::string_view query,
+        std::size_t max_hits,
+        std::string* error) const;
+    std::vector<SearchHit> find_bounded(
+        std::string_view query,
+        std::size_t max_hits,
+        const SearchCancellationCheck& cancelled,
+        SearchExecutionStats* execution_stats,
+        std::string* error) const;
+    std::vector<SearchHit> find_unicode_bounded(
+        std::string_view query_utf8,
+        std::size_t max_hits,
+        const SearchCancellationCheck& cancelled,
+        const UnicodeSearchOptions& options,
+        UnicodeSearchExecutionStats* execution_stats,
+        std::string* error) const;
     bool read_record(
         std::uint64_t record_index,
         const std::function<bool(std::span<const std::byte>)>& consumer,

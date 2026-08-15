@@ -1,0 +1,7 @@
+#include "massivedoc_trigram_index_part00.inc"
+#include "massivedoc_trigram_index_part01.inc"
+#include "massivedoc_trigram_index_part02.inc"
+#include "massivedoc_trigram_index_part03.inc"
+#include "massivedoc_trigram_index_part04.inc"
+#include "massivedoc_trigram_index_part05.inc"
+#include "massivedoc_trigram_index_part06.inc"
