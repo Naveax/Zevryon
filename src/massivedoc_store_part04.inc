@@ -253,14 +253,17 @@ std::vector<SearchHit> StoreReader::find_bounded(
                     window.end(),
                     io_buffer.begin(),
                     io_buffer.begin() + static_cast<std::ptrdiff_t>(amount));
-                const auto position = std::search(
-                    window.begin(),
-                    window.end(),
-                    query_bytes.begin(),
-                    query_bytes.end());
-                if (position != window.end()) {
-                    const std::size_t local = static_cast<std::size_t>(
-                        std::distance(window.begin(), position));
+                ExactByteMatchStats match_stats;
+                const std::size_t local = find_exact_bytes(
+                    std::span<const std::byte>(window.data(), window.size()),
+                    query_bytes,
+                    &match_stats);
+                if (execution_stats != nullptr) {
+                    execution_stats->exact_simd_batches += match_stats.simd_batches;
+                    execution_stats->exact_scalar_candidates += match_stats.scalar_candidates;
+                    execution_stats->exact_compares += match_stats.exact_compares;
+                }
+                if (local != kExactByteMatchNotFound) {
                     if (processed < static_cast<std::uint64_t>(carry.size())) {
                         *error = "search carry accounting underflow";
                         return false;

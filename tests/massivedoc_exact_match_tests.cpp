@@ -1,12 +1,15 @@
 #include "massivedoc_exact_match.hpp"
+#include "massivedoc_store.hpp"
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <random>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -27,6 +30,11 @@ std::size_t scalar_reference(
     return it == haystack.end()
         ? kExactByteMatchNotFound
         : static_cast<std::size_t>(std::distance(haystack.begin(), it));
+}
+
+std::vector<std::byte> bytes_of(std::string_view text) {
+    const auto* begin = reinterpret_cast<const std::byte*>(text.data());
+    return std::vector<std::byte>(begin, begin + text.size());
 }
 
 void test_edges() {
@@ -98,12 +106,58 @@ void test_randomized_scalar_equivalence() {
     }
 }
 
+void test_store_reader_exact_verifier_uses_matcher() {
+    const auto root = std::filesystem::temp_directory_path() /
+        "zevryon-m4-exact-match-store-reader";
+    std::error_code fs_error;
+    std::filesystem::remove_all(root, fs_error);
+    require(!fs_error, "cannot clean integration fixture");
+
+    StoreConfig config;
+    config.segment_bytes = 256U;
+    config.records_per_search_block = 1U;
+    StoreWriter writer(root, config);
+    const std::string record = std::string(20U, 'x') + "SIMD_NEEDLE" + std::string(80U, 'y');
+    const auto record_bytes = bytes_of(record);
+    std::string error;
+    require(writer.append(77U, record_bytes, &error), "cannot append integration record");
+    StoreStats store_stats;
+    require(writer.finalize({}, &store_stats, &error), "cannot finalize integration store");
+
+    StoreReadConfig read_config;
+    read_config.io_window_bytes = 64U;
+    StoreReader reader(root, read_config);
+    require(reader.open(&error), "cannot open integration store");
+
+    SearchExecutionStats stats;
+    const auto hits = reader.find_bounded(
+        "SIMD_NEEDLE",
+        1U,
+        {},
+        &stats,
+        &error);
+    require(error.empty(), "StoreReader exact verifier returned an error");
+    require(hits.size() == 1U, "StoreReader exact verifier hit count");
+    require(hits[0].record_index == 0U, "StoreReader exact verifier record index");
+    require(hits[0].logical_id == 77U, "StoreReader exact verifier logical id");
+    require(hits[0].byte_offset == 20U, "StoreReader exact verifier byte offset");
+    require(stats.exact_records_scanned != 0U, "StoreReader did not scan an exact record");
+    require(stats.exact_compares != 0U, "StoreReader did not perform exact matcher compares");
+    if (exact_byte_match_simd_available()) {
+        require(stats.exact_simd_batches != 0U, "StoreReader did not execute SIMD exact matcher batches");
+    }
+
+    std::filesystem::remove_all(root, fs_error);
+    require(!fs_error, "cannot remove integration fixture");
+}
+
 } // namespace
 
 int main() {
     test_edges();
     test_binary_and_batch_boundaries();
     test_randomized_scalar_equivalence();
+    test_store_reader_exact_verifier_uses_matcher();
     std::cout << "Zevryon MassiveDoc exact-byte SIMD matcher tests passed\n";
     return 0;
 }

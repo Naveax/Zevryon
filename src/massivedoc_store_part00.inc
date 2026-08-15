@@ -1,4 +1,5 @@
 #include "massivedoc_store.hpp"
+#include "massivedoc_exact_match.hpp"
 
 #include <algorithm>
 #include <array>

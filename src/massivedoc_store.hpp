@@ -72,6 +72,9 @@ struct SearchExecutionStats {
     std::uint64_t trigram_candidate_blocks{0U};
     std::uint64_t legacy_blocks_checked{0U};
     std::uint64_t exact_records_scanned{0U};
+    std::uint64_t exact_simd_batches{0U};
+    std::uint64_t exact_scalar_candidates{0U};
+    std::uint64_t exact_compares{0U};
     bool used_trigram{false};
     bool fell_back_from_trigram{false};
     bool cancelled{false};
