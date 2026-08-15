@@ -27,3 +27,5 @@ if(BUILD_TESTING)
     NAME full-document-export-tests
     COMMAND zevryon-full-document-export-tests)
 endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/massivedoc_exact_match.cmake")
