@@ -49,3 +49,5 @@ if(BUILD_TESTING)
     NAME massivedoc-search-cancellation-tests
     COMMAND zevryon-massivedoc-search-cancellation-tests)
 endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/unicode_search_normalization.cmake")
