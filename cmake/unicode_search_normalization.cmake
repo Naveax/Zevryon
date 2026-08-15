@@ -71,3 +71,5 @@ if(BUILD_TESTING)
     zevryon_options(zevryon-unicode-search-normalization-conformance)
   endif()
 endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/full_document_operations.cmake")
