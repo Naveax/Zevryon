@@ -1,7 +1,7 @@
 std::vector<SearchHit> StoreReader::find_unicode_bounded(
     std::string_view query_utf8,
     std::size_t max_hits,
-    const SearchCancel& cancel,
+    const SearchCancellationCheck& cancelled,
     const UnicodeSearchOptions& options,
     UnicodeSearchExecutionStats* execution,
     std::string* error) const {
@@ -34,7 +34,7 @@ std::vector<SearchHit> StoreReader::find_unicode_bounded(
     for (std::uint64_t record_index = 0U;
          record_index < impl_->stats.corpus.logical_records && hits.size() < max_hits;
          ++record_index) {
-        if (cancel && cancel()) {
+        if (cancelled && cancelled()) {
             active_execution->cancelled = true;
             *error = "search cancelled";
             return {};
@@ -57,7 +57,7 @@ std::vector<SearchHit> StoreReader::find_unicode_bounded(
             [&](std::span<const std::byte> bytes) {
                 std::size_t position = 0U;
                 while (position < bytes.size()) {
-                    if (cancel && cancel()) {
+                    if (cancelled && cancelled()) {
                         cancelled_during_record = true;
                         return false;
                     }
