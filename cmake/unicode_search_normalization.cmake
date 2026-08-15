@@ -2,7 +2,8 @@ target_sources(
   zevryon-massivedoc-core
   PRIVATE
     src/unicode_search_normalizer.cpp
-    src/massivedoc_unicode_matcher.cpp)
+    src/massivedoc_unicode_matcher.cpp
+    src/massivedoc_unicode_search_runtime.cpp)
 
 if(BUILD_TESTING)
   add_executable(
@@ -26,6 +27,28 @@ if(BUILD_TESTING)
   add_test(
     NAME massivedoc-unicode-matcher-tests
     COMMAND zevryon-massivedoc-unicode-matcher-tests)
+
+  add_executable(
+    zevryon-massivedoc-unicode-runtime-tests
+    tests/massivedoc_unicode_search_runtime_tests.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-unicode-runtime-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-unicode-runtime-tests)
+  add_test(
+    NAME massivedoc-unicode-runtime-tests
+    COMMAND zevryon-massivedoc-unicode-runtime-tests)
+
+  add_executable(
+    zevryon-massivedoc-unicode-search-tests
+    tests/massivedoc_unicode_search_tests.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-unicode-search-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-unicode-search-tests)
+  add_test(
+    NAME massivedoc-unicode-search-tests
+    COMMAND zevryon-massivedoc-unicode-search-tests)
 
   if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/unicode_search_normalization_data.generated.hpp")
     add_executable(
