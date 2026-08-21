@@ -40,10 +40,12 @@ struct SourceWindowPrefetchResult {
 
 struct SourceWindowPrefetchStatus {
     PrefetchTicket authority_ticket{};
+    bool thread_started{false};
     bool running{false};
     bool pending{false};
     bool ready{false};
     bool stopped{false};
+    std::uint64_t thread_starts{0U};
     std::uint64_t requests_total{0U};
     std::uint64_t requests_accepted{0U};
     std::uint64_t requests_coalesced{0U};

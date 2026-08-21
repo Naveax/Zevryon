@@ -110,6 +110,60 @@ void release_first(const std::shared_ptr<ExecutorGate>& gate) {
     gate->cv.notify_all();
 }
 
+void test_lazy_thread_start() {
+    SourceWindowPrefetchWorker worker({}, [](
+                                               const std::filesystem::path&,
+                                               const SourceWindowPrefetchRequest& request,
+                                               std::vector<std::byte>* bytes,
+                                               std::string* error) {
+        bytes->assign(request.max_bytes, std::byte{0x2a});
+        error->clear();
+        return true;
+    });
+    const PrefetchTicket ticket{10U, 1};
+
+    SourceWindowPrefetchStatus status = worker.status();
+    require(!status.thread_started, "constructor eagerly started prefetch thread");
+    require(status.thread_starts == 0U, "constructor reported prefetch thread start");
+
+    worker.set_authority_ticket(ticket);
+    status = worker.status();
+    require(!status.thread_started, "authority update eagerly started prefetch thread");
+
+    require(
+        worker.request(make_request(0U, 0U, 0U, ticket)) ==
+            SourceWindowPrefetchScheduleResult::invalid,
+        "lazy-start invalid request unexpectedly admitted");
+    require(!worker.status().thread_started, "invalid request started prefetch thread");
+
+    require(
+        worker.request(make_request(0U, 0U, 1U, PrefetchTicket{10U, 0})) ==
+            SourceWindowPrefetchScheduleResult::stale,
+        "lazy-start stale request unexpectedly admitted");
+    require(!worker.status().thread_started, "stale request started prefetch thread");
+
+    require(
+        worker.request(make_request(0U, 0U, 4U, ticket)) ==
+            SourceWindowPrefetchScheduleResult::accepted,
+        "first valid lazy-start request rejected");
+    status = worker.status();
+    require(status.thread_started, "first valid request did not start prefetch thread");
+    require(status.thread_starts == 1U, "first valid request started unexpected thread count");
+    require(worker.wait_idle_for(5s), "lazy-start request did not become idle");
+
+    SourceWindowPrefetchResult result;
+    require(worker.try_take_ready(&result), "lazy-start result missing");
+    require(result.succeeded, "lazy-start result failed");
+
+    require(
+        worker.request(make_request(1U, 0U, 4U, ticket)) ==
+            SourceWindowPrefetchScheduleResult::accepted,
+        "second valid lazy-start request rejected");
+    require(worker.wait_idle_for(5s), "second lazy-start request did not become idle");
+    require(worker.status().thread_starts == 1U,
+            "existing worker thread was recreated for later request");
+}
+
 void test_real_store_prefetch() {
     const std::filesystem::path root =
         std::filesystem::temp_directory_path() / "zevryon-source-window-prefetch-tests";
@@ -133,6 +187,8 @@ void test_real_store_prefetch() {
 
     {
         SourceWindowPrefetchWorker worker(root);
+        require(!worker.status().thread_started,
+                "real-store worker started before first accepted request");
         const PrefetchTicket ticket{11U, 1};
         worker.set_authority_ticket(ticket);
         require(
@@ -148,6 +204,8 @@ void test_real_store_prefetch() {
         require(text_of(result.bytes) == "defgh", "real-store prefetch bytes mismatch");
 
         const SourceWindowPrefetchStatus status = worker.status();
+        require(status.thread_started, "real-store accepted work did not start worker thread");
+        require(status.thread_starts == 1U, "real-store worker thread start count mismatch");
         require(status.runs_started == 1U, "real-store run count mismatch");
         require(status.runs_succeeded == 1U, "real-store success count mismatch");
         require(status.runs_failed == 0U, "real-store failure count mismatch");
@@ -193,6 +251,7 @@ void test_bounded_latest_pending_and_coalescing() {
         "latest result payload mismatch");
 
     const SourceWindowPrefetchStatus status = worker.status();
+    require(status.thread_starts == 1U, "bounded worker created more than one thread");
     require(status.requests_accepted == 2U, "accepted request count mismatch");
     require(status.requests_coalesced == 1U, "coalesced request count mismatch");
     require(status.requests_replaced == 1U, "replaced request count mismatch");
@@ -232,6 +291,7 @@ void test_epoch_change_drops_running_result() {
     require(result.request == current, "current epoch result identity mismatch");
 
     const SourceWindowPrefetchStatus status = worker.status();
+    require(status.thread_starts == 1U, "epoch change recreated worker thread");
     require(status.stale_results_dropped == 1U, "stale running result drop not counted");
     require(status.requests_stale == 1U, "stale request rejection not counted");
 }
@@ -257,6 +317,7 @@ void test_authority_change_invalidates_pending_and_ready() {
     require(worker.wait_idle_for(5s), "authority test worker did not become idle");
 
     const SourceWindowPrefetchStatus status = worker.status();
+    require(status.thread_starts == 1U, "authority change recreated worker thread");
     require(status.pending_cancellations == 1U, "stale pending request not cancelled");
     require(status.stale_results_dropped == 1U, "stale running result not dropped");
     require(status.runs_started == 1U, "cancelled pending request still executed");
@@ -308,17 +369,22 @@ void test_invalid_and_stopped_requests() {
         worker.request(make_request(0U, 0U, 1U, PrefetchTicket{60U, 0})) ==
             SourceWindowPrefetchScheduleResult::stale,
         "stationary request admitted");
+    require(!worker.status().thread_started,
+            "invalid/stale-only worker created an idle background thread");
 
     worker.stop();
     require(
         worker.request(make_request(0U, 0U, 1U, ticket)) ==
             SourceWindowPrefetchScheduleResult::stopped,
         "request admitted after stop");
+    require(!worker.status().thread_started,
+            "never-used worker started a thread during stop");
 }
 
 } // namespace
 
 int main() {
+    test_lazy_thread_start();
     test_real_store_prefetch();
     test_bounded_latest_pending_and_coalescing();
     test_epoch_change_drops_running_result();

@@ -19,6 +19,16 @@ struct SourceWindowPrefetchWorker::State {
           store(store_root),
           executor(std::move(executor_value)) {}
 
+    void start_thread_locked() {
+        if (thread_started || stop_requested) {
+            return;
+        }
+        State* const self = this;
+        worker = std::thread([self] { self->run(); });
+        thread_started = true;
+        ++thread_starts;
+    }
+
     bool execute(
         const SourceWindowPrefetchRequest& request,
         std::vector<std::byte>* bytes,
@@ -116,8 +126,10 @@ struct SourceWindowPrefetchWorker::State {
     std::optional<SourceWindowPrefetchRequest> pending;
     std::optional<SourceWindowPrefetchResult> ready;
     bool stop_requested{false};
+    bool thread_started{false};
     bool running{false};
 
+    std::uint64_t thread_starts{0U};
     std::uint64_t requests_total{0U};
     std::uint64_t requests_accepted{0U};
     std::uint64_t requests_coalesced{0U};
@@ -141,10 +153,7 @@ SourceWindowPrefetchWorker::SourceWindowPrefetchWorker(
 SourceWindowPrefetchWorker::SourceWindowPrefetchWorker(
     std::filesystem::path store_root,
     SourceWindowPrefetchExecutor executor)
-    : state_(std::make_unique<State>(std::move(store_root), std::move(executor))) {
-    State* const state = state_.get();
-    state->worker = std::thread([state] { state->run(); });
-}
+    : state_(std::make_unique<State>(std::move(store_root), std::move(executor))) {}
 
 SourceWindowPrefetchWorker::~SourceWindowPrefetchWorker() {
     try {
@@ -213,6 +222,7 @@ SourceWindowPrefetchScheduleResult SourceWindowPrefetchWorker::request(
         return SourceWindowPrefetchScheduleResult::replaced;
     }
 
+    state->start_thread_locked();
     state->pending = request_value;
     ++state->requests_accepted;
     lock.unlock();
@@ -248,10 +258,12 @@ SourceWindowPrefetchStatus SourceWindowPrefetchWorker::status() const {
     std::lock_guard<std::mutex> lock(state->mutex);
     SourceWindowPrefetchStatus snapshot;
     snapshot.authority_ticket = state->authority;
+    snapshot.thread_started = state->thread_started;
     snapshot.running = state->running;
     snapshot.pending = state->pending.has_value();
     snapshot.ready = state->ready.has_value();
     snapshot.stopped = state->stop_requested;
+    snapshot.thread_starts = state->thread_starts;
     snapshot.requests_total = state->requests_total;
     snapshot.requests_accepted = state->requests_accepted;
     snapshot.requests_coalesced = state->requests_coalesced;
