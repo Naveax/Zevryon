@@ -25,7 +25,20 @@ The session is intentionally not thread-safe. A document/render worker owns one 
 | Sparse checkpoint stride | 16 KiB |
 | Physical source read window | 64 KiB |
 
-Cache accounting includes vector capacity and conservative container overhead. Eviction occurs before insertion and resident-byte/peak-byte metrics are reported.
+Cache accounting includes vector capacity and conservative container overhead. Eviction occurs before insertion and resident-byte/peak-byte metrics are reported. Source and fragment scratch capacities are also exposed in telemetry so hidden per-tab working-set retention cannot disappear behind cache-only accounting.
+
+## Multi-tab memory pressure
+
+`ZenithHotScrollSession::trim_memory()` provides two explicit pressure levels for later tab/process scheduling without changing document authority:
+
+1. **Background** releases the complete source-window LRU, its hash/list container storage, source scratch capacity, and fragment scratch capacity. Parsed checkpoint metadata remains resident so returning to a background tab can resume with checkpoint hits and only bounded source-window I/O.
+2. **Critical** performs the background trim and additionally releases the parsed-checkpoint LRU plus its container storage. Immutable `StoreReader`, `CompactArenaReader`, document order, and height authority remain open, so the page is not reloaded or discarded.
+
+The older `clear_source_window_cache()` entry point now uses the same full source-working-set release path rather than merely erasing entries while retaining container buckets and scratch capacities.
+
+Telemetry records background/critical trim counts, charged bytes reclaimed, current/peak source scratch capacity, and current/peak fragment scratch capacity. `trim_reclaimed_bytes` is deliberately conservative: it counts charged cache bytes plus observable vector capacities and does not pretend to measure allocator metadata that the process cannot attribute exactly.
+
+This is a lower-layer primitive for future Live100/tab scheduling. It does **not** claim Z11 completion, automatic tab suspension, timer throttling, network suspension, or renderer-process lifecycle policy.
 
 ## Correctness and fallback
 
@@ -56,6 +69,8 @@ The 64 MiB giant-record CI certification requires:
 - checkpoint and source-window caches below their configured byte budgets;
 - complete post-run payload verification.
 
+The unit regression additionally verifies that a background trim preserves checkpoint reuse while forcing bounded source reload, and that a critical trim releases both cache classes while the same session remains correct and usable.
+
 ## Scope boundary
 
-These measurements cover disk-backed indexing, viewport selection, bounded UTF-8 source access, scroll anchoring, height correction, and deterministic average-advance fragment production. They do not yet include real font shaping, bidi, grapheme segmentation, CSS inline formatting, paint, or compositor work.
+These measurements cover disk-backed indexing, viewport selection, bounded UTF-8 source access, scroll anchoring, height correction, deterministic average-advance fragment production, and tab-pressure working-set release. They do not yet include real font shaping, bidi, grapheme segmentation, CSS inline formatting, paint, compositor work, JavaScript timers, network activity, or process suspension.

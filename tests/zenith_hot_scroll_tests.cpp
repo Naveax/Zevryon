@@ -245,7 +245,107 @@ int main() {
             "checkpoint peak charge stays bounded") ||
         !require(
             cumulative.source_window_cache_peak_bytes <= layout_config.max_source_window_cache_bytes,
-            "source-window peak charge stays bounded")) {
+            "source-window peak charge stays bounded") ||
+        !require(cumulative.checkpoint_cache_bytes > 0U,
+                 "hot tab retains parsed checkpoint state") ||
+        !require(cumulative.source_window_cache_bytes > 0U,
+                 "hot tab retains source-window state") ||
+        !require(cumulative.source_scratch_capacity_bytes > 0U,
+                 "source scratch capacity is visible in telemetry") ||
+        !require(cumulative.fragment_scratch_capacity_bytes > 0U,
+                 "fragment scratch capacity is visible in telemetry")) {
+        return 1;
+    }
+
+    session.trim_memory(zevryon::massivedoc::ZenithMemoryPressure::Background);
+    const auto after_background_trim = session.stats();
+    if (!require(after_background_trim.background_trim_calls == 1U,
+                 "background trim is counted") ||
+        !require(after_background_trim.critical_trim_calls == 0U,
+                 "background trim does not count as critical") ||
+        !require(after_background_trim.source_window_cache_bytes == 0U,
+                 "background tab releases source-window cache") ||
+        !require(after_background_trim.source_scratch_capacity_bytes == 0U,
+                 "background tab releases source scratch") ||
+        !require(after_background_trim.fragment_scratch_capacity_bytes == 0U,
+                 "background tab releases fragment scratch") ||
+        !require(
+            after_background_trim.checkpoint_cache_bytes == cumulative.checkpoint_cache_bytes,
+            "background tab preserves parsed checkpoints for fast resume") ||
+        !require(after_background_trim.trim_reclaimed_bytes > 0U,
+                 "background trim reports reclaimed working-set bytes")) {
+        return 1;
+    }
+
+    zevryon::massivedoc::LayoutWindowResult background_resume;
+    used_checkpoint = false;
+    if (!require(
+            session.layout(
+                scroll_y_q8,
+                800U * 256U,
+                viewport_height_q8,
+                overscan_q8,
+                256U,
+                &background_resume,
+                &used_checkpoint,
+                &error),
+            error) ||
+        !require(used_checkpoint, "background tab resumes on checkpoint path") ||
+        !require(background_resume.checkpoint_cache_misses == 0U,
+                 "background resume keeps parsed checkpoint hot") ||
+        !require(background_resume.checkpoint_cache_hits >= 2U,
+                 "background resume reuses checkpoint in both passes") ||
+        !require(background_resume.source_window_cache_misses >= 1U,
+                 "background resume reloads only bounded source window") ||
+        !require(background_resume.source_bytes_read > 0U &&
+                     background_resume.source_bytes_read <= 64U * 1024U,
+                 "background resume performs at most one bounded source read") ||
+        !require(background_resume.fragments.size() == first.fragments.size(),
+                 "background trim preserves rendered fragment result")) {
+        return 1;
+    }
+
+    const std::uint64_t reclaimed_after_background =
+        session.stats().trim_reclaimed_bytes;
+    session.trim_memory(zevryon::massivedoc::ZenithMemoryPressure::Critical);
+    const auto after_critical_trim = session.stats();
+    if (!require(after_critical_trim.background_trim_calls == 1U,
+                 "critical trim preserves background trim count") ||
+        !require(after_critical_trim.critical_trim_calls == 1U,
+                 "critical trim is counted") ||
+        !require(after_critical_trim.checkpoint_cache_bytes == 0U,
+                 "critical pressure releases parsed checkpoints") ||
+        !require(after_critical_trim.source_window_cache_bytes == 0U,
+                 "critical pressure releases source windows") ||
+        !require(after_critical_trim.source_scratch_capacity_bytes == 0U,
+                 "critical pressure releases source scratch") ||
+        !require(after_critical_trim.fragment_scratch_capacity_bytes == 0U,
+                 "critical pressure releases fragment scratch") ||
+        !require(after_critical_trim.trim_reclaimed_bytes > reclaimed_after_background,
+                 "critical trim accounts for additional checkpoint reclamation")) {
+        return 1;
+    }
+
+    zevryon::massivedoc::LayoutWindowResult critical_resume;
+    used_checkpoint = false;
+    if (!require(
+            session.layout(
+                scroll_y_q8,
+                800U * 256U,
+                viewport_height_q8,
+                overscan_q8,
+                256U,
+                &critical_resume,
+                &used_checkpoint,
+                &error),
+            error) ||
+        !require(used_checkpoint, "critical-trimmed tab remains usable") ||
+        !require(critical_resume.checkpoint_cache_misses >= 1U,
+                 "critical resume reparses released checkpoint state") ||
+        !require(critical_resume.source_window_cache_misses >= 1U,
+                 "critical resume reloads bounded source window") ||
+        !require(!critical_resume.fragments.empty(),
+                 "critical trim preserves page correctness after resume")) {
         return 1;
     }
 
