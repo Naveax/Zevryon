@@ -4,6 +4,7 @@ target_sources(
     src/frame_budget_scheduler.cpp
     src/hot_scroll_source_prefetch.cpp
     src/shared_source_prefetch_pool.cpp
+    src/zenith_process_tab_controller.cpp
     src/zenith_tab_runtime.cpp)
 
 if(BUILD_TESTING)
@@ -50,6 +51,17 @@ if(BUILD_TESTING)
   add_test(
     NAME unbounded-tab-registry-tests
     COMMAND zevryon-unbounded-tab-registry-tests)
+
+  add_executable(
+    zevryon-process-tab-pressure-controller-tests
+    tests/zenith_process_tab_controller_tests.cpp)
+  target_link_libraries(
+    zevryon-process-tab-pressure-controller-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-process-tab-pressure-controller-tests)
+  add_test(
+    NAME process-tab-pressure-controller-tests
+    COMMAND zevryon-process-tab-pressure-controller-tests)
 
   add_executable(
     zevryon-tab-runtime-tests
