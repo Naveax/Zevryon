@@ -199,6 +199,8 @@ struct ZenithTabRuntime::Impl {
         request->byte_offset = bounded.byte_offset;
         request->max_bytes = bounded.request_bytes;
         request->ticket = ticket;
+        request->visible_edge_offset = visible_edge;
+        request->has_visible_edge_offset = true;
         return request->max_bytes != 0U;
     }
 
