@@ -41,6 +41,17 @@ if(BUILD_TESTING)
     COMMAND zevryon-shared-source-prefetch-pool-tests)
 
   add_executable(
+    zevryon-unbounded-tab-registry-tests
+    tests/unbounded_tab_registry_tests.cpp)
+  target_link_libraries(
+    zevryon-unbounded-tab-registry-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-unbounded-tab-registry-tests)
+  add_test(
+    NAME unbounded-tab-registry-tests
+    COMMAND zevryon-unbounded-tab-registry-tests)
+
+  add_executable(
     zevryon-tab-runtime-tests
     tests/zenith_tab_runtime_tests.cpp)
   target_link_libraries(

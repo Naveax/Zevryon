@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -15,7 +16,16 @@ namespace zevryon::massivedoc {
 
 struct SharedSourcePrefetchPoolConfig {
     std::size_t worker_count{2U};
-    std::size_t max_sessions{256U};
+
+    // There is no finite product-level tab/session ceiling. The SIZE_MAX
+    // default makes registry admission policy-unbounded; actual admission can
+    // still fail naturally if the process cannot allocate the tiny per-session
+    // metadata. A smaller value remains available only as a low-level
+    // embedding/test guard, not as the browser tab policy.
+    std::size_t max_sessions{std::numeric_limits<std::size_t>::max()};
+
+    // Heavy speculative payload retention is bounded independently of how
+    // many tabs are registered.
     std::size_t max_ready_bytes{2U * 1024U * 1024U};
 
     bool valid() const noexcept;
