@@ -4,7 +4,9 @@ target_sources(
     src/device_frame_profile.cpp
     src/frame_budget_scheduler.cpp
     src/hot_scroll_source_prefetch.cpp
+    src/prefetch_record_bounds.cpp
     src/prefetch_tail_admission.cpp
+    src/shared_record_length_authority.cpp
     src/shared_source_prefetch_pool.cpp
     src/velocity_prefetch_planner.cpp
     src/zenith_process_tab_controller.cpp
@@ -66,6 +68,17 @@ if(BUILD_TESTING)
   add_test(
     NAME prefetch-tail-admission-tests
     COMMAND zevryon-prefetch-tail-admission-tests)
+
+  add_executable(
+    zevryon-shared-record-length-authority-tests
+    tests/shared_record_length_authority_tests.cpp)
+  target_link_libraries(
+    zevryon-shared-record-length-authority-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-shared-record-length-authority-tests)
+  add_test(
+    NAME shared-record-length-authority-tests
+    COMMAND zevryon-shared-record-length-authority-tests)
 
   add_executable(
     zevryon-device-frame-profile-tests
