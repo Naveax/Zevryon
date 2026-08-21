@@ -54,6 +54,11 @@ public:
         std::uint64_t* record_length,
         std::string* error);
 
+    bool try_get(
+        const std::filesystem::path& store_root,
+        std::uint64_t record_index,
+        std::uint64_t* record_length);
+
     bool remember(
         const std::filesystem::path& store_root,
         std::uint64_t record_index,

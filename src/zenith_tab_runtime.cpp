@@ -2,6 +2,7 @@
 
 #include "massivedoc_store.hpp"
 #include "prefetch_tail_admission.hpp"
+#include "runtime_prefetch_record_policy.hpp"
 #include "shared_source_prefetch_pool.hpp"
 #include "velocity_prefetch_planner.hpp"
 
@@ -96,6 +97,23 @@ struct ZenithTabRuntime::Impl {
         if (ready.succeeded) {
             statistics.prefetch_success_drains =
                 saturating_add(statistics.prefetch_success_drains, 1U);
+
+            const PrefetchRecordLengthLearnResult learned =
+                learn_record_length_from_short_prefetch(
+                    config.record_length_authority,
+                    root,
+                    ready.request.record_index,
+                    ready.request.byte_offset,
+                    ready.request.max_bytes,
+                    ready.bytes.size());
+            if (learned == PrefetchRecordLengthLearnResult::Learned) {
+                statistics.record_length_learns =
+                    saturating_add(statistics.record_length_learns, 1U);
+            } else if (learned == PrefetchRecordLengthLearnResult::Failed) {
+                statistics.record_length_learn_failures =
+                    saturating_add(statistics.record_length_learn_failures, 1U);
+            }
+
             const PrefetchTailAdmissionResult tail_result =
                 canonicalize_prefetch_tail_for_exact_admission(&ready);
             if (tail_result == PrefetchTailAdmissionResult::Invalid) {
@@ -123,7 +141,7 @@ struct ZenithTabRuntime::Impl {
 
     bool choose_prefetch_request(
         const LayoutWindowResult& result,
-        SourceWindowPrefetchRequest* request) const noexcept {
+        SourceWindowPrefetchRequest* request) noexcept {
         if (request == nullptr || result.fragments.empty()) {
             return false;
         }
@@ -148,11 +166,40 @@ struct ZenithTabRuntime::Impl {
                 &decision)) {
             return false;
         }
+
+        const std::uint64_t visible_edge = ticket.direction > 0
+                                               ? fragment.source_end
+                                               : fragment.source_start;
+        const RuntimePrefetchRecordPolicyDecision bounded =
+            apply_cached_record_bounds(
+                config.record_length_authority,
+                root,
+                fragment.source_record_index,
+                ticket.direction,
+                visible_edge,
+                source_offset,
+                config.prefetch_bytes);
+        if (bounded.metadata_hit) {
+            statistics.record_length_cache_hits =
+                saturating_add(statistics.record_length_cache_hits, 1U);
+        }
+        if (!bounded.should_issue) {
+            if (bounded.eof_suppressed) {
+                statistics.record_length_eof_suppressions = saturating_add(
+                    statistics.record_length_eof_suppressions, 1U);
+            }
+            return false;
+        }
+        if (bounded.clamped) {
+            statistics.record_length_clamps =
+                saturating_add(statistics.record_length_clamps, 1U);
+        }
+
         request->record_index = fragment.source_record_index;
-        request->byte_offset = source_offset;
-        request->max_bytes = config.prefetch_bytes;
+        request->byte_offset = bounded.byte_offset;
+        request->max_bytes = bounded.request_bytes;
         request->ticket = ticket;
-        return true;
+        return request->max_bytes != 0U;
     }
 
     void schedule_prefetch(const LayoutWindowResult& result) noexcept {

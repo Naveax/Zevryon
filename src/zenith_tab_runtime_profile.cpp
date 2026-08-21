@@ -4,12 +4,14 @@ namespace zevryon::massivedoc {
 
 ZenithTabRuntimeConfig make_zenith_tab_runtime_config(
     DeviceFrameProfile profile,
-    LayoutConfig layout) noexcept {
+    LayoutConfig layout,
+    SharedRecordLengthAuthority* record_length_authority) noexcept {
     const DeviceFrameBudgetProfile device = device_frame_budget_profile(profile);
     ZenithTabRuntimeConfig config;
     config.layout = layout;
     config.frame_budget = device.frame_budget;
     config.prefetch_reserve_us = device.prefetch_reserve_us;
+    config.record_length_authority = record_length_authority;
     return config;
 }
 

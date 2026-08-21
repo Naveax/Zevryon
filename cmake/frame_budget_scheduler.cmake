@@ -6,6 +6,7 @@ target_sources(
     src/hot_scroll_source_prefetch.cpp
     src/prefetch_record_bounds.cpp
     src/prefetch_tail_admission.cpp
+    src/runtime_prefetch_record_policy.cpp
     src/shared_record_length_authority.cpp
     src/shared_source_prefetch_pool.cpp
     src/velocity_prefetch_planner.cpp
@@ -79,6 +80,17 @@ if(BUILD_TESTING)
   add_test(
     NAME shared-record-length-authority-tests
     COMMAND zevryon-shared-record-length-authority-tests)
+
+  add_executable(
+    zevryon-runtime-record-length-policy-tests
+    tests/runtime_prefetch_record_policy_tests.cpp)
+  target_link_libraries(
+    zevryon-runtime-record-length-policy-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-runtime-record-length-policy-tests)
+  add_test(
+    NAME runtime-record-length-policy-tests
+    COMMAND zevryon-runtime-record-length-policy-tests)
 
   add_executable(
     zevryon-device-frame-profile-tests

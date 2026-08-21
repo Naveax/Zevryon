@@ -212,6 +212,38 @@ bool SharedRecordLengthAuthority::query(
     return true;
 }
 
+bool SharedRecordLengthAuthority::try_get(
+    const std::filesystem::path& store_root,
+    std::uint64_t record_index,
+    std::uint64_t* record_length) {
+    if (!valid() || record_length == nullptr) {
+        return false;
+    }
+    std::string error;
+    RecordLengthKey key;
+    if (!make_key(
+            store_root,
+            record_index,
+            state_->config.max_root_key_bytes,
+            &key,
+            &error)) {
+        std::lock_guard<std::mutex> lock(state_->mutex);
+        state_->status.invalid_requests =
+            saturating_increment(state_->status.invalid_requests);
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    auto found = state_->cache.find(key);
+    if (found == state_->cache.end()) {
+        state_->status.cache_misses = saturating_increment(state_->status.cache_misses);
+        return false;
+    }
+    *record_length = found->second.record_length;
+    state_->touch_locked(found);
+    state_->status.cache_hits = saturating_increment(state_->status.cache_hits);
+    return true;
+}
+
 bool SharedRecordLengthAuthority::remember(
     const std::filesystem::path& store_root,
     std::uint64_t record_index,

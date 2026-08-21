@@ -12,6 +12,7 @@
 
 namespace zevryon::massivedoc {
 
+class SharedRecordLengthAuthority;
 class SharedSourcePrefetchPool;
 
 struct ZenithTabRuntimeConfig {
@@ -19,6 +20,10 @@ struct ZenithTabRuntimeConfig {
     FrameBudgetPolicy frame_budget{16'667U, 2'000U, 500U, 250U};
     std::uint32_t prefetch_reserve_us{200U};
     std::size_t prefetch_bytes{64U * 1024U};
+
+    // Non-owning process-shared metadata authority. The authority, when set,
+    // must outlive this runtime. Cache-only lookups never perform disk I/O.
+    SharedRecordLengthAuthority* record_length_authority{nullptr};
 
     bool valid() const noexcept;
 };
@@ -41,6 +46,11 @@ struct ZenithTabRuntimeStats {
     std::uint64_t prefetch_failure_drains{0U};
     std::uint64_t prefetch_cache_admissions{0U};
     std::uint64_t prefetch_cache_rejections{0U};
+    std::uint64_t record_length_cache_hits{0U};
+    std::uint64_t record_length_clamps{0U};
+    std::uint64_t record_length_eof_suppressions{0U};
+    std::uint64_t record_length_learns{0U};
+    std::uint64_t record_length_learn_failures{0U};
     std::uint64_t last_visible_layout_us{0U};
     std::uint64_t peak_visible_layout_us{0U};
 };
