@@ -2,39 +2,41 @@
 
 ## Goal
 
-Zevryon must not impose a finite product-level tab-count ceiling. The browser may keep as many tabs registered as process address space and host memory can naturally sustain. Performance authority is therefore expressed as bounded *active resources*, not as a fixed maximum number of tabs.
+Zevryon must not impose a finite product-level tab-count ceiling. The browser may keep as many tabs registered as process address space and host memory can naturally sustain. Performance authority is therefore expressed as bounded active resources, not as a fixed maximum number of tabs.
 
-This replaces the historical shared-prefetch default of 256 sessions. The default registry policy now uses `SIZE_MAX`, which removes the artificial browser-level admission wall without pretending a finite machine can literally allocate infinite objects.
+The historical shared-prefetch session ceiling is now removed from the configuration contract entirely. There is no `max_sessions`, no replacement tab-count constant, and no hidden finite registry admission knob.
 
 ## Resource contract
 
-Tab count and heavy resource count are deliberately decoupled:
+Tab registry cardinality and expensive resources are deliberately decoupled:
 
-- registered/idle tab metadata may grow with the number of tabs;
-- merely registering a tab starts **zero** native prefetch worker threads;
-- shared prefetch worker count stays fixed by `worker_count` and does not scale with tab count;
-- speculative ready-result payload retention stays bounded globally by `max_ready_bytes`;
-- each session still owns at most one pending request and one ready result;
+- registering an idle tab starts zero native prefetch worker threads;
+- shared prefetch worker count remains bounded by `worker_count` and does not scale with tab count;
+- speculative ready-result payload retention is bounded globally by `max_ready_bytes`;
+- each session owns at most one pending speculative request and one ready result;
 - hidden/inactive sessions cannot schedule speculative work;
-- background/critical memory-pressure trimming remains responsible for releasing tab-local hot-scroll working sets.
+- shared-pool telemetry is O(1) with respect to registered session count;
+- default built-in `StoreReader` lifetime is bounded to one worker execution, so concurrently live readers are bounded by worker count rather than by the number of tabs that have ever prefetched;
+- process memory pressure, visibility, and activity determine reclamation behavior. Tab count itself is not a pressure signal.
 
-A low-level `max_sessions` field is retained temporarily for embedding and focused test harnesses, but its default is `std::numeric_limits<std::size_t>::max()` and it is **not** the Zevryon browser tab policy. The next process-level pressure-controller slice should remove any dependence on finite tab counts and operate entirely on activity, recency, visibility, and memory pressure.
+Registry insertion can still fail naturally if the process cannot allocate the small bookkeeping object or if the supplied session identity already exists. Those are physical/correctness failures, not a product policy ceiling.
 
 ## Regression proof
 
-`unbounded-tab-registry-tests` opens 4096 inactive sessions using the default policy. The number 4096 is only a CI regression sample chosen to be far beyond the historical 256-session default; it is not a new limit.
+`unbounded-tab-registry-tests` opens 4096 inactive sessions. The number 4096 is only a CI regression sample chosen to be far beyond the historical finite session policy; it is not a new limit.
 
 The test requires:
 
-- all 4096 registrations succeed;
-- session accounting reports all registrations;
+- all 4096 unique registrations succeed;
+- a duplicate session identity is rejected;
+- accounting reports all registrations;
 - active session count remains zero;
-- native shared-prefetch worker thread count remains zero;
+- shared worker thread count remains zero;
 - speculative ready bytes/results remain zero;
 - all sessions close cleanly without starting workers.
 
 ## Meaning of "unbounded"
 
-"Unbounded" means Zevryon contains no finite browser-policy constant such as 100, 256, 1000, or 10000 tabs. Host memory, address space, operating-system object limits, and allocation failure are physical limits and must be handled gracefully, but they are not product tab-count limits.
+"Unbounded" means Zevryon contains no finite browser-policy constant such as 100, 256, 4096, 10000, or any configurable session maximum that decides whether another tab may register. Host memory, address space, allocator failure, and operating-system limits remain physical constraints on any finite computer.
 
-The architecture must therefore keep expensive resources bounded independently from registry cardinality. This is the basis for the upcoming process-level pressure controller.
+Expensive resources remain explicitly bounded independently of registry cardinality. Removing the artificial tab wall therefore does not mean removing RAM, thread, I/O, cache, or pressure-control discipline.

@@ -123,17 +123,17 @@ void release_first(const std::shared_ptr<ExecutorGate>& gate) {
 
 void test_config_and_lazy_bounded_threads() {
     require(
-        SharedSourcePrefetchPoolConfig{2U, 8U, 64U * 1024U}.valid(),
+        SharedSourcePrefetchPoolConfig{2U, 64U * 1024U}.valid(),
         "baseline shared pool config invalid");
     require(
-        !SharedSourcePrefetchPoolConfig{0U, 8U, 64U * 1024U}.valid(),
+        !SharedSourcePrefetchPoolConfig{0U, 64U * 1024U}.valid(),
         "zero-worker shared pool config accepted");
     require(
-        !SharedSourcePrefetchPoolConfig{65U, 8U, 64U * 1024U}.valid(),
+        !SharedSourcePrefetchPoolConfig{65U, 64U * 1024U}.valid(),
         "unbounded worker count accepted");
 
     SharedSourcePrefetchPool pool(
-        {2U, 8U, 64U * 1024U},
+        {2U, 64U * 1024U},
         [](const std::filesystem::path&,
            std::uint64_t,
            const SourceWindowPrefetchRequest& request,
@@ -179,7 +179,7 @@ void test_round_robin_latest_pending_fairness() {
     const auto gate = std::make_shared<ExecutorGate>();
     gate->block_first = true;
     SharedSourcePrefetchPool pool(
-        {1U, 8U, 64U * 1024U},
+        {1U, 64U * 1024U},
         recording_executor(gate));
     const PrefetchTicket first_ticket{20U, 1};
     const PrefetchTicket second_ticket{30U, -1};
@@ -227,7 +227,7 @@ void test_hidden_inactive_cancellation_and_resume() {
     const auto gate = std::make_shared<ExecutorGate>();
     gate->block_first = true;
     SharedSourcePrefetchPool pool(
-        {1U, 8U, 64U * 1024U},
+        {1U, 64U * 1024U},
         recording_executor(gate));
     const PrefetchTicket forward{40U, 1};
     require(pool.open_session(7U, {}, forward), "failed to open hidden-tab session");
@@ -268,7 +268,7 @@ void test_hidden_inactive_cancellation_and_resume() {
 
 void test_global_ready_memory_budget() {
     SharedSourcePrefetchPool pool(
-        {1U, 8U, 4U},
+        {1U, 4U},
         [](const std::filesystem::path&,
            std::uint64_t,
            const SourceWindowPrefetchRequest& request,
@@ -299,15 +299,17 @@ void test_global_ready_memory_budget() {
             "ready-result budget pressure did not drop speculative result");
 }
 
-void test_session_limit_close_and_reopen() {
-    SharedSourcePrefetchPool pool({1U, 2U, 64U * 1024U});
+void test_registry_identity_close_and_reopen() {
+    SharedSourcePrefetchPool pool({1U, 64U * 1024U});
     const PrefetchTicket ticket{60U, 1};
-    require(pool.open_session(1U, {}, ticket), "session-limit first open failed");
-    require(pool.open_session(2U, {}, ticket), "session-limit second open failed");
-    require(!pool.open_session(3U, {}, ticket), "session limit admitted third session");
+    require(pool.open_session(1U, {}, ticket), "registry first open failed");
+    require(pool.open_session(2U, {}, ticket), "registry second open failed");
+    require(pool.open_session(3U, {}, ticket), "registry third open failed");
+    require(pool.open_session(4U, {}, ticket), "registry fourth open failed");
+    require(!pool.open_session(3U, {}, ticket), "duplicate session identity admitted");
     require(pool.close_session(1U), "session close failed");
-    require(pool.open_session(3U, {}, ticket), "closed slot was not reusable");
-    require(!pool.close_session(1U), "closed session was reported open twice");
+    require(pool.open_session(1U, {}, ticket), "closed session identity was not reusable");
+    require(!pool.close_session(99U), "unknown session was reported closed");
 }
 
 void test_real_store_shared_prefetch() {
@@ -332,7 +334,7 @@ void test_real_store_shared_prefetch() {
     }
 
     {
-        SharedSourcePrefetchPool pool({1U, 4U, 64U * 1024U});
+        SharedSourcePrefetchPool pool({1U, 64U * 1024U});
         const PrefetchTicket ticket{70U, 1};
         require(pool.open_session(9U, root, ticket), "shared real-store session open failed");
         require(
@@ -357,7 +359,7 @@ int main() {
     test_round_robin_latest_pending_fairness();
     test_hidden_inactive_cancellation_and_resume();
     test_global_ready_memory_budget();
-    test_session_limit_close_and_reopen();
+    test_registry_identity_close_and_reopen();
     test_real_store_shared_prefetch();
     std::cout << "Zevryon shared source-prefetch pool tests passed\n";
     return 0;

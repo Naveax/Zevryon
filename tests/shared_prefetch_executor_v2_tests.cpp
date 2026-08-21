@@ -147,7 +147,7 @@ void test_worker_cold_resolve_canonicalizes_and_suppresses() {
 
 void test_executor_v2_publishes_canonical_request_identity() {
     SharedSourcePrefetchPool pool(
-        {1U, 4U, 64U * 1024U},
+        {1U, 64U * 1024U},
         SharedSourcePrefetchExecutorV2{
             [](const std::filesystem::path&,
                std::uint64_t,
@@ -183,7 +183,7 @@ void test_executor_v2_publishes_canonical_request_identity() {
 
 void test_executor_v2_rejects_identity_rewrite() {
     SharedSourcePrefetchPool pool(
-        {1U, 4U, 64U * 1024U},
+        {1U, 64U * 1024U},
         SharedSourcePrefetchExecutorV2{
             [](const std::filesystem::path&,
                std::uint64_t,

@@ -44,8 +44,7 @@ bool canonical_execution_valid(
 } // namespace
 
 bool SharedSourcePrefetchPoolConfig::valid() const noexcept {
-    return worker_count > 0U && worker_count <= 64U && max_sessions > 0U &&
-           max_ready_bytes > 0U;
+    return worker_count > 0U && worker_count <= 64U && max_ready_bytes > 0U;
 }
 
 struct SharedSourcePrefetchPool::State {

@@ -120,8 +120,7 @@ bool SharedSourcePrefetchPool::open_session(
     State* const state = state_.get();
     std::lock_guard<std::mutex> lock(state->mutex);
     if (state->stop_requested || !state->config.valid() ||
-        state->sessions.find(session_id) != state->sessions.end() ||
-        state->sessions.size() >= state->config.max_sessions) {
+        state->sessions.find(session_id) != state->sessions.end()) {
         return false;
     }
     state->sessions.emplace(

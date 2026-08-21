@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
-#include <limits>
 #include <string_view>
 
 namespace {
@@ -21,19 +20,14 @@ void require(bool value, std::string_view message) {
     }
 }
 
-void test_default_policy_has_no_finite_tab_ceiling() {
+void test_registry_has_no_finite_session_policy_cap() {
     const SharedSourcePrefetchPoolConfig config{};
     require(config.valid(), "default shared pool configuration is invalid");
-    require(
-        config.max_sessions == std::numeric_limits<std::size_t>::max(),
-        "default shared pool restored a finite session ceiling");
 
     SharedSourcePrefetchPool pool(config);
     require(pool.valid(), "default shared pool is invalid");
 
-    // This is deliberately only a regression sample, not a product limit.
-    // It is far above the historical 256-session default while remaining
-    // cheap enough for Windows/Linux CI. Policy admission is SIZE_MAX.
+    // Deliberately only a regression sample, never a product limit.
     constexpr std::uint64_t kRegressionSampleSessions = 4096U;
     const PrefetchTicket stationary{1U, 0};
     for (std::uint64_t session_id = 1U;
@@ -41,8 +35,13 @@ void test_default_policy_has_no_finite_tab_ceiling() {
          ++session_id) {
         require(
             pool.open_session(session_id, {}, stationary, false),
-            "unbounded tab registry rejected regression-sample session");
+            "policy-unbounded tab registry rejected regression-sample session");
     }
+
+    // Identity uniqueness remains a correctness rule, not a capacity rule.
+    require(
+        !pool.open_session(1U, {}, stationary, false),
+        "duplicate session identity was admitted");
 
     const SharedSourcePrefetchPoolStatus opened = pool.status();
     require(
@@ -71,7 +70,7 @@ void test_default_policy_has_no_finite_tab_ceiling() {
 } // namespace
 
 int main() {
-    test_default_policy_has_no_finite_tab_ceiling();
+    test_registry_has_no_finite_session_policy_cap();
     std::cout << "Zevryon unbounded tab-registry tests passed\n";
     return 0;
 }

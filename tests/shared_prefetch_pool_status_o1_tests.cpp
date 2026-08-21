@@ -37,7 +37,7 @@ SourceWindowPrefetchRequest make_request(PrefetchTicket ticket) {
 
 int main() {
     SharedSourcePrefetchPool pool(
-        {1U, 8192U, 64U * 1024U},
+        {1U, 64U * 1024U},
         [](const std::filesystem::path&,
            std::uint64_t,
            const SourceWindowPrefetchRequest& request,

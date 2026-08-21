@@ -2,72 +2,61 @@
 
 ## Purpose
 
-This slice replaces the assumption that every page/session needs its own speculative source-prefetch execution thread with a bounded, explicitly shared execution primitive.
-
-The target is many-tab behavior: opening or visiting more pages may increase session metadata, but it must not linearly increase native prefetch threads or allow one noisy tab to monopolize speculative I/O.
+`SharedSourcePrefetchPool` provides one process-level speculative source-I/O scheduler for many tabs. Opening more tabs may add lightweight registry metadata, but it must not linearly add native worker threads, retained speculative payload, or per-tab native readers.
 
 ## Pool contract
 
-`SharedSourcePrefetchPool` owns a fixed worker bound, a bounded session registry, one latest pending request per session, and one ready result per session.
+The registry has no finite session-count policy cap. Session identity must be unique while registered, but there is no `max_sessions` field or equivalent admission constant.
 
-The default policy is:
+Expensive resources remain bounded independently:
 
-- 2 shared worker threads;
-- at most 256 registered sessions;
-- at most 2 MiB of retained ready-result payload across the whole pool;
-- no worker threads before the first valid accepted prefetch request.
-
-The configured worker count is capped at 64 and is independent of the number of registered sessions.
+- default shared worker count: 2;
+- worker count hard maximum: 64;
+- default global retained ready-result budget: 2 MiB;
+- at most one latest pending request per session;
+- at most one ready result per session;
+- zero worker threads before the first accepted valid speculative request.
 
 ## Cross-tab fairness
 
-Each session can have at most one pending speculative request. A newer request for the same session replaces the older pending request instead of growing a FIFO.
-
-After a session finishes one request, any new pending work for that same session is requeued at the back of the shared queue. With a single worker this creates deterministic round-robin behavior across ready sessions; with multiple workers it still prevents one session from filling the queue with an unbounded burst.
-
-This is deliberately a fairness rule for speculative source work, not a general browser task scheduler.
+A newer pending request for one session replaces that session's older pending request rather than growing an unbounded FIFO. After one request finishes, any new pending work for the same session is requeued at the back of the shared queue. This prevents one noisy tab from monopolizing speculative I/O while preserving a globally bounded worker population.
 
 ## Hidden and inactive sessions
 
-A session has an explicit authority ticket and active flag. Moving a tab to an inactive/hidden state can therefore:
+Each session has an authority ticket and active flag. Hidden/inactive transitions reject new speculative work, cancel stale pending authority, invalidate stale ready results, and drop already-running results rather than publishing them into a hidden page. A resumed tab must use fresh authority.
 
-- reject new speculative requests immediately;
-- cancel stale pending work;
-- invalidate stale ready results;
-- allow already-running bounded I/O to finish safely while dropping its result instead of publishing it into a hidden page;
-- resume later only under a fresh authority ticket.
+This composes with the frame scheduler: hidden tabs receive no frame work, while the pool independently prevents speculative source results from crossing a visibility/authority transition.
 
-This stacks with the frame-budget hidden-tab suppression contract. The frame scheduler decides that hidden tabs receive no frame work; the shared prefetch pool independently guarantees that speculative source results cannot leak across a visibility/authority transition.
+## Memory and reader bounds
 
-## Memory bound
+Ready payload is charged against one global `max_ready_bytes` budget. A speculative result that would exceed that budget is dropped; foreground reads remain authoritative.
 
-Ready result payload is charged against one global pool budget using retained vector capacity. A result that would exceed the global budget is simply dropped because prefetch is optional. Correct foreground reads remain authoritative and are not blocked by speculative-cache pressure.
+The built-in executor no longer retains one lazy `StoreReader` per session. A reader exists only for one worker execution. Consequently concurrently live built-in readers are bounded by `worker_count`, not by registered tab count or the number of tabs that previously prefetched.
 
-Each session retains at most one ready result. Replacing a same-session ready result first removes the old charge and then publishes the new result only if the global budget still admits it.
+The V2 executor contract can canonicalize speculative offset/length after worker-side record-length resolution while preserving immutable record identity and authority ticket. EOF work can therefore be shortened or suppressed before payload I/O without publishing bytes under a false cache key.
 
-## Store behavior
+## Telemetry scaling
 
-The default executor keeps one lazily opened `StoreReader` per registered session. Only one pool task for a given session can run at a time, so that reader is not concurrently accessed by multiple pool workers.
-
-A test executor hook remains available for deterministic scheduling, cancellation, and fairness tests without weakening the production default path.
+Active, queued, running, and ready counts are maintained incrementally. `status()` is O(1) with respect to registry cardinality. `wait_idle_for()` intentionally retains a full-state coordination check because it is not the telemetry hot path.
 
 ## Tests
 
-The new shared-pool test target proves:
+Focused tests cover:
 
-- invalid/stale traffic starts zero worker threads;
+- invalid/stale traffic starts zero workers;
 - first accepted work starts only the configured fixed worker count;
-- thread count does not scale with session count;
-- one noisy session cannot run its requeued work before another already-ready session;
-- same-session pending requests coalesce/replace instead of growing the queue;
-- hidden/inactive transitions drop running stale results and reject new work;
-- a resumed session can publish under a fresh authority ticket;
-- ready-result memory never exceeds the global hard budget;
-- session-count limits are enforced and closed slots are reusable;
-- the real `StoreReader` path returns exact bounded bytes.
+- thread count does not scale with registered sessions;
+- round-robin latest-pending fairness;
+- hidden/inactive cancellation and fresh-authority resume;
+- global ready-result memory budget;
+- policy-unbounded session registration with duplicate-identity rejection and close/reopen reuse;
+- real `StoreReader` bounded reads;
+- V2 canonical request identity and fail-closed identity-rewrite rejection;
+- worker-side EOF canonicalization/suppression with process-shared record metadata;
+- O(1) status counters across a 4096-session regression sample.
 
-## Boundary
+The 4096-session samples are test sizes, not product limits.
 
-This slice introduces the shared execution primitive but does not yet replace every existing `SourceWindowPrefetchWorker` construction site. The next integration step is to make browser/tab ownership use one process-level `SharedSourcePrefetchPool`, then retire the dedicated-worker compatibility path after equivalence and performance evidence are green.
+## Integration boundary
 
-It also does not claim complete Live100 scheduling. JavaScript timers, network fetches, media, compositor surfaces, process priority, service workers, and OS-level suspension remain separate contracts.
+`ZenithTabRuntime` now uses the process-level shared pool, including visibility authority, velocity-aware prefetch, exact cache admission, process-shared record bounds, worker-side EOF canonicalization, and device-specific frame scheduling. Broader browser subsystems such as JavaScript timers, network fetch scheduling, media surfaces, service workers, compositor resources, and OS suspension remain separate contracts rather than being falsely claimed by this pool.

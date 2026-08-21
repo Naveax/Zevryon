@@ -300,7 +300,7 @@ void test_tab_runtime_hidden_suppression_and_shared_prefetch(
     const Fixture& fixture) {
     const auto gate = std::make_shared<PrefetchGate>();
     SharedSourcePrefetchPool pool(
-        {1U, 8U, 256U * 1024U},
+        {1U, 256U * 1024U},
         gated_executor(gate));
 
     ZenithTabRuntimeConfig config;

@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
-#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -18,11 +17,6 @@ class SharedRecordLengthAuthority;
 
 struct SharedSourcePrefetchPoolConfig {
     std::size_t worker_count{2U};
-
-    // There is no finite product-level tab/session ceiling. The SIZE_MAX
-    // default makes registry admission policy-unbounded; actual admission can
-    // still fail naturally if the process cannot allocate tiny session metadata.
-    std::size_t max_sessions{std::numeric_limits<std::size_t>::max()};
 
     // Heavy speculative payload retention is bounded independently of tab count.
     std::size_t max_ready_bytes{2U * 1024U * 1024U};
