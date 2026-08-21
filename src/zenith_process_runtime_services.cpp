@@ -5,6 +5,7 @@
 #include <exception>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace zevryon::massivedoc {
 namespace {
@@ -44,6 +45,7 @@ struct ZenithProcessRuntimeServices::Impl {
         FrameVisibility visibility{FrameVisibility::Hidden};
         std::int64_t velocity{0};
         std::unique_ptr<ZenithTabRuntime> runtime;
+        bool controller_registered{false};
     };
 
     Impl(
@@ -136,8 +138,50 @@ struct ZenithProcessRuntimeServices::Impl {
             if (materialized_tabs > 0U) {
                 --materialized_tabs;
             }
+            pending_controller_unregistrations.push_back(session_id);
         }
         return true;
+    }
+
+    bool register_controller(
+        std::uint64_t session_id,
+        FrameVisibility visibility,
+        std::int64_t velocity,
+        std::string* error) {
+        const auto found = tabs.find(session_id);
+        if (found == tabs.end() || error == nullptr) {
+            return false;
+        }
+        TabSlot& slot = found->second;
+        if (slot.controller_registered) {
+            return true;
+        }
+        if (!tab_controller.register_tab(
+                session_id,
+                visibility,
+                velocity,
+                sink_for(session_id),
+                error)) {
+            return false;
+        }
+        slot.controller_registered = true;
+        return true;
+    }
+
+    void drain_pending_controller_unregistrations() noexcept {
+        for (const std::uint64_t session_id :
+             pending_controller_unregistrations) {
+            const auto found = tabs.find(session_id);
+            if (found == tabs.end() ||
+                !found->second.controller_registered ||
+                found->second.runtime) {
+                continue;
+            }
+            if (tab_controller.unregister_tab(session_id)) {
+                found->second.controller_registered = false;
+            }
+        }
+        pending_controller_unregistrations.clear();
     }
 
     ZenithProcessRuntimeServicesConfig config;
@@ -148,6 +192,7 @@ struct ZenithProcessRuntimeServices::Impl {
     ZenithProcessMemorySampler memory_sampler;
     std::unordered_map<std::uint64_t, TabSlot> tabs;
     std::size_t materialized_tabs{0U};
+    std::vector<std::uint64_t> pending_controller_unregistrations;
 };
 
 ZenithProcessRuntimeServices::ZenithProcessRuntimeServices(
@@ -203,16 +248,19 @@ bool ZenithProcessRuntimeServices::open_tab(
             return false;
         }
 
+        if (visibility == FrameVisibility::Hidden) {
+            return true;
+        }
+
         std::string controller_error;
-        if (!impl_->tab_controller.register_tab(
+        if (!impl_->register_controller(
                 session_id,
                 visibility,
                 scroll_velocity_q8_per_second,
-                impl_->sink_for(session_id),
                 &controller_error)) {
             impl_->tabs.erase(inserted.first);
             *error = controller_error.empty()
-                         ? "unable to register tab with process controller"
+                         ? "unable to register visible tab with process controller"
                          : std::move(controller_error);
             return false;
         }
@@ -233,7 +281,8 @@ bool ZenithProcessRuntimeServices::close_tab(
     if (found == impl_->tabs.end()) {
         return false;
     }
-    if (!impl_->tab_controller.unregister_tab(session_id)) {
+    if (found->second.controller_registered &&
+        !impl_->tab_controller.unregister_tab(session_id)) {
         return false;
     }
     if (found->second.runtime && impl_->materialized_tabs > 0U) {
@@ -251,30 +300,47 @@ bool ZenithProcessRuntimeServices::set_tab_activity(
     if (error == nullptr) {
         return false;
     }
+    error->clear();
     const auto found = impl_->tabs.find(session_id);
     if (found == impl_->tabs.end()) {
         *error = "unknown process runtime tab";
         return false;
     }
-    const FrameVisibility previous_visibility = found->second.visibility;
-    const std::int64_t previous_velocity = found->second.velocity;
+    Impl::TabSlot& slot = found->second;
+
+    if (!slot.controller_registered) {
+        if (visibility == FrameVisibility::Hidden) {
+            slot.visibility = FrameVisibility::Hidden;
+            slot.velocity = 0;
+            return true;
+        }
+        return impl_->register_controller(
+            session_id,
+            FrameVisibility::Visible,
+            scroll_velocity_q8_per_second,
+            error);
+    }
+
+    const FrameVisibility previous_visibility = slot.visibility;
+    const std::int64_t previous_velocity = slot.velocity;
 
     if (impl_->tab_controller.set_tab_activity(
             session_id,
             visibility,
             scroll_velocity_q8_per_second,
             error)) {
+        impl_->drain_pending_controller_unregistrations();
         return true;
     }
 
     const std::string original_error = *error;
     static_cast<void>(impl_->tab_controller.unregister_tab(session_id));
+    slot.controller_registered = false;
     std::string rollback_error;
-    if (!impl_->tab_controller.register_tab(
+    if (!impl_->register_controller(
             session_id,
             previous_visibility,
             previous_velocity,
-            impl_->sink_for(session_id),
             &rollback_error)) {
         *error = original_error +
                  "; process controller rollback failed: " +
@@ -289,22 +355,26 @@ ZenithProcessMemoryPollResult ZenithProcessRuntimeServices::on_event_loop_tick(
     std::uint64_t monotonic_ms,
     ZenithProcessMemorySnapshot* captured,
     std::string* error) {
-    return impl_->memory_sampler.poll(
+    const ZenithProcessMemoryPollResult result = impl_->memory_sampler.poll(
         monotonic_ms,
         &impl_->memory_pressure,
         &impl_->tab_controller,
         captured,
         error);
+    impl_->drain_pending_controller_unregistrations();
+    return result;
 }
 
 ZenithProcessMemoryPollResult ZenithProcessRuntimeServices::on_event_loop_tick_now(
     ZenithProcessMemorySnapshot* captured,
     std::string* error) {
-    return impl_->memory_sampler.poll_now(
+    const ZenithProcessMemoryPollResult result = impl_->memory_sampler.poll_now(
         &impl_->memory_pressure,
         &impl_->tab_controller,
         captured,
         error);
+    impl_->drain_pending_controller_unregistrations();
+    return result;
 }
 
 bool ZenithProcessRuntimeServices::tab_materialized(

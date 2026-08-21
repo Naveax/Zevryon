@@ -58,9 +58,10 @@ void test_large_dormant_registry_without_runtime_materialization() {
     require(opened.prefetch_pool.ready_bytes == 0U &&
                 opened.prefetch_pool.ready_results == 0U,
             "dormant registry retained speculative payload");
-    require(opened.tab_controller.visible_tabs == 0U &&
-                opened.tab_controller.hidden_tabs == kRegressionSampleTabs,
-            "dormant registry controller visibility mismatch");
+    require(opened.tab_controller.registered_tabs == 0U &&
+                opened.tab_controller.visible_tabs == 0U &&
+                opened.tab_controller.hidden_tabs == 0U,
+            "dormant registry polluted materialized controller working set");
 
     error.clear();
     require(
@@ -77,9 +78,8 @@ void test_large_dormant_registry_without_runtime_materialization() {
     require(failed_once.materialized_tabs == 0U &&
                 failed_once.prefetch_pool.sessions == 0U,
             "failed materialization leaked runtime or pool session");
-    require(failed_once.tab_controller.visible_tabs == 0U &&
-                failed_once.tab_controller.hidden_tabs == kRegressionSampleTabs,
-            "failed materialization did not roll controller back to hidden");
+    require(failed_once.tab_controller.registered_tabs == 0U,
+            "failed materialization leaked controller working-set entry");
 
     error.clear();
     require(
