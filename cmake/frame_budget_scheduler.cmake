@@ -3,6 +3,7 @@ target_sources(
   PRIVATE
     src/device_frame_profile.cpp
     src/frame_budget_scheduler.cpp
+    src/frame_latency_sample_collector.cpp
     src/hot_scroll_source_prefetch.cpp
     src/prefetch_record_bounds.cpp
     src/prefetch_tail_admission.cpp
@@ -15,6 +16,14 @@ target_sources(
     src/zenith_tab_runtime.cpp
     src/zenith_tab_runtime_profile.cpp)
 
+add_executable(
+  zevryon-zenith-frame-probe
+  src/zenith_frame_probe_main.cpp)
+target_link_libraries(
+  zevryon-zenith-frame-probe
+  PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-zenith-frame-probe)
+
 if(BUILD_TESTING)
   add_executable(
     zevryon-frame-budget-scheduler-tests
@@ -26,6 +35,17 @@ if(BUILD_TESTING)
   add_test(
     NAME frame-budget-scheduler-tests
     COMMAND zevryon-frame-budget-scheduler-tests)
+
+  add_executable(
+    zevryon-frame-latency-sample-collector-tests
+    tests/frame_latency_sample_collector_tests.cpp)
+  target_link_libraries(
+    zevryon-frame-latency-sample-collector-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-frame-latency-sample-collector-tests)
+  add_test(
+    NAME frame-latency-sample-collector-tests
+    COMMAND zevryon-frame-latency-sample-collector-tests)
 
   add_executable(
     zevryon-hot-scroll-source-prefetch-tests
