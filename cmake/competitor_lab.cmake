@@ -11,5 +11,10 @@ if(BUILD_TESTING)
       COMMAND
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/competitor_lab_v2_smoke.py")
+    add_test(
+      NAME m7-competitor-adapter-protocol-smoke
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/competitor_adapter_smoke.py")
   endif()
 endif()
