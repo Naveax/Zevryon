@@ -45,9 +45,17 @@ constexpr AddressSpaceWindowLimits current_address_space_window_limits() noexcep
     return address_space_window_limits_for_pointer_bits(current_pointer_bits());
 }
 
+constexpr bool materialized_slice_request_fits_limits(
+    std::size_t bytes,
+    AddressSpaceWindowLimits limits) noexcept {
+    return limits.valid() && bytes <= limits.maximum_materialized_slice_bytes;
+}
+
 constexpr bool materialized_slice_request_fits_address_space(
     std::size_t bytes) noexcept {
-    return bytes <= current_address_space_window_limits().maximum_materialized_slice_bytes;
+    return materialized_slice_request_fits_limits(
+        bytes,
+        current_address_space_window_limits());
 }
 
 static_assert(current_pointer_bits() >= 32U,

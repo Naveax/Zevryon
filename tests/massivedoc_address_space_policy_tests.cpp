@@ -29,6 +29,12 @@ int main() {
     static_assert(bits32.maximum_io_window_bytes == 4U * 1024U * 1024U);
     static_assert(bits32.maximum_mapped_window_bytes == 8U * 1024U * 1024U);
     static_assert(bits32.maximum_materialized_slice_bytes == 8U * 1024U * 1024U);
+    static_assert(materialized_slice_request_fits_limits(
+        8U * 1024U * 1024U,
+        bits32));
+    static_assert(!materialized_slice_request_fits_limits(
+        8U * 1024U * 1024U + 1U,
+        bits32));
 
     constexpr AddressSpaceWindowLimits bits64 =
         address_space_window_limits_for_pointer_bits(64U);
@@ -36,6 +42,12 @@ int main() {
     static_assert(bits64.maximum_io_window_bytes == 16U * 1024U * 1024U);
     static_assert(bits64.maximum_mapped_window_bytes == 16U * 1024U * 1024U);
     static_assert(bits64.maximum_materialized_slice_bytes == 64U * 1024U * 1024U);
+    static_assert(materialized_slice_request_fits_limits(
+        64U * 1024U * 1024U,
+        bits64));
+    static_assert(!materialized_slice_request_fits_limits(
+        64U * 1024U * 1024U + 1U,
+        bits64));
 
     constexpr AddressSpaceWindowLimits current =
         current_address_space_window_limits();
