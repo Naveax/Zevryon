@@ -3,7 +3,8 @@ target_sources(
   PRIVATE
     src/zenith_process_memory_pressure.cpp
     src/zenith_process_memory_pressure_apply.cpp
-    src/zenith_process_memory_sampler.cpp)
+    src/zenith_process_memory_sampler.cpp
+    src/zenith_process_runtime_services.cpp)
 
 if(WIN32)
   target_link_libraries(zevryon-massivedoc-core PRIVATE psapi)
@@ -31,6 +32,17 @@ if(BUILD_TESTING)
   add_test(
     NAME process-memory-sampler-tests
     COMMAND zevryon-process-memory-sampler-tests)
+
+  add_executable(
+    zevryon-process-runtime-services-tests
+    tests/zenith_process_runtime_services_tests.cpp)
+  target_link_libraries(
+    zevryon-process-runtime-services-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-process-runtime-services-tests)
+  add_test(
+    NAME process-runtime-services-tests
+    COMMAND zevryon-process-runtime-services-tests)
 
   add_executable(
     zevryon-process-memory-runtime-integration-tests
