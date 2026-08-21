@@ -1,13 +1,15 @@
 target_sources(
   zevryon-massivedoc-core
   PRIVATE
+    src/device_frame_profile.cpp
     src/frame_budget_scheduler.cpp
     src/hot_scroll_source_prefetch.cpp
     src/prefetch_tail_admission.cpp
     src/shared_source_prefetch_pool.cpp
     src/velocity_prefetch_planner.cpp
     src/zenith_process_tab_controller.cpp
-    src/zenith_tab_runtime.cpp)
+    src/zenith_tab_runtime.cpp
+    src/zenith_tab_runtime_profile.cpp)
 
 if(BUILD_TESTING)
   add_executable(
@@ -64,6 +66,17 @@ if(BUILD_TESTING)
   add_test(
     NAME prefetch-tail-admission-tests
     COMMAND zevryon-prefetch-tail-admission-tests)
+
+  add_executable(
+    zevryon-device-frame-profile-tests
+    tests/device_frame_profile_tests.cpp)
+  target_link_libraries(
+    zevryon-device-frame-profile-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-device-frame-profile-tests)
+  add_test(
+    NAME device-frame-profile-tests
+    COMMAND zevryon-device-frame-profile-tests)
 
   add_executable(
     zevryon-unbounded-tab-registry-tests
