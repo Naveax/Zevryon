@@ -1,8 +1,10 @@
 #include "zenith_process_memory_pressure.hpp"
 
+#include "zenith_linux_memory_scope.hpp"
 #include "zenith_process_tab_controller.hpp"
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <sstream>
@@ -63,13 +65,96 @@ bool linux_meminfo_value_kib(const char* key, std::uint64_t* value) {
     }
     return false;
 }
+
+bool read_linux_small_file(
+    const std::filesystem::path& path,
+    std::string* text) {
+    if (text == nullptr) {
+        return false;
+    }
+    std::ifstream input(path, std::ios::binary);
+    if (!input) {
+        return false;
+    }
+    std::ostringstream buffer;
+    buffer << input.rdbuf();
+    if ((!input.good() && !input.eof()) || buffer.tellp() < 0 ||
+        static_cast<std::uint64_t>(buffer.tellp()) > 64U * 1024U) {
+        return false;
+    }
+    *text = buffer.str();
+    return true;
+}
+
+void capture_linux_scope_signals(
+    std::uint64_t host_total_bytes,
+    std::uint64_t host_available_bytes,
+    ZenithProcessMemorySnapshot* result) {
+    if (result == nullptr) {
+        return;
+    }
+
+    ZenithLinuxMemoryScopeObservation scope;
+    std::string cgroup_text;
+    std::string cgroup_path;
+    std::filesystem::path cgroup_directory;
+
+    if (read_linux_small_file("/proc/self/cgroup", &cgroup_text) &&
+        parse_linux_cgroup_v2_path(cgroup_text, &cgroup_path)) {
+        cgroup_directory = "/sys/fs/cgroup";
+        if (cgroup_path.size() > 1U) {
+            cgroup_directory /= cgroup_path.substr(1U);
+        }
+
+        std::string current_text;
+        std::string max_text;
+        if (read_linux_small_file(cgroup_directory / "memory.current", &current_text) &&
+            read_linux_small_file(cgroup_directory / "memory.max", &max_text) &&
+            parse_linux_cgroup_memory_values(current_text, max_text, &scope)) {
+            std::uint64_t effective_total = host_total_bytes;
+            std::uint64_t effective_available = host_available_bytes;
+            if (apply_linux_cgroup_memory_scope(
+                    host_total_bytes,
+                    host_available_bytes,
+                    scope,
+                    &effective_total,
+                    &effective_available)) {
+                result->system_total_bytes = effective_total;
+                result->system_available_bytes = effective_available;
+                result->cgroup_v2_limited = scope.cgroup_v2_limited;
+            }
+        }
+
+        std::string pressure_text;
+        if (read_linux_small_file(
+                cgroup_directory / "memory.pressure",
+                &pressure_text) &&
+            parse_linux_memory_psi(pressure_text, &scope)) {
+            result->psi_memory_available = scope.psi_available;
+            result->psi_some_avg10_q16 = scope.psi_some_avg10_q16;
+            result->psi_full_avg10_q16 = scope.psi_full_avg10_q16;
+            return;
+        }
+    }
+
+    std::string pressure_text;
+    if (read_linux_small_file("/proc/pressure/memory", &pressure_text) &&
+        parse_linux_memory_psi(pressure_text, &scope)) {
+        result->psi_memory_available = scope.psi_available;
+        result->psi_some_avg10_q16 = scope.psi_some_avg10_q16;
+        result->psi_full_avg10_q16 = scope.psi_full_avg10_q16;
+    }
+}
 #endif
 
 } // namespace
 
 bool ZenithProcessMemorySnapshot::valid() const noexcept {
     return system_total_bytes > 0U &&
-           system_available_bytes <= system_total_bytes;
+           system_available_bytes <= system_total_bytes &&
+           (!psi_memory_available ||
+            (psi_some_avg10_q16 <= kQ16One &&
+             psi_full_avg10_q16 <= kQ16One));
 }
 
 bool ZenithProcessMemoryPressureConfig::valid() const noexcept {
@@ -81,7 +166,12 @@ bool ZenithProcessMemoryPressureConfig::valid() const noexcept {
            elevated_enter_available_q16 <=
                kQ16One - recovery_hysteresis_q16 - 1U &&
            critical_enter_available_q16 <=
-               elevated_enter_available_q16 - recovery_hysteresis_q16 - 1U;
+               elevated_enter_available_q16 - recovery_hysteresis_q16 - 1U &&
+           psi_some_elevated_avg10_q16 > psi_recovery_hysteresis_q16 &&
+           psi_some_elevated_avg10_q16 <= kQ16One &&
+           psi_full_critical_avg10_q16 > psi_recovery_hysteresis_q16 &&
+           psi_full_critical_avg10_q16 <= kQ16One &&
+           psi_recovery_hysteresis_q16 > 0U;
 }
 
 ZenithProcessMemoryPressurePolicy::ZenithProcessMemoryPressurePolicy(
@@ -102,18 +192,44 @@ bool ZenithProcessMemoryPressurePolicy::update(
     }
 
     const std::uint32_t available = available_q16(snapshot);
+    const bool psi_critical_enter =
+        snapshot.psi_memory_available &&
+        snapshot.psi_full_avg10_q16 >= config_.psi_full_critical_avg10_q16;
+    const bool psi_critical_hold =
+        snapshot.psi_memory_available &&
+        pressure_ == FramePressure::Critical &&
+        snapshot.psi_full_avg10_q16 >=
+            config_.psi_full_critical_avg10_q16 -
+                config_.psi_recovery_hysteresis_q16;
+    const bool psi_elevated_enter =
+        snapshot.psi_memory_available &&
+        snapshot.psi_some_avg10_q16 >= config_.psi_some_elevated_avg10_q16;
+    const bool psi_elevated_hold =
+        snapshot.psi_memory_available &&
+        pressure_ == FramePressure::Elevated &&
+        snapshot.psi_some_avg10_q16 >=
+            config_.psi_some_elevated_avg10_q16 -
+                config_.psi_recovery_hysteresis_q16;
+
     FramePressure next = pressure_;
-    if (available <= config_.critical_enter_available_q16) {
+    if (psi_critical_enter ||
+        available <= config_.critical_enter_available_q16) {
         next = FramePressure::Critical;
-    } else if (pressure_ == FramePressure::Critical &&
-               available <= config_.critical_enter_available_q16 +
-                                config_.recovery_hysteresis_q16) {
+    } else if (
+        psi_critical_hold ||
+        (pressure_ == FramePressure::Critical &&
+         available <= config_.critical_enter_available_q16 +
+                          config_.recovery_hysteresis_q16)) {
         next = FramePressure::Critical;
-    } else if (available <= config_.elevated_enter_available_q16) {
+    } else if (
+        psi_elevated_enter ||
+        available <= config_.elevated_enter_available_q16) {
         next = FramePressure::Elevated;
-    } else if (pressure_ == FramePressure::Elevated &&
-               available <= config_.elevated_enter_available_q16 +
-                                config_.recovery_hysteresis_q16) {
+    } else if (
+        psi_elevated_hold ||
+        (pressure_ == FramePressure::Elevated &&
+         available <= config_.elevated_enter_available_q16 +
+                          config_.recovery_hysteresis_q16)) {
         next = FramePressure::Elevated;
     } else {
         next = FramePressure::Normal;
@@ -199,6 +315,10 @@ bool capture_zenith_process_memory_snapshot(
     result.process_rss_bytes = resident_pages * page_bytes;
     result.system_available_bytes = available_kib * kKiB;
     result.system_total_bytes = total_kib * kKiB;
+    capture_linux_scope_signals(
+        result.system_total_bytes,
+        result.system_available_bytes,
+        &result);
 #else
     *error = "process memory snapshot is unsupported on this platform";
     return false;

@@ -54,9 +54,42 @@ int main() {
         policy.update(pct(190U), &pressure) && pressure == FramePressure::Normal,
         "pressure did not recover to normal");
 
+    policy.reset();
+    ZenithProcessMemorySnapshot psi = pct(900U);
+    psi.psi_memory_available = true;
+    psi.psi_some_avg10_q16 = 8192U;
+    require(
+        policy.update(psi, &pressure) && pressure == FramePressure::Elevated,
+        "12.5 percent PSI some did not enter elevated pressure");
+    psi.psi_some_avg10_q16 = 6100U;
+    require(
+        policy.update(psi, &pressure) && pressure == FramePressure::Elevated,
+        "PSI elevated hysteresis released early");
+    psi.psi_some_avg10_q16 = 5000U;
+    require(
+        policy.update(psi, &pressure) && pressure == FramePressure::Normal,
+        "PSI elevated pressure did not recover");
+
+    psi.psi_full_avg10_q16 = 1638U;
+    require(
+        policy.update(psi, &pressure) && pressure == FramePressure::Critical,
+        "2.5 percent PSI full did not enter critical pressure");
+    psi.psi_full_avg10_q16 = 800U;
+    require(
+        policy.update(psi, &pressure) && pressure == FramePressure::Critical,
+        "PSI critical hysteresis released early");
+    psi.psi_full_avg10_q16 = 500U;
+    require(
+        policy.update(psi, &pressure) && pressure == FramePressure::Normal,
+        "PSI critical pressure did not recover");
+
     ZenithProcessMemorySnapshot invalid{0U, 2U, 1U};
     require(!policy.update(invalid, &pressure), "invalid snapshot accepted");
-    require(policy.stats().invalid_samples == 1U, "invalid sample was not counted");
+    ZenithProcessMemorySnapshot invalid_psi = pct(900U);
+    invalid_psi.psi_memory_available = true;
+    invalid_psi.psi_some_avg10_q16 = 65'537U;
+    require(!policy.update(invalid_psi, &pressure), "invalid PSI snapshot accepted");
+    require(policy.stats().invalid_samples == 2U, "invalid samples were not counted");
 
     std::string error;
     ZenithProcessMemorySnapshot actual;

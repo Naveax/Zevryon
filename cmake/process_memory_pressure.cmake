@@ -1,6 +1,7 @@
 target_sources(
   zevryon-massivedoc-core
   PRIVATE
+    src/zenith_linux_memory_scope.cpp
     src/zenith_process_memory_pressure.cpp
     src/zenith_process_memory_pressure_apply.cpp
     src/zenith_process_memory_sampler.cpp
@@ -21,6 +22,17 @@ if(BUILD_TESTING)
   add_test(
     NAME process-memory-pressure-tests
     COMMAND zevryon-process-memory-pressure-tests)
+
+  add_executable(
+    zevryon-linux-memory-scope-tests
+    tests/zenith_linux_memory_scope_tests.cpp)
+  target_link_libraries(
+    zevryon-linux-memory-scope-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-linux-memory-scope-tests)
+  add_test(
+    NAME linux-memory-scope-tests
+    COMMAND zevryon-linux-memory-scope-tests)
 
   add_executable(
     zevryon-process-memory-sampler-tests
