@@ -27,6 +27,7 @@ struct ZenithProcessRuntimeServicesConfig {
 
 struct ZenithProcessRuntimeServicesStatus {
     std::size_t tabs{0U};
+    std::size_t materialized_tabs{0U};
     SharedSourcePrefetchPoolStatus prefetch_pool{};
     SharedRecordLengthAuthorityStatus record_lengths{};
     ZenithProcessTabControllerStats tab_controller{};
@@ -71,6 +72,7 @@ public:
         ZenithProcessMemorySnapshot* captured,
         std::string* error);
 
+    bool tab_materialized(std::uint64_t session_id) const noexcept;
     ZenithTabRuntime* tab(std::uint64_t session_id) noexcept;
     const ZenithTabRuntime* tab(std::uint64_t session_id) const noexcept;
     ZenithProcessRuntimeServicesStatus status() const;

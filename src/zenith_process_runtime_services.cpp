@@ -19,6 +19,12 @@ SharedSourcePrefetchPoolConfig make_pool_config(
     return pool;
 }
 
+std::int64_t normalized_velocity(
+    FrameVisibility visibility,
+    std::int64_t velocity) noexcept {
+    return visibility == FrameVisibility::Visible ? velocity : 0;
+}
+
 } // namespace
 
 bool ZenithProcessRuntimeServicesConfig::valid() const noexcept {
@@ -31,6 +37,15 @@ bool ZenithProcessRuntimeServicesConfig::valid() const noexcept {
 }
 
 struct ZenithProcessRuntimeServices::Impl {
+    struct TabSlot {
+        std::filesystem::path store_root;
+        DeviceFrameProfile profile{DeviceFrameProfile::MidPhone};
+        LayoutConfig layout{};
+        FrameVisibility visibility{FrameVisibility::Hidden};
+        std::int64_t velocity{0};
+        std::unique_ptr<ZenithTabRuntime> runtime;
+    };
+
     Impl(
         ZenithProcessRuntimeServicesConfig config_value,
         ZenithProcessMemorySnapshotProvider provider)
@@ -40,13 +55,99 @@ struct ZenithProcessRuntimeServices::Impl {
           memory_pressure(config_value.memory_pressure),
           memory_sampler(config_value.memory_sampler, std::move(provider)) {}
 
+    ZenithTabActivitySink sink_for(std::uint64_t session_id) {
+        return [this, session_id](
+                   FrameVisibility visibility,
+                   FramePressure pressure,
+                   std::int64_t velocity,
+                   std::string* error) {
+            return apply_slot(
+                session_id,
+                visibility,
+                pressure,
+                velocity,
+                error);
+        };
+    }
+
+    bool apply_slot(
+        std::uint64_t session_id,
+        FrameVisibility visibility,
+        FramePressure pressure,
+        std::int64_t velocity,
+        std::string* error) {
+        if (error == nullptr) {
+            return false;
+        }
+        error->clear();
+        const auto found = tabs.find(session_id);
+        if (found == tabs.end()) {
+            *error = "unknown process runtime tab slot";
+            return false;
+        }
+        TabSlot& slot = found->second;
+        const std::int64_t target_velocity =
+            normalized_velocity(visibility, velocity);
+
+        if (visibility == FrameVisibility::Hidden && !slot.runtime) {
+            slot.visibility = visibility;
+            slot.velocity = 0;
+            return true;
+        }
+
+        if (!slot.runtime) {
+            ZenithTabRuntimeConfig tab_config =
+                make_zenith_tab_runtime_config(
+                    slot.profile,
+                    slot.layout,
+                    &record_lengths);
+            auto runtime = std::make_unique<ZenithTabRuntime>(
+                slot.store_root,
+                &prefetch_pool,
+                session_id,
+                tab_config);
+            if (!runtime->open(error)) {
+                return false;
+            }
+            if (!runtime->set_activity(
+                    visibility,
+                    pressure,
+                    target_velocity,
+                    error)) {
+                return false;
+            }
+            slot.runtime = std::move(runtime);
+            ++materialized_tabs;
+        } else if (!slot.runtime->set_activity(
+                       visibility,
+                       pressure,
+                       target_velocity,
+                       error)) {
+            return false;
+        }
+
+        slot.visibility = visibility;
+        slot.velocity = target_velocity;
+
+        if (visibility == FrameVisibility::Hidden &&
+            pressure == FramePressure::Critical &&
+            slot.runtime) {
+            slot.runtime.reset();
+            if (materialized_tabs > 0U) {
+                --materialized_tabs;
+            }
+        }
+        return true;
+    }
+
     ZenithProcessRuntimeServicesConfig config;
     SharedRecordLengthAuthority record_lengths;
     SharedSourcePrefetchPool prefetch_pool;
     ZenithProcessTabController tab_controller;
     ZenithProcessMemoryPressurePolicy memory_pressure;
     ZenithProcessMemorySampler memory_sampler;
-    std::unordered_map<std::uint64_t, std::unique_ptr<ZenithTabRuntime>> tabs;
+    std::unordered_map<std::uint64_t, TabSlot> tabs;
+    std::size_t materialized_tabs{0U};
 };
 
 ZenithProcessRuntimeServices::ZenithProcessRuntimeServices(
@@ -87,32 +188,27 @@ bool ZenithProcessRuntimeServices::open_tab(
     }
 
     try {
-        ZenithTabRuntimeConfig tab_config = make_zenith_tab_runtime_config(
-            profile,
-            layout,
-            &impl_->record_lengths);
-        auto runtime = std::make_unique<ZenithTabRuntime>(
-            store_root,
-            &impl_->prefetch_pool,
-            session_id,
-            tab_config);
-        if (!runtime->open(error)) {
-            return false;
-        }
-
-        const auto inserted = impl_->tabs.emplace(session_id, std::move(runtime));
+        Impl::TabSlot slot;
+        slot.store_root = store_root;
+        slot.profile = profile;
+        slot.layout = layout;
+        slot.visibility = visibility;
+        slot.velocity = normalized_velocity(
+            visibility,
+            scroll_velocity_q8_per_second);
+        const auto inserted =
+            impl_->tabs.emplace(session_id, std::move(slot));
         if (!inserted.second) {
-            *error = "unable to register process runtime tab";
+            *error = "unable to register process runtime tab slot";
             return false;
         }
-        ZenithTabRuntime* const runtime_ptr = inserted.first->second.get();
 
         std::string controller_error;
         if (!impl_->tab_controller.register_tab(
                 session_id,
                 visibility,
                 scroll_velocity_q8_per_second,
-                make_zenith_tab_runtime_activity_sink(runtime_ptr),
+                impl_->sink_for(session_id),
                 &controller_error)) {
             impl_->tabs.erase(inserted.first);
             *error = controller_error.empty()
@@ -140,6 +236,9 @@ bool ZenithProcessRuntimeServices::close_tab(
     if (!impl_->tab_controller.unregister_tab(session_id)) {
         return false;
     }
+    if (found->second.runtime && impl_->materialized_tabs > 0U) {
+        --impl_->materialized_tabs;
+    }
     impl_->tabs.erase(found);
     return true;
 }
@@ -149,11 +248,41 @@ bool ZenithProcessRuntimeServices::set_tab_activity(
     FrameVisibility visibility,
     std::int64_t scroll_velocity_q8_per_second,
     std::string* error) {
-    return impl_->tab_controller.set_tab_activity(
-        session_id,
-        visibility,
-        scroll_velocity_q8_per_second,
-        error);
+    if (error == nullptr) {
+        return false;
+    }
+    const auto found = impl_->tabs.find(session_id);
+    if (found == impl_->tabs.end()) {
+        *error = "unknown process runtime tab";
+        return false;
+    }
+    const FrameVisibility previous_visibility = found->second.visibility;
+    const std::int64_t previous_velocity = found->second.velocity;
+
+    if (impl_->tab_controller.set_tab_activity(
+            session_id,
+            visibility,
+            scroll_velocity_q8_per_second,
+            error)) {
+        return true;
+    }
+
+    const std::string original_error = *error;
+    static_cast<void>(impl_->tab_controller.unregister_tab(session_id));
+    std::string rollback_error;
+    if (!impl_->tab_controller.register_tab(
+            session_id,
+            previous_visibility,
+            previous_velocity,
+            impl_->sink_for(session_id),
+            &rollback_error)) {
+        *error = original_error +
+                 "; process controller rollback failed: " +
+                 rollback_error;
+        return false;
+    }
+    *error = original_error;
+    return false;
 }
 
 ZenithProcessMemoryPollResult ZenithProcessRuntimeServices::on_event_loop_tick(
@@ -178,22 +307,30 @@ ZenithProcessMemoryPollResult ZenithProcessRuntimeServices::on_event_loop_tick_n
         error);
 }
 
+bool ZenithProcessRuntimeServices::tab_materialized(
+    std::uint64_t session_id) const noexcept {
+    const auto found = impl_->tabs.find(session_id);
+    return found != impl_->tabs.end() &&
+           static_cast<bool>(found->second.runtime);
+}
+
 ZenithTabRuntime* ZenithProcessRuntimeServices::tab(
     std::uint64_t session_id) noexcept {
     const auto found = impl_->tabs.find(session_id);
-    return found == impl_->tabs.end() ? nullptr : found->second.get();
+    return found == impl_->tabs.end() ? nullptr : found->second.runtime.get();
 }
 
 const ZenithTabRuntime* ZenithProcessRuntimeServices::tab(
     std::uint64_t session_id) const noexcept {
     const auto found = impl_->tabs.find(session_id);
-    return found == impl_->tabs.end() ? nullptr : found->second.get();
+    return found == impl_->tabs.end() ? nullptr : found->second.runtime.get();
 }
 
 ZenithProcessRuntimeServicesStatus
 ZenithProcessRuntimeServices::status() const {
     ZenithProcessRuntimeServicesStatus snapshot;
     snapshot.tabs = impl_->tabs.size();
+    snapshot.materialized_tabs = impl_->materialized_tabs;
     snapshot.prefetch_pool = impl_->prefetch_pool.status();
     snapshot.record_lengths = impl_->record_lengths.status();
     snapshot.tab_controller = impl_->tab_controller.stats();

@@ -35,7 +35,7 @@ struct Fixture {
 Fixture build_fixture() {
     Fixture fixture;
     fixture.root = std::filesystem::temp_directory_path() /
-                   "zevryon-process-runtime-services-tests";
+                   "zevryon-dormant-tab-slots-tests";
     std::error_code ignored;
     std::filesystem::remove_all(fixture.root, ignored);
 
@@ -47,7 +47,7 @@ Fixture build_fixture() {
     std::uint64_t generated = 0U;
     require(
         writer.append_stream(
-            800U,
+            810U,
             kRecordBytes,
             [&generated](std::span<std::byte> target) {
                 for (std::size_t index = 0U; index < target.size(); ++index) {
@@ -56,27 +56,23 @@ Fixture build_fixture() {
                     const unsigned char value =
                         (absolute % 80U) == 79U
                             ? static_cast<unsigned char>('\n')
-                            : static_cast<unsigned char>('r');
+                            : static_cast<unsigned char>('d');
                     target[index] = static_cast<std::byte>(value);
                 }
                 generated += static_cast<std::uint64_t>(target.size());
                 return target.size();
             },
             &error),
-        "process runtime fixture append failed");
-    require(generated == kRecordBytes,
-            "process runtime fixture record incomplete");
+        "dormant slot fixture append failed");
 
     CorpusMetadata metadata;
     metadata.logical_utf8_bytes = kRecordBytes;
     metadata.logical_records = 1U;
     metadata.logical_nodes = 16U;
-    metadata.style_runs = 4U;
-    metadata.resource_references = 1U;
     metadata.largest_record_bytes = kRecordBytes;
     StoreStats store_stats;
     require(writer.finalize(metadata, &store_stats, &error),
-            "process runtime fixture finalize failed");
+            "dormant slot fixture finalize failed");
 
     ArenaConfig arena_config;
     arena_config.records_per_block = 1U;
@@ -90,7 +86,7 @@ Fixture build_fixture() {
             arena_config,
             &arena_stats,
             &error),
-        "process runtime compact arena build failed");
+        "dormant slot compact arena build failed");
 
     fixture.layout.checkpoint_stride_bytes = 16U * 1024U;
     fixture.layout.checkpoint_min_record_bytes = 1U;
@@ -112,11 +108,11 @@ Fixture build_fixture() {
             checkpoint,
             &checkpoint_stats,
             &error),
-        "process runtime checkpoint build failed");
+        "dormant slot checkpoint build failed");
     return fixture;
 }
 
-void test_process_owned_services(const Fixture& fixture) {
+void test_hidden_slots_materialize_only_on_demand(const Fixture& fixture) {
     const std::vector<ZenithProcessMemorySnapshot> snapshots{
         ZenithProcessMemorySnapshot{64U, 70U, 1000U},
         ZenithProcessMemorySnapshot{64U, 200U, 1000U},
@@ -139,9 +135,8 @@ void test_process_owned_services(const Fixture& fixture) {
             error->clear();
             return true;
         });
-    require(services.valid(), "process runtime services are invalid");
-
     std::string error;
+
     require(
         services.open_tab(
             1001U,
@@ -151,7 +146,7 @@ void test_process_owned_services(const Fixture& fixture) {
             FrameVisibility::Hidden,
             0,
             &error),
-        "hidden process-owned tab open failed");
+        "dormant hidden tab open failed");
     require(
         services.open_tab(
             1002U,
@@ -161,51 +156,64 @@ void test_process_owned_services(const Fixture& fixture) {
             FrameVisibility::Visible,
             4096,
             &error),
-        "visible process-owned tab open failed");
+        "visible tab open failed");
+
+    auto status = services.status();
+    require(status.tabs == 2U && status.materialized_tabs == 1U,
+            "hidden tab was eagerly materialized");
+    require(status.prefetch_pool.sessions == 1U &&
+                status.prefetch_pool.active_sessions == 1U &&
+                status.prefetch_pool.live_threads == 0U,
+            "dormant hidden tab consumed shared pool resources");
+    require(!services.tab_materialized(1001U) && services.tab(1001U) == nullptr,
+            "hidden dormant slot exposed a runtime");
+    require(services.tab_materialized(1002U) && services.tab(1002U) != nullptr,
+            "visible slot did not materialize runtime");
+
     require(
-        !services.open_tab(
+        services.set_tab_activity(
             1002U,
-            fixture.root,
-            DeviceFrameProfile::Desktop,
-            fixture.layout,
+            FrameVisibility::Hidden,
+            0,
+            &error),
+        "visible-to-hidden transition failed");
+    status = services.status();
+    require(status.materialized_tabs == 1U &&
+                status.prefetch_pool.sessions == 1U &&
+                status.prefetch_pool.active_sessions == 0U,
+            "normal hidden transition lost bounded retained runtime contract");
+
+    require(
+        services.set_tab_activity(
+            1001U,
             FrameVisibility::Visible,
             4096,
             &error),
-        "duplicate process-owned tab identity was accepted");
+        "dormant-to-visible materialization failed");
+    status = services.status();
+    require(status.materialized_tabs == 2U &&
+                status.prefetch_pool.sessions == 2U &&
+                status.prefetch_pool.active_sessions == 1U,
+            "visible materialization accounting mismatch");
 
-    ZenithProcessRuntimeServicesStatus opened = services.status();
-    require(opened.tabs == 2U,
-            "process-owned tab registry count mismatch");
-    require(opened.prefetch_pool.sessions == 2U &&
-                opened.prefetch_pool.active_sessions == 1U,
-            "process-owned shared pool session accounting mismatch");
-    require(opened.prefetch_pool.live_threads == 0U,
-            "opening tabs eagerly started shared prefetch workers");
-    require(opened.tab_controller.visible_tabs == 1U &&
-                opened.tab_controller.hidden_tabs == 1U,
-            "process-owned controller visibility accounting mismatch");
-
-    ZenithTabRuntime* hidden = services.tab(1001U);
-    ZenithTabRuntime* visible = services.tab(1002U);
-    require(hidden != nullptr && visible != nullptr,
-            "process-owned runtime lookup failed");
-
-    const std::uint64_t hidden_critical_before =
-        hidden->hot_scroll_stats().critical_trim_calls;
     require(
         services.on_event_loop_tick(0U, nullptr, &error) ==
             ZenithProcessMemoryPollResult::Sampled,
-        "process event-loop critical sample failed");
-    require(services.status().memory_pressure.pressure ==
-                FramePressure::Critical,
-            "process event-loop sample did not enter critical pressure");
-    require(hidden->hot_scroll_stats().critical_trim_calls ==
-                hidden_critical_before + 1U,
-            "process owner did not critically trim hidden runtime");
-    require(visible->pressure() == FramePressure::Critical,
-            "process owner did not propagate critical pressure to visible runtime");
+        "critical process-memory sample failed");
+    status = services.status();
+    require(status.memory_pressure.pressure == FramePressure::Critical,
+            "critical memory sample did not reach process owner");
+    require(status.materialized_tabs == 1U &&
+                status.prefetch_pool.sessions == 1U &&
+                status.prefetch_pool.active_sessions == 1U,
+            "critical pressure did not dematerialize hidden runtime");
+    require(!services.tab_materialized(1002U) && services.tab(1002U) == nullptr,
+            "critical hidden runtime survived as materialized state");
+    require(services.tab_materialized(1001U),
+            "critical pressure dematerialized visible runtime");
 
-    const std::uint64_t visible_prefetch_before =
+    ZenithTabRuntime* visible = services.tab(1001U);
+    const std::uint64_t prefetch_before =
         visible->stats().prefetch_schedule_accepts;
     LayoutWindowResult result;
     bool used_checkpoint = false;
@@ -219,78 +227,58 @@ void test_process_owned_services(const Fixture& fixture) {
             &result,
             &used_checkpoint,
             &error),
-        "visible process-owned critical layout failed");
+        "critical visible layout failed");
     require(used_checkpoint && !result.fragments.empty(),
-            "visible process-owned runtime lost foreground rendering");
-    require(visible->stats().prefetch_schedule_accepts ==
-                visible_prefetch_before,
-            "critical process-owned visible runtime scheduled speculative work");
+            "critical visible slot lost foreground layout");
+    require(visible->stats().prefetch_schedule_accepts == prefetch_before,
+            "critical visible slot scheduled speculative prefetch");
 
     require(
         services.on_event_loop_tick(99U, nullptr, &error) ==
             ZenithProcessMemoryPollResult::Throttled,
-        "process event-loop cadence failed to throttle critical tick");
+        "critical cadence did not throttle early process tick");
     require(snapshot_index == 1U,
-            "throttled process event-loop tick touched snapshot provider");
+            "throttled critical tick touched snapshot provider");
 
-    const std::uint64_t background_before =
-        hidden->hot_scroll_stats().background_trim_calls;
     require(
         services.on_event_loop_tick(100U, nullptr, &error) ==
             ZenithProcessMemoryPollResult::Sampled,
-        "process event-loop recovery sample failed");
-    require(services.status().memory_pressure.pressure ==
-                FramePressure::Normal,
-            "process event-loop recovery did not restore normal pressure");
-    require(hidden->hot_scroll_stats().background_trim_calls ==
-                background_before + 1U,
-            "process owner did not restore hidden background policy");
-
-    require(services.close_tab(1001U),
-            "process owner failed to close hidden tab");
-    require(services.close_tab(1002U),
-            "process owner failed to close visible tab");
-    const ZenithProcessRuntimeServicesStatus closed = services.status();
-    require(closed.tabs == 0U && closed.prefetch_pool.sessions == 0U &&
-                closed.tab_controller.registered_tabs == 0U,
-            "process owner retained closed tab state");
+        "normal recovery sample failed");
+    require(services.status().memory_pressure.pressure == FramePressure::Normal,
+            "normal recovery did not restore process pressure");
+    require(!services.tab_materialized(1002U),
+            "normal recovery eagerly rematerialized hidden tab");
 
     require(
-        services.open_tab(
-            1001U,
-            fixture.root,
-            DeviceFrameProfile::Desktop,
-            fixture.layout,
-            FrameVisibility::Hidden,
-            0,
+        services.set_tab_activity(
+            1002U,
+            FrameVisibility::Visible,
+            -4096,
             &error),
-        "closed process tab identity was not reusable");
-    require(services.close_tab(1001U),
-            "reopened process tab did not close cleanly");
-}
+        "post-critical hidden tab did not rematerialize on visibility");
+    status = services.status();
+    require(status.materialized_tabs == 2U &&
+                status.prefetch_pool.sessions == 2U &&
+                status.prefetch_pool.active_sessions == 2U,
+            "post-critical rematerialization accounting mismatch");
 
-void test_invalid_process_owner_config() {
-    ZenithProcessRuntimeServicesConfig config;
-    config.prefetch_worker_count = 65U;
-    require(!config.valid(),
-            "process owner accepted unbounded worker count");
-
-    config = {};
-    config.prefetch_ready_bytes = 0U;
-    require(!config.valid(),
-            "process owner accepted zero ready-result budget");
+    require(services.close_tab(1001U) && services.close_tab(1002U),
+            "dormant slot close failed");
+    status = services.status();
+    require(status.tabs == 0U && status.materialized_tabs == 0U &&
+                status.prefetch_pool.sessions == 0U,
+            "closed dormant slots retained process resources");
 }
 
 } // namespace
 
 int main() {
     const Fixture fixture = build_fixture();
-    test_process_owned_services(fixture);
-    test_invalid_process_owner_config();
+    test_hidden_slots_materialize_only_on_demand(fixture);
 
     std::error_code ignored;
     std::filesystem::remove_all(fixture.root, ignored);
-    require(!ignored, "process runtime fixture cleanup failed");
-    std::cout << "Zevryon process runtime services tests passed\n";
+    require(!ignored, "dormant slot fixture cleanup failed");
+    std::cout << "Zevryon dormant tab slots tests passed\n";
     return 0;
 }
