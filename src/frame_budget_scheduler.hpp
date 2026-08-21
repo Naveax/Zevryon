@@ -22,9 +22,15 @@ enum class FramePressure : std::uint8_t {
     Critical,
 };
 
+enum class FrameVisibility : std::uint8_t {
+    Visible = 0,
+    Hidden,
+};
+
 enum class FrameAdmission : std::uint8_t {
     Admitted = 0,
     InvalidRequest,
+    SuppressedByVisibility,
     VisiblePhaseOpen,
     VisiblePhaseClosed,
     BlockingOnUi,
@@ -63,6 +69,8 @@ struct FrameBudgetSnapshot {
     std::uint64_t prefetch_epoch{0};
     std::uint64_t admitted_requests{0};
     std::uint64_t rejected_requests{0};
+    std::uint64_t hidden_frames{0};
+    std::uint64_t hidden_rejections{0};
     std::uint32_t spent_us{0};
     std::uint32_t visible_spent_us{0};
     std::uint32_t prefetch_spent_us{0};
@@ -71,6 +79,7 @@ struct FrameBudgetSnapshot {
     std::uint32_t remaining_us{0};
     std::int8_t scroll_direction{0};
     FramePressure pressure{FramePressure::Normal};
+    FrameVisibility visibility{FrameVisibility::Visible};
     bool visible_phase_complete{false};
 };
 
@@ -79,7 +88,9 @@ public:
     explicit FrameBudgetScheduler(FrameBudgetPolicy policy) noexcept;
 
     bool valid() const noexcept;
-    void begin_frame(FramePressure pressure = FramePressure::Normal) noexcept;
+    void begin_frame(
+        FramePressure pressure = FramePressure::Normal,
+        FrameVisibility visibility = FrameVisibility::Visible) noexcept;
     void finish_visible_phase() noexcept;
 
     PrefetchTicket update_scroll_motion(std::int64_t velocity_q8_per_second) noexcept;
@@ -94,12 +105,15 @@ private:
     std::uint32_t class_spent(FrameWorkClass work_class) const noexcept;
     void add_class_spent(FrameWorkClass work_class, std::uint32_t reserve_us) noexcept;
     void record_rejection() noexcept;
+    void invalidate_prefetch_motion() noexcept;
 
     FrameBudgetPolicy policy_{};
     std::uint64_t frame_sequence_{0};
     std::uint64_t prefetch_epoch_{1};
     std::uint64_t admitted_requests_{0};
     std::uint64_t rejected_requests_{0};
+    std::uint64_t hidden_frames_{0};
+    std::uint64_t hidden_rejections_{0};
     std::uint64_t spent_us_{0};
     std::uint64_t visible_spent_us_{0};
     std::uint64_t prefetch_spent_us_{0};
@@ -107,6 +121,7 @@ private:
     std::uint64_t maintenance_spent_us_{0};
     std::int8_t scroll_direction_{0};
     FramePressure pressure_{FramePressure::Normal};
+    FrameVisibility visibility_{FrameVisibility::Visible};
     bool visible_phase_complete_{false};
 };
 

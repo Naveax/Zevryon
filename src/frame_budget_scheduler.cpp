@@ -45,7 +45,16 @@ bool FrameBudgetScheduler::valid() const noexcept {
     return policy_.valid();
 }
 
-void FrameBudgetScheduler::begin_frame(FramePressure pressure) noexcept {
+void FrameBudgetScheduler::invalidate_prefetch_motion() noexcept {
+    if (scroll_direction_ != 0) {
+        scroll_direction_ = 0;
+        prefetch_epoch_ = saturating_increment(prefetch_epoch_);
+    }
+}
+
+void FrameBudgetScheduler::begin_frame(
+    FramePressure pressure,
+    FrameVisibility visibility) noexcept {
     frame_sequence_ = saturating_increment(frame_sequence_);
     admitted_requests_ = 0U;
     rejected_requests_ = 0U;
@@ -55,7 +64,12 @@ void FrameBudgetScheduler::begin_frame(FramePressure pressure) noexcept {
     background_spent_us_ = 0U;
     maintenance_spent_us_ = 0U;
     pressure_ = pressure;
+    visibility_ = visibility;
     visible_phase_complete_ = false;
+    if (visibility_ == FrameVisibility::Hidden) {
+        hidden_frames_ = saturating_increment(hidden_frames_);
+        invalidate_prefetch_motion();
+    }
 }
 
 void FrameBudgetScheduler::finish_visible_phase() noexcept {
@@ -136,6 +150,11 @@ FrameAdmission FrameBudgetScheduler::reserve(const FrameWorkRequest& request) no
         record_rejection();
         return FrameAdmission::InvalidRequest;
     }
+    if (visibility_ == FrameVisibility::Hidden) {
+        record_rejection();
+        hidden_rejections_ = saturating_increment(hidden_rejections_);
+        return FrameAdmission::SuppressedByVisibility;
+    }
     if (request.may_block && request.lane == FrameExecutionLane::Ui) {
         record_rejection();
         return FrameAdmission::BlockingOnUi;
@@ -193,14 +212,19 @@ FrameBudgetSnapshot FrameBudgetScheduler::snapshot() const noexcept {
     result.prefetch_epoch = prefetch_epoch_;
     result.admitted_requests = admitted_requests_;
     result.rejected_requests = rejected_requests_;
+    result.hidden_frames = hidden_frames_;
+    result.hidden_rejections = hidden_rejections_;
     result.spent_us = narrow_u32(spent_us_);
     result.visible_spent_us = narrow_u32(visible_spent_us_);
     result.prefetch_spent_us = narrow_u32(prefetch_spent_us_);
     result.background_spent_us = narrow_u32(background_spent_us_);
     result.maintenance_spent_us = narrow_u32(maintenance_spent_us_);
-    result.remaining_us = narrow_u32(remaining);
+    result.remaining_us = visibility_ == FrameVisibility::Hidden
+                              ? 0U
+                              : narrow_u32(remaining);
     result.scroll_direction = scroll_direction_;
     result.pressure = pressure_;
+    result.visibility = visibility_;
     result.visible_phase_complete = visible_phase_complete_;
     return result;
 }

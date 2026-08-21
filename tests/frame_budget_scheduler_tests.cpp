@@ -257,6 +257,69 @@ void test_pressure_suppression() {
         "visible phase reopened after explicit completion");
 }
 
+void test_hidden_page_suppression_and_prefetch_invalidation() {
+    FrameBudgetScheduler scheduler(policy());
+    const PrefetchTicket moving = scheduler.update_scroll_motion(4096);
+    require(moving.direction == 1, "moving prefetch direction not established");
+
+    scheduler.begin_frame(FramePressure::Normal, FrameVisibility::Hidden);
+    const PrefetchTicket hidden_ticket = scheduler.current_prefetch_ticket();
+    require(hidden_ticket.direction == 0, "hidden frame did not neutralize scroll direction");
+    require(hidden_ticket.epoch > moving.epoch, "hidden frame did not invalidate prefetch epoch");
+
+    require(
+        scheduler.reserve(request(
+            FrameWorkClass::Visible,
+            FrameExecutionLane::Ui,
+            1U)) == FrameAdmission::SuppressedByVisibility,
+        "hidden page admitted visible frame work");
+    scheduler.finish_visible_phase();
+    require(
+        scheduler.reserve(request(
+            FrameWorkClass::Background,
+            FrameExecutionLane::Worker,
+            1U)) == FrameAdmission::SuppressedByVisibility,
+        "hidden page admitted background work");
+    require(
+        scheduler.reserve(request(
+            FrameWorkClass::Maintenance,
+            FrameExecutionLane::Worker,
+            1U)) == FrameAdmission::SuppressedByVisibility,
+        "hidden page admitted maintenance work");
+    require(
+        scheduler.reserve(request(
+            FrameWorkClass::Prefetch,
+            FrameExecutionLane::Worker,
+            1U,
+            true,
+            moving)) == FrameAdmission::SuppressedByVisibility,
+        "hidden page admitted stale prefetch work");
+
+    const FrameBudgetSnapshot hidden = scheduler.snapshot();
+    require(hidden.visibility == FrameVisibility::Hidden, "hidden visibility missing from snapshot");
+    require(hidden.hidden_frames == 1U, "hidden frame counter mismatch");
+    require(hidden.hidden_rejections == 4U, "hidden rejection counter mismatch");
+    require(hidden.admitted_requests == 0U, "hidden frame admitted work");
+    require(hidden.rejected_requests == 4U, "hidden frame rejection count mismatch");
+    require(hidden.spent_us == 0U, "hidden frame consumed CPU budget");
+    require(hidden.remaining_us == 0U, "hidden frame exposed spendable remaining budget");
+
+    scheduler.begin_frame(FramePressure::Normal, FrameVisibility::Visible);
+    const PrefetchTicket resumed = scheduler.update_scroll_motion(4096);
+    require(resumed.direction == 1, "visible resume did not restore scroll direction");
+    require(resumed.epoch > hidden_ticket.epoch, "visible resume did not issue fresh prefetch epoch");
+    require(
+        scheduler.reserve(request(
+            FrameWorkClass::Visible,
+            FrameExecutionLane::Ui,
+            100U)) == FrameAdmission::Admitted,
+        "visible resume could not schedule visible work");
+    const FrameBudgetSnapshot visible = scheduler.snapshot();
+    require(visible.visibility == FrameVisibility::Visible, "visible resume snapshot incorrect");
+    require(visible.hidden_frames == 1U, "hidden frame history lost after resume");
+    require(visible.spent_us == 100U, "visible resume spend mismatch");
+}
+
 void test_frame_reset_and_large_budget_accounting() {
     FrameBudgetScheduler scheduler(policy());
     scheduler.begin_frame();
@@ -325,6 +388,7 @@ int main() {
     test_blocking_ui_rejected();
     test_prefetch_epoch_cancellation();
     test_pressure_suppression();
+    test_hidden_page_suppression_and_prefetch_invalidation();
     test_frame_reset_and_large_budget_accounting();
     test_invalid_request();
     std::cout << "Zevryon frame-budget scheduler core tests passed\n";
