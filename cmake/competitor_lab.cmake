@@ -1,3 +1,11 @@
+add_executable(
+  zevryon-m7-native-probe
+  src/m7_zevryon_native_probe_main.cpp)
+target_link_libraries(
+  zevryon-m7-native-probe
+  PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-m7-native-probe)
+
 if(BUILD_TESTING)
   find_package(Python3 QUIET COMPONENTS Interpreter)
   if(Python3_Interpreter_FOUND)

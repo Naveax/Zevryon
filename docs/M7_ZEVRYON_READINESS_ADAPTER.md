@@ -2,34 +2,73 @@
 
 ## Scope
 
-`scripts/m7_zevryon_adapter.py` is the first concrete engine implementation of the vendor-independent M7 adapter protocol. It is intentionally fail-closed: it reports a successful competitor run only after all nine canonical metrics have real measurement primitives.
+`scripts/m7_zevryon_adapter.py` is the concrete Zevryon implementation of the vendor-independent M7 adapter protocol. It remains fail-closed: a successful competitor raw-run is emitted only after all nine canonical metrics have real, semantically matching measurement primitives.
 
-## Current admitted primitive
+## Admitted primitives
 
-The adapter reuses `zevryon-zenith-frame-probe` for scroll timing. It passes the canonical workload's sample count, warmup count, viewport, overscan, maximum fragment count and scroll step directly to the native probe.
+Four metrics now have native measurement paths.
 
-The native probe measures complete `ZenithTabRuntime::layout()` calls. The adapter validates the probe operation, selected device profile, warmup count, retained sample count and visible-layout count before reading the raw millisecond sample file.
+### Preindexed first viewport
 
-`scroll_p99_ms` uses nearest-rank P99. `maximum_normal_stall_ms` is the maximum retained post-warmup sample. The device profile is selected from the RAM recorded in campaign `system_state`; the adapter deliberately ignores `ZEVRYON_DEVICE_PROFILE` so an environment override cannot change benchmark classification.
+`zevryon-m7-native-probe preindexed` measures the explicit boundary `open-plus-first-layout-v1`:
 
-## Readiness behavior
+1. start the monotonic timer;
+2. open `ZenithTabRuntime` on the prepared store;
+3. apply visible/normal activity;
+4. execute the first viewport layout;
+5. stop only after a checkpoint-backed non-empty fragment set is available.
 
-At this stage only two canonical metrics have an admitted primitive:
+The adapter verifies the operation name, boundary token, canonical RAM-selected device profile, checkpoint use and positive fragment count before admitting the duration as `first_viewport_preindexed_ms`.
 
-- `scroll_p99_ms`
-- `maximum_normal_stall_ms`
+### Scroll P99 and maximum normal stall
 
-The other seven remain explicit readiness debt. The adapter therefore returns a valid failed raw-run with an empty metric object and a bounded `failure_mode` that lists missing metrics and the two measured frame values. This preserves the attempt in campaign evidence and prevents leadership claims.
+The adapter reuses `zevryon-zenith-frame-probe`. Canonical workload sample count, warmup, viewport, overscan, maximum fragments and scroll step are passed directly to the native probe. It validates the probe envelope before consuming raw millisecond samples.
 
-The remaining metrics are not synthesized from performance targets or unrelated historical certification artifacts.
+`scroll_p99_ms` uses nearest-rank P99 and `maximum_normal_stall_ms` is the maximum retained post-warmup frame sample.
 
-## Important semantic blockers
+### Warm exact search
 
-- A new `StoreReader` does not by itself establish OS-cold exact search; canonical cold search requires a fresh process per trial and later campaign-level cache-state control.
-- Current arena mutation APIs publish persistent metadata. They must not mutate the canonical benchmark store. Mutation measurement requires an isolated scratch fixture or a reversible user-visible edit path.
-- Preindexed and streaming first-viewport metrics need explicit native boundaries. Streaming must begin at raw corpus import and stop inside the progressive preview callback when a usable viewport is actually produced.
-- Process-group PSS must be sampled across the benchmark process tree rather than copied from a profile target.
+`zevryon-m7-native-probe warm-search` uses boundary `open-once-one-warmup-v1`:
 
-## Test
+1. open one `StoreReader`;
+2. perform one unmeasured exact-search warmup that must find the canonical query;
+3. execute the canonical trial count on the same reader;
+4. require every measured trial to find the query;
+5. write raw millisecond samples.
 
-`m7-zevryon-readiness-adapter-smoke` injects a fake native frame probe, verifies campaign-RAM device selection, validates 1000 retained samples, nearest-rank P99 and maximum-stall semantics, and asserts that exactly seven metrics remain unavailable.
+The adapter reports nearest-rank P95 as `exact_search_warm_ms` and validates trial count and UTF-8 query byte count.
+
+## Device-profile authority
+
+The device profile is selected only from `system_state.physical_ram_mib`. The adapter intentionally ignores `ZEVRYON_DEVICE_PROFILE`; an environment override cannot relabel campaign evidence.
+
+## Remaining readiness debt
+
+Five canonical metrics remain unavailable and therefore keep the Zevryon raw-run failed:
+
+- `process_group_pss_mb`
+- `first_viewport_streaming_ms`
+- `exact_search_cold_ms`
+- `mutation_p95_us`
+- `copy_throughput_mib_s`
+
+The failed raw-run carries an empty metric object plus a bounded diagnostic listing the missing metrics and the four values that were actually measured. Partial measurements are never promoted to a successful nine-metric run.
+
+## Semantic blockers
+
+- Process-group PSS must measure the real benchmark process tree rather than reuse a device-profile target.
+- Streaming first viewport must begin at raw corpus progressive import and end when the preview path actually produces a usable viewport; a prebuilt store is not streaming evidence.
+- Cold search requires a fresh process for every trial and later campaign-level file-cache-state control. Reopening `StoreReader` in a warm process is insufficient.
+- Current arena mutation APIs publish persistent metadata, so they must not operate on the canonical benchmark store. An isolated scratch fixture or reversible user-visible edit path is required.
+- Full-document copy needs one cross-engine semantic boundary. Store traversal or disk export will not be renamed as copy merely because they move bytes.
+
+## Tests
+
+`m7-zevryon-readiness-adapter-smoke` injects fake frame and native-operation probes and verifies:
+
+- canonical RAM-to-profile selection;
+- 1000 retained scroll samples;
+- nearest-rank scroll P99 and maximum stall;
+- preindexed timing-envelope validation;
+- nearest-rank warm-search P95;
+- exactly five metrics remain unavailable.

@@ -22,6 +22,11 @@ from zevryon_platform.competitor_workload import parse_canonical_workload  # noq
 from zevryon_platform.performance_contract import DeviceClass  # noqa: E402
 
 FRAME_METRICS = {"scroll_p99_ms", "maximum_normal_stall_ms"}
+NATIVE_OPERATION_METRICS = {
+    "first_viewport_preindexed_ms",
+    "exact_search_warm_ms",
+}
+ADMITTED_METRICS = FRAME_METRICS | NATIVE_OPERATION_METRICS
 
 
 def profile_for_campaign_ram(total_ram_mib: int) -> DeviceClass:
@@ -146,11 +151,110 @@ def measure_frame_metrics(
     }
 
 
+def _run_json_command(command: list[str], timeout_seconds: float) -> dict[str, object]:
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=timeout_seconds,
+        check=False,
+    )
+    if completed.returncode != 0:
+        diagnostic = completed.stderr.strip() or completed.stdout.strip() or "no diagnostic"
+        raise RuntimeError(
+            f"native M7 probe exited {completed.returncode}: {diagnostic}"
+        )
+    try:
+        envelope = json.loads(completed.stdout)
+    except json.JSONDecodeError as error:
+        raise ValueError("native M7 probe stdout is not one JSON object") from error
+    if not isinstance(envelope, dict):
+        raise ValueError("native M7 probe envelope must be an object")
+    return envelope
+
+
+def measure_preindexed_metric(
+    native_probe: Path,
+    store_root: Path,
+    request,
+    timeout_seconds: float,
+) -> float:
+    workload = parse_canonical_workload(request.workload)
+    profile = profile_for_campaign_ram(request.system_state.physical_ram_mib).value
+    command = [
+        str(native_probe),
+        "preindexed",
+        str(store_root),
+        profile,
+        str(workload.viewport_width_px),
+        str(workload.viewport_height_px),
+        str(workload.overscan_px),
+        str(workload.max_fragments),
+        "open-plus-first-layout-v1",
+    ]
+    envelope = _run_json_command(command, timeout_seconds)
+    if envelope.get("operation") != "m7-preindexed-first-viewport":
+        raise ValueError("unexpected M7 preindexed probe operation")
+    if envelope.get("boundary") != "open-plus-first-layout-v1":
+        raise ValueError("M7 preindexed timing boundary mismatch")
+    if envelope.get("profile") != profile:
+        raise ValueError("M7 preindexed profile mismatch")
+    if envelope.get("used_checkpoint") is not True:
+        raise ValueError("M7 preindexed viewport was not checkpoint-backed")
+    fragments = envelope.get("fragments")
+    milliseconds = envelope.get("milliseconds")
+    if (
+        not isinstance(fragments, int)
+        or isinstance(fragments, bool)
+        or fragments <= 0
+        or not isinstance(milliseconds, (int, float))
+        or isinstance(milliseconds, bool)
+        or not math.isfinite(float(milliseconds))
+        or float(milliseconds) <= 0.0
+    ):
+        raise ValueError("invalid M7 preindexed measurement envelope")
+    return float(milliseconds)
+
+
+def measure_warm_search_metric(
+    native_probe: Path,
+    store_root: Path,
+    request,
+    timeout_seconds: float,
+) -> float:
+    workload = parse_canonical_workload(request.workload)
+    with tempfile.TemporaryDirectory(prefix="zevryon-m7-search-") as temporary:
+        sample_path = Path(temporary) / "warm-search.ms"
+        command = [
+            str(native_probe),
+            "warm-search",
+            str(store_root),
+            str(sample_path),
+            str(workload.warm_search_trials),
+            workload.search_query_utf8,
+            "open-once-one-warmup-v1",
+        ]
+        envelope = _run_json_command(command, timeout_seconds)
+        if envelope.get("operation") != "m7-warm-exact-search":
+            raise ValueError("unexpected M7 warm-search probe operation")
+        if envelope.get("boundary") != "open-once-one-warmup-v1":
+            raise ValueError("M7 warm-search timing boundary mismatch")
+        if envelope.get("trials") != workload.warm_search_trials:
+            raise ValueError("M7 warm-search trial-count mismatch")
+        if envelope.get("query_bytes") != len(
+            workload.search_query_utf8.encode("utf-8")
+        ):
+            raise ValueError("M7 warm-search query-byte count mismatch")
+        samples = parse_frame_samples(sample_path, workload.warm_search_trials)
+    return nearest_rank(samples, 0.95)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run the fail-closed Zevryon M7 competitor adapter"
     )
     parser.add_argument("--frame-probe", type=Path, required=True)
+    parser.add_argument("--native-probe", type=Path, required=True)
     parser.add_argument("--store-root", type=Path, required=True)
     parser.add_argument("--engine-version", required=True)
     parser.add_argument("--timeout-seconds", type=float, default=900.0)
@@ -175,24 +279,38 @@ def main() -> int:
             request,
             args.timeout_seconds,
         )
+        measured["first_viewport_preindexed_ms"] = measure_preindexed_metric(
+            args.native_probe,
+            args.store_root,
+            request,
+            args.timeout_seconds,
+        )
+        measured["exact_search_warm_ms"] = measure_warm_search_metric(
+            args.native_probe,
+            args.store_root,
+            request,
+            args.timeout_seconds,
+        )
     except (OSError, subprocess.TimeoutExpired, RuntimeError, ValueError) as error:
         response = failure_response(
             request,
             args.engine_version,
-            f"Zevryon native frame primitive failed: {type(error).__name__}: {error}",
+            f"Zevryon native measurement primitive failed: {type(error).__name__}: {error}",
         )
         print(json.dumps(response, sort_keys=True))
         return 0
 
-    missing = sorted(set(CORE_METRIC_NAMES) - FRAME_METRICS)
+    missing = sorted(set(CORE_METRIC_NAMES) - ADMITTED_METRICS)
     response = failure_response(
         request,
         args.engine_version,
         (
             "Zevryon M7 measurement primitives incomplete; "
             f"missing={','.join(missing)}; "
+            f"measured_preindexed_ms={measured['first_viewport_preindexed_ms']:.9f}; "
             f"measured_scroll_p99_ms={measured['scroll_p99_ms']:.9f}; "
-            f"measured_maximum_normal_stall_ms={measured['maximum_normal_stall_ms']:.9f}"
+            f"measured_maximum_normal_stall_ms={measured['maximum_normal_stall_ms']:.9f}; "
+            f"measured_warm_search_ms={measured['exact_search_warm_ms']:.9f}"
         ),
     )
     print(json.dumps(response, sort_keys=True))

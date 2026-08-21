@@ -80,6 +80,24 @@ def request() -> AdapterRequest:
 
 
 def fake_run(command, **kwargs):
+    if command[1] == "preindexed":
+        require(command[3] == "desktop", "campaign RAM did not select desktop")
+        envelope = (
+            '{"operation":"m7-preindexed-first-viewport",'
+            '"boundary":"open-plus-first-layout-v1",'
+            '"profile":"desktop","milliseconds":3.5,'
+            '"fragments":12,"used_checkpoint":true}\n'
+        )
+        return subprocess.CompletedProcess(command, 0, envelope, "")
+    if command[1] == "warm-search":
+        sample_path = Path(command[3])
+        sample_path.write_text("1.0\n1.0\n1.0\n2.0\n3.0\n", encoding="ascii")
+        envelope = (
+            '{"operation":"m7-warm-exact-search",'
+            '"boundary":"open-once-one-warmup-v1",'
+            '"trials":5,"query_bytes":6,"exact_records_scanned":5}\n'
+        )
+        return subprocess.CompletedProcess(command, 0, envelope, "")
     require(command[2] == "desktop", "campaign RAM did not select desktop")
     sample_path = Path(command[3])
     values = ["1.0"] * 990 + ["2.0"] * 10
@@ -103,14 +121,26 @@ def main() -> int:
         )
     require(metrics["scroll_p99_ms"] == 1.0, "nearest-rank P99 changed")
     require(metrics["maximum_normal_stall_ms"] == 2.0, "maximum stall changed")
+    with mock.patch.object(MODULE.subprocess, "run", side_effect=fake_run):
+        preindexed = MODULE.measure_preindexed_metric(
+            Path("fake-native-probe"), Path("fake-store"), req, 5.0
+        )
+        warm_search = MODULE.measure_warm_search_metric(
+            Path("fake-native-probe"), Path("fake-store"), req, 5.0
+        )
+    require(preindexed == 3.5, "preindexed measurement changed")
+    require(warm_search == 3.0, "nearest-rank warm-search P95 changed")
     require(MODULE.profile_for_campaign_ram(2048).value == "legacy-phone", "legacy profile")
     require(MODULE.profile_for_campaign_ram(4096).value == "mid-phone", "mid profile")
     require(MODULE.profile_for_campaign_ram(8192).value == "modern-phone", "modern profile")
     require(MODULE.profile_for_campaign_ram(16384).value == "desktop", "desktop profile")
-    missing = sorted(set(MODULE.CORE_METRIC_NAMES) - MODULE.FRAME_METRICS)
-    require(len(missing) == 7, "readiness adapter unexpectedly certifies extra metrics")
+    missing = sorted(set(MODULE.CORE_METRIC_NAMES) - MODULE.ADMITTED_METRICS)
+    require(len(missing) == 5, "readiness adapter unexpectedly certifies extra metrics")
+    require("first_viewport_streaming_ms" in missing, "streaming readiness debt disappeared")
+    require("process_group_pss_mb" in missing, "PSS readiness debt disappeared")
     require("mutation_p95_us" in missing, "mutation readiness debt disappeared")
     require("exact_search_cold_ms" in missing, "cold-search readiness debt disappeared")
+    require("copy_throughput_mib_s" in missing, "copy readiness debt disappeared")
     print("Zevryon M7 readiness adapter smoke passed")
     return 0
 
