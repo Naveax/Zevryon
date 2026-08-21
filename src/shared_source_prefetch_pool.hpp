@@ -14,19 +14,23 @@
 
 namespace zevryon::massivedoc {
 
+class SharedRecordLengthAuthority;
+
 struct SharedSourcePrefetchPoolConfig {
     std::size_t worker_count{2U};
 
     // There is no finite product-level tab/session ceiling. The SIZE_MAX
     // default makes registry admission policy-unbounded; actual admission can
-    // still fail naturally if the process cannot allocate the tiny per-session
-    // metadata. A smaller value remains available only as a low-level
-    // embedding/test guard, not as the browser tab policy.
+    // still fail naturally if the process cannot allocate tiny session metadata.
     std::size_t max_sessions{std::numeric_limits<std::size_t>::max()};
 
-    // Heavy speculative payload retention is bounded independently of how
-    // many tabs are registered.
+    // Heavy speculative payload retention is bounded independently of tab count.
     std::size_t max_ready_bytes{2U * 1024U * 1024U};
+
+    // Optional process-owned authority. Non-owning. When supplied, built-in
+    // workers may resolve record length off the UI thread and canonicalize a
+    // request before payload I/O.
+    SharedRecordLengthAuthority* record_length_authority{nullptr};
 
     bool valid() const noexcept;
 };
@@ -71,20 +75,52 @@ struct SharedSourcePrefetchPoolStatus {
     std::uint64_t runs_started{0U};
     std::uint64_t runs_succeeded{0U};
     std::uint64_t runs_failed{0U};
+    std::uint64_t runs_suppressed{0U};
     std::uint64_t stale_results_dropped{0U};
     std::uint64_t inactive_results_dropped{0U};
     std::uint64_t closed_results_dropped{0U};
     std::uint64_t ready_replacements{0U};
     std::uint64_t ready_budget_drops{0U};
+    std::uint64_t canonicalized_results{0U};
+    std::uint64_t worker_eof_suppressions{0U};
+    std::uint64_t record_length_resolve_failures{0U};
+    std::uint64_t record_length_learns{0U};
     bool stopped{false};
 };
 
+// Legacy contract. Kept so existing embedders do not need a flag-day migration.
 using SharedSourcePrefetchExecutor = std::function<bool(
     const std::filesystem::path&,
     std::uint64_t,
     const SourceWindowPrefetchRequest&,
     std::vector<std::byte>*,
     std::string*)>;
+
+// V2 explicitly returns the request identity that actually produced the bytes.
+// Only offset/size may be narrowed; record identity and authority ticket remain
+// immutable and are validated by the pool before publication.
+struct SharedSourcePrefetchExecution {
+    SourceWindowPrefetchRequest canonical_request{};
+    std::vector<std::byte> bytes;
+    bool suppressed{false};
+    bool record_length_resolve_failed{false};
+    bool record_length_learned{false};
+};
+
+struct SharedSourcePrefetchExecutorV2 {
+    using Function = std::function<bool(
+        const std::filesystem::path&,
+        std::uint64_t,
+        const SourceWindowPrefetchRequest&,
+        SharedSourcePrefetchExecution*,
+        std::string*)>;
+
+    Function run;
+
+    explicit operator bool() const noexcept {
+        return static_cast<bool>(run);
+    }
+};
 
 class SharedSourcePrefetchPool final {
 public:
@@ -93,6 +129,9 @@ public:
     SharedSourcePrefetchPool(
         SharedSourcePrefetchPoolConfig config,
         SharedSourcePrefetchExecutor executor);
+    SharedSourcePrefetchPool(
+        SharedSourcePrefetchPoolConfig config,
+        SharedSourcePrefetchExecutorV2 executor);
     ~SharedSourcePrefetchPool();
 
     SharedSourcePrefetchPool(const SharedSourcePrefetchPool&) = delete;

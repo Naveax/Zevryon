@@ -28,6 +28,12 @@ struct SourceWindowPrefetchRequest {
     std::size_t max_bytes{0U};
     PrefetchTicket ticket{};
 
+    // Immutable source edge that produced the speculative prediction. This is
+    // a scheduling hint, not part of source identity. It lets a worker clamp a
+    // velocity lead against record EOF without doing any UI-thread metadata I/O.
+    std::uint64_t visible_edge_offset{0U};
+    bool has_visible_edge_offset{false};
+
     bool operator==(const SourceWindowPrefetchRequest&) const noexcept = default;
 };
 

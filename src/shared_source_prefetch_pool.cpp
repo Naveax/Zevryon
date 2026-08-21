@@ -1,6 +1,9 @@
 #include "shared_source_prefetch_pool.hpp"
 
 #include "massivedoc_store.hpp"
+#include "prefetch_record_bounds.hpp"
+#include "shared_record_length_authority.hpp"
+#include "store_record_length_probe.hpp"
 
 #include <condition_variable>
 #include <deque>
@@ -16,6 +19,26 @@ namespace {
 
 std::uint64_t saturating_increment(std::uint64_t value) noexcept {
     return value == UINT64_MAX ? value : value + 1U;
+}
+
+bool canonical_execution_valid(
+    const SourceWindowPrefetchRequest& original,
+    const SharedSourcePrefetchExecution& execution,
+    bool succeeded) noexcept {
+    const SourceWindowPrefetchRequest& canonical = execution.canonical_request;
+    if (canonical.record_index != original.record_index ||
+        canonical.ticket != original.ticket) {
+        return false;
+    }
+    if (execution.suppressed) {
+        return succeeded && execution.bytes.empty();
+    }
+    if (canonical.max_bytes == 0U ||
+        canonical.max_bytes > original.max_bytes ||
+        canonical.max_bytes > kIoWindowBytes) {
+        return false;
+    }
+    return !succeeded || execution.bytes.size() <= canonical.max_bytes;
 }
 
 } // namespace
@@ -48,8 +71,6 @@ struct SharedSourcePrefetchPool::State {
         std::optional<SourceWindowPrefetchRequest> pending;
         std::optional<SourceWindowPrefetchResult> ready;
         std::size_t ready_charge_bytes{0U};
-        std::unique_ptr<StoreReader> store;
-        bool store_opened{false};
     };
 
     struct QueueEntry {
@@ -59,36 +80,133 @@ struct SharedSourcePrefetchPool::State {
 
     State(
         SharedSourcePrefetchPoolConfig config_value,
-        SharedSourcePrefetchExecutor executor_value)
-        : config(config_value), executor(std::move(executor_value)) {}
+        SharedSourcePrefetchExecutor legacy_executor_value,
+        SharedSourcePrefetchExecutorV2 executor_v2_value)
+        : config(config_value),
+          legacy_executor(std::move(legacy_executor_value)),
+          executor_v2(std::move(executor_v2_value)) {}
+
+    bool execute_default(
+        const std::shared_ptr<SessionState>& session,
+        const SourceWindowPrefetchRequest& request_value,
+        SharedSourcePrefetchExecution* execution,
+        std::string* error) {
+        execution->canonical_request = request_value;
+
+        if (config.record_length_authority != nullptr &&
+            request_value.has_visible_edge_offset) {
+            std::uint64_t record_length = 0U;
+            std::string metadata_error;
+            const bool resolved = config.record_length_authority->query(
+                session->root,
+                request_value.record_index,
+                [](const std::filesystem::path& root,
+                   std::uint64_t record_index,
+                   std::uint64_t* length,
+                   std::string* resolver_error) {
+                    return probe_store_record_length(
+                        root,
+                        record_index,
+                        length,
+                        resolver_error);
+                },
+                &record_length,
+                &metadata_error);
+            if (resolved) {
+                const RecordBoundPrefetchDecision decision =
+                    clamp_prefetch_to_record(
+                        request_value.ticket.direction,
+                        request_value.visible_edge_offset,
+                        request_value.byte_offset,
+                        request_value.max_bytes,
+                        record_length);
+                if (!decision.should_issue) {
+                    execution->canonical_request.byte_offset =
+                        decision.byte_offset;
+                    execution->canonical_request.max_bytes = 0U;
+                    execution->suppressed = decision.eof_suppressed;
+                    error->clear();
+                    return decision.eof_suppressed;
+                }
+                execution->canonical_request.byte_offset =
+                    decision.byte_offset;
+                execution->canonical_request.max_bytes =
+                    decision.request_bytes;
+            } else {
+                execution->record_length_resolve_failed = true;
+            }
+        }
+
+        // Reader lifetime is one worker execution, not one browser tab. The
+        // number of concurrently live default readers is therefore bounded by
+        // worker_count rather than session cardinality.
+        StoreReader store(session->root);
+        if (!store.open(error)) {
+            return false;
+        }
+        const SourceWindowPrefetchRequest& canonical =
+            execution->canonical_request;
+        if (!store.read_record_slice(
+                canonical.record_index,
+                canonical.byte_offset,
+                canonical.max_bytes,
+                &execution->bytes,
+                error)) {
+            return false;
+        }
+
+        if (config.record_length_authority != nullptr &&
+            execution->bytes.size() < canonical.max_bytes &&
+            canonical.byte_offset <= UINT64_MAX - execution->bytes.size()) {
+            const std::uint64_t learned_length =
+                canonical.byte_offset +
+                static_cast<std::uint64_t>(execution->bytes.size());
+            std::string learn_error;
+            if (config.record_length_authority->remember(
+                    session->root,
+                    canonical.record_index,
+                    learned_length,
+                    &learn_error)) {
+                execution->record_length_learned = true;
+            }
+        }
+        error->clear();
+        return true;
+    }
 
     bool execute(
         const std::shared_ptr<SessionState>& session,
         const SourceWindowPrefetchRequest& request_value,
-        std::vector<std::byte>* bytes,
+        SharedSourcePrefetchExecution* execution,
         std::string* error) {
-        if (executor) {
-            return executor(
+        if (execution == nullptr || error == nullptr) {
+            return false;
+        }
+        *execution = {};
+        execution->canonical_request = request_value;
+
+        if (executor_v2) {
+            return executor_v2.run(
                 session->root,
                 session->id,
                 request_value,
-                bytes,
+                execution,
                 error);
         }
-        if (!session->store) {
-            session->store = std::make_unique<StoreReader>(session->root);
+        if (legacy_executor) {
+            const bool succeeded = legacy_executor(
+                session->root,
+                session->id,
+                request_value,
+                &execution->bytes,
+                error);
+            execution->canonical_request = request_value;
+            return succeeded;
         }
-        if (!session->store_opened) {
-            if (!session->store->open(error)) {
-                return false;
-            }
-            session->store_opened = true;
-        }
-        return session->store->read_record_slice(
-            request_value.record_index,
-            request_value.byte_offset,
-            request_value.max_bytes,
-            bytes,
+        return execute_default(
+            session,
+            request_value,
+            execution,
             error);
     }
 
@@ -198,25 +316,48 @@ struct SharedSourcePrefetchPool::State {
                 }
             }
 
-            std::vector<std::byte> bytes;
+            SharedSourcePrefetchExecution execution;
             std::string error;
             bool succeeded = false;
             try {
-                succeeded = execute(session, request_value, &bytes, &error);
+                succeeded = execute(
+                    session,
+                    request_value,
+                    &execution,
+                    &error);
             } catch (const std::exception& exception) {
                 error = std::string("shared source prefetch executor threw: ") +
                         exception.what();
             } catch (...) {
                 error = "shared source prefetch executor threw";
             }
-            if (!succeeded && error.empty()) {
+
+            if (!canonical_execution_valid(request_value, execution, succeeded)) {
+                succeeded = false;
+                execution = {};
+                execution.canonical_request = request_value;
+                error = "shared source prefetch executor returned invalid canonical request";
+            } else if (!succeeded && error.empty()) {
                 error = "shared source prefetch failed without diagnostic";
             }
 
             {
                 std::lock_guard<std::mutex> lock(mutex);
                 session->running = false;
-                if (succeeded) {
+                if (execution.record_length_resolve_failed) {
+                    record_length_resolve_failures =
+                        saturating_increment(record_length_resolve_failures);
+                }
+                if (execution.record_length_learned) {
+                    record_length_learns =
+                        saturating_increment(record_length_learns);
+                }
+
+                if (execution.suppressed) {
+                    worker_eof_suppressions =
+                        saturating_increment(worker_eof_suppressions);
+                    runs_suppressed = saturating_increment(runs_suppressed);
+                } else if (succeeded) {
                     runs_succeeded = saturating_increment(runs_succeeded);
                 } else {
                     runs_failed = saturating_increment(runs_failed);
@@ -232,8 +373,14 @@ struct SharedSourcePrefetchPool::State {
                 } else if (request_value.ticket.direction == 0 ||
                            request_value.ticket != session->authority) {
                     stale_results_dropped = saturating_increment(stale_results_dropped);
-                } else {
-                    const std::size_t charge = bytes.capacity();
+                } else if (!execution.suppressed) {
+                    const SourceWindowPrefetchRequest& canonical =
+                        execution.canonical_request;
+                    if (!(canonical == request_value)) {
+                        canonicalized_results =
+                            saturating_increment(canonicalized_results);
+                    }
+                    const std::size_t charge = execution.bytes.capacity();
                     const std::size_t existing = session->ready_charge_bytes;
                     const std::size_t base_ready =
                         existing <= ready_bytes ? ready_bytes - existing : 0U;
@@ -246,8 +393,8 @@ struct SharedSourcePrefetchPool::State {
                             remove_ready_locked(session);
                         }
                         SourceWindowPrefetchResult published;
-                        published.request = request_value;
-                        published.bytes = std::move(bytes);
+                        published.request = canonical;
+                        published.bytes = std::move(execution.bytes);
                         published.succeeded = succeeded;
                         published.error = std::move(error);
                         session->ready = std::move(published);
@@ -269,7 +416,8 @@ struct SharedSourcePrefetchPool::State {
     }
 
     SharedSourcePrefetchPoolConfig config;
-    SharedSourcePrefetchExecutor executor;
+    SharedSourcePrefetchExecutor legacy_executor;
+    SharedSourcePrefetchExecutorV2 executor_v2;
     mutable std::mutex mutex;
     std::condition_variable work_cv;
     std::condition_variable idle_cv;
@@ -297,21 +445,40 @@ struct SharedSourcePrefetchPool::State {
     std::uint64_t runs_started{0U};
     std::uint64_t runs_succeeded{0U};
     std::uint64_t runs_failed{0U};
+    std::uint64_t runs_suppressed{0U};
     std::uint64_t stale_results_dropped{0U};
     std::uint64_t inactive_results_dropped{0U};
     std::uint64_t closed_results_dropped{0U};
     std::uint64_t ready_replacements{0U};
     std::uint64_t ready_budget_drops{0U};
+    std::uint64_t canonicalized_results{0U};
+    std::uint64_t worker_eof_suppressions{0U};
+    std::uint64_t record_length_resolve_failures{0U};
+    std::uint64_t record_length_learns{0U};
 };
 
 SharedSourcePrefetchPool::SharedSourcePrefetchPool(
     SharedSourcePrefetchPoolConfig config)
-    : SharedSourcePrefetchPool(config, {}) {}
+    : state_(std::make_unique<State>(
+          config,
+          SharedSourcePrefetchExecutor{},
+          SharedSourcePrefetchExecutorV2{})) {}
 
 SharedSourcePrefetchPool::SharedSourcePrefetchPool(
     SharedSourcePrefetchPoolConfig config,
     SharedSourcePrefetchExecutor executor)
-    : state_(std::make_unique<State>(config, std::move(executor))) {}
+    : state_(std::make_unique<State>(
+          config,
+          std::move(executor),
+          SharedSourcePrefetchExecutorV2{})) {}
+
+SharedSourcePrefetchPool::SharedSourcePrefetchPool(
+    SharedSourcePrefetchPoolConfig config,
+    SharedSourcePrefetchExecutorV2 executor)
+    : state_(std::make_unique<State>(
+          config,
+          SharedSourcePrefetchExecutor{},
+          std::move(executor))) {}
 
 SharedSourcePrefetchPool::~SharedSourcePrefetchPool() {
     stop();
@@ -520,11 +687,16 @@ SharedSourcePrefetchPoolStatus SharedSourcePrefetchPool::status() const {
     snapshot.runs_started = state->runs_started;
     snapshot.runs_succeeded = state->runs_succeeded;
     snapshot.runs_failed = state->runs_failed;
+    snapshot.runs_suppressed = state->runs_suppressed;
     snapshot.stale_results_dropped = state->stale_results_dropped;
     snapshot.inactive_results_dropped = state->inactive_results_dropped;
     snapshot.closed_results_dropped = state->closed_results_dropped;
     snapshot.ready_replacements = state->ready_replacements;
     snapshot.ready_budget_drops = state->ready_budget_drops;
+    snapshot.canonicalized_results = state->canonicalized_results;
+    snapshot.worker_eof_suppressions = state->worker_eof_suppressions;
+    snapshot.record_length_resolve_failures = state->record_length_resolve_failures;
+    snapshot.record_length_learns = state->record_length_learns;
     snapshot.stopped = state->stop_requested;
     return snapshot;
 }

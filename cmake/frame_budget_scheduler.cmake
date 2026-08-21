@@ -9,6 +9,7 @@ target_sources(
     src/runtime_prefetch_record_policy.cpp
     src/shared_record_length_authority.cpp
     src/shared_source_prefetch_pool.cpp
+    src/store_record_length_probe.cpp
     src/velocity_prefetch_planner.cpp
     src/zenith_process_tab_controller.cpp
     src/zenith_tab_runtime.cpp
@@ -47,6 +48,17 @@ if(BUILD_TESTING)
   add_test(
     NAME shared-source-prefetch-pool-tests
     COMMAND zevryon-shared-source-prefetch-pool-tests)
+
+  add_executable(
+    zevryon-shared-prefetch-executor-v2-tests
+    tests/shared_prefetch_executor_v2_tests.cpp)
+  target_link_libraries(
+    zevryon-shared-prefetch-executor-v2-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-shared-prefetch-executor-v2-tests)
+  add_test(
+    NAME shared-prefetch-executor-v2-tests
+    COMMAND zevryon-shared-prefetch-executor-v2-tests)
 
   add_executable(
     zevryon-velocity-prefetch-planner-tests
