@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace zevryon::massivedoc {
 
@@ -61,6 +62,15 @@ public:
         LayoutWindowResult* result,
         bool* used_checkpoint_path,
         std::string* error);
+
+    // Admit an exact speculative source window under the same physical cache
+    // key used by the synchronous hot-scroll path. Only complete exact-length
+    // windows are accepted; partial/ambiguous payloads fail closed.
+    bool admit_prefetched_source_window(
+        std::uint64_t source_record_index,
+        std::uint64_t source_offset,
+        std::size_t request_bytes,
+        std::vector<std::byte> bytes) noexcept;
 
     // Background pressure drops expensive source windows and transient working
     // buffers while preserving parsed checkpoints for a fast tab resume.

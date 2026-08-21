@@ -39,6 +39,8 @@ struct ZenithTabRuntimeStats {
     std::uint64_t prefetch_ready_bytes_drained{0U};
     std::uint64_t prefetch_success_drains{0U};
     std::uint64_t prefetch_failure_drains{0U};
+    std::uint64_t prefetch_cache_admissions{0U};
+    std::uint64_t prefetch_cache_rejections{0U};
     std::uint64_t last_visible_layout_us{0U};
     std::uint64_t peak_visible_layout_us{0U};
 };

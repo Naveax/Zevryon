@@ -927,6 +927,57 @@ bool ZenithHotScrollSession::layout(
     return true;
 }
 
+bool ZenithHotScrollSession::admit_prefetched_source_window(
+    std::uint64_t source_record_index,
+    std::uint64_t source_offset,
+    std::size_t request_bytes,
+    std::vector<std::byte> bytes) noexcept {
+    if (!impl_->opened || request_bytes == 0U || request_bytes > kIoWindowBytes ||
+        bytes.size() != request_bytes) {
+        return false;
+    }
+    const SourceWindowKey key{source_record_index, source_offset, request_bytes};
+    auto found = impl_->source_cache.find(key);
+    if (found != impl_->source_cache.end()) {
+        impl_->source_lru.splice(
+            impl_->source_lru.begin(),
+            impl_->source_lru,
+            found->second.lru_position);
+        found->second.lru_position = impl_->source_lru.begin();
+        return true;
+    }
+
+    try {
+        const std::size_t charge = source_window_cache_charge(bytes);
+        if (charge > impl_->config.max_source_window_cache_bytes) {
+            return false;
+        }
+        impl_->evict_source_for(charge);
+        if (impl_->statistics.source_window_cache_bytes >
+            impl_->config.max_source_window_cache_bytes - charge) {
+            return false;
+        }
+
+        impl_->source_lru.push_front(key);
+        SourceWindowCacheEntry entry;
+        entry.bytes = std::move(bytes);
+        entry.charge_bytes = charge;
+        entry.lru_position = impl_->source_lru.begin();
+        const auto inserted = impl_->source_cache.emplace(key, std::move(entry));
+        if (!inserted.second) {
+            impl_->source_lru.pop_front();
+            return false;
+        }
+        impl_->statistics.source_window_cache_bytes += charge;
+        impl_->statistics.source_window_cache_peak_bytes = std::max(
+            impl_->statistics.source_window_cache_peak_bytes,
+            impl_->statistics.source_window_cache_bytes);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 void ZenithHotScrollSession::trim_memory(ZenithMemoryPressure pressure) noexcept {
     std::uint64_t reclaimed = static_cast<std::uint64_t>(
         saturating_size_add(

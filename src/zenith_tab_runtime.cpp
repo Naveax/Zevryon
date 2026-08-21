@@ -84,14 +84,28 @@ struct ZenithTabRuntime::Impl {
         if (!pool->try_take_ready(session_id, &ready)) {
             return;
         }
+        const std::uint64_t ready_bytes =
+            static_cast<std::uint64_t>(ready.bytes.size());
         statistics.prefetch_ready_drains =
             saturating_add(statistics.prefetch_ready_drains, 1U);
         statistics.prefetch_ready_bytes_drained = saturating_add(
             statistics.prefetch_ready_bytes_drained,
-            static_cast<std::uint64_t>(ready.bytes.size()));
+            ready_bytes);
         if (ready.succeeded) {
             statistics.prefetch_success_drains =
                 saturating_add(statistics.prefetch_success_drains, 1U);
+            const bool admitted = hot_scroll.admit_prefetched_source_window(
+                ready.request.record_index,
+                ready.request.byte_offset,
+                ready.request.max_bytes,
+                std::move(ready.bytes));
+            if (admitted) {
+                statistics.prefetch_cache_admissions = saturating_add(
+                    statistics.prefetch_cache_admissions, 1U);
+            } else {
+                statistics.prefetch_cache_rejections = saturating_add(
+                    statistics.prefetch_cache_rejections, 1U);
+            }
         } else {
             statistics.prefetch_failure_drains =
                 saturating_add(statistics.prefetch_failure_drains, 1U);

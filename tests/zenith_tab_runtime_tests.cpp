@@ -47,7 +47,7 @@ struct PrefetchGate {
 SharedSourcePrefetchExecutor gated_executor(
     const std::shared_ptr<PrefetchGate>& gate) {
     return [gate](
-               const std::filesystem::path&,
+               const std::filesystem::path& root,
                std::uint64_t,
                const SourceWindowPrefetchRequest& request,
                std::vector<std::byte>* bytes,
@@ -64,9 +64,17 @@ SharedSourcePrefetchExecutor gated_executor(
             gate->cv.wait(lock, [gate] { return gate->release_first; });
         }
         lock.unlock();
-        bytes->assign(request.max_bytes, std::byte{0x51});
-        error->clear();
-        return true;
+
+        StoreReader reader(root);
+        if (!reader.open(error)) {
+            return false;
+        }
+        return reader.read_record_slice(
+            request.record_index,
+            request.byte_offset,
+            request.max_bytes,
+            bytes,
+            error);
     };
 }
 
@@ -233,6 +241,61 @@ void test_hot_scroll_fragment_keeps_physical_identity_after_reorder(
             "physical identity restore move failed");
 }
 
+void test_exact_prefetch_cache_admission_bypasses_source_read(
+    const Fixture& fixture) {
+    ZenithHotScrollSession session(fixture.root, fixture.layout);
+    std::string error;
+    require(session.open(&error), "prefetch admission session open failed");
+    session.clear_source_window_cache();
+
+    StoreReader reader(fixture.root);
+    require(reader.open(&error), "prefetch admission reader open failed");
+    std::vector<std::byte> bytes;
+    require(
+        reader.read_record_slice(0U, 0U, kIoWindowBytes, &bytes, &error),
+        "prefetch admission source read failed");
+    require(bytes.size() == kIoWindowBytes,
+            "prefetch admission fixture did not return exact window");
+
+    std::vector<std::byte> short_bytes(bytes.begin(), bytes.end() - 1);
+    require(
+        !session.admit_prefetched_source_window(
+            0U,
+            0U,
+            kIoWindowBytes,
+            std::move(short_bytes)),
+        "partial speculative window was admitted");
+    require(
+        session.admit_prefetched_source_window(
+            0U,
+            0U,
+            kIoWindowBytes,
+            std::move(bytes)),
+        "exact speculative window was not admitted");
+
+    LayoutWindowResult result;
+    bool used_checkpoint = false;
+    require(
+        session.layout(
+            0U,
+            800U * 256U,
+            720U * 256U,
+            0U,
+            128U,
+            &result,
+            &used_checkpoint,
+            &error),
+        "prefetch admission layout failed");
+    require(used_checkpoint && !result.fragments.empty(),
+            "prefetch admission layout missing fragments");
+    require(result.source_bytes_read == 0U,
+            "exact prefetched window did not bypass synchronous source read");
+    require(result.source_window_cache_hits >= 1U,
+            "exact prefetched window did not register a source-cache hit");
+    require(result.source_window_cache_misses == 0U,
+            "exact prefetched window unexpectedly missed source cache");
+}
+
 void test_tab_runtime_hidden_suppression_and_shared_prefetch(
     const Fixture& fixture) {
     const auto gate = std::make_shared<PrefetchGate>();
@@ -248,7 +311,7 @@ void test_tab_runtime_hidden_suppression_and_shared_prefetch(
         10'000U,
         5'000U};
     config.prefetch_reserve_us = 100U;
-    config.prefetch_bytes = 16U * 1024U;
+    config.prefetch_bytes = kIoWindowBytes;
 
     ZenithTabRuntime runtime(fixture.root, &pool, 77U, config);
     std::string error;
@@ -364,9 +427,13 @@ void test_tab_runtime_hidden_suppression_and_shared_prefetch(
             &error),
         "tab runtime ready-drain layout failed");
     require(runtime.stats().prefetch_ready_drains >= 1U,
-            "tab runtime did not drain warmed shared result");
+            "tab runtime did not drain shared result");
     require(runtime.stats().prefetch_ready_bytes_drained >= config.prefetch_bytes,
             "tab runtime drained-byte accounting mismatch");
+    require(runtime.stats().prefetch_cache_admissions >= 1U,
+            "successful shared prefetch was not admitted into hot-scroll cache");
+    require(runtime.stats().prefetch_cache_rejections == 0U,
+            "exact shared prefetch was rejected from hot-scroll cache");
 
     require(
         runtime.set_activity(
@@ -396,6 +463,7 @@ void test_tab_runtime_hidden_suppression_and_shared_prefetch(
 int main() {
     const Fixture fixture = build_fixture();
     test_hot_scroll_fragment_keeps_physical_identity_after_reorder(fixture);
+    test_exact_prefetch_cache_admission_bypasses_source_read(fixture);
     test_tab_runtime_hidden_suppression_and_shared_prefetch(fixture);
 
     std::error_code ignored;
