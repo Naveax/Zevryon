@@ -189,4 +189,13 @@ if(BUILD_TESTING)
   add_test(
     NAME zenith-tab-runtime-tests
     COMMAND zevryon-tab-runtime-tests)
+
+  find_package(Python3 QUIET COMPONENTS Interpreter)
+  if(Python3_Interpreter_FOUND)
+    add_test(
+      NAME python-frame-evidence-contract-smoke
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/evidence_contract_smoke.py")
+  endif()
 endif()
