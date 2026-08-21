@@ -9,7 +9,9 @@ import sys
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from zevryon_platform.competitor_lab import evaluate_campaign_payload  # noqa: E402
+from zevryon_platform.competitor_lab_v2 import (  # noqa: E402
+    evaluate_campaign_payload_compatible,
+)
 
 
 def main() -> int:
@@ -24,7 +26,7 @@ def main() -> int:
     payload = json.loads(args.input.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("competitor campaign input must be a JSON object")
-    result = evaluate_campaign_payload(payload)
+    result = evaluate_campaign_payload_compatible(payload)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     rendered = json.dumps(result, indent=2, sort_keys=True) + "\n"
