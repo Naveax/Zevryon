@@ -89,6 +89,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -112,6 +114,21 @@ jobs:
         run: >-
           ctest --test-dir build --output-on-failure
           -E "(native-gpu-sdk-platform-smoke|d3d12|vulkan)"
+      - name: Write M5 exact-head CI evidence
+        run: >-
+          python3 scripts/write_m5_ci_evidence.py
+          --sha "${{ github.event.pull_request.head.sha || github.sha }}"
+          --platform linux
+          --compiler gcc-release
+          --build-dir build
+          --output evidence/m5/ci/linux.json
+      - name: Upload M5 Linux exact-head evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m5-ci-linux-${{ github.event.pull_request.head.sha || github.sha }}
+          path: evidence/m5/ci/linux.json
+          if-no-files-found: warn
       - name: Run M3 legacy 4 GiB open gate
         run: >-
           python3 scripts/m3_legacy_4gib_open_gate.py
@@ -137,6 +154,8 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Configure
         shell: pwsh
         run: |
@@ -152,3 +171,20 @@ jobs:
         run: >-
           ctest --test-dir build -C Release --output-on-failure
           -E "(native-gpu-sdk-platform-smoke|d3d12|vulkan)"
+      - name: Write M5 exact-head CI evidence
+        shell: pwsh
+        run: >-
+          python scripts/write_m5_ci_evidence.py
+          --sha "${{ github.event.pull_request.head.sha || github.sha }}"
+          --platform windows
+          --compiler msvc-release
+          --build-dir build
+          --config Release
+          --output evidence/m5/ci/windows.json
+      - name: Upload M5 Windows exact-head evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m5-ci-windows-${{ github.event.pull_request.head.sha || github.sha }}
+          path: evidence/m5/ci/windows.json
+          if-no-files-found: warn
