@@ -45,6 +45,17 @@ if(BUILD_TESTING)
     COMMAND zevryon-process-runtime-services-tests)
 
   add_executable(
+    zevryon-dormant-registry-scale-tests
+    tests/zenith_process_dormant_registry_scale_tests.cpp)
+  target_link_libraries(
+    zevryon-dormant-registry-scale-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-dormant-registry-scale-tests)
+  add_test(
+    NAME dormant-registry-scale-tests
+    COMMAND zevryon-dormant-registry-scale-tests)
+
+  add_executable(
     zevryon-process-memory-runtime-integration-tests
     tests/zenith_process_memory_runtime_integration_tests.cpp)
   target_link_libraries(
