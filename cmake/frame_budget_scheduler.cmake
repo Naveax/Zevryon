@@ -61,6 +61,17 @@ if(BUILD_TESTING)
     COMMAND zevryon-shared-prefetch-executor-v2-tests)
 
   add_executable(
+    zevryon-shared-prefetch-o1-status-tests
+    tests/shared_prefetch_pool_status_o1_tests.cpp)
+  target_link_libraries(
+    zevryon-shared-prefetch-o1-status-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-shared-prefetch-o1-status-tests)
+  add_test(
+    NAME shared-prefetch-o1-status-tests
+    COMMAND zevryon-shared-prefetch-o1-status-tests)
+
+  add_executable(
     zevryon-velocity-prefetch-planner-tests
     tests/velocity_prefetch_planner_tests.cpp)
   target_link_libraries(
