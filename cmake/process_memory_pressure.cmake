@@ -1,6 +1,7 @@
 target_sources(
   zevryon-massivedoc-core
   PRIVATE
+    src/zenith_android_memory_signal.cpp
     src/zenith_linux_memory_scope.cpp
     src/zenith_windows_memory_scope.cpp
     src/zenith_process_memory_pressure.cpp
@@ -45,6 +46,17 @@ if(BUILD_TESTING)
   add_test(
     NAME windows-memory-scope-tests
     COMMAND zevryon-windows-memory-scope-tests)
+
+  add_executable(
+    zevryon-android-memory-signal-tests
+    tests/zenith_android_memory_signal_tests.cpp)
+  target_link_libraries(
+    zevryon-android-memory-signal-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-android-memory-signal-tests)
+  add_test(
+    NAME android-memory-signal-tests
+    COMMAND zevryon-android-memory-signal-tests)
 
   add_executable(
     zevryon-process-memory-sampler-tests
