@@ -1,6 +1,7 @@
 #include "zenith_tab_runtime.hpp"
 
 #include "massivedoc_store.hpp"
+#include "prefetch_tail_admission.hpp"
 #include "shared_source_prefetch_pool.hpp"
 #include "velocity_prefetch_planner.hpp"
 
@@ -95,6 +96,13 @@ struct ZenithTabRuntime::Impl {
         if (ready.succeeded) {
             statistics.prefetch_success_drains =
                 saturating_add(statistics.prefetch_success_drains, 1U);
+            const PrefetchTailAdmissionResult tail_result =
+                canonicalize_prefetch_tail_for_exact_admission(&ready);
+            if (tail_result == PrefetchTailAdmissionResult::Invalid) {
+                statistics.prefetch_cache_rejections = saturating_add(
+                    statistics.prefetch_cache_rejections, 1U);
+                return;
+            }
             const bool admitted = hot_scroll.admit_prefetched_source_window(
                 ready.request.record_index,
                 ready.request.byte_offset,
