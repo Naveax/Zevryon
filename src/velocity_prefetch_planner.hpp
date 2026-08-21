@@ -34,4 +34,14 @@ VelocityPrefetchDecision plan_velocity_prefetch(
     std::size_t window_bytes,
     const VelocityPrefetchPolicy& policy = {}) noexcept;
 
+bool choose_velocity_prefetch_offset(
+    std::int8_t direction,
+    std::int64_t velocity_q8_per_second,
+    std::uint64_t source_start,
+    std::uint64_t source_end,
+    std::size_t window_bytes,
+    const VelocityPrefetchPolicy& policy,
+    std::uint64_t* source_offset,
+    VelocityPrefetchDecision* decision) noexcept;
+
 } // namespace zevryon::massivedoc

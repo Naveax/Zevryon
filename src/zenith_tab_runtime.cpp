@@ -2,6 +2,7 @@
 
 #include "massivedoc_store.hpp"
 #include "shared_source_prefetch_pool.hpp"
+#include "velocity_prefetch_planner.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -126,21 +127,24 @@ struct ZenithTabRuntime::Impl {
         const LayoutFragment& fragment = ticket.direction > 0
                                              ? result.fragments.back()
                                              : result.fragments.front();
-        request->record_index = fragment.source_record_index;
-        request->max_bytes = config.prefetch_bytes;
-        request->ticket = ticket;
-        if (ticket.direction > 0) {
-            request->byte_offset = fragment.source_end;
-            return true;
-        }
-        if (fragment.source_start == 0U) {
+        std::uint64_t source_offset = 0U;
+        VelocityPrefetchDecision decision;
+        if (!choose_velocity_prefetch_offset(
+                ticket.direction,
+                scroll_velocity_q8_per_second,
+                fragment.source_start,
+                fragment.source_end,
+                config.prefetch_bytes,
+                VelocityPrefetchPolicy{},
+                &source_offset,
+                &decision)) {
             return false;
         }
-        request->byte_offset =
-            fragment.source_start > config.prefetch_bytes
-                ? fragment.source_start - config.prefetch_bytes
-                : 0U;
-        return request->byte_offset < fragment.source_start;
+        request->record_index = fragment.source_record_index;
+        request->byte_offset = source_offset;
+        request->max_bytes = config.prefetch_bytes;
+        request->ticket = ticket;
+        return true;
     }
 
     void schedule_prefetch(const LayoutWindowResult& result) noexcept {

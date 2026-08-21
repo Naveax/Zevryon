@@ -21,6 +21,10 @@ std::uint64_t saturating_multiply(
     return left * right;
 }
 
+bool sign_matches(std::int8_t direction, std::int64_t velocity) noexcept {
+    return (direction > 0 && velocity > 0) || (direction < 0 && velocity < 0);
+}
+
 } // namespace
 
 bool VelocityPrefetchPolicy::valid() const noexcept {
@@ -61,6 +65,49 @@ VelocityPrefetchDecision plan_velocity_prefetch(
         extra_windows,
         static_cast<std::uint64_t>(window_bytes));
     return decision;
+}
+
+bool choose_velocity_prefetch_offset(
+    std::int8_t direction,
+    std::int64_t velocity_q8_per_second,
+    std::uint64_t source_start,
+    std::uint64_t source_end,
+    std::size_t window_bytes,
+    const VelocityPrefetchPolicy& policy,
+    std::uint64_t* source_offset,
+    VelocityPrefetchDecision* decision) noexcept {
+    if (source_offset == nullptr || decision == nullptr || direction == 0 ||
+        !sign_matches(direction, velocity_q8_per_second)) {
+        return false;
+    }
+    *decision = plan_velocity_prefetch(
+        velocity_q8_per_second,
+        window_bytes,
+        policy);
+    if (decision->lookahead_windows == 0U) {
+        return false;
+    }
+
+    if (direction > 0) {
+        if (decision->additional_lead_bytes >
+            std::numeric_limits<std::uint64_t>::max() - source_end) {
+            return false;
+        }
+        *source_offset = source_end + decision->additional_lead_bytes;
+        return true;
+    }
+
+    if (source_start == 0U) {
+        return false;
+    }
+    const std::uint64_t window = static_cast<std::uint64_t>(window_bytes);
+    const std::uint64_t distance =
+        decision->additional_lead_bytes >
+                std::numeric_limits<std::uint64_t>::max() - window
+            ? std::numeric_limits<std::uint64_t>::max()
+            : window + decision->additional_lead_bytes;
+    *source_offset = source_start > distance ? source_start - distance : 0U;
+    return *source_offset < source_start;
 }
 
 } // namespace zevryon::massivedoc

@@ -72,6 +72,58 @@ void test_velocity_bands_are_symmetric() {
             "fast tier lead mismatch");
 }
 
+
+void test_directional_source_offsets() {
+    constexpr std::size_t kWindow = 64U * 1024U;
+    const VelocityPrefetchPolicy policy;
+    std::uint64_t offset = 0U;
+    VelocityPrefetchDecision decision;
+
+    require(
+        choose_velocity_prefetch_offset(
+            1, 4096, 100U, 200U, kWindow, policy, &offset, &decision),
+        "slow forward offset planning failed");
+    require(offset == 200U && decision.lookahead_windows == 1U,
+            "slow forward offset changed legacy edge behavior");
+
+    require(
+        choose_velocity_prefetch_offset(
+            1,
+            static_cast<std::int64_t>(policy.fast_velocity_q8_per_second),
+            100U,
+            200U,
+            kWindow,
+            policy,
+            &offset,
+            &decision),
+        "fast forward offset planning failed");
+    require(offset == 200U + 3U * kWindow && decision.lookahead_windows == 4U,
+            "fast forward lead distance mismatch");
+
+    require(
+        choose_velocity_prefetch_offset(
+            -1,
+            -static_cast<std::int64_t>(policy.medium_velocity_q8_per_second),
+            4U * kWindow,
+            4U * kWindow + 100U,
+            kWindow,
+            policy,
+            &offset,
+            &decision),
+        "medium reverse offset planning failed");
+    require(offset == 2U * kWindow && decision.lookahead_windows == 2U,
+            "medium reverse lead distance mismatch");
+
+    require(
+        !choose_velocity_prefetch_offset(
+            1, -4096, 100U, 200U, kWindow, policy, &offset, &decision),
+        "direction/velocity sign mismatch scheduled speculative IO");
+    require(
+        !choose_velocity_prefetch_offset(
+            -1, -4096, 0U, 200U, kWindow, policy, &offset, &decision),
+        "reverse prefetch crossed source start");
+}
+
 void test_extreme_negative_velocity_and_saturation() {
     auto policy = VelocityPrefetchPolicy{};
     policy.fast_lookahead_windows = 64U;
@@ -102,6 +154,7 @@ void test_invalid_inputs_fail_closed() {
 int main() {
     test_policy_validation();
     test_velocity_bands_are_symmetric();
+    test_directional_source_offsets();
     test_extreme_negative_velocity_and_saturation();
     test_invalid_inputs_fail_closed();
     std::cout << "Zevryon velocity-prefetch planner tests passed\n";
