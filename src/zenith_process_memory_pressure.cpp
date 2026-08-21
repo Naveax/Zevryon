@@ -2,17 +2,23 @@
 
 #include "zenith_linux_memory_scope.hpp"
 #include "zenith_process_tab_controller.hpp"
+#include "zenith_windows_memory_scope.hpp"
 
 #include <algorithm>
+#include <limits>
+
+#if defined(__linux__)
 #include <filesystem>
 #include <fstream>
-#include <limits>
 #include <sstream>
+#endif
 
 #if defined(_WIN32)
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <jobapi2.h>
+#include <memoryapi.h>
 #include <psapi.h>
 #elif defined(__linux__)
 #include <unistd.h>
@@ -44,6 +50,104 @@ std::uint32_t available_q16(const ZenithProcessMemorySnapshot& snapshot) noexcep
     const long double scaled = ratio * static_cast<long double>(kQ16One);
     return static_cast<std::uint32_t>(std::min<long double>(scaled, kQ16One));
 }
+
+#if defined(_WIN32)
+class WindowsLowMemoryNotification final {
+public:
+    WindowsLowMemoryNotification() noexcept
+        : handle_(CreateMemoryResourceNotification(LowMemoryResourceNotification)) {}
+
+    ~WindowsLowMemoryNotification() {
+        if (handle_ != nullptr) {
+            CloseHandle(handle_);
+        }
+    }
+
+    WindowsLowMemoryNotification(const WindowsLowMemoryNotification&) = delete;
+    WindowsLowMemoryNotification& operator=(const WindowsLowMemoryNotification&) = delete;
+
+    bool query(bool* low_memory) const noexcept {
+        if (handle_ == nullptr || low_memory == nullptr) {
+            return false;
+        }
+        BOOL state = FALSE;
+        if (!QueryMemoryResourceNotification(handle_, &state)) {
+            return false;
+        }
+        *low_memory = state != FALSE;
+        return true;
+    }
+
+private:
+    HANDLE handle_{nullptr};
+};
+
+WindowsLowMemoryNotification& windows_low_memory_notification() {
+    static WindowsLowMemoryNotification notification;
+    return notification;
+}
+
+void capture_windows_job_scope(
+    const PROCESS_MEMORY_COUNTERS_EX& counters,
+    ZenithProcessMemorySnapshot* result) noexcept {
+    if (result == nullptr) {
+        return;
+    }
+
+    result->windows_private_commit_bytes =
+        static_cast<std::uint64_t>(counters.PrivateUsage);
+
+    BOOL in_job = FALSE;
+    if (!IsProcessInJob(GetCurrentProcess(), nullptr, &in_job) || in_job == FALSE) {
+        return;
+    }
+    result->windows_job_member = true;
+
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION information{};
+    if (!QueryInformationJobObject(
+            nullptr,
+            JobObjectExtendedLimitInformation,
+            &information,
+            static_cast<DWORD>(sizeof(information)),
+            nullptr)) {
+        return;
+    }
+
+    const DWORD flags = information.BasicLimitInformation.LimitFlags;
+    result->windows_peak_process_memory_bytes =
+        static_cast<std::uint64_t>(information.PeakProcessMemoryUsed);
+    result->windows_peak_job_memory_bytes =
+        static_cast<std::uint64_t>(information.PeakJobMemoryUsed);
+
+    if ((flags & JOB_OBJECT_LIMIT_PROCESS_MEMORY) != 0U) {
+        result->windows_process_memory_limited = true;
+        result->windows_process_memory_limit_bytes =
+            static_cast<std::uint64_t>(information.ProcessMemoryLimit);
+
+        ZenithWindowsMemoryScopeObservation scope;
+        scope.process_memory_limited = true;
+        scope.private_commit_bytes = result->windows_private_commit_bytes;
+        scope.process_memory_limit_bytes = result->windows_process_memory_limit_bytes;
+        std::uint64_t effective_total = result->system_total_bytes;
+        std::uint64_t effective_available = result->system_available_bytes;
+        if (apply_windows_process_memory_scope(
+                result->system_total_bytes,
+                result->system_available_bytes,
+                scope,
+                &effective_total,
+                &effective_available)) {
+            result->system_total_bytes = effective_total;
+            result->system_available_bytes = effective_available;
+        }
+    }
+
+    if ((flags & JOB_OBJECT_LIMIT_JOB_MEMORY) != 0U) {
+        result->windows_job_memory_limited = true;
+        result->windows_job_memory_limit_bytes =
+            static_cast<std::uint64_t>(information.JobMemoryLimit);
+    }
+}
+#endif
 
 #if defined(__linux__)
 bool linux_meminfo_value_kib(const char* key, std::uint64_t* value) {
@@ -154,7 +258,11 @@ bool ZenithProcessMemorySnapshot::valid() const noexcept {
            system_available_bytes <= system_total_bytes &&
            (!psi_memory_available ||
             (psi_some_avg10_q16 <= kQ16One &&
-             psi_full_avg10_q16 <= kQ16One));
+             psi_full_avg10_q16 <= kQ16One)) &&
+           (!windows_process_memory_limited ||
+            windows_process_memory_limit_bytes > 0U) &&
+           (!windows_job_memory_limited ||
+            windows_job_memory_limit_bytes > 0U);
 }
 
 bool ZenithProcessMemoryPressureConfig::valid() const noexcept {
@@ -212,7 +320,8 @@ bool ZenithProcessMemoryPressurePolicy::update(
                 config_.psi_recovery_hysteresis_q16;
 
     FramePressure next = pressure_;
-    if (psi_critical_enter ||
+    if (snapshot.windows_low_memory ||
+        psi_critical_enter ||
         available <= config_.critical_enter_available_q16) {
         next = FramePressure::Critical;
     } else if (
@@ -283,6 +392,12 @@ bool capture_zenith_process_memory_snapshot(
     result.process_rss_bytes = static_cast<std::uint64_t>(counters.WorkingSetSize);
     result.system_available_bytes = memory.ullAvailPhys;
     result.system_total_bytes = memory.ullTotalPhys;
+
+    bool low_memory = false;
+    if (windows_low_memory_notification().query(&low_memory)) {
+        result.windows_low_memory = low_memory;
+    }
+    capture_windows_job_scope(counters, &result);
 #elif defined(__linux__)
     std::uint64_t total_kib = 0U;
     std::uint64_t available_kib = 0U;

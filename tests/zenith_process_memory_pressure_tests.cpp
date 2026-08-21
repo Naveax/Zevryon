@@ -83,13 +83,29 @@ int main() {
         policy.update(psi, &pressure) && pressure == FramePressure::Normal,
         "PSI critical pressure did not recover");
 
+    policy.reset();
+    ZenithProcessMemorySnapshot windows = pct(900U);
+    windows.windows_low_memory = true;
+    require(
+        policy.update(windows, &pressure) && pressure == FramePressure::Critical,
+        "Windows low-memory notification did not enter critical pressure");
+    windows.windows_low_memory = false;
+    require(
+        policy.update(windows, &pressure) && pressure == FramePressure::Normal,
+        "Windows low-memory notification did not recover");
+
     ZenithProcessMemorySnapshot invalid{0U, 2U, 1U};
     require(!policy.update(invalid, &pressure), "invalid snapshot accepted");
     ZenithProcessMemorySnapshot invalid_psi = pct(900U);
     invalid_psi.psi_memory_available = true;
     invalid_psi.psi_some_avg10_q16 = 65'537U;
     require(!policy.update(invalid_psi, &pressure), "invalid PSI snapshot accepted");
-    require(policy.stats().invalid_samples == 2U, "invalid samples were not counted");
+    ZenithProcessMemorySnapshot invalid_windows = pct(900U);
+    invalid_windows.windows_process_memory_limited = true;
+    require(
+        !policy.update(invalid_windows, &pressure),
+        "invalid Windows process-memory limit snapshot accepted");
+    require(policy.stats().invalid_samples == 3U, "invalid samples were not counted");
 
     std::string error;
     ZenithProcessMemorySnapshot actual;

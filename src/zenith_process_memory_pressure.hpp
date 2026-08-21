@@ -9,14 +9,26 @@ namespace zevryon::massivedoc {
 
 struct ZenithProcessMemorySnapshot {
     std::uint64_t process_rss_bytes{0U};
-    // Effective memory scope available to this process. On Linux this is
-    // clamped to a finite cgroup-v2 memory.max headroom when present.
+    // Effective memory scope available to this process. Linux may clamp this
+    // to finite cgroup-v2 headroom; Windows may clamp it to an enforced
+    // per-process job commit limit.
     std::uint64_t system_available_bytes{0U};
     std::uint64_t system_total_bytes{0U};
+
     bool cgroup_v2_limited{false};
     bool psi_memory_available{false};
     std::uint32_t psi_some_avg10_q16{0U};
     std::uint32_t psi_full_avg10_q16{0U};
+
+    bool windows_low_memory{false};
+    bool windows_job_member{false};
+    bool windows_process_memory_limited{false};
+    bool windows_job_memory_limited{false};
+    std::uint64_t windows_private_commit_bytes{0U};
+    std::uint64_t windows_process_memory_limit_bytes{0U};
+    std::uint64_t windows_job_memory_limit_bytes{0U};
+    std::uint64_t windows_peak_process_memory_bytes{0U};
+    std::uint64_t windows_peak_job_memory_bytes{0U};
 
     bool valid() const noexcept;
 };
