@@ -25,6 +25,10 @@ struct LayoutConfig {
 
 struct LayoutFragment {
     std::uint64_t record_index{0};
+    // Immutable physical source identity. Hot-scroll paths populate this even
+    // when logical record order changes, so speculative reads never guess that
+    // the current logical ordinal is also the StoreReader record index.
+    std::uint64_t source_record_index{0};
     std::uint64_t logical_id{0};
     std::uint64_t source_start{0};
     std::uint64_t source_end{0};

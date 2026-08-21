@@ -3,7 +3,8 @@ target_sources(
   PRIVATE
     src/frame_budget_scheduler.cpp
     src/hot_scroll_source_prefetch.cpp
-    src/shared_source_prefetch_pool.cpp)
+    src/shared_source_prefetch_pool.cpp
+    src/zenith_tab_runtime.cpp)
 
 if(BUILD_TESTING)
   add_executable(
@@ -38,4 +39,15 @@ if(BUILD_TESTING)
   add_test(
     NAME shared-source-prefetch-pool-tests
     COMMAND zevryon-shared-source-prefetch-pool-tests)
+
+  add_executable(
+    zevryon-tab-runtime-tests
+    tests/zenith_tab_runtime_tests.cpp)
+  target_link_libraries(
+    zevryon-tab-runtime-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-tab-runtime-tests)
+  add_test(
+    NAME zenith-tab-runtime-tests
+    COMMAND zevryon-tab-runtime-tests)
 endif()

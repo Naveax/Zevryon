@@ -563,6 +563,7 @@ struct ZenithHotScrollSession::Impl {
                         columns, checkpoint_config.average_advance_q8);
                     LayoutFragment fragment;
                     fragment.record_index = record.record_index;
+                    fragment.source_record_index = record.source_record_index;
                     fragment.logical_id = record.logical_id;
                     fragment.source_start = line_start;
                     fragment.source_end = source_end;
