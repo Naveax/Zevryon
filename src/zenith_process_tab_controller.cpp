@@ -24,22 +24,34 @@ struct ZenithProcessTabController::Impl {
     };
 
     std::unordered_map<std::uint64_t, Entry> entries;
+    std::size_t visible_tabs{0U};
+    std::size_t hidden_tabs{0U};
     FramePressure pressure{FramePressure::Normal};
     ZenithProcessTabControllerStats statistics;
 
     void sync_current_counts() noexcept {
         statistics.registered_tabs = entries.size();
-        statistics.visible_tabs = 0U;
-        statistics.hidden_tabs = 0U;
-        for (const auto& [session_id, entry] : entries) {
-            static_cast<void>(session_id);
-            if (entry.visibility == FrameVisibility::Visible) {
-                ++statistics.visible_tabs;
-            } else {
-                ++statistics.hidden_tabs;
-            }
-        }
+        statistics.visible_tabs = visible_tabs;
+        statistics.hidden_tabs = hidden_tabs;
         statistics.global_pressure = pressure;
+    }
+
+    void add_visibility(FrameVisibility visibility) noexcept {
+        if (visibility == FrameVisibility::Visible) {
+            ++visible_tabs;
+        } else {
+            ++hidden_tabs;
+        }
+    }
+
+    void remove_visibility(FrameVisibility visibility) noexcept {
+        if (visibility == FrameVisibility::Visible) {
+            if (visible_tabs > 0U) {
+                --visible_tabs;
+            }
+        } else if (hidden_tabs > 0U) {
+            --hidden_tabs;
+        }
     }
 
     bool apply(
@@ -137,9 +149,11 @@ bool ZenithProcessTabController::register_tab(
             *error = "process tab session registration failed";
             return false;
         }
+        impl_->add_visibility(inserted.first->second.visibility);
 
         std::string apply_error;
         if (!impl_->apply(inserted.first->second, impl_->pressure, &apply_error)) {
+            impl_->remove_visibility(inserted.first->second.visibility);
             impl_->entries.erase(inserted.first);
             impl_->sync_current_counts();
             *error = apply_error.empty()
@@ -168,6 +182,7 @@ bool ZenithProcessTabController::unregister_tab(std::uint64_t session_id) noexce
     if (found == impl_->entries.end()) {
         return false;
     }
+    impl_->remove_visibility(found->second.visibility);
     impl_->entries.erase(found);
     impl_->statistics.unregistrations =
         saturating_increment(impl_->statistics.unregistrations);
@@ -200,6 +215,10 @@ bool ZenithProcessTabController::set_tab_activity(
         return true;
     }
 
+    if (entry.visibility != visibility) {
+        impl_->remove_visibility(entry.visibility);
+        impl_->add_visibility(visibility);
+    }
     entry.visibility = visibility;
     entry.scroll_velocity_q8_per_second = normalized_velocity;
     impl_->statistics.activity_updates =
