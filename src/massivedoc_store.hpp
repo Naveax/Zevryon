@@ -1,5 +1,6 @@
 #pragma once
 
+#include "massivedoc_address_space.hpp"
 #include "massivedoc_block_cache.hpp"
 #include "massivedoc_cold_window.hpp"
 #include "massivedoc_generation.hpp"
@@ -29,7 +30,10 @@ constexpr std::uint64_t kDefaultSegmentBytes = 64ULL * 1024ULL * 1024ULL;
 constexpr std::uint32_t kDefaultRecordsPerSearchBlock = 8192U;
 constexpr std::size_t kBigramSignatureBytes = 8192U;
 constexpr std::size_t kIoWindowBytes = 64U * 1024U;
-constexpr std::size_t kMaximumIoWindowBytes = 16U * 1024U * 1024U;
+constexpr std::size_t kMaximumIoWindowBytes =
+    current_address_space_window_limits().maximum_io_window_bytes;
+constexpr std::size_t kMaximumMaterializedRecordSliceBytes =
+    current_address_space_window_limits().maximum_materialized_slice_bytes;
 
 struct CorpusMetadata {
     std::uint64_t logical_utf8_bytes{0};
