@@ -79,6 +79,17 @@ if(BUILD_TESTING)
     COMMAND zevryon-device-frame-profile-tests)
 
   add_executable(
+    zevryon-frame-profile-scheduler-certification-tests
+    tests/frame_profile_scheduler_certification_tests.cpp)
+  target_link_libraries(
+    zevryon-frame-profile-scheduler-certification-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-frame-profile-scheduler-certification-tests)
+  add_test(
+    NAME frame-profile-scheduler-certification-tests
+    COMMAND zevryon-frame-profile-scheduler-certification-tests)
+
+  add_executable(
     zevryon-unbounded-tab-registry-tests
     tests/unbounded_tab_registry_tests.cpp)
   target_link_libraries(
