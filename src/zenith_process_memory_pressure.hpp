@@ -56,6 +56,12 @@ bool capture_zenith_process_memory_snapshot(
 
 class ZenithProcessTabController;
 
+bool apply_zenith_process_memory_pressure_snapshot(
+    ZenithProcessMemoryPressurePolicy* policy,
+    ZenithProcessTabController* controller,
+    const ZenithProcessMemorySnapshot& snapshot,
+    std::string* error);
+
 bool sample_and_apply_zenith_process_memory_pressure(
     ZenithProcessMemoryPressurePolicy* policy,
     ZenithProcessTabController* controller,
