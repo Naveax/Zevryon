@@ -4,6 +4,7 @@ target_sources(
     src/frame_budget_scheduler.cpp
     src/hot_scroll_source_prefetch.cpp
     src/shared_source_prefetch_pool.cpp
+    src/velocity_prefetch_planner.cpp
     src/zenith_process_tab_controller.cpp
     src/zenith_tab_runtime.cpp)
 
@@ -40,6 +41,17 @@ if(BUILD_TESTING)
   add_test(
     NAME shared-source-prefetch-pool-tests
     COMMAND zevryon-shared-source-prefetch-pool-tests)
+
+  add_executable(
+    zevryon-velocity-prefetch-planner-tests
+    tests/velocity_prefetch_planner_tests.cpp)
+  target_link_libraries(
+    zevryon-velocity-prefetch-planner-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-velocity-prefetch-planner-tests)
+  add_test(
+    NAME velocity-prefetch-planner-tests
+    COMMAND zevryon-velocity-prefetch-planner-tests)
 
   add_executable(
     zevryon-unbounded-tab-registry-tests
