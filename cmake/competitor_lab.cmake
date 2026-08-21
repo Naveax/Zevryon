@@ -21,5 +21,10 @@ if(BUILD_TESTING)
       COMMAND
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/competitor_workload_smoke.py")
+    add_test(
+      NAME m7-zevryon-readiness-adapter-smoke
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/m7_zevryon_adapter_smoke.py")
   endif()
 endif()
