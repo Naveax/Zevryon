@@ -2,7 +2,8 @@ target_sources(
   zevryon-massivedoc-core
   PRIVATE
     src/frame_budget_scheduler.cpp
-    src/hot_scroll_source_prefetch.cpp)
+    src/hot_scroll_source_prefetch.cpp
+    src/shared_source_prefetch_pool.cpp)
 
 if(BUILD_TESTING)
   add_executable(
@@ -26,4 +27,15 @@ if(BUILD_TESTING)
   add_test(
     NAME hot-scroll-source-prefetch-tests
     COMMAND zevryon-hot-scroll-source-prefetch-tests)
+
+  add_executable(
+    zevryon-shared-source-prefetch-pool-tests
+    tests/shared_source_prefetch_pool_tests.cpp)
+  target_link_libraries(
+    zevryon-shared-source-prefetch-pool-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-shared-source-prefetch-pool-tests)
+  add_test(
+    NAME shared-source-prefetch-pool-tests
+    COMMAND zevryon-shared-source-prefetch-pool-tests)
 endif()
