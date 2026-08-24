@@ -15,9 +15,11 @@
 namespace zevryon::massivedoc {
 namespace {
 
+constexpr std::uint32_t kMaxPsiMilliPercent = 100U * 1000U;
+#if defined(__linux__)
 constexpr std::size_t kTinyControlFileLimit = 256U;
 constexpr std::size_t kPressureFileLimit = 16U * 1024U;
-constexpr std::uint32_t kMaxPsiMilliPercent = 100U * 1000U;
+#endif
 
 std::string_view trim(std::string_view value) noexcept {
     while (!value.empty() &&
@@ -137,6 +139,7 @@ bool psi_avg10(
     return true;
 }
 
+#if defined(__linux__)
 bool read_bounded_file(
     const std::filesystem::path& path,
     std::size_t limit,
@@ -166,7 +169,6 @@ bool read_bounded_file(
     return true;
 }
 
-#if defined(__linux__)
 bool resolve_cgroup_v2_directory(std::filesystem::path* directory) {
     if (directory == nullptr) {
         return false;
@@ -368,7 +370,7 @@ bool apply_zenith_linux_memory_context(
         context.cgroup_limit_bytes >= snapshot->system_total_bytes) {
         snapshot->cgroup_v2_limited = false;
         snapshot->memory_domain = ZenithProcessMemoryDomain::Host;
-        return true;
+        return snapshot->valid();
     }
     if (context.cgroup_limit_bytes == 0U) {
         *error = "cgroup v2 effective memory limit is zero";
