@@ -22,6 +22,16 @@ struct ZenithProcessMemorySnapshot {
     bool psi_available{false};
     std::uint32_t psi_some_avg10_milli_percent{0U};
     std::uint32_t psi_full_avg10_milli_percent{0U};
+    bool windows_low_memory_notification_available{false};
+    bool windows_low_memory_signaled{false};
+    bool windows_job_detected{false};
+    std::uint32_t windows_job_active_processes{0U};
+    bool windows_process_memory_limit_enabled{false};
+    std::uint64_t windows_process_memory_limit_bytes{0U};
+    bool windows_job_memory_limit_enabled{false};
+    std::uint64_t windows_job_memory_limit_bytes{0U};
+    std::uint64_t windows_peak_process_memory_used_bytes{0U};
+    std::uint64_t windows_peak_job_memory_used_bytes{0U};
 
     bool valid() const noexcept;
 };
