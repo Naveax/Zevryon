@@ -32,6 +32,7 @@ struct ZenithTabRuntimeStats {
     std::uint64_t layout_requests{0U};
     std::uint64_t visible_layouts{0U};
     std::uint64_t hidden_layout_suppressions{0U};
+    std::uint64_t ui_blocking_layout_rejections{0U};
     std::uint64_t visible_frame_overruns{0U};
     std::uint64_t background_transitions{0U};
     std::uint64_t critical_transitions{0U};
@@ -75,7 +76,26 @@ public:
         FramePressure pressure,
         std::int64_t scroll_velocity_q8_per_second,
         std::string* error);
+
+    // Synchronous compatibility entry point. The current hot-scroll layout can
+    // perform checkpoint/source I/O on cache misses, so this method is worker-
+    // lane authority and must not be called from a UI execution lane.
     bool layout(
+        std::uint64_t scroll_y_q8,
+        std::uint32_t viewport_width_q8,
+        std::uint64_t viewport_height_q8,
+        std::uint64_t overscan_q8,
+        std::size_t max_fragments,
+        LayoutWindowResult* result,
+        bool* used_checkpoint_path,
+        std::string* error);
+
+    // Explicit lane-aware entry point. Visible UI-lane calls fail closed before
+    // entering the hot-scroll engine because that path can still block on disk.
+    // Hidden calls remain suppressible on either lane because they perform no
+    // foreground layout work.
+    bool layout_on_lane(
+        FrameExecutionLane lane,
         std::uint64_t scroll_y_q8,
         std::uint32_t viewport_width_q8,
         std::uint64_t viewport_height_q8,
