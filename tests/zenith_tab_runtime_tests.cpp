@@ -296,6 +296,86 @@ void test_exact_prefetch_cache_admission_bypasses_source_read(
             "exact prefetched window unexpectedly missed source cache");
 }
 
+void test_ui_lane_blocking_layout_fails_before_hot_scroll(
+    const Fixture& fixture) {
+    ZenithTabRuntimeConfig config;
+    config.layout = fixture.layout;
+    config.frame_budget = FrameBudgetPolicy{
+        1'000'000U,
+        100'000U,
+        10'000U,
+        5'000U};
+    config.prefetch_reserve_us = 100U;
+    config.prefetch_bytes = kIoWindowBytes;
+
+    ZenithTabRuntime runtime(fixture.root, nullptr, 66U, config);
+    std::string error;
+    require(runtime.open(&error), "UI-lane fence runtime open failed");
+    require(
+        runtime.set_activity(
+            FrameVisibility::Visible,
+            FramePressure::Normal,
+            0,
+            &error),
+        "UI-lane fence activity update failed");
+
+    const ZenithHotScrollStats hot_before = runtime.hot_scroll_stats();
+    const FrameBudgetSnapshot budget_before = runtime.frame_budget_snapshot();
+    LayoutWindowResult blocked;
+    bool used_checkpoint = true;
+    require(
+        !runtime.layout_on_lane(
+            FrameExecutionLane::Ui,
+            0U,
+            800U * 256U,
+            720U * 256U,
+            0U,
+            128U,
+            &blocked,
+            &used_checkpoint,
+            &error),
+        "blocking visible layout unexpectedly ran on UI lane");
+    require(blocked.fragments.empty() && !used_checkpoint,
+            "UI-lane rejection returned foreground layout output");
+    require(error.find("forbidden on the UI execution lane") != std::string::npos,
+            "UI-lane rejection did not expose fail-closed reason");
+    require(runtime.stats().ui_blocking_layout_rejections == 1U,
+            "UI-lane blocking rejection was not counted");
+    require(runtime.hot_scroll_stats().layout_calls == hot_before.layout_calls,
+            "UI-lane rejection entered hot-scroll layout");
+    require(
+        runtime.hot_scroll_stats().checkpoint_cache_misses ==
+            hot_before.checkpoint_cache_misses,
+        "UI-lane rejection touched checkpoint lookup path");
+    require(
+        runtime.hot_scroll_stats().source_window_cache_misses ==
+            hot_before.source_window_cache_misses,
+        "UI-lane rejection touched source-window lookup path");
+    require(
+        runtime.frame_budget_snapshot().rejected_requests ==
+            budget_before.rejected_requests + 1U,
+        "UI-lane rejection did not pass through frame scheduler authority");
+
+    LayoutWindowResult worker;
+    used_checkpoint = false;
+    error.clear();
+    require(
+        runtime.layout(
+            0U,
+            800U * 256U,
+            720U * 256U,
+            0U,
+            128U,
+            &worker,
+            &used_checkpoint,
+            &error),
+        "worker-lane compatibility layout failed after UI rejection");
+    require(used_checkpoint && !worker.fragments.empty(),
+            "worker-lane compatibility layout lost foreground output");
+    require(runtime.hot_scroll_stats().layout_calls == hot_before.layout_calls + 1U,
+            "worker-lane compatibility layout did not enter hot-scroll engine");
+}
+
 void test_tab_runtime_hidden_suppression_and_shared_prefetch(
     const Fixture& fixture) {
     const auto gate = std::make_shared<PrefetchGate>();
@@ -464,6 +544,7 @@ int main() {
     const Fixture fixture = build_fixture();
     test_hot_scroll_fragment_keeps_physical_identity_after_reorder(fixture);
     test_exact_prefetch_cache_admission_bypasses_source_read(fixture);
+    test_ui_lane_blocking_layout_fails_before_hot_scroll(fixture);
     test_tab_runtime_hidden_suppression_and_shared_prefetch(fixture);
 
     std::error_code ignored;
