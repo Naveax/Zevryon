@@ -3,6 +3,7 @@
 #include "massivedoc_store.hpp"
 #include "zenith_process_runtime_services.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -11,10 +12,12 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace {
 using namespace zevryon::massivedoc;
+using namespace std::chrono_literals;
 
 [[noreturn]] void fail(std::string_view message) {
     std::cerr << "FAIL: " << message << '\n';
@@ -112,6 +115,35 @@ Fixture build_fixture() {
     return fixture;
 }
 
+ForegroundLayoutRequest layout_request(std::uint64_t request_id) {
+    ForegroundLayoutRequest request;
+    request.request_id = request_id;
+    request.scroll_y_q8 = 0U;
+    request.viewport_width_q8 = 800U * 256U;
+    request.viewport_height_q8 = 720U * 256U;
+    request.overscan_q8 = 0U;
+    request.max_fragments = 128U;
+    return request;
+}
+
+bool take_ready_for(
+    ZenithProcessRuntimeServices* services,
+    std::uint64_t session_id,
+    ForegroundLayoutReady* ready,
+    std::chrono::milliseconds timeout) {
+    if (services == nullptr || ready == nullptr) {
+        return false;
+    }
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (services->try_take_tab_layout_async(session_id, ready)) {
+            return true;
+        }
+        std::this_thread::sleep_for(1ms);
+    }
+    return services->try_take_tab_layout_async(session_id, ready);
+}
+
 void test_hidden_slots_materialize_only_on_demand(const Fixture& fixture) {
     const std::vector<ZenithProcessMemorySnapshot> snapshots{
         ZenithProcessMemorySnapshot{64U, 70U, 1000U},
@@ -122,6 +154,9 @@ void test_hidden_slots_materialize_only_on_demand(const Fixture& fixture) {
     ZenithProcessRuntimeServicesConfig config;
     config.prefetch_worker_count = 1U;
     config.prefetch_ready_bytes = 128U * 1024U;
+    config.foreground_layout_worker_count = 1U;
+    config.foreground_layout_ready_bytes = 512U * 1024U;
+    config.foreground_layout_max_fragments = 256U;
     ZenithProcessRuntimeServices services(
         config,
         [&snapshots, &snapshot_index](
@@ -164,11 +199,19 @@ void test_hidden_slots_materialize_only_on_demand(const Fixture& fixture) {
     require(status.prefetch_pool.sessions == 1U &&
                 status.prefetch_pool.active_sessions == 1U &&
                 status.prefetch_pool.live_threads == 0U,
-            "dormant hidden tab consumed shared pool resources");
+            "dormant hidden tab consumed source-prefetch resources");
+    require(status.foreground_layout_pool.sessions == 1U &&
+                status.foreground_layout_pool.active_sessions == 1U &&
+                status.foreground_layout_pool.live_threads == 1U,
+            "visible runtime did not bind one process foreground worker pool");
     require(!services.tab_materialized(1001U) && services.tab(1001U) == nullptr,
             "hidden dormant slot exposed a runtime");
     require(services.tab_materialized(1002U) && services.tab(1002U) != nullptr,
             "visible slot did not materialize runtime");
+    require(
+        services.request_tab_layout_async(1001U, layout_request(1U)) ==
+            ForegroundLayoutWorkerScheduleResult::Inactive,
+        "dormant hidden slot accepted foreground work");
 
     require(
         services.set_tab_activity(
@@ -180,7 +223,9 @@ void test_hidden_slots_materialize_only_on_demand(const Fixture& fixture) {
     status = services.status();
     require(status.materialized_tabs == 1U &&
                 status.prefetch_pool.sessions == 1U &&
-                status.prefetch_pool.active_sessions == 0U,
+                status.prefetch_pool.active_sessions == 0U &&
+                status.foreground_layout_pool.sessions == 1U &&
+                status.foreground_layout_pool.active_sessions == 0U,
             "normal hidden transition lost bounded retained runtime contract");
 
     require(
@@ -193,7 +238,9 @@ void test_hidden_slots_materialize_only_on_demand(const Fixture& fixture) {
     status = services.status();
     require(status.materialized_tabs == 2U &&
                 status.prefetch_pool.sessions == 2U &&
-                status.prefetch_pool.active_sessions == 1U,
+                status.prefetch_pool.active_sessions == 1U &&
+                status.foreground_layout_pool.sessions == 2U &&
+                status.foreground_layout_pool.active_sessions == 1U,
             "visible materialization accounting mismatch");
 
     require(
@@ -205,7 +252,9 @@ void test_hidden_slots_materialize_only_on_demand(const Fixture& fixture) {
             "critical memory sample did not reach process owner");
     require(status.materialized_tabs == 1U &&
                 status.prefetch_pool.sessions == 1U &&
-                status.prefetch_pool.active_sessions == 1U,
+                status.prefetch_pool.active_sessions == 1U &&
+                status.foreground_layout_pool.sessions == 1U &&
+                status.foreground_layout_pool.active_sessions == 1U,
             "critical pressure did not dematerialize hidden runtime");
     require(!services.tab_materialized(1002U) && services.tab(1002U) == nullptr,
             "critical hidden runtime survived as materialized state");
@@ -215,21 +264,16 @@ void test_hidden_slots_materialize_only_on_demand(const Fixture& fixture) {
     ZenithTabRuntime* visible = services.tab(1001U);
     const std::uint64_t prefetch_before =
         visible->stats().prefetch_schedule_accepts;
-    LayoutWindowResult result;
-    bool used_checkpoint = false;
     require(
-        visible->layout(
-            0U,
-            800U * 256U,
-            720U * 256U,
-            0U,
-            128U,
-            &result,
-            &used_checkpoint,
-            &error),
-        "critical visible layout failed");
-    require(used_checkpoint && !result.fragments.empty(),
-            "critical visible slot lost foreground layout");
+        services.request_tab_layout_async(1001U, layout_request(1U)) ==
+            ForegroundLayoutWorkerScheduleResult::Accepted,
+        "critical visible async layout request failed");
+    ForegroundLayoutReady ready;
+    require(take_ready_for(&services, 1001U, &ready, 5s),
+            "critical visible async layout did not complete");
+    require(ready.succeeded && ready.used_checkpoint_path &&
+                !ready.result.fragments.empty(),
+            "critical visible async layout lost foreground output");
     require(visible->stats().prefetch_schedule_accepts == prefetch_before,
             "critical visible slot scheduled speculative prefetch");
 
@@ -259,14 +303,17 @@ void test_hidden_slots_materialize_only_on_demand(const Fixture& fixture) {
     status = services.status();
     require(status.materialized_tabs == 2U &&
                 status.prefetch_pool.sessions == 2U &&
-                status.prefetch_pool.active_sessions == 2U,
+                status.prefetch_pool.active_sessions == 2U &&
+                status.foreground_layout_pool.sessions == 2U &&
+                status.foreground_layout_pool.active_sessions == 2U,
             "post-critical rematerialization accounting mismatch");
 
     require(services.close_tab(1001U) && services.close_tab(1002U),
             "dormant slot close failed");
     status = services.status();
     require(status.tabs == 0U && status.materialized_tabs == 0U &&
-                status.prefetch_pool.sessions == 0U,
+                status.prefetch_pool.sessions == 0U &&
+                status.foreground_layout_pool.sessions == 0U,
             "closed dormant slots retained process resources");
 }
 
