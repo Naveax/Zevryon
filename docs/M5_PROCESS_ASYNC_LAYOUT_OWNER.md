@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`ZenithProcessRuntimeServices` now owns the foreground-layout worker pool alongside the existing process-shared source-prefetch pool and record-length authority.
+`ZenithProcessRuntimeServices` owns the foreground-layout worker pool alongside the existing process-shared source-prefetch pool and record-length authority.
 
 Materialized tabs receive one shared `SharedForegroundLayoutWorkerPool`; dormant hidden tab slots receive no foreground worker session and therefore do not create worker threads or retain ready viewport payloads.
 
@@ -22,18 +22,20 @@ The process owner exposes `request_tab_layout_async()` and `try_take_tab_layout_
 
 Dormant or dematerialized tabs reject foreground requests as inactive. Unknown session identities fail closed.
 
-## Critical pressure and runtime destruction
+## Critical pressure and runtime retirement
 
 A hidden runtime receives the critical activity transition first, which invalidates foreground authority and requests a hot-scroll critical trim without waiting on the active layout mutex.
 
-Destroying that runtime closes its foreground worker session. To prevent the process event-loop pressure path from waiting on an already-running foreground callback, hidden critical runtime destruction is deferred while any process foreground callback is running. A later process tick or activity transition drains the pending destruction once the foreground worker set has no running session.
+The runtime is then retired from public/materialized tab ownership rather than destroyed synchronously. Runtime generations use internal pool identities that are distinct from public tab identities, so a rematerialized or reopened public tab can receive a fresh runtime generation while an older callback still owns the retired generation it started with.
 
-This is deliberately conservative across tabs: unrelated running foreground work may delay hidden-runtime destruction briefly, but the event-loop path remains non-blocking with respect to foreground layout execution.
+Retired generations are destroyed only after process foreground callbacks are no longer running. This keeps critical-pressure and explicit-close public lifecycle paths from waiting on foreground layout execution.
 
 ## Dormant registry invariant
 
 Hidden slots that have never been materialized still consume only lightweight registry metadata. They create neither source-prefetch sessions nor foreground-layout sessions. Failed materialization must leave both shared pools unchanged.
 
-## Remaining boundary
+## Lifecycle accounting
 
-Explicit user-driven `close_tab()` still synchronizes runtime destruction with an already-running callback through the worker-pool close contract. Making explicit close fully asynchronous is a separate lifecycle slice and is not claimed here.
+`retired_runtime_generations` reports old runtime generations retained solely for callback lifetime safety. They are not materialized tabs and have already received hidden/critical runtime authority before retirement.
+
+The detailed generation contract is recorded in `M5_RUNTIME_GENERATION_RETIREMENT.md`.
