@@ -156,6 +156,17 @@ bool ZenithProcessMemoryPressurePolicy::update(
         next = FramePressure::Normal;
     }
 
+    if (config_.windows_low_memory_elevated_floor &&
+        snapshot.windows_low_memory_notification_available) {
+        stats_.windows_low_memory_samples =
+            saturating_increment(stats_.windows_low_memory_samples);
+        if (snapshot.windows_low_memory_signaled && next == FramePressure::Normal) {
+            next = FramePressure::Elevated;
+            stats_.windows_low_memory_escalations =
+                saturating_increment(stats_.windows_low_memory_escalations);
+        }
+    }
+
     if (next != pressure_) {
         pressure_ = next;
         stats_.pressure_changes = saturating_increment(stats_.pressure_changes);
