@@ -54,10 +54,16 @@ void test_large_dormant_registry_without_runtime_materialization() {
     require(opened.prefetch_pool.sessions == 0U &&
                 opened.prefetch_pool.active_sessions == 0U &&
                 opened.prefetch_pool.live_threads == 0U,
-            "dormant registry consumed shared-pool runtime resources");
+            "dormant registry consumed source-prefetch runtime resources");
     require(opened.prefetch_pool.ready_bytes == 0U &&
                 opened.prefetch_pool.ready_results == 0U,
             "dormant registry retained speculative payload");
+    require(opened.foreground_layout_pool.sessions == 0U &&
+                opened.foreground_layout_pool.active_sessions == 0U &&
+                opened.foreground_layout_pool.live_threads == 0U &&
+                opened.foreground_layout_pool.handoff.ready_results == 0U &&
+                opened.foreground_layout_pool.handoff.ready_bytes == 0U,
+            "dormant registry consumed foreground-layout runtime resources");
     require(opened.tab_controller.registered_tabs == 0U &&
                 opened.tab_controller.visible_tabs == 0U &&
                 opened.tab_controller.hidden_tabs == 0U,
@@ -76,8 +82,9 @@ void test_large_dormant_registry_without_runtime_materialization() {
 
     const ZenithProcessRuntimeServicesStatus failed_once = services.status();
     require(failed_once.materialized_tabs == 0U &&
-                failed_once.prefetch_pool.sessions == 0U,
-            "failed materialization leaked runtime or pool session");
+                failed_once.prefetch_pool.sessions == 0U &&
+                failed_once.foreground_layout_pool.sessions == 0U,
+            "failed materialization leaked runtime or shared-pool session");
     require(failed_once.tab_controller.registered_tabs == 0U,
             "failed materialization leaked controller working-set entry");
 
@@ -100,6 +107,7 @@ void test_large_dormant_registry_without_runtime_materialization() {
     const ZenithProcessRuntimeServicesStatus closed = services.status();
     require(closed.tabs == 0U && closed.materialized_tabs == 0U &&
                 closed.prefetch_pool.sessions == 0U &&
+                closed.foreground_layout_pool.sessions == 0U &&
                 closed.tab_controller.registered_tabs == 0U,
             "dormant registry retained state after close");
 }
