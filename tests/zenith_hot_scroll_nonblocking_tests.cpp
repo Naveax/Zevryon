@@ -69,7 +69,9 @@ int main() {
 
     zevryon::massivedoc::ArenaConfig arena_config;
     arena_config.records_per_block = 1U;
-    arena_config.estimated_bytes_per_line = 96U;
+    // Deliberately far from the checkpoint layout width so the first parsed
+    // checkpoint requires an authoritative height correction.
+    arena_config.estimated_bytes_per_line = 4096U;
     arena_config.line_height_q8 = 18U * 256U;
     arena_config.vertical_padding_q8 = 12U * 256U;
     zevryon::massivedoc::ArenaStats arena_stats;
@@ -131,6 +133,80 @@ int main() {
         !require(!used_checkpoint, "checkpoint would-block publishes no completed layout") ||
         !require(result.source_bytes_read == 0U,
                  "checkpoint would-block performs zero source I/O")) {
+        return 1;
+    }
+
+    // Prime only the parsed-checkpoint cache in an explicitly blocking context.
+    // Hiding the persisted height file makes the blocking call fail exactly at
+    // arena-height persistence, before the in-memory arena can be corrected.
+    // Restoring the file then lets the cache-only call prove that it refuses
+    // the same persistence operation rather than touching disk on the UI path.
+    const auto heights_path = root / "arena" / "record-heights.idx";
+    const auto blocked_heights_path = root / "arena" / "record-heights.idx.blocked";
+    fs_error.clear();
+    std::filesystem::rename(heights_path, blocked_heights_path, fs_error);
+    if (!require(!fs_error, "temporarily hide persisted arena heights")) {
+        return 1;
+    }
+
+    result = {};
+    used_checkpoint = false;
+    error.clear();
+    const bool blocked_warmup = session.layout(
+        0U,
+        kViewportWidthQ8,
+        kViewportHeightQ8,
+        0U,
+        256U,
+        &result,
+        &used_checkpoint,
+        &error);
+    if (!require(!blocked_warmup,
+                 "blocking checkpoint prime reaches the persistence failure") ||
+        !require(!error.empty(),
+                 "blocking persistence failure remains a hard error")) {
+        return 1;
+    }
+
+    fs_error.clear();
+    std::filesystem::rename(blocked_heights_path, heights_path, fs_error);
+    if (!require(!fs_error, "restore persisted arena heights")) {
+        return 1;
+    }
+
+    zevryon::massivedoc::LayoutWindowResult height_miss;
+    used_checkpoint = false;
+    status = zevryon::massivedoc::ZenithHotScrollLayoutStatus::Ready;
+    error.clear();
+    if (!require(
+            session.layout_nonblocking(
+                0U,
+                kViewportWidthQ8,
+                kViewportHeightQ8,
+                0U,
+                256U,
+                &height_miss,
+                &used_checkpoint,
+                &status,
+                &error),
+            "height persistence returns a readiness result") ||
+        !require(error.empty(), "height would-block is not a hard error") ||
+        !require(
+            status == zevryon::massivedoc::ZenithHotScrollLayoutStatus::WouldBlockHeightPersistence,
+            "cache-only layout refuses persisted arena-height mutation") ||
+        !require(!used_checkpoint,
+                 "height would-block publishes no completed layout") ||
+        !require(height_miss.source_bytes_read == 0U,
+                 "height would-block performs zero source I/O")) {
+        return 1;
+    }
+
+    // The fail-closed call must not have persisted the corrected height.
+    zevryon::massivedoc::CompactArenaReader untouched_arena(root);
+    if (!require(untouched_arena.open(&error), error) ||
+        !require(
+            untouched_arena.stats().total_height_q8 == arena_stats.total_height_q8,
+            "height would-block leaves persisted arena geometry unchanged")) {
         return 1;
     }
 
