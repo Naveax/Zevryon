@@ -50,6 +50,7 @@ struct SharedForegroundLayoutHandoff::State {
     struct Session {
         bool active{true};
         bool has_latest_request{false};
+        bool running_invalidated{false};
         ForegroundLayoutRequest latest_request{};
         std::optional<ForegroundLayoutRequest> pending;
         std::optional<ForegroundLayoutRequest> running;
@@ -161,6 +162,9 @@ bool SharedForegroundLayoutHandoff::set_session_active(
     if (!active) {
         state_->remove_pending(&session, true);
         state_->remove_ready(&session, true);
+        if (session.running.has_value()) {
+            session.running_invalidated = true;
+        }
     }
     return true;
 }
@@ -248,6 +252,7 @@ bool SharedForegroundLayoutHandoff::try_take_pending(
     }
     session.running = std::move(session.pending);
     session.pending.reset();
+    session.running_invalidated = false;
     *request = *session.running;
     return true;
 }
@@ -274,8 +279,10 @@ bool SharedForegroundLayoutHandoff::publish_ready(
         return false;
     }
 
+    const bool running_invalidated = session.running_invalidated;
     session.running.reset();
-    if (!session.active || !session.has_latest_request ||
+    session.running_invalidated = false;
+    if (running_invalidated || !session.active || !session.has_latest_request ||
         ready.request_id != session.latest_request.request_id) {
         state_->stale_publications =
             saturating_increment(state_->stale_publications);
@@ -374,6 +381,7 @@ void SharedForegroundLayoutHandoff::stop() {
         state_->remove_pending(&session, true);
         state_->remove_ready(&session, true);
         session.running.reset();
+        session.running_invalidated = false;
         session.active = false;
     }
 }
