@@ -258,6 +258,42 @@ struct ZenithHotScrollSession::Impl {
     std::vector<std::byte> source_scratch;
     std::vector<LayoutFragment> fragment_scratch;
 
+    void refresh_transient_capacity_metrics() noexcept {
+        statistics.source_scratch_capacity_bytes = source_scratch.capacity();
+        statistics.source_scratch_peak_bytes = std::max(
+            statistics.source_scratch_peak_bytes,
+            statistics.source_scratch_capacity_bytes);
+        if (fragment_scratch.capacity() >
+            std::numeric_limits<std::size_t>::max() / sizeof(LayoutFragment)) {
+            statistics.fragment_scratch_capacity_bytes =
+                std::numeric_limits<std::size_t>::max();
+        } else {
+            statistics.fragment_scratch_capacity_bytes =
+                fragment_scratch.capacity() * sizeof(LayoutFragment);
+        }
+        statistics.fragment_scratch_peak_bytes = std::max(
+            statistics.fragment_scratch_peak_bytes,
+            statistics.fragment_scratch_capacity_bytes);
+    }
+
+    void release_source_working_set() noexcept {
+        std::unordered_map<SourceWindowKey, SourceWindowCacheEntry, SourceWindowKeyHash>{}
+            .swap(source_cache);
+        std::list<SourceWindowKey>{}.swap(source_lru);
+        std::vector<std::byte>{}.swap(source_scratch);
+        std::vector<LayoutFragment>{}.swap(fragment_scratch);
+        statistics.source_window_cache_bytes = 0U;
+        statistics.source_scratch_capacity_bytes = 0U;
+        statistics.fragment_scratch_capacity_bytes = 0U;
+    }
+
+    void release_checkpoint_working_set() noexcept {
+        std::unordered_map<CheckpointKey, CheckpointCacheEntry, CheckpointKeyHash>{}
+            .swap(checkpoint_cache);
+        std::list<CheckpointKey>{}.swap(checkpoint_lru);
+        statistics.checkpoint_cache_bytes = 0U;
+    }
+
     void erase_checkpoint_cache(
         std::unordered_map<CheckpointKey, CheckpointCacheEntry, CheckpointKeyHash>::iterator
             entry) {
@@ -433,6 +469,7 @@ struct ZenithHotScrollSession::Impl {
                 error)) {
             return false;
         }
+        refresh_transient_capacity_metrics();
         *physical_bytes_read = static_cast<std::uint64_t>(source_scratch.size());
 
         const std::size_t charge = source_window_cache_charge(source_scratch);
@@ -526,6 +563,7 @@ struct ZenithHotScrollSession::Impl {
                         columns, checkpoint_config.average_advance_q8);
                     LayoutFragment fragment;
                     fragment.record_index = record.record_index;
+                    fragment.source_record_index = record.source_record_index;
                     fragment.logical_id = record.logical_id;
                     fragment.source_start = line_start;
                     fragment.source_end = source_end;
@@ -628,12 +666,14 @@ struct ZenithHotScrollSession::Impl {
         if (!stop && (line_start < source_offset || fragments->empty())) {
             emit_line(source_offset, false);
         }
+        refresh_transient_capacity_metrics();
         return true;
     }
 
     void publish_cache_metrics(
         const ZenithHotScrollStats& before,
-        LayoutWindowResult* result) const noexcept {
+        LayoutWindowResult* result) noexcept {
+        refresh_transient_capacity_metrics();
         result->checkpoint_cache_hits =
             statistics.checkpoint_cache_hits - before.checkpoint_cache_hits;
         result->checkpoint_cache_misses =
@@ -887,10 +927,83 @@ bool ZenithHotScrollSession::layout(
     return true;
 }
 
+bool ZenithHotScrollSession::admit_prefetched_source_window(
+    std::uint64_t source_record_index,
+    std::uint64_t source_offset,
+    std::size_t request_bytes,
+    std::vector<std::byte> bytes) noexcept {
+    if (!impl_->opened || request_bytes == 0U || request_bytes > kIoWindowBytes ||
+        bytes.size() != request_bytes) {
+        return false;
+    }
+    const SourceWindowKey key{source_record_index, source_offset, request_bytes};
+    auto found = impl_->source_cache.find(key);
+    if (found != impl_->source_cache.end()) {
+        impl_->source_lru.splice(
+            impl_->source_lru.begin(),
+            impl_->source_lru,
+            found->second.lru_position);
+        found->second.lru_position = impl_->source_lru.begin();
+        return true;
+    }
+
+    try {
+        const std::size_t charge = source_window_cache_charge(bytes);
+        if (charge > impl_->config.max_source_window_cache_bytes) {
+            return false;
+        }
+        impl_->evict_source_for(charge);
+        if (impl_->statistics.source_window_cache_bytes >
+            impl_->config.max_source_window_cache_bytes - charge) {
+            return false;
+        }
+
+        impl_->source_lru.push_front(key);
+        SourceWindowCacheEntry entry;
+        entry.bytes = std::move(bytes);
+        entry.charge_bytes = charge;
+        entry.lru_position = impl_->source_lru.begin();
+        const auto inserted = impl_->source_cache.emplace(key, std::move(entry));
+        if (!inserted.second) {
+            impl_->source_lru.pop_front();
+            return false;
+        }
+        impl_->statistics.source_window_cache_bytes += charge;
+        impl_->statistics.source_window_cache_peak_bytes = std::max(
+            impl_->statistics.source_window_cache_peak_bytes,
+            impl_->statistics.source_window_cache_bytes);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+void ZenithHotScrollSession::trim_memory(ZenithMemoryPressure pressure) noexcept {
+    std::uint64_t reclaimed = static_cast<std::uint64_t>(
+        saturating_size_add(
+            impl_->statistics.source_window_cache_bytes,
+            saturating_size_add(
+                impl_->statistics.source_scratch_capacity_bytes,
+                impl_->statistics.fragment_scratch_capacity_bytes)));
+    impl_->release_source_working_set();
+
+    if (pressure == ZenithMemoryPressure::Critical) {
+        reclaimed = saturating_add(
+            reclaimed,
+            static_cast<std::uint64_t>(impl_->statistics.checkpoint_cache_bytes));
+        impl_->release_checkpoint_working_set();
+        impl_->statistics.critical_trim_calls = saturating_add(
+            impl_->statistics.critical_trim_calls, 1U);
+    } else {
+        impl_->statistics.background_trim_calls = saturating_add(
+            impl_->statistics.background_trim_calls, 1U);
+    }
+    impl_->statistics.trim_reclaimed_bytes = saturating_add(
+        impl_->statistics.trim_reclaimed_bytes, reclaimed);
+}
+
 void ZenithHotScrollSession::clear_source_window_cache() noexcept {
-    impl_->source_cache.clear();
-    impl_->source_lru.clear();
-    impl_->statistics.source_window_cache_bytes = 0U;
+    impl_->release_source_working_set();
 }
 
 const ZenithHotScrollStats& ZenithHotScrollSession::stats() const noexcept {
@@ -910,10 +1023,20 @@ std::string zenith_hot_scroll_stats_json(const ZenithHotScrollStats& stats) {
            << ",\"source_window_cache_hits\":" << stats.source_window_cache_hits
            << ",\"source_window_cache_misses\":" << stats.source_window_cache_misses
            << ",\"source_window_cache_evictions\":" << stats.source_window_cache_evictions
+           << ",\"background_trim_calls\":" << stats.background_trim_calls
+           << ",\"critical_trim_calls\":" << stats.critical_trim_calls
+           << ",\"trim_reclaimed_bytes\":" << stats.trim_reclaimed_bytes
            << ",\"checkpoint_cache_bytes\":" << stats.checkpoint_cache_bytes
            << ",\"checkpoint_cache_peak_bytes\":" << stats.checkpoint_cache_peak_bytes
            << ",\"source_window_cache_bytes\":" << stats.source_window_cache_bytes
            << ",\"source_window_cache_peak_bytes\":" << stats.source_window_cache_peak_bytes
+           << ",\"source_scratch_capacity_bytes\":"
+           << stats.source_scratch_capacity_bytes
+           << ",\"source_scratch_peak_bytes\":" << stats.source_scratch_peak_bytes
+           << ",\"fragment_scratch_capacity_bytes\":"
+           << stats.fragment_scratch_capacity_bytes
+           << ",\"fragment_scratch_peak_bytes\":"
+           << stats.fragment_scratch_peak_bytes
            << '}';
     return output.str();
 }
