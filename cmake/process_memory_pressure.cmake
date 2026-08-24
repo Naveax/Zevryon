@@ -65,4 +65,15 @@ if(BUILD_TESTING)
   add_test(
     NAME process-memory-runtime-integration-tests
     COMMAND zevryon-process-memory-runtime-integration-tests)
+
+  add_executable(
+    zevryon-runtime-generation-retirement-tests
+    tests/zenith_process_runtime_generation_tests.cpp)
+  target_link_libraries(
+    zevryon-runtime-generation-retirement-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-runtime-generation-retirement-tests)
+  add_test(
+    NAME runtime-generation-retirement-tests
+    COMMAND zevryon-runtime-generation-retirement-tests)
 endif()
