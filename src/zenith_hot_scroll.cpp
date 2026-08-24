@@ -247,6 +247,8 @@ struct ZenithHotScrollSession::Impl {
     StoreReader store;
     CompactArenaReader arena;
     bool opened{false};
+    bool blocking_io_allowed{true};
+    ZenithHotScrollLayoutStatus layout_status{ZenithHotScrollLayoutStatus::Ready};
     ZenithHotScrollStats statistics;
 
     std::list<CheckpointKey> checkpoint_lru;
@@ -387,6 +389,12 @@ struct ZenithHotScrollSession::Impl {
         }
 
         ++statistics.checkpoint_cache_misses;
+        if (!blocking_io_allowed) {
+            layout_status = ZenithHotScrollLayoutStatus::WouldBlockCheckpoint;
+            error->clear();
+            return false;
+        }
+
         std::error_code exists_error;
         const bool exists = std::filesystem::exists(
             layout_checkpoint_path(root, record.source_record_index, checkpoint_config),
@@ -461,6 +469,13 @@ struct ZenithHotScrollSession::Impl {
         }
 
         ++statistics.source_window_cache_misses;
+        if (!blocking_io_allowed) {
+            layout_status = ZenithHotScrollLayoutStatus::WouldBlockSource;
+            *bytes = std::span<const std::byte>{};
+            error->clear();
+            return false;
+        }
+
         if (!store.read_record_slice(
                 record.source_record_index,
                 source_offset,
@@ -751,6 +766,7 @@ bool ZenithHotScrollSession::layout(
         return false;
     }
 
+    impl_->layout_status = ZenithHotScrollLayoutStatus::Ready;
     const ZenithHotScrollStats before = impl_->statistics;
     *result = LayoutWindowResult{};
     *used_checkpoint_path = false;
@@ -810,6 +826,14 @@ bool ZenithHotScrollSession::layout(
             result->height_saturated || checkpoint_stats.height_saturated;
         apply_height_to_anchor(&anchor, record, checkpoint_stats.measured_height_q8);
         if (record.height_q8 != checkpoint_stats.measured_height_q8) {
+            if (!impl_->blocking_io_allowed) {
+                impl_->layout_status =
+                    ZenithHotScrollLayoutStatus::WouldBlockHeightPersistence;
+                *result = LayoutWindowResult{};
+                *used_checkpoint_path = false;
+                error->clear();
+                return false;
+            }
             HeightUpdateResult update;
             if (!impl_->arena.update_height(
                     record.record_index,
@@ -925,6 +949,59 @@ bool ZenithHotScrollSession::layout(
     ++impl_->statistics.layout_calls;
     impl_->publish_cache_metrics(before, result);
     return true;
+}
+
+bool ZenithHotScrollSession::layout_nonblocking(
+    std::uint64_t scroll_y_q8,
+    std::uint32_t viewport_width_q8,
+    std::uint64_t viewport_height_q8,
+    std::uint64_t overscan_q8,
+    std::size_t max_fragments,
+    LayoutWindowResult* result,
+    bool* used_checkpoint_path,
+    ZenithHotScrollLayoutStatus* status,
+    std::string* error) {
+    if (status == nullptr) {
+        if (error != nullptr) {
+            *error = "invalid hot-scroll non-blocking layout status";
+        }
+        return false;
+    }
+
+    impl_->layout_status = ZenithHotScrollLayoutStatus::Ready;
+    const bool previous_blocking_io_allowed = impl_->blocking_io_allowed;
+    impl_->blocking_io_allowed = false;
+    const bool success = layout(
+        scroll_y_q8,
+        viewport_width_q8,
+        viewport_height_q8,
+        overscan_q8,
+        max_fragments,
+        result,
+        used_checkpoint_path,
+        error);
+    impl_->blocking_io_allowed = previous_blocking_io_allowed;
+
+    if (success) {
+        *status = ZenithHotScrollLayoutStatus::Ready;
+        return true;
+    }
+    if (impl_->layout_status != ZenithHotScrollLayoutStatus::Ready) {
+        *status = impl_->layout_status;
+        if (result != nullptr) {
+            *result = LayoutWindowResult{};
+        }
+        if (used_checkpoint_path != nullptr) {
+            *used_checkpoint_path = false;
+        }
+        if (error != nullptr) {
+            error->clear();
+        }
+        return true;
+    }
+
+    *status = ZenithHotScrollLayoutStatus::Ready;
+    return false;
 }
 
 bool ZenithHotScrollSession::admit_prefetched_source_window(

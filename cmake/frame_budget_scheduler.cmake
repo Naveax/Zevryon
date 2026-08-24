@@ -59,6 +59,17 @@ if(BUILD_TESTING)
     COMMAND zevryon-hot-scroll-source-prefetch-tests)
 
   add_executable(
+    zevryon-hot-scroll-nonblocking-tests
+    tests/zenith_hot_scroll_nonblocking_tests.cpp)
+  target_link_libraries(
+    zevryon-hot-scroll-nonblocking-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-hot-scroll-nonblocking-tests)
+  add_test(
+    NAME hot-scroll-nonblocking-tests
+    COMMAND zevryon-hot-scroll-nonblocking-tests)
+
+  add_executable(
     zevryon-shared-source-prefetch-pool-tests
     tests/shared_source_prefetch_pool_tests.cpp)
   target_link_libraries(

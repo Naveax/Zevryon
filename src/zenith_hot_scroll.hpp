@@ -17,6 +17,13 @@ enum class ZenithMemoryPressure : std::uint8_t {
     Critical
 };
 
+enum class ZenithHotScrollLayoutStatus : std::uint8_t {
+    Ready = 0,
+    WouldBlockCheckpoint,
+    WouldBlockSource,
+    WouldBlockHeightPersistence
+};
+
 struct ZenithHotScrollStats {
     std::uint64_t layout_calls{0};
     std::uint64_t checkpoint_cache_hits{0};
@@ -61,6 +68,21 @@ public:
         std::size_t max_fragments,
         LayoutWindowResult* result,
         bool* used_checkpoint_path,
+        std::string* error);
+
+    // Execute the same layout algorithm with a strict resident-data-only
+    // policy. Cache misses or required arena-height persistence are reported as
+    // WouldBlock* outcomes instead of falling through to synchronous disk I/O.
+    // A WouldBlock* outcome is a scheduling/readiness result, not corruption.
+    bool layout_nonblocking(
+        std::uint64_t scroll_y_q8,
+        std::uint32_t viewport_width_q8,
+        std::uint64_t viewport_height_q8,
+        std::uint64_t overscan_q8,
+        std::size_t max_fragments,
+        LayoutWindowResult* result,
+        bool* used_checkpoint_path,
+        ZenithHotScrollLayoutStatus* status,
         std::string* error);
 
     // Admit an exact speculative source window under the same physical cache
