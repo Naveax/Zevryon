@@ -59,6 +59,14 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _validate_prepare_args(prepare_args: Sequence[str]) -> None:
+    if "--skip-build" in prepare_args:
+        raise ValueError(
+            "source-bound physical certification forbids --skip-build; "
+            "the measured binaries must be rebuilt from the exact candidate head"
+        )
+
+
 def _git_candidate_state(expected_sha: str) -> dict[str, object]:
     normalized = expected_sha.lower()
     if SHA_RE.fullmatch(normalized) is None:
@@ -138,6 +146,7 @@ def build_receipt(
             ),
             "native_frame_certified": True,
             "manifest_embeds_exact_evidence": True,
+            "candidate_binaries_rebuilt": True,
         },
         "physical": {
             "manifest_sha256": _sha256(manifest_path),
@@ -155,6 +164,7 @@ def build_receipt(
 def main() -> int:
     args, prepare_args = parse_args()
     try:
+        _validate_prepare_args(prepare_args)
         candidate = _git_candidate_state(args.expected_sha)
         work_dir = args.work_dir.resolve()
         receipt_path = (
