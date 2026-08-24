@@ -41,6 +41,8 @@ struct ZenithProcessMemoryPressureConfig {
     std::uint32_t elevated_enter_available_q16{9'830U};
     std::uint32_t critical_enter_available_q16{5'243U};
     std::uint32_t recovery_hysteresis_q16{1'966U};
+    // Windows LowMemoryResourceNotification supplies an OS-owned elevated floor.
+    bool windows_low_memory_elevated_floor{true};
 
     bool valid() const noexcept;
 };
@@ -49,6 +51,8 @@ struct ZenithProcessMemoryPressureStats {
     std::uint64_t samples{0U};
     std::uint64_t invalid_samples{0U};
     std::uint64_t pressure_changes{0U};
+    std::uint64_t windows_low_memory_samples{0U};
+    std::uint64_t windows_low_memory_escalations{0U};
     FramePressure pressure{FramePressure::Normal};
 };
 
