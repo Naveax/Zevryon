@@ -1,6 +1,7 @@
 #pragma once
 
 #include "device_frame_profile.hpp"
+#include "foreground_layout_worker_pool.hpp"
 #include "shared_record_length_authority.hpp"
 #include "shared_source_prefetch_pool.hpp"
 #include "zenith_process_memory_sampler.hpp"
@@ -18,6 +19,9 @@ namespace zevryon::massivedoc {
 struct ZenithProcessRuntimeServicesConfig {
     std::size_t prefetch_worker_count{2U};
     std::size_t prefetch_ready_bytes{2U * 1024U * 1024U};
+    std::size_t foreground_layout_worker_count{2U};
+    std::size_t foreground_layout_ready_bytes{4U * 1024U * 1024U};
+    std::size_t foreground_layout_max_fragments{4096U};
     SharedRecordLengthAuthorityConfig record_length{};
     ZenithProcessMemoryPressureConfig memory_pressure{};
     ZenithProcessMemorySamplerConfig memory_sampler{};
@@ -29,6 +33,7 @@ struct ZenithProcessRuntimeServicesStatus {
     std::size_t tabs{0U};
     std::size_t materialized_tabs{0U};
     SharedSourcePrefetchPoolStatus prefetch_pool{};
+    ForegroundLayoutWorkerPoolStatus foreground_layout_pool{};
     SharedRecordLengthAuthorityStatus record_lengths{};
     ZenithProcessTabControllerStats tab_controller{};
     ZenithProcessMemoryPressureStats memory_pressure{};
@@ -63,6 +68,13 @@ public:
         FrameVisibility visibility,
         std::int64_t scroll_velocity_q8_per_second,
         std::string* error);
+
+    ForegroundLayoutWorkerScheduleResult request_tab_layout_async(
+        std::uint64_t session_id,
+        ForegroundLayoutRequest request) noexcept;
+    bool try_take_tab_layout_async(
+        std::uint64_t session_id,
+        ForegroundLayoutReady* ready) noexcept;
 
     ZenithProcessMemoryPollResult on_event_loop_tick(
         std::uint64_t monotonic_ms,
