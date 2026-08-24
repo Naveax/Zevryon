@@ -32,6 +32,7 @@ struct ZenithProcessRuntimeServicesConfig {
 struct ZenithProcessRuntimeServicesStatus {
     std::size_t tabs{0U};
     std::size_t materialized_tabs{0U};
+    std::size_t retired_runtime_generations{0U};
     SharedSourcePrefetchPoolStatus prefetch_pool{};
     ForegroundLayoutWorkerPoolStatus foreground_layout_pool{};
     SharedRecordLengthAuthorityStatus record_lengths{};
