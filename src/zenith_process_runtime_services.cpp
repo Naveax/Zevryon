@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <exception>
+#include <limits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -60,6 +61,7 @@ struct ZenithProcessRuntimeServices::Impl {
         FrameVisibility visibility{FrameVisibility::Hidden};
         FramePressure pressure{FramePressure::Normal};
         std::int64_t velocity{0};
+        std::uint64_t runtime_session_id{0U};
         std::unique_ptr<ZenithTabRuntime> runtime;
         bool controller_registered{false};
     };
@@ -89,52 +91,44 @@ struct ZenithProcessRuntimeServices::Impl {
         };
     }
 
-    void queue_runtime_destruction(std::uint64_t session_id) {
-        if (std::find(
-                pending_runtime_destructions.begin(),
-                pending_runtime_destructions.end(),
-                session_id) == pending_runtime_destructions.end()) {
-            pending_runtime_destructions.push_back(session_id);
+    std::uint64_t allocate_runtime_session_id() noexcept {
+        const std::uint64_t id = next_runtime_session_id;
+        if (id == 0U) {
+            return 0U;
         }
+        if (next_runtime_session_id == std::numeric_limits<std::uint64_t>::max()) {
+            next_runtime_session_id = 0U;
+        } else {
+            ++next_runtime_session_id;
+        }
+        return id;
     }
 
-    void destroy_runtime(std::uint64_t session_id, TabSlot* slot) noexcept {
+    void retire_runtime(TabSlot* slot) noexcept {
         if (slot == nullptr || !slot->runtime) {
             return;
         }
-        slot->runtime.reset();
-        if (materialized_tabs > 0U) {
-            --materialized_tabs;
+        try {
+            retired_runtimes.push_back(std::move(slot->runtime));
+            slot->runtime_session_id = 0U;
+            if (materialized_tabs > 0U) {
+                --materialized_tabs;
+            }
+        } catch (...) {
+            // Moving a unique_ptr itself is noexcept, but vector growth may fail.
+            // If retention cannot be allocated, leave the runtime in the slot so
+            // correctness/lifetime remains intact and retry retirement later.
         }
-        pending_controller_unregistrations.push_back(session_id);
     }
 
-    void drain_pending_runtime_destructions() noexcept {
-        if (pending_runtime_destructions.empty()) {
+    void drain_retired_runtimes() noexcept {
+        if (retired_runtimes.empty()) {
             return;
         }
-
-        // Runtime destruction closes the tab's foreground worker session. That
-        // close must not wait on a currently executing foreground callback from
-        // an event-loop pressure path. Conservatively defer all pending hidden
-        // runtime destruction while any process foreground callback is running.
         if (foreground_layout_pool.status().running_sessions != 0U) {
             return;
         }
-
-        for (const std::uint64_t session_id : pending_runtime_destructions) {
-            const auto found = tabs.find(session_id);
-            if (found == tabs.end()) {
-                continue;
-            }
-            TabSlot& slot = found->second;
-            if (slot.runtime &&
-                slot.visibility == FrameVisibility::Hidden &&
-                slot.pressure == FramePressure::Critical) {
-                destroy_runtime(session_id, &slot);
-            }
-        }
-        pending_runtime_destructions.clear();
+        retired_runtimes.clear();
     }
 
     bool apply_slot(
@@ -160,10 +154,16 @@ struct ZenithProcessRuntimeServices::Impl {
             slot.visibility = visibility;
             slot.pressure = pressure;
             slot.velocity = 0;
+            drain_retired_runtimes();
             return true;
         }
 
         if (!slot.runtime) {
+            const std::uint64_t runtime_session_id = allocate_runtime_session_id();
+            if (runtime_session_id == 0U) {
+                *error = "process runtime session generation exhausted";
+                return false;
+            }
             ZenithTabRuntimeConfig tab_config =
                 make_zenith_tab_runtime_config(
                     slot.profile,
@@ -173,7 +173,7 @@ struct ZenithProcessRuntimeServices::Impl {
                 slot.store_root,
                 &prefetch_pool,
                 &foreground_layout_pool,
-                session_id,
+                runtime_session_id,
                 tab_config);
             if (!runtime->open(error)) {
                 return false;
@@ -185,6 +185,7 @@ struct ZenithProcessRuntimeServices::Impl {
                     error)) {
                 return false;
             }
+            slot.runtime_session_id = runtime_session_id;
             slot.runtime = std::move(runtime);
             ++materialized_tabs;
         } else if (!slot.runtime->set_activity(
@@ -202,12 +203,12 @@ struct ZenithProcessRuntimeServices::Impl {
         if (visibility == FrameVisibility::Hidden &&
             pressure == FramePressure::Critical &&
             slot.runtime) {
-            if (foreground_layout_pool.status().running_sessions == 0U) {
-                destroy_runtime(session_id, &slot);
-            } else {
-                queue_runtime_destruction(session_id);
+            retire_runtime(&slot);
+            if (!slot.runtime) {
+                pending_controller_unregistrations.push_back(session_id);
             }
         }
+        drain_retired_runtimes();
         return true;
     }
 
@@ -261,7 +262,8 @@ struct ZenithProcessRuntimeServices::Impl {
     ZenithProcessMemorySampler memory_sampler;
     std::unordered_map<std::uint64_t, TabSlot> tabs;
     std::size_t materialized_tabs{0U};
-    std::vector<std::uint64_t> pending_runtime_destructions;
+    std::uint64_t next_runtime_session_id{1U};
+    std::vector<std::unique_ptr<ZenithTabRuntime>> retired_runtimes;
     std::vector<std::uint64_t> pending_controller_unregistrations;
 };
 
@@ -321,6 +323,7 @@ bool ZenithProcessRuntimeServices::open_tab(
         }
 
         if (visibility == FrameVisibility::Hidden) {
+            impl_->drain_retired_runtimes();
             return true;
         }
 
@@ -336,6 +339,7 @@ bool ZenithProcessRuntimeServices::open_tab(
                          : std::move(controller_error);
             return false;
         }
+        impl_->drain_retired_runtimes();
         return true;
     } catch (const std::exception& exception) {
         *error = std::string("unable to allocate process runtime tab: ") +
@@ -353,20 +357,42 @@ bool ZenithProcessRuntimeServices::close_tab(
     if (found == impl_->tabs.end()) {
         return false;
     }
-    if (found->second.controller_registered &&
+
+    Impl::TabSlot& slot = found->second;
+    if (slot.runtime) {
+        std::string activity_error;
+        if (!slot.runtime->set_activity(
+                FrameVisibility::Hidden,
+                FramePressure::Critical,
+                0,
+                &activity_error)) {
+            return false;
+        }
+        slot.visibility = FrameVisibility::Hidden;
+        slot.pressure = FramePressure::Critical;
+        slot.velocity = 0;
+    }
+
+    if (slot.controller_registered &&
         !impl_->tab_controller.unregister_tab(session_id)) {
         return false;
     }
-    if (found->second.runtime && impl_->materialized_tabs > 0U) {
-        --impl_->materialized_tabs;
+    slot.controller_registered = false;
+
+    if (slot.runtime) {
+        impl_->retire_runtime(&slot);
+        if (slot.runtime) {
+            return false;
+        }
     }
     impl_->tabs.erase(found);
-    impl_->pending_runtime_destructions.erase(
+    impl_->pending_controller_unregistrations.erase(
         std::remove(
-            impl_->pending_runtime_destructions.begin(),
-            impl_->pending_runtime_destructions.end(),
+            impl_->pending_controller_unregistrations.begin(),
+            impl_->pending_controller_unregistrations.end(),
             session_id),
-        impl_->pending_runtime_destructions.end());
+        impl_->pending_controller_unregistrations.end());
+    impl_->drain_retired_runtimes();
     return true;
 }
 
@@ -390,6 +416,7 @@ bool ZenithProcessRuntimeServices::set_tab_activity(
         if (visibility == FrameVisibility::Hidden) {
             slot.visibility = FrameVisibility::Hidden;
             slot.velocity = 0;
+            impl_->drain_retired_runtimes();
             return true;
         }
         const bool registered = impl_->register_controller(
@@ -397,7 +424,7 @@ bool ZenithProcessRuntimeServices::set_tab_activity(
             FrameVisibility::Visible,
             scroll_velocity_q8_per_second,
             error);
-        impl_->drain_pending_runtime_destructions();
+        impl_->drain_retired_runtimes();
         impl_->drain_pending_controller_unregistrations();
         return registered;
     }
@@ -410,7 +437,7 @@ bool ZenithProcessRuntimeServices::set_tab_activity(
             visibility,
             scroll_velocity_q8_per_second,
             error)) {
-        impl_->drain_pending_runtime_destructions();
+        impl_->drain_retired_runtimes();
         impl_->drain_pending_controller_unregistrations();
         return true;
     }
@@ -471,7 +498,7 @@ ZenithProcessMemoryPollResult ZenithProcessRuntimeServices::on_event_loop_tick(
         &impl_->tab_controller,
         captured,
         error);
-    impl_->drain_pending_runtime_destructions();
+    impl_->drain_retired_runtimes();
     impl_->drain_pending_controller_unregistrations();
     return result;
 }
@@ -484,7 +511,7 @@ ZenithProcessMemoryPollResult ZenithProcessRuntimeServices::on_event_loop_tick_n
         &impl_->tab_controller,
         captured,
         error);
-    impl_->drain_pending_runtime_destructions();
+    impl_->drain_retired_runtimes();
     impl_->drain_pending_controller_unregistrations();
     return result;
 }
@@ -513,6 +540,7 @@ ZenithProcessRuntimeServices::status() const {
     ZenithProcessRuntimeServicesStatus snapshot;
     snapshot.tabs = impl_->tabs.size();
     snapshot.materialized_tabs = impl_->materialized_tabs;
+    snapshot.retired_runtime_generations = impl_->retired_runtimes.size();
     snapshot.prefetch_pool = impl_->prefetch_pool.status();
     snapshot.foreground_layout_pool = impl_->foreground_layout_pool.status();
     snapshot.record_lengths = impl_->record_lengths.status();
