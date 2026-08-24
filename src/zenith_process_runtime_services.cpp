@@ -2,6 +2,7 @@
 
 #include "zenith_tab_runtime_profile.hpp"
 
+#include <algorithm>
 #include <exception>
 #include <unordered_map>
 #include <utility>
@@ -10,13 +11,23 @@
 namespace zevryon::massivedoc {
 namespace {
 
-SharedSourcePrefetchPoolConfig make_pool_config(
+SharedSourcePrefetchPoolConfig make_prefetch_pool_config(
     const ZenithProcessRuntimeServicesConfig& config,
     SharedRecordLengthAuthority* authority) {
     SharedSourcePrefetchPoolConfig pool;
     pool.worker_count = config.prefetch_worker_count;
     pool.max_ready_bytes = config.prefetch_ready_bytes;
     pool.record_length_authority = authority;
+    return pool;
+}
+
+ForegroundLayoutWorkerPoolConfig make_foreground_layout_pool_config(
+    const ZenithProcessRuntimeServicesConfig& config) {
+    ForegroundLayoutWorkerPoolConfig pool;
+    pool.worker_count = config.foreground_layout_worker_count;
+    pool.handoff.max_ready_bytes = config.foreground_layout_ready_bytes;
+    pool.handoff.max_fragments_per_request =
+        config.foreground_layout_max_fragments;
     return pool;
 }
 
@@ -32,6 +43,10 @@ bool ZenithProcessRuntimeServicesConfig::valid() const noexcept {
     return prefetch_worker_count > 0U &&
            prefetch_worker_count <= 64U &&
            prefetch_ready_bytes > 0U &&
+           foreground_layout_worker_count > 0U &&
+           foreground_layout_worker_count <= 64U &&
+           foreground_layout_ready_bytes > 0U &&
+           foreground_layout_max_fragments > 0U &&
            record_length.valid() &&
            memory_pressure.valid() &&
            memory_sampler.valid();
@@ -43,6 +58,7 @@ struct ZenithProcessRuntimeServices::Impl {
         DeviceFrameProfile profile{DeviceFrameProfile::MidPhone};
         LayoutConfig layout{};
         FrameVisibility visibility{FrameVisibility::Hidden};
+        FramePressure pressure{FramePressure::Normal};
         std::int64_t velocity{0};
         std::unique_ptr<ZenithTabRuntime> runtime;
         bool controller_registered{false};
@@ -53,7 +69,8 @@ struct ZenithProcessRuntimeServices::Impl {
         ZenithProcessMemorySnapshotProvider provider)
         : config(config_value),
           record_lengths(config_value.record_length),
-          prefetch_pool(make_pool_config(config_value, &record_lengths)),
+          prefetch_pool(make_prefetch_pool_config(config_value, &record_lengths)),
+          foreground_layout_pool(make_foreground_layout_pool_config(config_value)),
           memory_pressure(config_value.memory_pressure),
           memory_sampler(config_value.memory_sampler, std::move(provider)) {}
 
@@ -70,6 +87,54 @@ struct ZenithProcessRuntimeServices::Impl {
                 velocity,
                 error);
         };
+    }
+
+    void queue_runtime_destruction(std::uint64_t session_id) {
+        if (std::find(
+                pending_runtime_destructions.begin(),
+                pending_runtime_destructions.end(),
+                session_id) == pending_runtime_destructions.end()) {
+            pending_runtime_destructions.push_back(session_id);
+        }
+    }
+
+    void destroy_runtime(std::uint64_t session_id, TabSlot* slot) noexcept {
+        if (slot == nullptr || !slot->runtime) {
+            return;
+        }
+        slot->runtime.reset();
+        if (materialized_tabs > 0U) {
+            --materialized_tabs;
+        }
+        pending_controller_unregistrations.push_back(session_id);
+    }
+
+    void drain_pending_runtime_destructions() noexcept {
+        if (pending_runtime_destructions.empty()) {
+            return;
+        }
+
+        // Runtime destruction closes the tab's foreground worker session. That
+        // close must not wait on a currently executing foreground callback from
+        // an event-loop pressure path. Conservatively defer all pending hidden
+        // runtime destruction while any process foreground callback is running.
+        if (foreground_layout_pool.status().running_sessions != 0U) {
+            return;
+        }
+
+        for (const std::uint64_t session_id : pending_runtime_destructions) {
+            const auto found = tabs.find(session_id);
+            if (found == tabs.end()) {
+                continue;
+            }
+            TabSlot& slot = found->second;
+            if (slot.runtime &&
+                slot.visibility == FrameVisibility::Hidden &&
+                slot.pressure == FramePressure::Critical) {
+                destroy_runtime(session_id, &slot);
+            }
+        }
+        pending_runtime_destructions.clear();
     }
 
     bool apply_slot(
@@ -93,6 +158,7 @@ struct ZenithProcessRuntimeServices::Impl {
 
         if (visibility == FrameVisibility::Hidden && !slot.runtime) {
             slot.visibility = visibility;
+            slot.pressure = pressure;
             slot.velocity = 0;
             return true;
         }
@@ -106,6 +172,7 @@ struct ZenithProcessRuntimeServices::Impl {
             auto runtime = std::make_unique<ZenithTabRuntime>(
                 slot.store_root,
                 &prefetch_pool,
+                &foreground_layout_pool,
                 session_id,
                 tab_config);
             if (!runtime->open(error)) {
@@ -129,16 +196,17 @@ struct ZenithProcessRuntimeServices::Impl {
         }
 
         slot.visibility = visibility;
+        slot.pressure = pressure;
         slot.velocity = target_velocity;
 
         if (visibility == FrameVisibility::Hidden &&
             pressure == FramePressure::Critical &&
             slot.runtime) {
-            slot.runtime.reset();
-            if (materialized_tabs > 0U) {
-                --materialized_tabs;
+            if (foreground_layout_pool.status().running_sessions == 0U) {
+                destroy_runtime(session_id, &slot);
+            } else {
+                queue_runtime_destruction(session_id);
             }
-            pending_controller_unregistrations.push_back(session_id);
         }
         return true;
     }
@@ -187,11 +255,13 @@ struct ZenithProcessRuntimeServices::Impl {
     ZenithProcessRuntimeServicesConfig config;
     SharedRecordLengthAuthority record_lengths;
     SharedSourcePrefetchPool prefetch_pool;
+    SharedForegroundLayoutWorkerPool foreground_layout_pool;
     ZenithProcessTabController tab_controller;
     ZenithProcessMemoryPressurePolicy memory_pressure;
     ZenithProcessMemorySampler memory_sampler;
     std::unordered_map<std::uint64_t, TabSlot> tabs;
     std::size_t materialized_tabs{0U};
+    std::vector<std::uint64_t> pending_runtime_destructions;
     std::vector<std::uint64_t> pending_controller_unregistrations;
 };
 
@@ -208,6 +278,7 @@ bool ZenithProcessRuntimeServices::valid() const noexcept {
     return impl_->config.valid() &&
            impl_->record_lengths.valid() &&
            impl_->prefetch_pool.valid() &&
+           impl_->foreground_layout_pool.valid() &&
            impl_->memory_pressure.valid() &&
            impl_->memory_sampler.valid();
 }
@@ -238,6 +309,7 @@ bool ZenithProcessRuntimeServices::open_tab(
         slot.profile = profile;
         slot.layout = layout;
         slot.visibility = visibility;
+        slot.pressure = impl_->memory_pressure.stats().pressure;
         slot.velocity = normalized_velocity(
             visibility,
             scroll_velocity_q8_per_second);
@@ -289,6 +361,12 @@ bool ZenithProcessRuntimeServices::close_tab(
         --impl_->materialized_tabs;
     }
     impl_->tabs.erase(found);
+    impl_->pending_runtime_destructions.erase(
+        std::remove(
+            impl_->pending_runtime_destructions.begin(),
+            impl_->pending_runtime_destructions.end(),
+            session_id),
+        impl_->pending_runtime_destructions.end());
     return true;
 }
 
@@ -314,11 +392,14 @@ bool ZenithProcessRuntimeServices::set_tab_activity(
             slot.velocity = 0;
             return true;
         }
-        return impl_->register_controller(
+        const bool registered = impl_->register_controller(
             session_id,
             FrameVisibility::Visible,
             scroll_velocity_q8_per_second,
             error);
+        impl_->drain_pending_runtime_destructions();
+        impl_->drain_pending_controller_unregistrations();
+        return registered;
     }
 
     const FrameVisibility previous_visibility = slot.visibility;
@@ -329,6 +410,7 @@ bool ZenithProcessRuntimeServices::set_tab_activity(
             visibility,
             scroll_velocity_q8_per_second,
             error)) {
+        impl_->drain_pending_runtime_destructions();
         impl_->drain_pending_controller_unregistrations();
         return true;
     }
@@ -351,6 +433,34 @@ bool ZenithProcessRuntimeServices::set_tab_activity(
     return false;
 }
 
+ForegroundLayoutWorkerScheduleResult
+ZenithProcessRuntimeServices::request_tab_layout_async(
+    std::uint64_t session_id,
+    ForegroundLayoutRequest request) noexcept {
+    if (session_id == 0U) {
+        return ForegroundLayoutWorkerScheduleResult::Invalid;
+    }
+    const auto found = impl_->tabs.find(session_id);
+    if (found == impl_->tabs.end()) {
+        return ForegroundLayoutWorkerScheduleResult::UnknownSession;
+    }
+    if (!found->second.runtime) {
+        return ForegroundLayoutWorkerScheduleResult::Inactive;
+    }
+    return found->second.runtime->request_layout_async(std::move(request));
+}
+
+bool ZenithProcessRuntimeServices::try_take_tab_layout_async(
+    std::uint64_t session_id,
+    ForegroundLayoutReady* ready) noexcept {
+    if (ready == nullptr || session_id == 0U) {
+        return false;
+    }
+    const auto found = impl_->tabs.find(session_id);
+    return found != impl_->tabs.end() && found->second.runtime &&
+           found->second.runtime->try_take_layout_async(ready);
+}
+
 ZenithProcessMemoryPollResult ZenithProcessRuntimeServices::on_event_loop_tick(
     std::uint64_t monotonic_ms,
     ZenithProcessMemorySnapshot* captured,
@@ -361,6 +471,7 @@ ZenithProcessMemoryPollResult ZenithProcessRuntimeServices::on_event_loop_tick(
         &impl_->tab_controller,
         captured,
         error);
+    impl_->drain_pending_runtime_destructions();
     impl_->drain_pending_controller_unregistrations();
     return result;
 }
@@ -373,6 +484,7 @@ ZenithProcessMemoryPollResult ZenithProcessRuntimeServices::on_event_loop_tick_n
         &impl_->tab_controller,
         captured,
         error);
+    impl_->drain_pending_runtime_destructions();
     impl_->drain_pending_controller_unregistrations();
     return result;
 }
@@ -402,6 +514,7 @@ ZenithProcessRuntimeServices::status() const {
     snapshot.tabs = impl_->tabs.size();
     snapshot.materialized_tabs = impl_->materialized_tabs;
     snapshot.prefetch_pool = impl_->prefetch_pool.status();
+    snapshot.foreground_layout_pool = impl_->foreground_layout_pool.status();
     snapshot.record_lengths = impl_->record_lengths.status();
     snapshot.tab_controller = impl_->tab_controller.stats();
     snapshot.memory_pressure = impl_->memory_pressure.stats();
