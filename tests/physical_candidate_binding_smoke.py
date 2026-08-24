@@ -79,6 +79,16 @@ def test_head_mismatch_and_dirty_tree_fail_closed() -> None:
         module._run = original
 
 
+def test_source_bound_candidate_forbids_skip_build() -> None:
+    module._validate_prepare_args(["--samples", "2000"])
+    try:
+        module._validate_prepare_args(["--skip-build"])
+    except ValueError as exc:
+        require("forbids --skip-build" in str(exc), "skip-build diagnostic changed")
+    else:
+        raise RuntimeError("stale prebuilt binaries were accepted for source-bound admission")
+
+
 def test_manifest_and_evidence_are_digest_bound() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -118,6 +128,10 @@ def test_manifest_and_evidence_are_digest_bound() -> None:
             "receipt lost native certification",
         )
         require(
+            receipt["checks"]["candidate_binaries_rebuilt"] is True,
+            "receipt lost source-bound rebuild claim",
+        )
+        require(
             receipt["physical"]["evidence_sha256"] == module._sha256(evidence_path),
             "receipt evidence digest changed",
         )
@@ -135,6 +149,7 @@ def test_manifest_and_evidence_are_digest_bound() -> None:
 def main() -> int:
     test_exact_head_and_clean_tree()
     test_head_mismatch_and_dirty_tree_fail_closed()
+    test_source_bound_candidate_forbids_skip_build()
     test_manifest_and_evidence_are_digest_bound()
     print("Zevryon physical candidate binding smoke passed")
     return 0
