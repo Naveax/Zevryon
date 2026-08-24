@@ -350,8 +350,31 @@ bool ZenithTabRuntime::layout(
     LayoutWindowResult* result,
     bool* used_checkpoint_path,
     std::string* error) {
+    return layout_on_lane(
+        FrameExecutionLane::Worker,
+        scroll_y_q8,
+        viewport_width_q8,
+        viewport_height_q8,
+        overscan_q8,
+        max_fragments,
+        result,
+        used_checkpoint_path,
+        error);
+}
+
+bool ZenithTabRuntime::layout_on_lane(
+    FrameExecutionLane lane,
+    std::uint64_t scroll_y_q8,
+    std::uint32_t viewport_width_q8,
+    std::uint64_t viewport_height_q8,
+    std::uint64_t overscan_q8,
+    std::size_t max_fragments,
+    LayoutWindowResult* result,
+    bool* used_checkpoint_path,
+    std::string* error) {
     if (!impl_->opened || result == nullptr || used_checkpoint_path == nullptr ||
-        error == nullptr) {
+        error == nullptr ||
+        (lane != FrameExecutionLane::Ui && lane != FrameExecutionLane::Worker)) {
         if (error != nullptr) {
             *error = "invalid zenith tab layout request";
         }
@@ -369,6 +392,25 @@ bool ZenithTabRuntime::layout(
         impl_->statistics.hidden_layout_suppressions = saturating_add(
             impl_->statistics.hidden_layout_suppressions, 1U);
         return true;
+    }
+
+    if (lane == FrameExecutionLane::Ui) {
+        *result = LayoutWindowResult{};
+        *used_checkpoint_path = false;
+        FrameWorkRequest blocked_request;
+        blocked_request.work_class = FrameWorkClass::Visible;
+        blocked_request.lane = FrameExecutionLane::Ui;
+        blocked_request.reserve_us = 1U;
+        blocked_request.may_block = true;
+        const FrameAdmission admission = impl_->scheduler.reserve(blocked_request);
+        if (admission != FrameAdmission::BlockingOnUi) {
+            *error = "frame scheduler failed to reject blocking UI layout";
+            return false;
+        }
+        impl_->statistics.ui_blocking_layout_rejections = saturating_add(
+            impl_->statistics.ui_blocking_layout_rejections, 1U);
+        *error = "blocking hot-scroll layout is forbidden on the UI execution lane";
+        return false;
     }
 
     impl_->drain_ready_prefetch();
@@ -398,11 +440,11 @@ bool ZenithTabRuntime::layout(
 
     FrameWorkRequest visible_charge;
     visible_charge.work_class = FrameWorkClass::Visible;
-    visible_charge.lane = FrameExecutionLane::Ui;
+    visible_charge.lane = FrameExecutionLane::Worker;
     visible_charge.reserve_us = elapsed_budget_charge(
         elapsed_us,
         impl_->config.frame_budget.frame_budget_us);
-    visible_charge.may_block = false;
+    visible_charge.may_block = true;
     static_cast<void>(impl_->scheduler.reserve(visible_charge));
     impl_->scheduler.finish_visible_phase();
 
