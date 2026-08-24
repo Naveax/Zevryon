@@ -10,6 +10,7 @@
 #include <limits>
 #include <string>
 #include <system_error>
+#include <utility>
 
 namespace zevryon::massivedoc {
 namespace {
@@ -81,11 +82,12 @@ bool parse_milli_percent(
     if (index < text.size() && text[index] == '.') {
         ++index;
         while (index < text.size() && text[index] >= '0' && text[index] <= '9') {
-            if (fraction_digits < 3U) {
-                fraction = fraction * 10U +
-                           static_cast<std::uint32_t>(text[index] - '0');
-                ++fraction_digits;
+            if (fraction_digits == 3U) {
+                return false;
             }
+            fraction = fraction * 10U +
+                       static_cast<std::uint32_t>(text[index] - '0');
+            ++fraction_digits;
             ++index;
         }
     }
@@ -155,8 +157,7 @@ bool read_bounded_file(
             break;
         }
         const auto amount = static_cast<std::size_t>(count);
-        if (output->size() > limit - std::min(limit, amount) ||
-            amount > limit - output->size()) {
+        if (output->size() > limit || amount > limit - output->size()) {
             output->clear();
             return false;
         }
