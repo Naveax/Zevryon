@@ -26,11 +26,22 @@ struct ZenithProcessMemorySnapshot {
     bool valid() const noexcept;
 };
 
+struct ZenithLinuxPsiPressureConfig {
+    // Disabled by default: production thresholds require explicit calibration.
+    bool enabled{false};
+    std::uint32_t elevated_some_avg10_milli_percent{0U};
+    std::uint32_t critical_some_avg10_milli_percent{0U};
+    std::uint32_t critical_full_avg10_milli_percent{0U};
+
+    bool valid() const noexcept;
+};
+
 struct ZenithProcessMemoryPressureConfig {
     // Q16 fractions of total physical/effective memory. Defaults: 15%, 8%, 3%.
     std::uint32_t elevated_enter_available_q16{9'830U};
     std::uint32_t critical_enter_available_q16{5'243U};
     std::uint32_t recovery_hysteresis_q16{1'966U};
+    ZenithLinuxPsiPressureConfig linux_psi{};
 
     bool valid() const noexcept;
 };
@@ -39,6 +50,8 @@ struct ZenithProcessMemoryPressureStats {
     std::uint64_t samples{0U};
     std::uint64_t invalid_samples{0U};
     std::uint64_t pressure_changes{0U};
+    std::uint64_t psi_samples{0U};
+    std::uint64_t psi_pressure_escalations{0U};
     FramePressure pressure{FramePressure::Normal};
 };
 
