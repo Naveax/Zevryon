@@ -37,4 +37,15 @@ if(BUILD_TESTING)
   add_test(
     NAME foreground-layout-worker-pool-tests
     COMMAND zevryon-foreground-layout-worker-pool-tests)
+
+  add_executable(
+    zevryon-tab-async-layout-tests
+    tests/zenith_tab_async_layout_tests.cpp)
+  target_link_libraries(
+    zevryon-tab-async-layout-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-tab-async-layout-tests)
+  add_test(
+    NAME zenith-tab-async-layout-tests
+    COMMAND zevryon-tab-async-layout-tests)
 endif()
