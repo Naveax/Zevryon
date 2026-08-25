@@ -38,6 +38,17 @@ if(BUILD_TESTING)
     COMMAND zevryon-massivedoc-cold-window-tests)
 
   add_executable(
+    zevryon-massivedoc-address-space-policy-tests
+    tests/massivedoc_address_space_policy_tests.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-address-space-policy-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-address-space-policy-tests)
+  add_test(
+    NAME massivedoc-address-space-policy-tests
+    COMMAND zevryon-massivedoc-address-space-policy-tests)
+
+  add_executable(
     zevryon-massivedoc-generation-tests
     tests/massivedoc_generation_tests.cpp)
   target_link_libraries(

@@ -34,6 +34,9 @@ bool StoreReader::read_record_slice(
     std::size_t max_bytes,
     std::vector<std::byte>* output,
     std::string* error) const {
+    if (output == nullptr || error == nullptr) {
+        return false;
+    }
     output->clear();
     if (!impl_->opened) {
         *error = "store is not open";
@@ -49,6 +52,10 @@ bool StoreReader::read_record_slice(
     }
     const std::uint64_t available = record.length - byte_offset;
     const std::size_t wanted = static_cast<std::size_t>(std::min<std::uint64_t>(available, max_bytes));
+    if (!materialized_slice_request_fits_address_space(wanted)) {
+        *error = "record slice exceeds the process address-space materialization cap";
+        return false;
+    }
     output->reserve(wanted);
     std::uint64_t logical_position = 0U;
     std::size_t remaining_output = wanted;
