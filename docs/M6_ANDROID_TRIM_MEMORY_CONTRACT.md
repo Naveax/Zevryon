@@ -38,15 +38,28 @@ hint is not treated as proof that every browser tab is hidden.
 
 ## Process integration
 
-`apply_android_memory_pressure_signal()` applies the evaluated pressure to the
-existing process tab controller and avoids another pressure pass when the state
-is unchanged.
+`apply_android_memory_pressure_signal()` evaluates the Android signal and then
+applies the stronger of:
+
+- the current `ZenithProcessMemoryPressurePolicy` pressure; and
+- the Android pressure decision.
+
+This composition is required because the process controller stores one global
+pressure value. A normal Android callback must not lower an independently
+established process-memory `Critical` state. Conversely, when the process policy
+has recovered to `Normal`, clearing the Android signal may return the controller
+to that normal baseline.
+
+The bridge rejects a missing or invalid process-memory policy instead of guessing
+that the baseline is `Normal`.
 
 No Android polling thread is added. The future platform shell should push these
-signals from its lifecycle callbacks and memory-state observations.
+signals from its lifecycle callbacks and memory-state observations while the
+existing process-memory policy remains the baseline authority.
 
 ## Current integration boundary
 
-This commit contains the portable native policy, controller bridge and focused
-regression tests. A real Android Java/Kotlin/JNI callback remains an explicit
-integration task because no Android shell currently exists in this repository.
+This commit contains the portable native policy, pressure-source composition,
+controller bridge and focused regression tests. A real Android Java/Kotlin/JNI
+callback remains an explicit integration task because no Android shell currently
+exists in this repository.
