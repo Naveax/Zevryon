@@ -33,6 +33,15 @@ ZenithProcessMemorySnapshot psi_pct(
     return snapshot;
 }
 
+ZenithProcessMemorySnapshot windows_signal(
+    std::uint64_t available,
+    bool signaled) {
+    ZenithProcessMemorySnapshot snapshot = pct(available);
+    snapshot.windows_low_memory_notification_available = true;
+    snapshot.windows_low_memory_signaled = signaled;
+    return snapshot;
+}
+
 } // namespace
 
 int main() {
@@ -109,6 +118,42 @@ int main() {
         psi_policy.stats().psi_samples == 1U &&
             psi_policy.stats().psi_pressure_escalations == 1U,
         "PSI escalation statistics changed after reset");
+
+    require(
+        policy.update(windows_signal(200U, true), &pressure) &&
+            pressure == FramePressure::Elevated,
+        "Windows low-memory signal did not raise elevated pressure");
+    require(
+        policy.stats().windows_low_memory_samples == 1U &&
+            policy.stats().windows_low_memory_escalations == 1U,
+        "Windows low-memory signal telemetry changed");
+    require(
+        policy.update(windows_signal(200U, false), &pressure) &&
+            pressure == FramePressure::Normal,
+        "cleared Windows low-memory signal did not release pressure");
+    require(
+        policy.stats().windows_low_memory_samples == 2U &&
+            policy.stats().windows_low_memory_escalations == 1U,
+        "Windows low-memory clear telemetry changed");
+
+    require(
+        policy.update(windows_signal(70U, true), &pressure) &&
+            pressure == FramePressure::Critical,
+        "Windows signal lowered memory-required critical pressure");
+    require(
+        policy.stats().windows_low_memory_escalations == 1U,
+        "Windows signal falsely claimed a critical-memory escalation");
+
+    ZenithProcessMemoryPressureConfig windows_disabled_config;
+    windows_disabled_config.windows_low_memory_elevated_floor = false;
+    ZenithProcessMemoryPressurePolicy windows_disabled_policy(windows_disabled_config);
+    require(
+        windows_disabled_policy.update(windows_signal(200U, true), &pressure) &&
+            pressure == FramePressure::Normal,
+        "disabled Windows low-memory floor changed pressure");
+    require(
+        windows_disabled_policy.stats().windows_low_memory_samples == 0U,
+        "disabled Windows low-memory floor counted signal samples");
 
     ZenithProcessMemorySnapshot invalid{0U, 2U, 1U};
     require(!policy.update(invalid, &pressure), "invalid snapshot accepted");
