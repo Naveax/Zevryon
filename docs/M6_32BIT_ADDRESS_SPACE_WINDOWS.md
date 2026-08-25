@@ -35,6 +35,11 @@ A 4 GiB+ document therefore does not require a 4 GiB virtual mapping or a giant 
 
 `massivedoc-address-space-policy-tests` validates synthetic 32-bit and 64-bit limits, including exact-boundary acceptance and one-byte-over rejection, and verifies that StoreReader I/O and cold mmap hard caps are wired to the active process policy. On an actual 32-bit process build the same test additionally requires the active 4/8/8 MiB policy.
 
-The Windows/Linux CI workflow also contains a dedicated `M6 Win32 address-space gate`. It configures Visual Studio 2022 with `-A Win32`, builds the MassiveDoc core plus the address-space, positional-I/O, positional-store and cold-window tests, and runs those focused tests under the real 32-bit MSVC ABI. This is separate from the normal x64 Windows job and prevents a synthetic pointer-width test from being the only 32-bit evidence.
+The Windows/Linux CI workflow contains two dedicated real-ABI gates:
+
+- `M6 Win32 address-space gate` configures Visual Studio 2022 with `-A Win32`, builds the MassiveDoc core plus the address-space, positional-I/O, positional-store and cold-window tests, and runs those focused tests under the real 32-bit MSVC ABI.
+- `M6 Linux i386 address-space gate` installs the multilib compiler, compiles a `-m32` ABI probe that requires 32-bit pointers plus 64-bit `off_t`, and syntax-compiles the real positional-I/O and cold-window source files with the same large-file ABI definition.
+
+These are separate from the normal x64 Windows/Linux jobs and prevent a synthetic pointer-width test from being the only 32-bit evidence.
 
 Zenith hot-scroll and built-in shared prefetch remain substantially below these limits because their source windows are bounded to the normal 64 KiB I/O window.
