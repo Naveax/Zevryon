@@ -2,6 +2,7 @@
 
 #include "zenith_linux_memory_context.hpp"
 #include "zenith_process_tab_controller.hpp"
+#include "zenith_windows_memory_context.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -114,10 +115,34 @@ bool ZenithProcessMemorySnapshot::valid() const noexcept {
          psi_full_avg10_milli_percent > kMaxPsiMilliPercent)) {
         return false;
     }
-    if (memory_domain == ZenithProcessMemoryDomain::CgroupV2) {
-        return cgroup_v2_detected && cgroup_v2_limited;
+    if (memory_domain == ZenithProcessMemoryDomain::CgroupV2 &&
+        (!cgroup_v2_detected || !cgroup_v2_limited)) {
+        return false;
     }
-    return !cgroup_v2_limited;
+    if (memory_domain == ZenithProcessMemoryDomain::Host && cgroup_v2_limited) {
+        return false;
+    }
+    if (windows_low_memory_signaled &&
+        !windows_low_memory_notification_available) {
+        return false;
+    }
+    if (windows_process_memory_limit_enabled &&
+        (!windows_job_detected || windows_process_memory_limit_bytes == 0U)) {
+        return false;
+    }
+    if (windows_job_memory_limit_enabled &&
+        (!windows_job_detected || windows_job_memory_limit_bytes == 0U)) {
+        return false;
+    }
+    if (!windows_process_memory_limit_enabled &&
+        windows_process_memory_limit_bytes != 0U) {
+        return false;
+    }
+    if (!windows_job_memory_limit_enabled &&
+        windows_job_memory_limit_bytes != 0U) {
+        return false;
+    }
+    return true;
 }
 
 bool ZenithLinuxPsiPressureConfig::valid() const noexcept {
@@ -242,6 +267,21 @@ bool capture_zenith_process_memory_snapshot(
     result.process_rss_bytes = static_cast<std::uint64_t>(counters.WorkingSetSize);
     result.system_available_bytes = memory.ullAvailPhys;
     result.system_total_bytes = memory.ullTotalPhys;
+
+    ZenithWindowsMemoryContext context;
+    std::string context_error;
+    if (!capture_zenith_windows_memory_context(&context, &context_error)) {
+        *error = context_error.empty()
+                     ? "unable to capture Windows memory context"
+                     : std::move(context_error);
+        return false;
+    }
+    if (!apply_zenith_windows_memory_context(context, &result, &context_error)) {
+        *error = context_error.empty()
+                     ? "unable to apply Windows memory context"
+                     : std::move(context_error);
+        return false;
+    }
 #elif defined(__linux__)
     std::uint64_t total_kib = 0U;
     std::uint64_t available_kib = 0U;
