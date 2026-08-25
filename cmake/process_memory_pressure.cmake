@@ -6,7 +6,8 @@ target_sources(
     src/zenith_process_memory_pressure_apply.cpp
     src/zenith_process_memory_sampler.cpp
     src/zenith_process_runtime_services.cpp
-    src/zenith_windows_memory_context.cpp)
+    src/zenith_windows_memory_context.cpp
+    src/zenith_windows_memory_scope.cpp)
 
 if(WIN32)
   target_link_libraries(zevryon-massivedoc-core PRIVATE psapi)
@@ -45,6 +46,17 @@ if(BUILD_TESTING)
   add_test(
     NAME windows-memory-context-tests
     COMMAND zevryon-windows-memory-context-tests)
+
+  add_executable(
+    zevryon-windows-memory-scope-tests
+    tests/zenith_windows_memory_scope_tests.cpp)
+  target_link_libraries(
+    zevryon-windows-memory-scope-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-windows-memory-scope-tests)
+  add_test(
+    NAME windows-memory-scope-tests
+    COMMAND zevryon-windows-memory-scope-tests)
 
   add_executable(
     zevryon-process-memory-sampler-tests
