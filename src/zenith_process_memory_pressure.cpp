@@ -3,6 +3,7 @@
 #include "zenith_linux_memory_context.hpp"
 #include "zenith_process_tab_controller.hpp"
 #include "zenith_windows_memory_context.hpp"
+#include "zenith_windows_memory_scope.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -267,6 +268,8 @@ bool capture_zenith_process_memory_snapshot(
     result.process_rss_bytes = static_cast<std::uint64_t>(counters.WorkingSetSize);
     result.system_available_bytes = memory.ullAvailPhys;
     result.system_total_bytes = memory.ullTotalPhys;
+    result.windows_private_commit_bytes =
+        static_cast<std::uint64_t>(counters.PrivateUsage);
 
     ZenithWindowsMemoryContext context;
     std::string context_error;
@@ -282,6 +285,24 @@ bool capture_zenith_process_memory_snapshot(
                      : std::move(context_error);
         return false;
     }
+
+    ZenithWindowsMemoryScopeObservation scope;
+    scope.process_memory_limited = result.windows_process_memory_limit_enabled;
+    scope.private_commit_bytes = result.windows_private_commit_bytes;
+    scope.process_memory_limit_bytes = result.windows_process_memory_limit_bytes;
+    std::uint64_t effective_total = result.system_total_bytes;
+    std::uint64_t effective_available = result.system_available_bytes;
+    if (!apply_windows_process_memory_scope(
+            result.system_total_bytes,
+            result.system_available_bytes,
+            scope,
+            &effective_total,
+            &effective_available)) {
+        *error = "unable to apply Windows process memory scope";
+        return false;
+    }
+    result.system_total_bytes = effective_total;
+    result.system_available_bytes = effective_available;
 #elif defined(__linux__)
     std::uint64_t total_kib = 0U;
     std::uint64_t available_kib = 0U;
