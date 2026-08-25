@@ -17,6 +17,7 @@ bool CompactArenaReader::move_logical_record(
         *error = "logical order generation exhausted";
         return false;
     }
+    std::lock_guard<std::mutex> persistence_lock(compact_arena_persistence_mutex());
 
     auto candidate = sequence_.fork_shared_root();
     std::string sequence_error;
@@ -64,6 +65,7 @@ bool CompactArenaReader::update_height(
         return false;
     }
     error->clear();
+    std::lock_guard<std::mutex> persistence_lock(compact_arena_persistence_mutex());
 
     SequencePosition sequence_position;
     std::string sequence_error;
