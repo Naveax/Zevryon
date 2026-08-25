@@ -138,8 +138,7 @@ bool ZenithProcessMemorySnapshot::valid() const noexcept {
         windows_process_memory_limit_bytes != 0U) {
         return false;
     }
-    if (!windows_job_memory_limit_enabled &&
-        windows_job_memory_limit_bytes != 0U) {
+    if (!windows_job_memory_limit_enabled && windows_job_memory_limit_bytes != 0U) {
         return false;
     }
     return true;
@@ -217,6 +216,17 @@ bool ZenithProcessMemoryPressurePolicy::update(
                 saturating_increment(stats_.psi_pressure_escalations);
         }
         next = higher_pressure(next, floor);
+    }
+
+    if (config_.windows_low_memory_elevated_floor &&
+        snapshot.windows_low_memory_notification_available) {
+        stats_.windows_low_memory_samples =
+            saturating_increment(stats_.windows_low_memory_samples);
+        if (snapshot.windows_low_memory_signaled && next == FramePressure::Normal) {
+            next = FramePressure::Elevated;
+            stats_.windows_low_memory_escalations =
+                saturating_increment(stats_.windows_low_memory_escalations);
+        }
     }
 
     if (next != pressure_) {
