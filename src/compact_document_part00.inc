@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iomanip>
 #include <limits>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <span>
@@ -22,6 +23,11 @@ constexpr std::size_t kRecordDescriptorBytes = 32U;
 constexpr std::size_t kHeightEntryBytes = 4U;
 constexpr std::size_t kBlockEntryBytes = 8U;
 constexpr std::uint32_t kMaxHeightQ8 = std::numeric_limits<std::uint32_t>::max();
+
+std::mutex& compact_arena_persistence_mutex() {
+    static std::mutex mutex;
+    return mutex;
+}
 
 struct RecordDescriptorLite {
     std::uint64_t logical_id{0};
