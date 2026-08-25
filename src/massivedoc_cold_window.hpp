@@ -1,5 +1,6 @@
 #pragma once
 
+#include "massivedoc_address_space.hpp"
 #include "resource_ledger.hpp"
 
 #include <cstddef>
@@ -10,7 +11,8 @@
 
 namespace zevryon::massivedoc {
 
-constexpr std::size_t kMaximumColdMappedWindowBytes = 16U * 1024U * 1024U;
+constexpr std::size_t kMaximumColdMappedWindowBytes =
+    current_address_space_window_limits().maximum_mapped_window_bytes;
 constexpr std::size_t kColdMappedWindowAlignmentSlackBytes = 64U * 1024U;
 
 struct ColdMappedWindowStats {
