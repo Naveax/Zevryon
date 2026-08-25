@@ -20,13 +20,21 @@ using namespace zevryon::massivedoc;
     std::cerr << "FAIL: " << message << '\n';
     std::exit(1);
 }
-void require(bool value, std::string_view message) { if (!value) die(message); }
+
+void require(bool value, std::string_view message) {
+    if (!value) {
+        die(message);
+    }
+}
 
 std::size_t scalar_reference(
     std::span<const std::byte> haystack,
     std::span<const std::byte> needle) {
-    if (needle.empty()) return 0U;
-    const auto it = std::search(haystack.begin(), haystack.end(), needle.begin(), needle.end());
+    if (needle.empty()) {
+        return 0U;
+    }
+    const auto it = std::search(
+        haystack.begin(), haystack.end(), needle.begin(), needle.end());
     return it == haystack.end()
         ? kExactByteMatchNotFound
         : static_cast<std::size_t>(std::distance(haystack.begin(), it));
@@ -37,19 +45,42 @@ std::vector<std::byte> bytes_of(std::string_view text) {
     return std::vector<std::byte>(begin, begin + text.size());
 }
 
+void test_backend_contract() {
+    const ExactByteMatchBackend backend = exact_byte_match_backend();
+    const std::string_view name = exact_byte_match_backend_name(backend);
+    require(
+        name == "scalar" || name == "sse2" || name == "neon",
+        "exact matcher selected an unknown backend");
+    require(
+        exact_byte_match_simd_available() ==
+            (backend != ExactByteMatchBackend::Scalar),
+        "SIMD availability disagrees with selected backend");
+}
+
 void test_edges() {
     const std::vector<std::byte> empty;
     const std::vector<std::byte> one{std::byte{0x00}};
-    require(find_exact_bytes(empty, empty) == 0U, "empty/empty");
-    require(find_exact_bytes(one, empty) == 0U, "empty needle");
-    require(find_exact_bytes(empty, one) == kExactByteMatchNotFound, "needle larger than haystack");
-    require(find_exact_bytes(one, one) == 0U, "single-byte exact");
+    require(find_exact_bytes(empty, empty) == 0U, "auto empty/empty");
+    require(find_exact_bytes_scalar(empty, empty) == 0U, "scalar empty/empty");
+    require(find_exact_bytes(one, empty) == 0U, "auto empty needle");
+    require(find_exact_bytes_scalar(one, empty) == 0U, "scalar empty needle");
+    require(
+        find_exact_bytes(empty, one) == kExactByteMatchNotFound,
+        "auto needle larger than haystack");
+    require(
+        find_exact_bytes_scalar(empty, one) == kExactByteMatchNotFound,
+        "scalar needle larger than haystack");
+    require(find_exact_bytes(one, one) == 0U, "auto single-byte exact");
+    require(find_exact_bytes_scalar(one, one) == 0U, "scalar single-byte exact");
 
     const std::vector<std::byte> repeated{
         std::byte{0x61}, std::byte{0x61}, std::byte{0x61}, std::byte{0x62}};
     const std::vector<std::byte> needle{
         std::byte{0x61}, std::byte{0x61}, std::byte{0x62}};
-    require(find_exact_bytes(repeated, needle) == 1U, "first-match overlap semantics");
+    require(find_exact_bytes(repeated, needle) == 1U, "auto first-match overlap semantics");
+    require(
+        find_exact_bytes_scalar(repeated, needle) == 1U,
+        "scalar first-match overlap semantics");
 }
 
 void test_binary_and_batch_boundaries() {
@@ -62,10 +93,21 @@ void test_binary_and_batch_boundaries() {
         std::copy(
             needle.begin(), needle.end(),
             haystack.begin() + static_cast<std::ptrdiff_t>(location));
-        ExactByteMatchStats stats;
-        require(find_exact_bytes(haystack, needle, &stats) == location, "binary boundary match");
+        ExactByteMatchStats auto_stats;
+        ExactByteMatchStats scalar_stats;
+        require(
+            find_exact_bytes(haystack, needle, &auto_stats) == location,
+            "auto binary boundary match");
+        require(
+            find_exact_bytes_scalar(haystack, needle, &scalar_stats) == location,
+            "scalar binary boundary match");
+        require(
+            scalar_stats.simd_batches == 0U,
+            "authoritative scalar matcher executed a SIMD batch");
         if (exact_byte_match_simd_available() && location >= 16U) {
-            require(stats.simd_batches != 0U, "SIMD-capable build did not execute SIMD batch");
+            require(
+                auto_stats.simd_batches != 0U,
+                "SIMD backend did not execute a SIMD batch");
         }
     }
 }
@@ -83,24 +125,35 @@ void test_randomized_scalar_equivalence() {
                 for (auto& value : needle) {
                     value = std::byte{static_cast<unsigned char>(random() & 0xffU)};
                 }
-                if (!needle.empty() && needle.size() <= haystack.size() && (random() & 1U) != 0U) {
+                if (!needle.empty() && needle.size() <= haystack.size() &&
+                    (random() & 1U) != 0U) {
                     const std::size_t position = static_cast<std::size_t>(
-                        random() % static_cast<std::uint64_t>(haystack.size() - needle.size() + 1U));
+                        random() % static_cast<std::uint64_t>(
+                            haystack.size() - needle.size() + 1U));
                     std::copy(
                         needle.begin(), needle.end(),
                         haystack.begin() + static_cast<std::ptrdiff_t>(position));
                 }
-                ExactByteMatchStats stats;
-                const std::size_t actual = find_exact_bytes(haystack, needle, &stats);
-                const std::size_t expected = scalar_reference(haystack, needle);
-                if (actual != expected) {
+
+                ExactByteMatchStats auto_stats;
+                ExactByteMatchStats scalar_stats;
+                const std::size_t actual =
+                    find_exact_bytes(haystack, needle, &auto_stats);
+                const std::size_t scalar =
+                    find_exact_bytes_scalar(haystack, needle, &scalar_stats);
+                const std::size_t reference = scalar_reference(haystack, needle);
+                if (actual != scalar || scalar != reference) {
                     std::cerr << "equivalence mismatch haystack=" << haystack_size
                               << " needle=" << needle_size
                               << " trial=" << trial
-                              << " actual=" << actual
-                              << " expected=" << expected << '\n';
+                              << " auto=" << actual
+                              << " scalar=" << scalar
+                              << " reference=" << reference << '\n';
                     std::exit(1);
                 }
+                require(
+                    scalar_stats.simd_batches == 0U,
+                    "scalar equivalence path executed SIMD");
             }
         }
     }
@@ -117,7 +170,8 @@ void test_store_reader_exact_verifier_uses_matcher() {
     config.segment_bytes = 256U;
     config.records_per_search_block = 1U;
     StoreWriter writer(root, config);
-    const std::string record = std::string(20U, 'x') + "SIMD_NEEDLE" + std::string(80U, 'y');
+    const std::string record =
+        std::string(20U, 'x') + "SIMD_NEEDLE" + std::string(80U, 'y');
     const auto record_bytes = bytes_of(record);
     std::string error;
     require(writer.append(77U, record_bytes, &error), "cannot append integration record");
@@ -144,7 +198,9 @@ void test_store_reader_exact_verifier_uses_matcher() {
     require(stats.exact_records_scanned != 0U, "StoreReader did not scan an exact record");
     require(stats.exact_compares != 0U, "StoreReader did not perform exact matcher compares");
     if (exact_byte_match_simd_available()) {
-        require(stats.exact_simd_batches != 0U, "StoreReader did not execute SIMD exact matcher batches");
+        require(
+            stats.exact_simd_batches != 0U,
+            "StoreReader did not execute SIMD exact matcher batches");
     }
 
     std::filesystem::remove_all(root, fs_error);
@@ -154,10 +210,11 @@ void test_store_reader_exact_verifier_uses_matcher() {
 } // namespace
 
 int main() {
+    test_backend_contract();
     test_edges();
     test_binary_and_batch_boundaries();
     test_randomized_scalar_equivalence();
     test_store_reader_exact_verifier_uses_matcher();
-    std::cout << "Zevryon MassiveDoc exact-byte SIMD matcher tests passed\n";
+    std::cout << "Zevryon MassiveDoc exact-byte scalar/SIMD matcher tests passed\n";
     return 0;
 }
