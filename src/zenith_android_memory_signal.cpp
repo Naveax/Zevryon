@@ -1,5 +1,6 @@
 #include "zenith_android_memory_signal.hpp"
 
+#include "zenith_process_memory_pressure.hpp"
 #include "zenith_process_tab_controller.hpp"
 
 namespace zevryon::massivedoc {
@@ -11,6 +12,22 @@ constexpr std::int32_t kTrimRunningModerate = 5;
 constexpr std::int32_t kTrimRunningCritical = 15;
 constexpr std::int32_t kTrimUiHidden = 20;
 constexpr std::int32_t kTrimBackground = 40;
+
+unsigned int pressure_rank(FramePressure pressure) noexcept {
+    switch (pressure) {
+    case FramePressure::Critical:
+        return 2U;
+    case FramePressure::Elevated:
+        return 1U;
+    case FramePressure::Normal:
+    default:
+        return 0U;
+    }
+}
+
+FramePressure stronger_pressure(FramePressure left, FramePressure right) noexcept {
+    return pressure_rank(left) >= pressure_rank(right) ? left : right;
+}
 
 } // namespace
 
@@ -46,10 +63,15 @@ bool evaluate_android_memory_signal(
 bool apply_android_memory_pressure_signal(
     std::uint64_t total_ram_mib,
     const ZenithAndroidMemorySignal& signal,
+    const ZenithProcessMemoryPressurePolicy* process_policy,
     ZenithProcessTabController* controller,
     ZenithAndroidMemoryDecision* decision,
     std::string* error) {
-    if (controller == nullptr || error == nullptr) {
+    if (process_policy == nullptr || controller == nullptr || error == nullptr ||
+        !process_policy->valid()) {
+        if (error != nullptr) {
+            *error = "invalid Android memory pressure bridge";
+        }
         return false;
     }
     error->clear();
@@ -62,10 +84,13 @@ bool apply_android_memory_pressure_signal(
     if (decision != nullptr) {
         *decision = evaluated;
     }
-    if (controller->global_pressure() == evaluated.pressure) {
+
+    const FramePressure target = stronger_pressure(
+        process_policy->pressure(), evaluated.pressure);
+    if (controller->global_pressure() == target) {
         return true;
     }
-    return controller->set_global_pressure(evaluated.pressure, error);
+    return controller->set_global_pressure(target, error);
 }
 
 } // namespace zevryon::massivedoc
