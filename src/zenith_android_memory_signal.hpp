@@ -32,11 +32,16 @@ bool evaluate_android_memory_signal(
     const ZenithAndroidMemorySignal& signal,
     ZenithAndroidMemoryDecision* decision) noexcept;
 
+class ZenithProcessMemoryPressurePolicy;
 class ZenithProcessTabController;
 
+// Applies the stronger of the current process-memory policy and the evaluated
+// Android signal. Android callbacks therefore cannot lower an independently
+// established process-memory pressure state.
 bool apply_android_memory_pressure_signal(
     std::uint64_t total_ram_mib,
     const ZenithAndroidMemorySignal& signal,
+    const ZenithProcessMemoryPressurePolicy* process_policy,
     ZenithProcessTabController* controller,
     ZenithAndroidMemoryDecision* decision,
     std::string* error);
