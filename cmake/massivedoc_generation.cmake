@@ -8,6 +8,7 @@ target_sources(
     src/massivedoc_generation.cpp
     src/massivedoc_generation_background.cpp
     src/massivedoc_generation_sync.cpp
+    src/massivedoc_large_file_abi_guard.cpp
     src/massivedoc_positional_io.cpp)
 
 # A 32-bit Linux process still needs 64-bit file positions for multi-GiB stores.
