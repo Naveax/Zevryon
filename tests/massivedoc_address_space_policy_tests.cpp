@@ -52,6 +52,20 @@ int main() {
     constexpr AddressSpaceWindowLimits current =
         current_address_space_window_limits();
     require(current.valid(), "current address-space policy is invalid");
+
+    if constexpr (sizeof(void*) == 4U) {
+        static_assert(current_pointer_bits() == 32U);
+        require(
+            current.maximum_io_window_bytes == 4U * 1024U * 1024U &&
+                current.maximum_mapped_window_bytes == 8U * 1024U * 1024U &&
+                current.maximum_materialized_slice_bytes == 8U * 1024U * 1024U,
+            "active 32-bit build did not select the bounded 32-bit policy");
+    }
+
+#if defined(_WIN32) && defined(_M_IX86)
+    static_assert(sizeof(void*) == 4U, "MSVC Win32 gate is not a 32-bit process ABI");
+#endif
+
     require(
         kMaximumIoWindowBytes == current.maximum_io_window_bytes,
         "StoreReader I/O cap is not bound to the current address-space policy");
