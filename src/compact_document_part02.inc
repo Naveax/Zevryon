@@ -57,6 +57,7 @@ bool CompactArenaReader::open(std::string* error) {
     if (error == nullptr) {
         return false;
     }
+    std::lock_guard<std::mutex> persistence_lock(compact_arena_persistence_mutex());
     error->clear();
     opened_ = false;
     logical_order_generation_ = 0U;
