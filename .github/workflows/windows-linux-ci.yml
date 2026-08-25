@@ -189,6 +189,25 @@ jobs:
           path: evidence/m5/ci/windows.json
           if-no-files-found: warn
 
+  m6-linux-i386-address-space-gate:
+    name: M6 Linux i386 address-space gate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install i386 compiler support
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++-multilib
+      - name: Compile real i386 file-offset surfaces
+        run: |
+          mkdir -p build-i386
+          COMMON_FLAGS="-m32 -std=c++20 -D_FILE_OFFSET_BITS=64 -Isrc -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror"
+          g++ $COMMON_FLAGS -c tests/massivedoc_linux_i386_abi_compile.cpp -o build-i386/abi-probe.o
+          g++ $COMMON_FLAGS -fsyntax-only src/massivedoc_positional_io.cpp
+          g++ $COMMON_FLAGS -fsyntax-only src/massivedoc_cold_window.cpp
+
   m6-win32-address-space-gate:
     name: M6 Win32 address-space gate
     runs-on: windows-2022
