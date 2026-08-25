@@ -7,16 +7,27 @@
 
 namespace zevryon::massivedoc {
 
+enum class ZenithProcessMemoryDomain : std::uint8_t {
+    Host = 0U,
+    CgroupV2,
+};
+
 struct ZenithProcessMemorySnapshot {
     std::uint64_t process_rss_bytes{0U};
     std::uint64_t system_available_bytes{0U};
     std::uint64_t system_total_bytes{0U};
+    ZenithProcessMemoryDomain memory_domain{ZenithProcessMemoryDomain::Host};
+    bool cgroup_v2_detected{false};
+    bool cgroup_v2_limited{false};
+    bool psi_available{false};
+    std::uint32_t psi_some_avg10_milli_percent{0U};
+    std::uint32_t psi_full_avg10_milli_percent{0U};
 
     bool valid() const noexcept;
 };
 
 struct ZenithProcessMemoryPressureConfig {
-    // Q16 fractions of total physical memory. Defaults: 15%, 8%, 3%.
+    // Q16 fractions of total physical/effective memory. Defaults: 15%, 8%, 3%.
     std::uint32_t elevated_enter_available_q16{9'830U};
     std::uint32_t critical_enter_available_q16{5'243U};
     std::uint32_t recovery_hysteresis_q16{1'966U};

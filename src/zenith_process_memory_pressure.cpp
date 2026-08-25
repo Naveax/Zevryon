@@ -1,5 +1,6 @@
 #include "zenith_process_memory_pressure.hpp"
 
+#include "zenith_linux_memory_context.hpp"
 #include "zenith_process_tab_controller.hpp"
 
 #include <algorithm>
@@ -20,6 +21,7 @@ namespace zevryon::massivedoc {
 namespace {
 
 constexpr std::uint64_t kQ16One = 65'536U;
+constexpr std::uint32_t kMaxPsiMilliPercent = 100U * 1000U;
 
 std::uint64_t saturating_increment(std::uint64_t value) noexcept {
     return value == std::numeric_limits<std::uint64_t>::max() ? value : value + 1U;
@@ -68,8 +70,18 @@ bool linux_meminfo_value_kib(const char* key, std::uint64_t* value) {
 } // namespace
 
 bool ZenithProcessMemorySnapshot::valid() const noexcept {
-    return system_total_bytes > 0U &&
-           system_available_bytes <= system_total_bytes;
+    if (system_total_bytes == 0U || system_available_bytes > system_total_bytes) {
+        return false;
+    }
+    if (psi_available &&
+        (psi_some_avg10_milli_percent > kMaxPsiMilliPercent ||
+         psi_full_avg10_milli_percent > kMaxPsiMilliPercent)) {
+        return false;
+    }
+    if (memory_domain == ZenithProcessMemoryDomain::CgroupV2) {
+        return cgroup_v2_detected && cgroup_v2_limited;
+    }
+    return !cgroup_v2_limited;
 }
 
 bool ZenithProcessMemoryPressureConfig::valid() const noexcept {
@@ -199,6 +211,21 @@ bool capture_zenith_process_memory_snapshot(
     result.process_rss_bytes = resident_pages * page_bytes;
     result.system_available_bytes = available_kib * kKiB;
     result.system_total_bytes = total_kib * kKiB;
+
+    ZenithLinuxMemoryContext context;
+    std::string context_error;
+    if (!capture_zenith_linux_memory_context(&context, &context_error)) {
+        *error = context_error.empty()
+                     ? "unable to capture Linux memory context"
+                     : std::move(context_error);
+        return false;
+    }
+    if (!apply_zenith_linux_memory_context(context, &result, &context_error)) {
+        *error = context_error.empty()
+                     ? "unable to apply Linux memory context"
+                     : std::move(context_error);
+        return false;
+    }
 #else
     *error = "process memory snapshot is unsupported on this platform";
     return false;
