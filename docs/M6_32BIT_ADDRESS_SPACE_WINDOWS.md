@@ -26,13 +26,15 @@ The same entry point now rejects null output/error pointers before dereference.
 MassiveDoc file positions remain 64-bit:
 
 - Windows positional reads and mappings split the 64-bit offset into high/low DWORDs.
-- POSIX positional I/O requires 64-bit `off_t`.
+- Linux compiles the entire `zevryon-massivedoc-core` target with `_FILE_OFFSET_BITS=64`; `massivedoc_large_file_abi_guard.cpp` fails compilation if that definition is absent, not equal to 64, or still produces an `off_t` narrower than 64 bits.
 - File/corpus logical sizes remain `uint64_t` and are not narrowed to `size_t`.
 
 A 4 GiB+ document therefore does not require a 4 GiB virtual mapping or a giant contiguous record-slice allocation.
 
 ## Validation
 
-`massivedoc-address-space-policy-tests` validates synthetic 32-bit and 64-bit limits, including exact-boundary acceptance and one-byte-over rejection, and verifies that StoreReader I/O and cold mmap hard caps are wired to the active process policy.
+`massivedoc-address-space-policy-tests` validates synthetic 32-bit and 64-bit limits, including exact-boundary acceptance and one-byte-over rejection, and verifies that StoreReader I/O and cold mmap hard caps are wired to the active process policy. On an actual 32-bit process build the same test additionally requires the active 4/8/8 MiB policy.
+
+The Windows/Linux CI workflow also contains a dedicated `M6 Win32 address-space gate`. It configures Visual Studio 2022 with `-A Win32`, builds the MassiveDoc core plus the address-space, positional-I/O, positional-store and cold-window tests, and runs those focused tests under the real 32-bit MSVC ABI. This is separate from the normal x64 Windows job and prevents a synthetic pointer-width test from being the only 32-bit evidence.
 
 Zenith hot-scroll and built-in shared prefetch remain substantially below these limits because their source windows are bounded to the normal 64 KiB I/O window.
