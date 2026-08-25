@@ -207,6 +207,7 @@ jobs:
           g++ $COMMON_FLAGS -c tests/massivedoc_linux_i386_abi_compile.cpp -o build-i386/abi-probe.o
           g++ $COMMON_FLAGS -fsyntax-only src/massivedoc_positional_io.cpp
           g++ $COMMON_FLAGS -fsyntax-only src/massivedoc_cold_window.cpp
+          g++ $COMMON_FLAGS -fsyntax-only src/massivedoc_exact_match.cpp
 
   m6-win32-address-space-gate:
     name: M6 Win32 address-space gate
