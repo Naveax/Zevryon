@@ -7,6 +7,7 @@
 #include <fstream>
 #include <limits>
 #include <sstream>
+#include <utility>
 
 #if defined(_WIN32)
 #define NOMINMAX
@@ -43,6 +44,41 @@ std::uint32_t available_q16(const ZenithProcessMemorySnapshot& snapshot) noexcep
         static_cast<long double>(snapshot.system_total_bytes);
     const long double scaled = ratio * static_cast<long double>(kQ16One);
     return static_cast<std::uint32_t>(std::min<long double>(scaled, kQ16One));
+}
+
+unsigned int pressure_rank(FramePressure pressure) noexcept {
+    switch (pressure) {
+    case FramePressure::Critical:
+        return 2U;
+    case FramePressure::Elevated:
+        return 1U;
+    case FramePressure::Normal:
+    default:
+        return 0U;
+    }
+}
+
+FramePressure higher_pressure(FramePressure left, FramePressure right) noexcept {
+    return pressure_rank(left) >= pressure_rank(right) ? left : right;
+}
+
+FramePressure linux_psi_pressure_floor(
+    const ZenithProcessMemorySnapshot& snapshot,
+    const ZenithLinuxPsiPressureConfig& config) noexcept {
+    if (!config.enabled || !snapshot.psi_available) {
+        return FramePressure::Normal;
+    }
+    if (snapshot.psi_full_avg10_milli_percent >=
+            config.critical_full_avg10_milli_percent ||
+        snapshot.psi_some_avg10_milli_percent >=
+            config.critical_some_avg10_milli_percent) {
+        return FramePressure::Critical;
+    }
+    if (snapshot.psi_some_avg10_milli_percent >=
+        config.elevated_some_avg10_milli_percent) {
+        return FramePressure::Elevated;
+    }
+    return FramePressure::Normal;
 }
 
 #if defined(__linux__)
@@ -84,6 +120,21 @@ bool ZenithProcessMemorySnapshot::valid() const noexcept {
     return !cgroup_v2_limited;
 }
 
+bool ZenithLinuxPsiPressureConfig::valid() const noexcept {
+    if (!enabled) {
+        return elevated_some_avg10_milli_percent == 0U &&
+               critical_some_avg10_milli_percent == 0U &&
+               critical_full_avg10_milli_percent == 0U;
+    }
+    return elevated_some_avg10_milli_percent > 0U &&
+           elevated_some_avg10_milli_percent <= kMaxPsiMilliPercent &&
+           critical_some_avg10_milli_percent >=
+               elevated_some_avg10_milli_percent &&
+           critical_some_avg10_milli_percent <= kMaxPsiMilliPercent &&
+           critical_full_avg10_milli_percent > 0U &&
+           critical_full_avg10_milli_percent <= kMaxPsiMilliPercent;
+}
+
 bool ZenithProcessMemoryPressureConfig::valid() const noexcept {
     return critical_enter_available_q16 > 0U &&
            critical_enter_available_q16 < elevated_enter_available_q16 &&
@@ -93,7 +144,8 @@ bool ZenithProcessMemoryPressureConfig::valid() const noexcept {
            elevated_enter_available_q16 <=
                kQ16One - recovery_hysteresis_q16 - 1U &&
            critical_enter_available_q16 <=
-               elevated_enter_available_q16 - recovery_hysteresis_q16 - 1U;
+               elevated_enter_available_q16 - recovery_hysteresis_q16 - 1U &&
+           linux_psi.valid();
 }
 
 ZenithProcessMemoryPressurePolicy::ZenithProcessMemoryPressurePolicy(
@@ -129,6 +181,17 @@ bool ZenithProcessMemoryPressurePolicy::update(
         next = FramePressure::Elevated;
     } else {
         next = FramePressure::Normal;
+    }
+
+    if (config_.linux_psi.enabled && snapshot.psi_available) {
+        stats_.psi_samples = saturating_increment(stats_.psi_samples);
+        const FramePressure floor =
+            linux_psi_pressure_floor(snapshot, config_.linux_psi);
+        if (pressure_rank(floor) > pressure_rank(next)) {
+            stats_.psi_pressure_escalations =
+                saturating_increment(stats_.psi_pressure_escalations);
+        }
+        next = higher_pressure(next, floor);
     }
 
     if (next != pressure_) {
