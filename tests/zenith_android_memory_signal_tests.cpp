@@ -1,4 +1,5 @@
 #include "zenith_android_memory_signal.hpp"
+#include "zenith_process_memory_pressure.hpp"
 #include "zenith_process_tab_controller.hpp"
 
 #include <cstdlib>
@@ -18,6 +19,10 @@ void require(bool value, std::string_view message) {
     if (!value) {
         fail(message);
     }
+}
+
+ZenithProcessMemorySnapshot pct(std::uint64_t available) {
+    return {123U, available, 1000U};
 }
 
 } // namespace
@@ -84,18 +89,48 @@ int main() {
         !evaluate_android_memory_signal(0U, {}, &decision),
         "zero Android RAM was accepted");
 
+    ZenithProcessMemoryPressurePolicy process_policy;
+    require(process_policy.valid(), "default process memory policy invalid");
     ZenithProcessTabController controller;
     std::string error;
+
     require(
         apply_android_memory_pressure_signal(
-            8192U, background, &controller, &decision, &error) &&
+            8192U, background, &process_policy, &controller, &decision, &error) &&
             controller.global_pressure() == FramePressure::Critical,
-        "Android pressure was not applied to process controller");
+        "Android pressure was not applied above a normal process baseline");
     require(
         apply_android_memory_pressure_signal(
-            8192U, {}, &controller, &decision, &error) &&
+            8192U, {}, &process_policy, &controller, &decision, &error) &&
             controller.global_pressure() == FramePressure::Normal,
-        "Android process pressure did not recover to normal");
+        "Android pressure did not recover to a normal process baseline");
+
+    FramePressure process_pressure = FramePressure::Normal;
+    require(
+        process_policy.update(pct(70U), &process_pressure) &&
+            process_pressure == FramePressure::Critical,
+        "process policy did not establish critical baseline");
+    require(
+        apply_android_memory_pressure_signal(
+            8192U, {}, &process_policy, &controller, &decision, &error) &&
+            controller.global_pressure() == FramePressure::Critical,
+        "normal Android signal lowered critical process pressure");
+
+    require(
+        process_policy.update(pct(200U), &process_pressure) &&
+            process_pressure == FramePressure::Normal,
+        "process policy did not recover to normal baseline");
+    require(
+        apply_android_memory_pressure_signal(
+            8192U, {}, &process_policy, &controller, &decision, &error) &&
+            controller.global_pressure() == FramePressure::Normal,
+        "Android bridge did not recover after process baseline cleared");
+
+    require(
+        !apply_android_memory_pressure_signal(
+            8192U, {}, nullptr, &controller, &decision, &error) &&
+            !error.empty(),
+        "Android bridge accepted a missing process policy");
 
     std::cout << "Zevryon Android memory-signal tests passed\n";
     return 0;
