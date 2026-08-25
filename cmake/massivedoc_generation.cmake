@@ -10,6 +10,15 @@ target_sources(
     src/massivedoc_generation_sync.cpp
     src/massivedoc_positional_io.cpp)
 
+# A 32-bit Linux process still needs 64-bit file positions for multi-GiB stores.
+# Apply the large-file ABI consistently to every MassiveDoc core translation
+# unit instead of relying on one source file to define it locally.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_compile_definitions(
+    zevryon-massivedoc-core
+    PRIVATE _FILE_OFFSET_BITS=64)
+endif()
+
 target_link_libraries(
   zevryon-massivedoc-core
   PUBLIC Threads::Threads)
