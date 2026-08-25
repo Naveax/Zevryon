@@ -28,6 +28,7 @@ struct ZenithProcessMemorySnapshot {
     std::uint32_t windows_job_active_processes{0U};
     bool windows_process_memory_limit_enabled{false};
     std::uint64_t windows_process_memory_limit_bytes{0U};
+    std::uint64_t windows_private_commit_bytes{0U};
     bool windows_job_memory_limit_enabled{false};
     std::uint64_t windows_job_memory_limit_bytes{0U};
     std::uint64_t windows_peak_process_memory_used_bytes{0U};
