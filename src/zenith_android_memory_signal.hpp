@@ -36,7 +36,10 @@ class ZenithProcessTabController;
 
 // Updates only the platform-memory pressure source. Process-memory pressure is
 // maintained independently by the existing sampler/controller path, so callback
-// ordering cannot clear a stronger source that remains active.
+// ordering cannot clear a stronger source that remains active. The controller is
+// owned by the process runtime/event-loop model; platform/JNI glue must marshal
+// this call onto that same owner context instead of invoking it concurrently from
+// an arbitrary callback thread.
 bool apply_android_memory_pressure_signal(
     std::uint64_t total_ram_mib,
     const ZenithAndroidMemorySignal& signal,
