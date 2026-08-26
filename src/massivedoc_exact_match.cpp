@@ -172,13 +172,13 @@ std::size_t find_exact_bytes(
         return scalar_from(haystack, needle, 0U, stats);
     }
 
-    const std::size_t last_start = haystack.size() - needle.size();
     std::size_t offset = 0U;
-    const unsigned first = byte_value(needle.front());
-    const unsigned last = byte_value(needle.back());
 
 #if defined(ZEVRYON_EXACT_MATCH_SSE2)
     if (backend == ExactByteMatchBackend::Sse2) {
+        const std::size_t last_start = haystack.size() - needle.size();
+        const unsigned first = byte_value(needle.front());
+        const unsigned last = byte_value(needle.back());
         const __m128i first_vector = _mm_set1_epi8(static_cast<char>(first));
         const __m128i last_vector = _mm_set1_epi8(static_cast<char>(last));
         while (offset + 15U <= last_start) {
@@ -220,6 +220,9 @@ std::size_t find_exact_bytes(
 
 #if defined(ZEVRYON_EXACT_MATCH_NEON)
     if (backend == ExactByteMatchBackend::Neon) {
+        const std::size_t last_start = haystack.size() - needle.size();
+        const unsigned first = byte_value(needle.front());
+        const unsigned last = byte_value(needle.back());
         const uint8x16_t first_vector = vdupq_n_u8(static_cast<std::uint8_t>(first));
         const uint8x16_t last_vector = vdupq_n_u8(static_cast<std::uint8_t>(last));
         while (offset + 15U <= last_start) {
