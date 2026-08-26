@@ -5,8 +5,10 @@
 namespace zevryon::massivedoc {
 namespace {
 
-// ComponentCallbacks2 values. Modern Android (API 34+) no longer delivers the
-// RUNNING_* levels, but accepting them keeps older platform shells compatible.
+// ComponentCallbacks2 values. Android API 34+ still delivers UI_HIDDEN and
+// BACKGROUND, but no longer delivers RUNNING_*, MODERATE, or COMPLETE to apps.
+// Accepting the legacy running levels keeps older platform shells compatible;
+// legacy MODERATE/COMPLETE naturally remain covered by the >= BACKGROUND path.
 constexpr std::int32_t kTrimRunningModerate = 5;
 constexpr std::int32_t kTrimRunningCritical = 15;
 constexpr std::int32_t kTrimUiHidden = 20;
