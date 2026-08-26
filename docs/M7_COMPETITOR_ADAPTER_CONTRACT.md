@@ -58,15 +58,40 @@ Chrome/Edge absence on the host is an explicit availability failure, never a req
 
 ### Servo WebDriver adapter
 
-Servo exposes a WebDriver server through `--webdriver=PORT`. The adapter must launch an exact Servo binary/build, establish a WebDriver session, execute the common scenario, capture the exact version/commit, and terminate both session and process cleanly.
+Current Servo exposes a WebDriver server from `servoshell` through the headless launch surface `--headless --webdriver=PORT about:blank`. The adapter resolves an exact Servo/servoshell binary, records `--version` output as runtime identity, launches the bounded WebDriver service, and uses the shared W3C transport.
 
-Reference: https://github.com/servo/servo/wiki/Control-Servo-using-WebDriver
+The existence of the service does not itself make a benchmark case executable. The planner remains fail-closed until the exact giant-document common scenario, viewport authority, process-scope memory authority, timeout behavior, and cleanup path are wired and tested together.
 
-### Ladybird adapter
+Reference source: https://github.com/servo/servo/tree/main/components/webdriver_server
 
-Ladybird has an explicit headless/test-mode surface, but M7 must not assume WebDriver parity that has not been demonstrated for the required scenario. The adapter may use a command/headless protocol only for operations it can certify as equivalent. Missing controls are reported as unsupported capability rather than emulated with a different workload.
+### Ladybird WebDriver adapter
 
-Reference: https://github.com/LadybirdBrowser/ladybird/blob/master/Documentation/Testing.md
+Current Ladybird includes a dedicated `WebDriver` service. Its supported launch surface includes `--headless`, `-l/--listen-address`, and `-p/--port`; Zevryon binds the service to `127.0.0.1` for benchmark control. Ladybird's own performance tooling creates W3C sessions and uses navigation plus `execute/sync`, so M7 no longer classifies Ladybird as a generic command-only headless adapter.
+
+The Ladybird WebDriver executable does not currently expose a reliable `--version` identity surface. Zevryon therefore binds Ladybird runtime identity to the exact resolved WebDriver binary path plus the lowercase SHA-256 of that binary. Missing or unreadable binary identity is `unavailable`/`invalid`, never an inferred version.
+
+As with Servo, the presence of W3C WebDriver is not sufficient for admission. Ladybird remains non-executable in the benchmark planner until the same certified giant-document scenario is wired end-to-end.
+
+Reference sources:
+
+- https://github.com/LadybirdBrowser/ladybird/tree/master/Services/WebDriver
+- https://github.com/LadybirdBrowser/ladybird/blob/master/Meta/measure-style-load.py
+
+### Shared W3C WebDriver transport
+
+Servo and Ladybird use one stdlib-only W3C transport authority instead of separate ad-hoc HTTP clients. The shared layer is responsible for:
+
+- endpoint reachability and `/status` receipts;
+- `POST /session` creation with an explicit capabilities object;
+- session ID and capability validation;
+- script/page-load timeout configuration;
+- `GET/POST /session/{id}/window/rect`;
+- navigation through `/session/{id}/url`;
+- synchronous script execution through `/session/{id}/execute/sync`;
+- idempotent `DELETE /session/{id}` cleanup;
+- distinction between HTTP/transport failures and valid W3C protocol error responses.
+
+A W3C error encoded as `value.error` remains a protocol error even when transported with HTTP 4xx. It must not be collapsed into an opaque network failure.
 
 ## Result states
 
@@ -102,11 +127,17 @@ A comparable case uses the same:
 
 Adapter-specific setup is recorded separately from workload timing.
 
+Setting an outer W3C window rectangle is not sufficient viewport evidence. After rect configuration the harness must measure the real page `innerWidth` and `innerHeight` through the same session and reject the case as `invalid` if the certified viewport cannot be established.
+
 A browser-native DOM layout and Zevryon's current deterministic average-advance layout are not the same rendering workload. Results may be published side-by-side, but a leadership metric may combine them only after the metric contract demonstrates equivalence.
 
 ## Memory evidence
 
 Process memory must be scoped to the browser/engine process tree created for the case. Harness baseline, post-setup resident memory, post-query resident memory, peak memory, and incremental peak above harness baseline are recorded separately.
+
+Process identity is PID-reuse-safe: an admitted process identity includes both PID and creation time. A recycled PID with a mismatched creation time is not the same browser process.
+
+The live process-tree sampler may use an optional platform/process dependency, but absence of that dependency must fail closed. Pure authority/contract tests must not require the live sampler dependency merely to import or validate deterministic process-scope logic.
 
 If an adapter cannot identify the relevant process tree reliably, its memory metric is `invalid` rather than estimated from an unrelated parent process.
 
@@ -132,13 +163,15 @@ The existing M7 performance rule remains authoritative: Zevryon must be first in
 
 ## Migration of the existing harness
 
-`scripts/browser_competitor_benchmark.py` currently hard-codes Playwright Chromium and Firefox. The implementation sequence is:
+`scripts/browser_competitor_benchmark.py` began with Playwright Chromium and Firefox. The canonical implementation sequence is now:
 
-1. introduce an explicit competitor registry and requested-engine list;
-2. preserve bundled Chromium as an auxiliary baseline;
-3. add real WebKit plus branded Chrome/Edge channels with exact identity receipts;
-4. split `unsupported`, `unavailable`, `timeout`, `error`, and `invalid` states;
-5. add Servo WebDriver adapter;
-6. add only the Ladybird controls that can execute the same certified scenario;
-7. make full-set evidence coverage machine-readable while keeping the final metric gate separate;
-8. publish raw per-case evidence before any summary ranking.
+1. explicit competitor registry and requested-engine list;
+2. bundled Chromium preserved as an auxiliary baseline;
+3. real WebKit plus branded Chrome/Edge channels with exact identity receipts;
+4. explicit `unsupported`, `unavailable`, `timeout`, `error`, and `invalid` terminal states;
+5. deterministic corpus/scenario/system evidence and raw per-case receipts;
+6. PID-reuse-safe browser process-scope memory authority;
+7. Servo and Ladybird exact-binary launch/identity adapters;
+8. one shared W3C WebDriver transport for Servo and Ladybird;
+9. common-scenario runtime wiring with verified inner viewport and process-scope accounting;
+10. full-set evidence coverage followed by the separate metric evaluator and only then any ranking claim.

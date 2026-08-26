@@ -51,9 +51,12 @@ def main() -> int:
 
     pending = plan_benchmark_cases(["servo", "ladybird"], ["virtualized"])
     require(len(pending) == 2, "pending adapter plan count mismatch")
-    require(not pending[0].executable and pending[0].adapter == "webdriver", "Servo routing mismatch")
     require(
-        not pending[1].executable and pending[1].adapter == "ladybird-headless",
+        not pending[0].executable and pending[0].adapter == "webdriver",
+        "Servo routing mismatch",
+    )
+    require(
+        not pending[1].executable and pending[1].adapter == "webdriver",
         "Ladybird routing mismatch",
     )
 
@@ -64,6 +67,17 @@ def main() -> int:
     require(servo_record["canonical"] is True, "Servo canonical flag lost")
     require(servo_record["adapter"] == "webdriver", "Servo adapter identity lost")
     require(isinstance(servo_record["reason"], str) and servo_record["reason"], "Servo reason missing")
+
+    ladybird_record = unsupported_case_record(pending[1], payload_bytes=64 * 1024 * 1024)
+    validate_terminal_record(ladybird_record)
+    require(ladybird_record["status"] == "unsupported", "Ladybird unsupported state mismatch")
+    require(ladybird_record["competitor"] == "ladybird", "Ladybird identity lost")
+    require(ladybird_record["canonical"] is True, "Ladybird canonical flag lost")
+    require(ladybird_record["adapter"] == "webdriver", "Ladybird adapter identity lost")
+    require(
+        isinstance(ladybird_record["reason"], str) and ladybird_record["reason"],
+        "Ladybird reason missing",
+    )
 
     full = plan_benchmark_cases(
         ["chrome", "firefox", "edge", "webkit", "servo", "ladybird"],

@@ -72,7 +72,15 @@ def main() -> int:
         "WebKit Playwright identity mismatch",
     )
     require(servo.adapter == "webdriver", "Servo adapter mismatch")
-    require(ladybird.adapter == "ladybird-headless", "Ladybird adapter mismatch")
+    require(
+        servo.launch_hint == "servo --headless --webdriver=PORT about:blank",
+        "Servo launch authority mismatch",
+    )
+    require(ladybird.adapter == "webdriver", "Ladybird adapter mismatch")
+    require(
+        ladybird.launch_hint == "WebDriver --headless -l 127.0.0.1 -p PORT",
+        "Ladybird WebDriver launch authority mismatch",
+    )
 
     require_value_error(
         lambda: resolve_requested(["chrome", "chrome"]),
