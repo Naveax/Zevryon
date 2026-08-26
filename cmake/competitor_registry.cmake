@@ -26,6 +26,11 @@ if(BUILD_TESTING)
       COMMAND
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_benchmark_executor_tests.py")
+    add_test(
+      NAME competitor-benchmark-matrix-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_benchmark_matrix_tests.py")
   else()
     add_test(
       NAME competitor-registry-tests
@@ -41,6 +46,9 @@ if(BUILD_TESTING)
       COMMAND "${CMAKE_COMMAND}" -E false)
     add_test(
       NAME competitor-benchmark-executor-tests
+      COMMAND "${CMAKE_COMMAND}" -E false)
+    add_test(
+      NAME competitor-benchmark-matrix-tests
       COMMAND "${CMAKE_COMMAND}" -E false)
   endif()
 endif()
