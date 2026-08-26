@@ -116,6 +116,59 @@ void test_pressure_reclaims_hidden_before_visible_and_is_idempotent() {
             "visible critical application count mismatch");
 }
 
+void test_pressure_sources_compose_without_clobbering() {
+    ZenithProcessTabController controller;
+    const auto events = std::make_shared<std::vector<Event>>();
+    std::string error;
+    require(controller.register_tab(4U, FrameVisibility::Hidden, 0,
+                                    recording_sink(4U, events), &error),
+            "pressure-source tab registration failed");
+    events->clear();
+
+    require(controller.set_global_pressure(FramePressure::Elevated, &error),
+            "process-memory source did not enter elevated pressure");
+    require(controller.global_pressure() == FramePressure::Elevated &&
+            controller.pressure_source(ZenithProcessPressureSource::ProcessMemory) ==
+                FramePressure::Elevated,
+            "process-memory source state mismatch");
+
+    require(controller.set_pressure_source(
+                ZenithProcessPressureSource::PlatformMemory,
+                FramePressure::Critical,
+                &error),
+            "platform-memory source did not enter critical pressure");
+    require(controller.global_pressure() == FramePressure::Critical &&
+            controller.pressure_source(ZenithProcessPressureSource::PlatformMemory) ==
+                FramePressure::Critical,
+            "platform-memory source did not dominate effective pressure");
+
+    const std::size_t before_process_clear = events->size();
+    require(controller.set_global_pressure(FramePressure::Normal, &error),
+            "process-memory source clear failed under platform pressure");
+    require(controller.global_pressure() == FramePressure::Critical &&
+            controller.pressure_source(ZenithProcessPressureSource::ProcessMemory) ==
+                FramePressure::Normal,
+            "process-memory clear incorrectly lowered platform critical pressure");
+    require(events->size() == before_process_clear,
+            "source-only change redundantly reapplied unchanged effective pressure");
+
+    require(controller.set_pressure_source(
+                ZenithProcessPressureSource::PlatformMemory,
+                FramePressure::Normal,
+                &error),
+            "platform-memory source clear failed");
+    require(controller.global_pressure() == FramePressure::Normal,
+            "effective pressure did not recover after both sources cleared");
+    require(controller.stats().pressure_changes == 3U,
+            "effective pressure transition count changed under source composition");
+
+    const auto invalid_source = static_cast<ZenithProcessPressureSource>(99U);
+    require(!controller.set_pressure_source(invalid_source, FramePressure::Critical, &error),
+            "invalid pressure source was accepted");
+    require(!error.empty() && controller.global_pressure() == FramePressure::Normal,
+            "invalid pressure source changed effective pressure");
+}
+
 void test_activity_update_uses_current_global_pressure() {
     ZenithProcessTabController controller;
     const auto events = std::make_shared<std::vector<Event>>();
@@ -180,6 +233,7 @@ void test_pressure_continues_after_sink_failure() {
 int main() {
     test_registry_has_no_controller_cardinality_limit();
     test_pressure_reclaims_hidden_before_visible_and_is_idempotent();
+    test_pressure_sources_compose_without_clobbering();
     test_activity_update_uses_current_global_pressure();
     test_pressure_continues_after_sink_failure();
     std::cout << "Zevryon process tab-pressure controller tests passed\n";
