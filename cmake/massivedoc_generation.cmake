@@ -8,7 +8,17 @@ target_sources(
     src/massivedoc_generation.cpp
     src/massivedoc_generation_background.cpp
     src/massivedoc_generation_sync.cpp
+    src/massivedoc_large_file_abi_guard.cpp
     src/massivedoc_positional_io.cpp)
+
+# A 32-bit Linux process still needs 64-bit file positions for multi-GiB stores.
+# Apply the large-file ABI consistently to every MassiveDoc core translation
+# unit instead of relying on one source file to define it locally.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_compile_definitions(
+    zevryon-massivedoc-core
+    PRIVATE _FILE_OFFSET_BITS=64)
+endif()
 
 target_link_libraries(
   zevryon-massivedoc-core
@@ -36,6 +46,17 @@ if(BUILD_TESTING)
   add_test(
     NAME massivedoc-cold-window-tests
     COMMAND zevryon-massivedoc-cold-window-tests)
+
+  add_executable(
+    zevryon-massivedoc-address-space-policy-tests
+    tests/massivedoc_address_space_policy_tests.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-address-space-policy-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-address-space-policy-tests)
+  add_test(
+    NAME massivedoc-address-space-policy-tests
+    COMMAND zevryon-massivedoc-address-space-policy-tests)
 
   add_executable(
     zevryon-massivedoc-generation-tests
