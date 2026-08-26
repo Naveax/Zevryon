@@ -14,12 +14,12 @@ The repository does not yet contain an Android Application/Activity/JNI lifecycl
 
 ## Pressure mapping
 
-Current Android releases do not deliver the deprecated `RUNNING_*` trim levels to applications starting with API 34, so the policy does not depend on those callbacks. The values remain accepted for compatibility with older Android shells.
+On Android API 34+, applications still receive `TRIM_MEMORY_UI_HIDDEN` and `TRIM_MEMORY_BACKGROUND`, but are no longer notified of the legacy `RUNNING_*`, `TRIM_MEMORY_MODERATE`, or `TRIM_MEMORY_COMPLETE` levels. The policy therefore relies on the two current lifecycle levels plus `MemoryInfo.lowMemory`; legacy values remain accepted for older Android shells.
 
 The native mapping is:
 
 - `MemoryInfo.lowMemory == true` -> `Critical`;
-- trim level `>= TRIM_MEMORY_BACKGROUND (40)` -> `Critical`;
+- trim level `>= TRIM_MEMORY_BACKGROUND (40)` -> `Critical` (also conservatively covers legacy `MODERATE`/`COMPLETE` values on older releases);
 - `TRIM_MEMORY_UI_HIDDEN (20)..39` -> `Elevated`;
 - legacy `TRIM_MEMORY_RUNNING_CRITICAL (15)..19` -> `Critical`;
 - legacy running moderate/low values `5..14` -> `Elevated`;
