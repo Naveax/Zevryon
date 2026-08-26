@@ -83,12 +83,12 @@ Exit gates:
 
 ## M6 — Cross-platform low-memory backend
 
-- Windows: memory-pressure notification and job-object accounting.
-- Linux: cgroup/PSI awareness where available, procfs fallback.
-- Android: trim-memory callbacks and low-RAM device mode.
-- macOS/iOS: memory-pressure dispatch sources.
-- 32-bit-safe file offsets and bounded address-space windows.
-- Portable scalar algorithms with optional SIMD backends.
+- Windows: preserve host-memory fallback; capture `LowMemoryResourceNotification` and immediate-job accounting/limit telemetry; use the OS low-memory signal only as a conservative pressure floor. Do not infer an effective nested-job memory domain from the immediate job alone.
+- Linux: use cgroup v2 effective memory-domain data and PSI where available with procfs fallback. Existing adaptive bounded sampling provides polling at 1000 ms Normal / 250 ms Elevated / 100 ms Critical, so no duplicate polling thread is required.
+- Android: provide a native trim-memory / low-RAM policy contract. Java/Kotlin/JNI callback wiring remains an integration boundary until an Android application shell exists in this repository.
+- Apple platforms: intentionally unsupported under the current target policy. The Apple backend removal guard is authoritative; do not reintroduce a macOS/iOS memory-pressure backend through M6.
+- 32-bit: preserve 64-bit file positions while enforcing bounded positional-I/O, mapped-window and record-materialization limits appropriate to the process address space.
+- Portability: keep scalar exact matching as the correctness authority and use SIMD only as an optional runtime-selected acceleration backend.
 
 ## M7 — Competitor laboratory
 
