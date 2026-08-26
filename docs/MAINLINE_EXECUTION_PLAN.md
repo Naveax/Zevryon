@@ -14,7 +14,7 @@ No optimization is accepted if it reduces document correctness. Full selection, 
 - [x] Add a no-compensation 100/100 evaluator.
 - [x] Bound image/math shell caches by device class.
 - [x] Add Linux process-group PSS sampling; Windows and Android backends remain.
-- [ ] Add physical-device benchmark metadata and thermal state capture.
+- [x] Add physical-device benchmark metadata and thermal state capture.
 
 ## M1 — Native segmented source and bounded process control
 
