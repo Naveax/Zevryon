@@ -8,15 +8,18 @@
 
 namespace zevryon::massivedoc {
 
+// A complete current Android memory/lifecycle snapshot, not an event delta.
+// Callers must carry forward still-active platform facts on every apply call;
+// zero/false values mean the caller is authoritatively clearing that fact.
 struct ZenithAndroidMemorySignal {
-    // Raw ComponentCallbacks2.onTrimMemory(level) value. Use zero when no trim
-    // callback is currently being applied.
+    // Current trim/lifecycle level to apply. Use zero only when the platform
+    // shell has an authoritative reason to clear previously applied trim state.
     std::int32_t trim_level{0};
-    // ActivityManager.isLowRamDevice(). This selects the conservative baseline
-    // profile but is not itself a transient pressure event.
+    // Current ActivityManager.isLowRamDevice(). This selects the conservative
+    // baseline profile but is not itself a transient pressure event.
     bool low_ram_device{false};
-    // ActivityManager.MemoryInfo.lowMemory. This is an explicit system pressure
-    // signal and maps directly to Critical.
+    // Current ActivityManager.MemoryInfo.lowMemory. This is an explicit system
+    // pressure signal and maps directly to Critical.
     bool system_low_memory{false};
 };
 
