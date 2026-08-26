@@ -94,16 +94,18 @@ _REGISTRY = {
         canonical_name="Servo",
         adapter="webdriver",
         canonical=True,
-        launch_hint="--webdriver=PORT",
+        launch_hint="servo --headless --webdriver=PORT about:blank",
         identity_note="Exact Servo binary version/commit must be captured.",
     ),
     "ladybird": CompetitorSpec(
         key="ladybird",
         canonical_name="Ladybird",
-        adapter="ladybird-headless",
+        adapter="webdriver",
         canonical=True,
+        launch_hint="WebDriver --headless -l 127.0.0.1 -p PORT",
         identity_note=(
-            "Only controls demonstrated equivalent to the common scenario are admissible."
+            "Exact Ladybird WebDriver binary path and SHA-256 must be captured when "
+            "the service exposes no version flag."
         ),
     ),
 }
@@ -126,6 +128,8 @@ def validate_registry() -> None:
             raise ValueError(f"registry key mismatch: {key}")
         if spec.adapter == "playwright" and spec.playwright_browser is None:
             raise ValueError(f"Playwright competitor lacks browser type: {key}")
+        if spec.adapter == "webdriver" and not spec.launch_hint:
+            raise ValueError(f"WebDriver competitor lacks launch hint: {key}")
         if key in {"chrome", "edge"} and spec.playwright_channel is None:
             raise ValueError(f"branded Chromium competitor lacks exact channel: {key}")
         if key == "chromium" and spec.canonical:

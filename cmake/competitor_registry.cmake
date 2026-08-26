@@ -26,6 +26,21 @@ if(BUILD_TESTING)
       COMMAND
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_process_scope_tests.py")
+    add_test(
+      NAME competitor-servo-adapter-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_servo_tests.py")
+    add_test(
+      NAME competitor-ladybird-adapter-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_ladybird_tests.py")
+    add_test(
+      NAME competitor-webdriver-transport-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_webdriver_tests.py")
   else()
     add_test(
       NAME competitor-registry-tests
@@ -41,6 +56,15 @@ if(BUILD_TESTING)
       COMMAND "${CMAKE_COMMAND}" -E false)
     add_test(
       NAME competitor-process-scope-tests
+      COMMAND "${CMAKE_COMMAND}" -E false)
+    add_test(
+      NAME competitor-servo-adapter-tests
+      COMMAND "${CMAKE_COMMAND}" -E false)
+    add_test(
+      NAME competitor-ladybird-adapter-tests
+      COMMAND "${CMAKE_COMMAND}" -E false)
+    add_test(
+      NAME competitor-webdriver-transport-tests
       COMMAND "${CMAKE_COMMAND}" -E false)
   endif()
 endif()
