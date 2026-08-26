@@ -4,11 +4,15 @@ The repository does not yet contain an Android Application/Activity/JNI lifecycl
 
 ## Inputs
 
-`ZenithAndroidMemorySignal` carries three Android platform facts:
+`ZenithAndroidMemorySignal` is a complete current Android memory/lifecycle snapshot, not an event delta. It carries three Android platform facts:
 
-- raw `ComponentCallbacks2.onTrimMemory(level)` value;
-- `ActivityManager.isLowRamDevice()`;
-- `ActivityManager.MemoryInfo.lowMemory`.
+- current trim/lifecycle level to apply;
+- current `ActivityManager.isLowRamDevice()`;
+- current `ActivityManager.MemoryInfo.lowMemory`.
+
+Every call to `apply_android_memory_pressure_signal()` must carry forward platform facts that remain active. A zero/false field is an authoritative clear, not “this callback did not mention that fact.” This prevents an unrelated later callback from accidentally weakening still-active Android pressure.
+
+For example, if `MemoryInfo.lowMemory` established `Critical`, a later `UI_HIDDEN` update must still pass `system_low_memory=true` while that system condition remains true. Likewise, `trim_level=0` should be sent only when the platform shell has an authoritative reason to clear previously applied trim/lifecycle state.
 
 `isLowRamDevice()` selects the conservative `LegacyPhone` frame profile even when physical RAM alone would choose a larger profile. It is a device-class signal, not a transient pressure event.
 
@@ -42,19 +46,19 @@ This prevents callback-order races. In particular:
 2. a later process-memory sample may recover to `Normal`;
 3. the effective controller pressure remains `Critical` until Android clears its own platform source.
 
-The reverse ordering is also safe: a normal Android callback cannot clear an independently active process-memory `Critical` source.
+The reverse ordering is also safe: a normal Android snapshot cannot clear an independently active process-memory `Critical` source.
 
-`apply_android_memory_pressure_signal()` evaluates the Android facts and updates only the `PlatformMemory` source. It does not receive or snapshot the process-memory policy, because one-time `max(process, android)` composition is insufficient when the two producers run at different times.
+`apply_android_memory_pressure_signal()` evaluates the Android snapshot and updates only the `PlatformMemory` source. It does not receive or snapshot the process-memory policy, because one-time `max(process, android)` composition is insufficient when the two producers run at different times.
 
 ## Polling, threading and lifecycle boundary
 
-No Android polling thread is added. A future Android shell should push trim and low-memory observations from the platform lifecycle while the existing process-memory sampler continues independently.
+No Android polling thread is added. A future Android shell should push complete trim/low-memory snapshots from the platform lifecycle while the existing process-memory sampler continues independently.
 
 `ZenithProcessTabController` is owned by the existing process runtime/event-loop model and is not a cross-thread synchronization primitive. Android/JNI glue must therefore marshal platform memory callbacks onto the same owner/event-loop execution context used to mutate the process controller. It must not call `apply_android_memory_pressure_signal()` concurrently with process-memory sampling or tab lifecycle mutation from an arbitrary callback thread.
 
 This owner-context rule is separate from pressure-source composition: independent `ProcessMemory` and `PlatformMemory` slots prevent logical clobbering, while event-loop serialization prevents native data races.
 
-The future shell is also responsible for obtaining `isLowRamDevice()` and `MemoryInfo.lowMemory` from Android APIs and forwarding the raw facts into this native contract. JNI/Kotlin/Java glue is intentionally not fabricated in a repository that currently has no Android application shell.
+The future shell is also responsible for obtaining current `isLowRamDevice()` and `MemoryInfo.lowMemory` values from Android APIs, retaining current trim/lifecycle state as needed, and forwarding the complete snapshot into this native contract. JNI/Kotlin/Java glue is intentionally not fabricated in a repository that currently has no Android application shell.
 
 ## Validation
 
@@ -64,8 +68,8 @@ Focused regression tests cover:
 - `UI_HIDDEN`, background, legacy running and `lowMemory` mappings;
 - invalid signal rejection;
 - Android critical pressure surviving later process-memory recovery;
-- process critical pressure surviving later Android normal/elevated callbacks;
+- process critical pressure surviving later Android normal/elevated snapshots;
 - clearing one source without clearing the other;
 - null bridge inputs failing closed.
 
-Thread ownership itself is an integration responsibility of the future Android shell; these pure-native tests intentionally do not pretend to certify a JNI lifecycle that does not yet exist.
+Thread ownership and Android snapshot retention are integration responsibilities of the future Android shell; these pure-native tests intentionally do not pretend to certify a JNI lifecycle that does not yet exist.
