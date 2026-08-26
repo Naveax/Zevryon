@@ -228,6 +228,18 @@ class WebDriverSession:
         )
         return response.get("value")
 
+    def execute_async(self, script: str, args: list[Any] | None = None) -> Any:
+        if not script:
+            raise ValueError("script cannot be blank")
+        response = request_json(
+            self.base_url,
+            "POST",
+            self._path("/execute/async"),
+            {"script": script, "args": list(args or [])},
+            timeout_seconds=self.timeout_seconds,
+        )
+        return response.get("value")
+
     def close(self) -> None:
         if self._closed:
             return

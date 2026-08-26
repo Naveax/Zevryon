@@ -58,7 +58,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send({"x": 0, "y": 0, "width": body["width"], "height": body["height"]})
             return
         if self.path == "/session/session-1/execute/sync":
-            self._send({"echo": body})
+            self._send({"kind": "sync", "echo": body})
+            return
+        if self.path == "/session/session-1/execute/async":
+            self._send({"kind": "async", "echo": body})
             return
         if self.path == "/protocol-error":
             self._send({"error": "invalid argument", "message": "bad test input"}, status=400)
@@ -107,16 +110,29 @@ def main() -> int:
         rect = session.set_window_rect(width=800, height=720)
         require(rect["width"] == 800 and rect["height"] == 720, "window rect response drifted")
         session.navigate("about:blank")
-        result = session.execute_sync("return arguments[0]", [{"x": 1}])
+        sync_result = session.execute_sync("return arguments[0]", [{"x": 1}])
         require(
-            result
+            sync_result
             == {
+                "kind": "sync",
                 "echo": {
                     "script": "return arguments[0]",
                     "args": [{"x": 1}],
-                }
+                },
             },
             "execute/sync response drifted",
+        )
+        async_result = session.execute_async("arguments[arguments.length - 1](arguments[0])", [7])
+        require(
+            async_result
+            == {
+                "kind": "async",
+                "echo": {
+                    "script": "arguments[arguments.length - 1](arguments[0])",
+                    "args": [7],
+                },
+            },
+            "execute/async response drifted",
         )
         session.close()
         session.close()
@@ -146,6 +162,14 @@ def main() -> int:
                     "/session/session-1/execute/sync",
                     {"script": "return arguments[0]", "args": [{"x": 1}]},
                 ),
+                (
+                    "POST",
+                    "/session/session-1/execute/async",
+                    {
+                        "script": "arguments[arguments.length - 1](arguments[0])",
+                        "args": [7],
+                    },
+                ),
                 ("DELETE", "/session/session-1", None),
             ],
             "WebDriver request sequence drifted",
@@ -162,7 +186,8 @@ def main() -> int:
             ),
             "W3C protocol error was accepted",
         )
-        require_raises(ValueError, lambda: session.execute_sync(""), "blank script was accepted")
+        require_raises(ValueError, lambda: session.execute_sync(""), "blank sync script was accepted")
+        require_raises(ValueError, lambda: session.execute_async(""), "blank async script was accepted")
         require_raises(ValueError, lambda: session.navigate(""), "blank navigation URL was accepted")
         require_raises(
             ValueError,

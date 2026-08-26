@@ -41,30 +41,47 @@ if(BUILD_TESTING)
       COMMAND
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_webdriver_tests.py")
+    add_test(
+      NAME competitor-webdriver-scenario-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_webdriver_scenario_tests.py")
+    add_test(
+      NAME competitor-webdriver-runtime-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_webdriver_runtime_tests.py")
+    add_test(
+      NAME competitor-scenario-contract-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_scenario_contract_tests.py")
+    add_test(
+      NAME competitor-case-executor-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_case_executor_tests.py")
+    add_test(
+      NAME competitor-benchmark-runner-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_benchmark_runner_tests.py")
   else()
-    add_test(
-      NAME competitor-registry-tests
-      COMMAND "${CMAKE_COMMAND}" -E false)
-    add_test(
-      NAME competitor-playwright-adapter-tests
-      COMMAND "${CMAKE_COMMAND}" -E false)
-    add_test(
-      NAME competitor-benchmark-planner-tests
-      COMMAND "${CMAKE_COMMAND}" -E false)
-    add_test(
-      NAME competitor-benchmark-evidence-tests
-      COMMAND "${CMAKE_COMMAND}" -E false)
-    add_test(
-      NAME competitor-process-scope-tests
-      COMMAND "${CMAKE_COMMAND}" -E false)
-    add_test(
-      NAME competitor-servo-adapter-tests
-      COMMAND "${CMAKE_COMMAND}" -E false)
-    add_test(
-      NAME competitor-ladybird-adapter-tests
-      COMMAND "${CMAKE_COMMAND}" -E false)
-    add_test(
-      NAME competitor-webdriver-transport-tests
-      COMMAND "${CMAKE_COMMAND}" -E false)
+    foreach(_test_name IN ITEMS
+        competitor-registry-tests
+        competitor-playwright-adapter-tests
+        competitor-benchmark-planner-tests
+        competitor-benchmark-evidence-tests
+        competitor-process-scope-tests
+        competitor-servo-adapter-tests
+        competitor-ladybird-adapter-tests
+        competitor-webdriver-transport-tests
+        competitor-webdriver-scenario-tests
+        competitor-webdriver-runtime-tests
+        competitor-scenario-contract-tests
+        competitor-case-executor-tests
+        competitor-benchmark-runner-tests)
+      add_test(NAME "${_test_name}" COMMAND "${CMAKE_COMMAND}" -E false)
+    endforeach()
   endif()
 endif()
