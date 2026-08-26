@@ -16,6 +16,31 @@ from typing import Any
 import psutil
 from playwright.sync_api import sync_playwright
 
+from browser_competitor_benchmark_evidence import (
+    HARNESS_SCHEMA,
+    VIEWPORT_HEIGHT,
+    VIEWPORT_WIDTH,
+    evidence_identity,
+    host_metadata,
+    scenario_fingerprint,
+    synthetic_corpus_sha256,
+)
+from browser_competitor_benchmark_plan import (
+    BenchmarkCasePlan,
+    plan_benchmark_cases,
+    unsupported_case_record,
+)
+from browser_competitor_playwright import (
+    launch_browser,
+    launch_failure_status,
+    runtime_identity,
+)
+from browser_competitor_registry import (
+    get_spec,
+    leadership_coverage,
+    terminal_record,
+)
+
 
 def read_pss_bytes(pid: int) -> int:
     try:
@@ -201,26 +226,63 @@ async () => {
     return {**blob, **native}
 
 
+def failure_case_record(
+    competitor: str,
+    mode: str,
+    payload_bytes: int,
+    status: str,
+    reason: str,
+    **extra: object,
+) -> dict[str, object]:
+    spec = get_spec(competitor)
+    record = terminal_record(spec, status, reason=reason)
+    return {
+        **record,
+        "browser": competitor,
+        "mode": mode,
+        "payload_bytes": payload_bytes,
+        **extra,
+    }
+
+
 def browser_worker(
-    browser_name: str,
+    competitor: str,
     mode: str,
     payload_bytes: int,
     query_count: int,
     slice_bytes: int,
+    evidence_kwargs: dict[str, str],
     output_queue: Any,
 ) -> None:
     monitor: PeakPssMonitor | None = None
     browser = None
+    context = None
     try:
         root_pid = os.getpid()
         with sync_playwright() as playwright:
             baseline_pss = process_tree_pss_bytes(root_pid)
             monitor = PeakPssMonitor(root_pid)
             monitor.start()
-            browser_type = getattr(playwright, browser_name)
-            launch_args = ["--js-flags=--expose-gc"] if browser_name == "chromium" else []
-            browser = browser_type.launch(headless=True, args=launch_args)
-            context = browser.new_context(viewport={"width": 800, "height": 720})
+            try:
+                spec, browser, launch_plan = launch_browser(playwright, competitor)
+            except BaseException as exc:  # noqa: BLE001 - launch state is evidence
+                status, reason = launch_failure_status(exc)
+                output_queue.put(
+                    failure_case_record(
+                        competitor,
+                        mode,
+                        payload_bytes,
+                        status,
+                        reason,
+                        traceback=traceback.format_exc(),
+                    )
+                )
+                return
+
+            identity = runtime_identity(spec, launch_plan, browser.version)
+            context = browser.new_context(
+                viewport={"width": VIEWPORT_WIDTH, "height": VIEWPORT_HEIGHT}
+            )
             page = context.new_page()
             setup_page(page)
 
@@ -262,8 +324,13 @@ def browser_worker(
             resident_after_queries = process_tree_pss_bytes(root_pid)
             monitor.stop()
             result = {
-                "status": "success",
-                "browser": browser_name,
+                **terminal_record(
+                    spec,
+                    "success",
+                    runtime_identity=identity,
+                    **evidence_kwargs,
+                ),
+                "browser": competitor,
                 "browser_version": browser.version,
                 "mode": mode,
                 "payload_bytes": payload_bytes,
@@ -280,51 +347,65 @@ def browser_worker(
                 "process_tree_pss_mb_after_setup": resident_after_setup / 1_000_000,
                 "process_tree_pss_mb_after_queries": resident_after_queries / 1_000_000,
                 "process_tree_peak_pss_mb": monitor.peak_bytes / 1_000_000,
-                "incremental_peak_pss_mb": max(0, monitor.peak_bytes - baseline_pss) / 1_000_000,
+                "incremental_peak_pss_mb": max(
+                    0, monitor.peak_bytes - baseline_pss
+                )
+                / 1_000_000,
                 "query_details": query_details,
             }
             context.close()
+            context = None
             browser.close()
             browser = None
             output_queue.put(result)
     except BaseException as exc:  # noqa: BLE001 - worker must serialize all failures
-        if monitor is not None:
-            monitor.stop()
+        if context is not None:
+            try:
+                context.close()
+            except BaseException:
+                pass
         if browser is not None:
             try:
                 browser.close()
             except BaseException:
                 pass
         output_queue.put(
-            {
-                "status": "error",
-                "browser": browser_name,
-                "mode": mode,
-                "payload_bytes": payload_bytes,
-                "error": f"{type(exc).__name__}: {exc}",
-                "traceback": traceback.format_exc(),
-            }
+            failure_case_record(
+                competitor,
+                mode,
+                payload_bytes,
+                "error",
+                f"{type(exc).__name__}: {exc}",
+                traceback=traceback.format_exc(),
+            )
         )
+    finally:
+        if monitor is not None:
+            monitor.stop()
 
 
 def run_case(
-    browser_name: str,
-    mode: str,
+    plan: BenchmarkCasePlan,
     payload_bytes: int,
     query_count: int,
     slice_bytes: int,
     timeout_seconds: int,
+    evidence_kwargs: dict[str, str],
 ) -> dict[str, Any]:
+    if not plan.executable:
+        return dict(unsupported_case_record(plan, payload_bytes=payload_bytes))
+
     context = mp.get_context("spawn")
     output_queue = context.Queue()
     process = context.Process(
         target=browser_worker,
         args=(
-            browser_name,
-            mode,
+            plan.competitor,
+            plan.mode,
             payload_bytes,
             query_count,
             slice_bytes,
+            evidence_kwargs,
             output_queue,
         ),
     )
@@ -333,23 +414,29 @@ def run_case(
     if process.is_alive():
         process.terminate()
         process.join(15)
-        return {
-            "status": "timeout",
-            "browser": browser_name,
-            "mode": mode,
-            "payload_bytes": payload_bytes,
-            "timeout_seconds": timeout_seconds,
-        }
+        return dict(
+            failure_case_record(
+                plan.competitor,
+                plan.mode,
+                payload_bytes,
+                "timeout",
+                f"case exceeded declared timeout of {timeout_seconds} seconds",
+                timeout_seconds=timeout_seconds,
+            )
+        )
     try:
         return output_queue.get(timeout=5)
     except queue.Empty:
-        return {
-            "status": "error",
-            "browser": browser_name,
-            "mode": mode,
-            "payload_bytes": payload_bytes,
-            "error": f"worker exited with code {process.exitcode} without a result",
-        }
+        return dict(
+            failure_case_record(
+                plan.competitor,
+                plan.mode,
+                payload_bytes,
+                "error",
+                f"worker exited with code {process.exitcode} without a result",
+                worker_exit_code=process.exitcode,
+            )
+        )
 
 
 def zevryon_summary(report: dict[str, Any]) -> dict[str, Any]:
@@ -363,32 +450,83 @@ def zevryon_summary(report: dict[str, Any]) -> dict[str, Any]:
         "baseline_full_scan_peak_pss_mb": baseline.get("peak_pss_mb"),
         "baseline_source_bytes_read": int(comparison["baseline_source_bytes_read"]),
         "checkpoint_query_count": int(comparison["checkpoint_query_count"]),
-        "checkpoint_seconds_p50": float(comparison["checkpoint_window_seconds_p50"]),
-        "checkpoint_seconds_p95": float(comparison["checkpoint_window_seconds_p95"]),
-        "checkpoint_seconds_p99": float(comparison["checkpoint_window_seconds_p99"]),
-        "checkpoint_seconds_max": float(comparison["checkpoint_window_seconds_max"]),
-        "checkpoint_peak_pss_mb_max": comparison.get("checkpoint_peak_pss_mb_max"),
+        "checkpoint_seconds_p50": float(
+            comparison["checkpoint_window_seconds_p50"]
+        ),
+        "checkpoint_seconds_p95": float(
+            comparison["checkpoint_window_seconds_p95"]
+        ),
+        "checkpoint_seconds_p99": float(
+            comparison["checkpoint_window_seconds_p99"]
+        ),
+        "checkpoint_seconds_max": float(
+            comparison["checkpoint_window_seconds_max"]
+        ),
+        "checkpoint_peak_pss_mb_max": comparison.get(
+            "checkpoint_peak_pss_mb_max"
+        ),
         "checkpoint_source_bytes_read_max": int(
             comparison["checkpoint_source_bytes_read_max"]
         ),
         "checkpoint_physical_bytes": int(comparison["checkpoint_physical_bytes"]),
-        "checkpoint_overhead_ratio": float(comparison["checkpoint_overhead_ratio"]),
+        "checkpoint_overhead_ratio": float(
+            comparison["checkpoint_overhead_ratio"]
+        ),
         "speedup_x_p50": float(comparison["speedup_x_p50"]),
         "speedup_x_p95": float(comparison["speedup_x_p95"]),
         "source_read_reduction_x_worst": float(
             comparison["source_read_reduction_x_worst"]
         ),
-        "checkpoint_build_seconds": float(comparison["checkpoint_build_seconds"]),
+        "checkpoint_build_seconds": float(
+            comparison["checkpoint_build_seconds"]
+        ),
         "zero_payload_data_loss": bool(layout["zero_payload_data_loss"]),
     }
 
 
+def _timeout_for_mode(
+    mode: str,
+    *,
+    virtual_timeout_seconds: int,
+    native_timeout_seconds: int,
+) -> int:
+    if mode == "virtualized":
+        return virtual_timeout_seconds
+    if mode == "native-dom":
+        return native_timeout_seconds
+    raise ValueError(f"unknown benchmark mode: {mode}")
+
+
+def _coverage_by_mode(cases: list[dict[str, Any]]) -> dict[str, object]:
+    output: dict[str, object] = {}
+    for mode in ("virtualized", "native-dom"):
+        canonical_records = [
+            case
+            for case in cases
+            if case.get("mode") == mode and case.get("canonical") is True
+        ]
+        output[mode] = leadership_coverage(canonical_records)
+    return output
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Compare Zevryon giant-record access with Chromium and Firefox"
+        description=(
+            "Compare Zevryon giant-record access with explicitly identified "
+            "browser/engine competitors"
+        )
     )
     parser.add_argument("--zevryon-report", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--competitor",
+        dest="competitors",
+        action="append",
+        help=(
+            "competitor registry key; repeat to request multiple engines. "
+            "Default remains auxiliary chromium plus firefox"
+        ),
+    )
     parser.add_argument("--payload-bytes", type=int, default=64 * 1024 * 1024)
     parser.add_argument("--query-count", type=int, default=21)
     parser.add_argument("--virtual-slice-bytes", type=int, default=128 * 1024)
@@ -405,55 +543,96 @@ def main() -> int:
     ):
         parser.error("benchmark arguments must be positive")
 
+    try:
+        plans = plan_benchmark_cases(args.competitors)
+    except ValueError as exc:
+        parser.error(str(exc))
+
     zevryon_report = json.loads(args.zevryon_report.read_text(encoding="utf-8"))
+    host = host_metadata()
+    corpus_sha256 = synthetic_corpus_sha256(args.payload_bytes)
+
     cases: list[dict[str, Any]] = []
-    for browser_name in ("chromium", "firefox"):
-        cases.append(
-            run_case(
-                browser_name,
-                "virtualized",
-                args.payload_bytes,
-                args.query_count,
-                args.virtual_slice_bytes,
-                args.virtual_timeout_seconds,
-            )
+    for plan in plans:
+        timeout_seconds = _timeout_for_mode(
+            plan.mode,
+            virtual_timeout_seconds=args.virtual_timeout_seconds,
+            native_timeout_seconds=args.native_timeout_seconds,
+        )
+        scenario_sha256 = scenario_fingerprint(
+            mode=plan.mode,
+            payload_bytes=args.payload_bytes,
+            query_count=args.query_count,
+            virtual_slice_bytes=args.virtual_slice_bytes,
+            timeout_seconds=timeout_seconds,
+        )
+        identity = evidence_identity(
+            host=host,
+            corpus_sha256=corpus_sha256,
+            scenario_sha256=scenario_sha256,
         )
         cases.append(
             run_case(
-                browser_name,
-                "native-dom",
+                plan,
                 args.payload_bytes,
                 args.query_count,
                 args.virtual_slice_bytes,
-                args.native_timeout_seconds,
+                timeout_seconds,
+                identity.as_terminal_kwargs(),
             )
         )
 
+    requested_competitors = list(dict.fromkeys(plan.competitor for plan in plans))
+    executable_competitors = list(
+        dict.fromkeys(plan.competitor for plan in plans if plan.executable)
+    )
+    unsupported_competitors = list(
+        dict.fromkeys(plan.competitor for plan in plans if not plan.executable)
+    )
     virtual_failures = [
         case
         for case in cases
         if case["mode"] == "virtualized" and case["status"] != "success"
     ]
+    all_failures = [case for case in cases if case["status"] != "success"]
     report = {
-        "schema": "zevryon.competitor.giant-document.v1",
+        "schema": HARNESS_SCHEMA,
         "host": {
-            "platform": os.uname().sysname,
-            "kernel": os.uname().release,
-            "logical_cpus": os.cpu_count(),
+            **host,
+            "system_fingerprint": evidence_identity(
+                host=host,
+                corpus_sha256=corpus_sha256,
+                scenario_sha256=scenario_fingerprint(
+                    mode="virtualized",
+                    payload_bytes=args.payload_bytes,
+                    query_count=args.query_count,
+                    virtual_slice_bytes=args.virtual_slice_bytes,
+                    timeout_seconds=args.virtual_timeout_seconds,
+                ),
+            ).system_fingerprint,
         },
+        "corpus_sha256": corpus_sha256,
         "payload_bytes": args.payload_bytes,
         "query_count": args.query_count,
         "virtual_slice_bytes": args.virtual_slice_bytes,
+        "requested_competitors": requested_competitors,
+        "executable_competitors": executable_competitors,
+        "unsupported_competitors": unsupported_competitors,
         "scope_notes": [
             "Zevryon checkpoint timings include CLI process start, store open, checkpoint open, bounded read, and JSON serialization.",
             "Browser query timings are steady-context page timings after browser and payload setup.",
-            "Browser process memory is incremental process-tree PSS above the Python+Playwright harness baseline.",
+            "Browser process memory is incremental worker process-tree PSS/RSS above the Python+Playwright harness baseline; browser-root isolation remains a separate M7 metric-admission gate.",
             "Native DOM uses real browser text layout; Zevryon currently uses deterministic average-advance fragments.",
-            "Virtualized browser mode uses a 64 MiB Blob and renders only a bounded 128 KiB slice.",
+            "Virtualized browser mode uses the exact synthetic corpus hash recorded in corpus_sha256 and renders only the requested bounded slice.",
+            "Branded Chrome/Edge channels are never replaced by bundled Chromium when unavailable.",
         ],
         "zevryon": zevryon_summary(zevryon_report),
         "browser_cases": cases,
+        "leadership_coverage_by_mode": _coverage_by_mode(cases),
         "all_virtualized_cases_succeeded": not virtual_failures,
+        "all_requested_cases_succeeded": not all_failures,
+        "leadership_metric_gate_evaluated": False,
+        "leadership_eligible": False,
     }
     text = json.dumps(report, indent=2, sort_keys=True) + "\n"
     args.output.parent.mkdir(parents=True, exist_ok=True)
