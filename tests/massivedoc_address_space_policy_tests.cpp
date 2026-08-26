@@ -53,8 +53,10 @@ int main() {
         current_address_space_window_limits();
     require(current.valid(), "current address-space policy is invalid");
 
+    static_assert(
+        sizeof(void*) != 4U || current_pointer_bits() == 32U,
+        "32-bit build did not report a 32-bit pointer policy");
     if constexpr (sizeof(void*) == 4U) {
-        static_assert(current_pointer_bits() == 32U);
         require(
             current.maximum_io_window_bytes == 4U * 1024U * 1024U &&
                 current.maximum_mapped_window_bytes == 8U * 1024U * 1024U &&
