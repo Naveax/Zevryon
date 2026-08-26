@@ -208,6 +208,7 @@ jobs:
           g++ $COMMON_FLAGS -fsyntax-only src/massivedoc_positional_io.cpp
           g++ $COMMON_FLAGS -fsyntax-only src/massivedoc_cold_window.cpp
           g++ $COMMON_FLAGS -fsyntax-only src/massivedoc_exact_match.cpp
+          g++ $COMMON_FLAGS -msse2 -fsyntax-only src/massivedoc_exact_match.cpp
 
   m6-win32-address-space-gate:
     name: M6 Win32 address-space gate
