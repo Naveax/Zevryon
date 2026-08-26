@@ -18,6 +18,11 @@ using ZenithTabActivitySink = std::function<bool(
     std::int64_t,
     std::string*)>;
 
+enum class ZenithProcessPressureSource : std::uint8_t {
+    ProcessMemory = 0U,
+    PlatformMemory = 1U,
+};
+
 struct ZenithProcessTabControllerStats {
     std::size_t registered_tabs{0U};
     std::size_t visible_tabs{0U};
@@ -56,10 +61,19 @@ public:
         FrameVisibility visibility,
         std::int64_t scroll_velocity_q8_per_second,
         std::string* error);
+
+    // Backward-compatible process-memory source update. Platform-owned pressure
+    // sources must use set_pressure_source() so independent signals cannot
+    // accidentally clear one another.
     bool set_global_pressure(FramePressure pressure, std::string* error);
+    bool set_pressure_source(
+        ZenithProcessPressureSource source,
+        FramePressure pressure,
+        std::string* error);
 
     bool contains(std::uint64_t session_id) const noexcept;
     FramePressure global_pressure() const noexcept;
+    FramePressure pressure_source(ZenithProcessPressureSource source) const noexcept;
     ZenithProcessTabControllerStats stats() const noexcept;
 
 private:
