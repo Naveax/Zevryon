@@ -15,6 +15,10 @@ SYNTHETIC_PATTERN = "👨‍👩‍👧‍👦👍🏽🚀 ".encode("utf-8")
 CORPUS_CHUNK_BYTES = 1024 * 1024
 VIEWPORT_WIDTH = 800
 VIEWPORT_HEIGHT = 720
+MEMORY_ACCOUNTING_POLICY = (
+    "dedicated-worker-dynamic-post-playwright-driver-descendants:"
+    "pss-linux-rss-fallback-v1"
+)
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -116,6 +120,7 @@ def scenario_fingerprint(
         "payload_generator": "zevryon.m7.synthetic-unicode-blob.v1",
         "offset_generator": "lcg-0x243f6a88-v1",
         "warmup_policy": "setup-gc-250ms",
+        "memory_accounting_policy": MEMORY_ACCOUNTING_POLICY,
         "timing_boundary": (
             "blob-slice-text-layout-double-raf"
             if mode == "virtualized"
