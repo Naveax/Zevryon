@@ -6,5 +6,9 @@ if(BUILD_TESTING)
       COMMAND
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_registry_tests.py")
+  else()
+    add_test(
+      NAME competitor-registry-tests
+      COMMAND "${CMAKE_COMMAND}" -E false)
   endif()
 endif()
