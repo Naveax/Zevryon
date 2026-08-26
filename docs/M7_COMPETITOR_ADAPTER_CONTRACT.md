@@ -22,7 +22,7 @@ Every successful browser result must record:
 - canonical competitor name;
 - adapter kind;
 - browser/engine version or commit where available;
-- binary/channel identity;
+- exact binary/channel identity;
 - operating system and architecture;
 - normalized system-state fingerprint;
 - harness version/schema;
@@ -36,9 +36,10 @@ A result may not be relabeled as another browser merely because the rendering en
 In particular:
 
 - Playwright `chromium` is an auxiliary Chromium build, not Google Chrome;
-- Playwright can launch installed branded Chrome with channel `chrome` and Edge with channel `msedge`;
-- Playwright's Firefox support uses its compatible/patched Firefox build and must be reported with that identity rather than silently asserted to be an arbitrary stock Firefox binary;
-- Playwright WebKit is a WebKit build and is not branded Safari.
+- installed Google Chrome is launched through channel `chrome`;
+- installed Microsoft Edge is launched through channel `msedge`;
+- Playwright Firefox is reported with its actual Playwright-compatible runtime identity rather than silently asserted to be an arbitrary stock Firefox binary;
+- Playwright WebKit is WebKit evidence and is not branded Safari evidence.
 
 Reference: https://playwright.dev/python/docs/browsers
 
@@ -46,31 +47,37 @@ Reference: https://playwright.dev/python/docs/browsers
 
 ### Playwright adapter
 
-Initial supported identities:
+Supported identities are auxiliary Chromium, branded Chrome, branded Edge, Playwright Firefox, and Playwright WebKit.
 
-- auxiliary Chromium: Playwright `chromium`;
-- Chrome: Playwright Chromium launcher with channel `chrome`;
-- Edge: Playwright Chromium launcher with channel `msedge`;
-- Playwright Firefox identity: Playwright `firefox`;
-- WebKit: Playwright `webkit`.
+Chrome/Edge absence on the host is an explicit `unavailable` result. The harness never falls back to bundled Chromium under a branded browser name.
 
-Chrome/Edge absence on the host is an explicit availability failure, never a request to fall back to bundled Chromium under the branded name.
+Playwright control starts before the browser-process baseline is captured. The already-running Playwright driver therefore belongs to the control baseline and is excluded from browser memory. Only descendants created after that baseline are admitted to browser process-scope evidence.
 
 ### Servo WebDriver adapter
 
-Current Servo exposes a WebDriver server from `servoshell` through the headless launch surface `--headless --webdriver=PORT about:blank`. The adapter resolves an exact Servo/servoshell binary, records `--version` output as runtime identity, launches the bounded WebDriver service, and uses the shared W3C transport.
+Servo exposes a WebDriver server through the headless launch surface `--headless --webdriver=PORT about:blank`.
 
-The existence of the service does not itself make a benchmark case executable. The planner remains fail-closed until the exact giant-document common scenario, viewport authority, process-scope memory authority, timeout behavior, and cleanup path are wired and tested together.
+The adapter:
+
+- resolves an exact Servo/servoshell binary;
+- records `--version` output as runtime identity;
+- binds control to a loopback WebDriver endpoint;
+- creates a W3C session;
+- runs the shared giant-document scenario;
+- records exact inner-viewport and process-scope evidence;
+- closes the session and engine process deterministically.
+
+The planner routes Servo through the WebDriver case executor. A missing binary is `unavailable`; malformed identity or invalid evidence is `invalid`; an unsupported W3C operation is `unsupported`. None of those states may be rewritten as success.
 
 Reference source: https://github.com/servo/servo/tree/main/components/webdriver_server
 
 ### Ladybird WebDriver adapter
 
-Current Ladybird includes a dedicated `WebDriver` service. Its supported launch surface includes `--headless`, `-l/--listen-address`, and `-p/--port`; Zevryon binds the service to `127.0.0.1` for benchmark control. Ladybird's own performance tooling creates W3C sessions and uses navigation plus `execute/sync`, so M7 no longer classifies Ladybird as a generic command-only headless adapter.
+Ladybird includes a dedicated `WebDriver` service with a headless loopback launch surface. Ladybird's own performance tooling creates W3C sessions and uses navigation/script execution, so M7 treats it as an explicit WebDriver adapter rather than a generic command-only headless browser.
 
-The Ladybird WebDriver executable does not currently expose a reliable `--version` identity surface. Zevryon therefore binds Ladybird runtime identity to the exact resolved WebDriver binary path plus the lowercase SHA-256 of that binary. Missing or unreadable binary identity is `unavailable`/`invalid`, never an inferred version.
+The Ladybird WebDriver executable does not expose a sufficiently reliable version surface for canonical identity. Zevryon therefore binds runtime identity to the exact resolved WebDriver binary path plus the lowercase SHA-256 of that binary.
 
-As with Servo, the presence of W3C WebDriver is not sufficient for admission. Ladybird remains non-executable in the benchmark planner until the same certified giant-document scenario is wired end-to-end.
+The planner routes Ladybird through the same WebDriver case executor as Servo. Missing or unreadable binary identity is `unavailable`/`invalid`; unsupported session operations remain `unsupported`.
 
 Reference sources:
 
@@ -79,17 +86,18 @@ Reference sources:
 
 ### Shared W3C WebDriver transport
 
-Servo and Ladybird use one stdlib-only W3C transport authority instead of separate ad-hoc HTTP clients. The shared layer is responsible for:
+Servo and Ladybird use one stdlib-only W3C transport authority. It owns:
 
-- endpoint reachability and `/status` receipts;
-- `POST /session` creation with an explicit capabilities object;
+- `/status` readiness receipts;
+- `POST /session` creation with explicit capabilities;
 - session ID and capability validation;
 - script/page-load timeout configuration;
-- `GET/POST /session/{id}/window/rect`;
+- window rectangle configuration;
 - navigation through `/session/{id}/url`;
-- synchronous script execution through `/session/{id}/execute/sync`;
+- synchronous execution through `/session/{id}/execute/sync`;
+- callback-based asynchronous execution through `/session/{id}/execute/async`;
 - idempotent `DELETE /session/{id}` cleanup;
-- distinction between HTTP/transport failures and valid W3C protocol error responses.
+- distinction between HTTP/transport failures and valid W3C protocol errors.
 
 A W3C error encoded as `value.error` remains a protocol error even when transported with HTTP 4xx. It must not be collapsed into an opaque network failure.
 
@@ -97,81 +105,82 @@ A W3C error encoded as `value.error` remains a protocol error even when transpor
 
 Every requested engine/mode produces exactly one terminal state:
 
-- `success`: the common scenario completed and required evidence is present;
+- `success`: the common scenario completed and all required evidence is valid;
 - `unsupported`: the exact requested capability is not implemented by the adapter/browser;
 - `unavailable`: the adapter exists but the required binary/channel is absent on the host;
 - `timeout`: the bounded case exceeded its declared timeout;
 - `error`: execution failed for another recorded reason;
 - `invalid`: evidence is incomplete or violates the comparison contract.
 
-Unsupported or unavailable cases are data, not success. They remain visible in the report and make full-set coverage incomplete.
+Unsupported, unavailable, timeout, error, and invalid cases are data, not success. They remain visible in the raw report and make full-set coverage incomplete.
 
-A raw result cannot bypass the evidence validator by claiming `success` directly. Successful terminal evidence is invalid unless all required identity/comparison fields are present and well-formed.
+A worker cannot bypass this contract by returning `success` directly. The parent benchmark runner validates canonical identity, adapter, competitor, mode, payload identity, required success evidence, query evidence, and browser process-scope memory evidence before admitting a successful case.
 
 ## Common scenario invariants
 
-A comparable case uses the same:
+Playwright and WebDriver cases consume one shared scenario authority for:
 
-- host platform and architecture;
-- normalized system-state fingerprint;
-- payload bytes and corpus hash;
-- Unicode payload generator;
-- viewport dimensions;
+- Unicode payload pattern and 1 MiB corpus chunk construction;
+- DOM/CSS geometry;
+- exact `800x720` inner CSS viewport;
 - virtualized slice size;
-- deterministic query/scroll sequence;
-- warmup policy;
+- deterministic LCG query/scroll sequence;
+- setup GC plus 250 ms warmup policy;
 - setup/query timing boundaries;
-- timeout policy;
+- double-`requestAnimationFrame` completion semantics;
+- timeout policy inputs;
 - process-tree memory accounting definition;
 - harness schema and scenario fingerprint.
 
-Adapter-specific setup is recorded separately from workload timing.
+W3C window rectangle dimensions are not accepted as viewport evidence by themselves. The harness measures `window.innerWidth` and `window.innerHeight`, iteratively calibrates the outer rectangle when necessary, and rejects the case if exact `800x720` inner dimensions cannot be established.
 
-Setting an outer W3C window rectangle is not sufficient viewport evidence. After rect configuration the harness must measure the real page `innerWidth` and `innerHeight` through the same session and reject the case as `invalid` if the certified viewport cannot be established.
+Adapter-specific launch/control setup is recorded separately from workload timing.
 
-A browser-native DOM layout and Zevryon's current deterministic average-advance layout are not the same rendering workload. Results may be published side-by-side, but a leadership metric may combine them only after the metric contract demonstrates equivalence.
+A browser-native DOM layout and Zevryon's deterministic average-advance layout are not the same rendering workload. Results may be published side-by-side, but a leadership metric may combine them only after the metric contract demonstrates equivalence.
 
-## Memory evidence
+## Browser process-scope memory evidence
 
-Process memory must be scoped to the browser/engine process tree created for the case. Harness baseline, post-setup resident memory, post-query resident memory, peak memory, and incremental peak above harness baseline are recorded separately.
+Browser memory is measured only from processes created after the adapter's control baseline.
 
-Process identity is PID-reuse-safe: an admitted process identity includes both PID and creation time. A recycled PID with a mismatched creation time is not the same browser process.
-
-The live process-tree sampler may use an optional platform/process dependency, but absence of that dependency must fail closed. Pure authority/contract tests must not require the live sampler dependency merely to import or validate deterministic process-scope logic.
-
-If an adapter cannot identify the relevant process tree reliably, its memory metric is `invalid` rather than estimated from an unrelated parent process.
+- Process identity is `(PID, creation-time)` so PID reuse cannot alias an unrelated process.
+- Playwright's already-running driver belongs to the control baseline and is excluded.
+- Servo/Ladybird engine launch occurs after the control baseline and is therefore included.
+- Linux uses PSS from `smaps_rollup` when available; RSS is the fallback.
+- Post-setup resident memory, post-query resident memory, peak browser-scope memory, and process identity receipts are recorded.
+- Empty or unidentifiable browser scope makes the memory evidence `invalid`.
+- The harness does not fall back to Python worker-tree memory when browser isolation fails.
+- Absence of the live process dependency fails closed; pure contract tests remain importable without requiring that dependency.
 
 ## Coverage and leadership gates
 
-The report must distinguish:
+The report distinguishes requested, planner-executable, available, unavailable, successfully measured, fully measured, and runtime-unsupported competitors. Auxiliary/non-canonical baselines remain separate from the canonical set.
 
-- requested competitors;
-- available competitors;
-- successfully measured competitors;
-- auxiliary/non-canonical baselines.
-
-No leadership claim is admitted when a required core competitor is silently missing, mislabeled, measured on mismatched comparison identity, or measured under a materially different workload.
+No leadership claim is admitted when a required canonical competitor is silently missing, mislabeled, measured on mismatched comparison identity, or measured under a materially different workload.
 
 Leadership is explicitly two-stage and fail-closed:
 
 1. the evidence gate requires every canonical competitor to complete successfully with matching host platform/architecture, system fingerprint, harness schema, corpus SHA-256 and scenario fingerprint;
 2. only a separate metric evaluator may then evaluate the performance leadership rule.
 
-Passing the evidence gate is **not** a leadership result. The registry/coverage layer must report the metric gate as unevaluated and final leadership eligibility as false until the metric evaluator has actually processed the raw measurements.
+Passing the evidence gate is **not** a leadership result. The registry/coverage layer reports the metric gate as unevaluated and final leadership eligibility as false until the metric evaluator has processed the admitted raw measurements.
 
 The existing M7 performance rule remains authoritative: Zevryon must be first in at least four core efficiency metrics and within 5% of the leader in every remaining core metric before a leadership claim is allowed.
 
-## Migration of the existing harness
+## Canonical implementation sequence
 
-`scripts/browser_competitor_benchmark.py` began with Playwright Chromium and Firefox. The canonical implementation sequence is now:
+The harness migration sequence is:
 
 1. explicit competitor registry and requested-engine list;
-2. bundled Chromium preserved as an auxiliary baseline;
-3. real WebKit plus branded Chrome/Edge channels with exact identity receipts;
-4. explicit `unsupported`, `unavailable`, `timeout`, `error`, and `invalid` terminal states;
-5. deterministic corpus/scenario/system evidence and raw per-case receipts;
-6. PID-reuse-safe browser process-scope memory authority;
+2. auxiliary Chromium separated from branded Chrome/Edge;
+3. real WebKit plus branded Chrome/Edge identity receipts;
+4. explicit terminal result states;
+5. deterministic corpus/scenario/system evidence;
+6. PID-reuse-safe browser process-scope authority;
 7. Servo and Ladybird exact-binary launch/identity adapters;
-8. one shared W3C WebDriver transport for Servo and Ladybird;
-9. common-scenario runtime wiring with verified inner viewport and process-scope accounting;
-10. full-set evidence coverage followed by the separate metric evaluator and only then any ranking claim.
+8. shared W3C WebDriver transport;
+9. shared Playwright/WebDriver scenario and case-executor wiring with exact viewport and browser process-scope evidence;
+10. exact-head validation and admission of the integrated executor;
+11. real canonical full-set evidence collection;
+12. separate metric evaluation and only then any leadership/ranking claim.
+
+Steps 1-9 are implemented in the integrated M7 candidate. Steps 10-12 remain fail-closed until their evidence exists.
