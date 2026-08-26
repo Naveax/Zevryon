@@ -46,9 +46,13 @@ The reverse ordering is also safe: a normal Android callback cannot clear an ind
 
 `apply_android_memory_pressure_signal()` evaluates the Android facts and updates only the `PlatformMemory` source. It does not receive or snapshot the process-memory policy, because one-time `max(process, android)` composition is insufficient when the two producers run at different times.
 
-## Polling and lifecycle boundary
+## Polling, threading and lifecycle boundary
 
 No Android polling thread is added. A future Android shell should push trim and low-memory observations from the platform lifecycle while the existing process-memory sampler continues independently.
+
+`ZenithProcessTabController` is owned by the existing process runtime/event-loop model and is not a cross-thread synchronization primitive. Android/JNI glue must therefore marshal platform memory callbacks onto the same owner/event-loop execution context used to mutate the process controller. It must not call `apply_android_memory_pressure_signal()` concurrently with process-memory sampling or tab lifecycle mutation from an arbitrary callback thread.
+
+This owner-context rule is separate from pressure-source composition: independent `ProcessMemory` and `PlatformMemory` slots prevent logical clobbering, while event-loop serialization prevents native data races.
 
 The future shell is also responsible for obtaining `isLowRamDevice()` and `MemoryInfo.lowMemory` from Android APIs and forwarding the raw facts into this native contract. JNI/Kotlin/Java glue is intentionally not fabricated in a repository that currently has no Android application shell.
 
@@ -63,3 +67,5 @@ Focused regression tests cover:
 - process critical pressure surviving later Android normal/elevated callbacks;
 - clearing one source without clearing the other;
 - null bridge inputs failing closed.
+
+Thread ownership itself is an integration responsibility of the future Android shell; these pure-native tests intentionally do not pretend to certify a JNI lifecycle that does not yet exist.
