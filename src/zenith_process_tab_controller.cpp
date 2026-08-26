@@ -2,6 +2,7 @@
 
 #include "zenith_tab_runtime.hpp"
 
+#include <array>
 #include <exception>
 #include <limits>
 #include <unordered_map>
@@ -10,8 +11,36 @@
 namespace zevryon::massivedoc {
 namespace {
 
+constexpr std::size_t kPressureSourceCount = 2U;
+
 std::uint64_t saturating_increment(std::uint64_t value) noexcept {
     return value == std::numeric_limits<std::uint64_t>::max() ? value : value + 1U;
+}
+
+std::size_t pressure_source_index(ZenithProcessPressureSource source) noexcept {
+    switch (source) {
+    case ZenithProcessPressureSource::ProcessMemory:
+        return 0U;
+    case ZenithProcessPressureSource::PlatformMemory:
+        return 1U;
+    }
+    return kPressureSourceCount;
+}
+
+unsigned int pressure_rank(FramePressure pressure) noexcept {
+    switch (pressure) {
+    case FramePressure::Critical:
+        return 2U;
+    case FramePressure::Elevated:
+        return 1U;
+    case FramePressure::Normal:
+    default:
+        return 0U;
+    }
+}
+
+FramePressure stronger_pressure(FramePressure left, FramePressure right) noexcept {
+    return pressure_rank(left) >= pressure_rank(right) ? left : right;
 }
 
 } // namespace
@@ -26,8 +55,15 @@ struct ZenithProcessTabController::Impl {
     std::unordered_map<std::uint64_t, Entry> entries;
     std::size_t visible_tabs{0U};
     std::size_t hidden_tabs{0U};
+    std::array<FramePressure, kPressureSourceCount> pressure_sources{
+        FramePressure::Normal,
+        FramePressure::Normal};
     FramePressure pressure{FramePressure::Normal};
     ZenithProcessTabControllerStats statistics;
+
+    FramePressure combined_pressure() const noexcept {
+        return stronger_pressure(pressure_sources[0U], pressure_sources[1U]);
+    }
 
     void sync_current_counts() noexcept {
         statistics.registered_tabs = entries.size();
@@ -230,15 +266,37 @@ bool ZenithProcessTabController::set_tab_activity(
 bool ZenithProcessTabController::set_global_pressure(
     FramePressure pressure,
     std::string* error) {
+    return set_pressure_source(
+        ZenithProcessPressureSource::ProcessMemory,
+        pressure,
+        error);
+}
+
+bool ZenithProcessTabController::set_pressure_source(
+    ZenithProcessPressureSource source,
+    FramePressure pressure,
+    std::string* error) {
     if (error == nullptr) {
         return false;
     }
     error->clear();
-    if (pressure == impl_->pressure) {
+
+    const std::size_t source_index = pressure_source_index(source);
+    if (source_index >= impl_->pressure_sources.size()) {
+        *error = "invalid process pressure source";
+        return false;
+    }
+    if (impl_->pressure_sources[source_index] == pressure) {
         return true;
     }
 
-    impl_->pressure = pressure;
+    impl_->pressure_sources[source_index] = pressure;
+    const FramePressure target_pressure = impl_->combined_pressure();
+    if (target_pressure == impl_->pressure) {
+        return true;
+    }
+
+    impl_->pressure = target_pressure;
     impl_->statistics.pressure_changes =
         saturating_increment(impl_->statistics.pressure_changes);
     impl_->sync_current_counts();
@@ -252,7 +310,7 @@ bool ZenithProcessTabController::set_global_pressure(
                 continue;
             }
             std::string apply_error;
-            if (!impl_->apply(entry, pressure, &apply_error)) {
+            if (!impl_->apply(entry, target_pressure, &apply_error)) {
                 all_applied = false;
                 if (first_error.empty()) {
                     first_error = apply_error.empty()
@@ -280,6 +338,14 @@ bool ZenithProcessTabController::contains(std::uint64_t session_id) const noexce
 
 FramePressure ZenithProcessTabController::global_pressure() const noexcept {
     return impl_->pressure;
+}
+
+FramePressure ZenithProcessTabController::pressure_source(
+    ZenithProcessPressureSource source) const noexcept {
+    const std::size_t source_index = pressure_source_index(source);
+    return source_index < impl_->pressure_sources.size()
+        ? impl_->pressure_sources[source_index]
+        : FramePressure::Normal;
 }
 
 ZenithProcessTabControllerStats ZenithProcessTabController::stats() const noexcept {
