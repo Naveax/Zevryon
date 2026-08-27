@@ -184,6 +184,11 @@ if(BUILD_TESTING)
       COMMAND
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_evidence_bundle_manifest_tests.py")
+    add_test(
+      NAME m7-evidence-bundle-manifest-v3-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_evidence_bundle_manifest_v3_tests.py")
   else()
     foreach(_test_name IN ITEMS
         competitor-registry-tests
@@ -217,7 +222,8 @@ if(BUILD_TESTING)
         m7-collection-admission-v3-tests
         m7-admission-replay-tests
         m7-admission-replay-v3-tests
-        m7-evidence-bundle-manifest-tests)
+        m7-evidence-bundle-manifest-tests
+        m7-evidence-bundle-manifest-v3-tests)
       add_test(NAME "${_test_name}" COMMAND "${CMAKE_COMMAND}" -E false)
     endforeach()
   endif()

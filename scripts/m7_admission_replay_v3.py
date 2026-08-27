@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 import re
 from typing import Mapping
@@ -42,6 +44,16 @@ class AdmissionReplayInvalid(ValueError):
     pass
 
 
+def canonical_sha256(value: object) -> str:
+    encoded = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _mapping(value: object, field: str) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise AdmissionReplayInvalid(f"{field} must be an object")
@@ -64,6 +76,15 @@ def _byte_count(value: object, field: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise AdmissionReplayInvalid(f"{field} must be a positive integer")
     return value
+
+
+def recomputed_admission_payload(admission: Mapping[str, object]) -> dict[str, object]:
+    missing = [field for field in RECOMPUTED_ADMISSION_FIELDS if field not in admission]
+    if missing:
+        raise AdmissionReplayInvalid(
+            "admission lacks recomputed authority fields: " + ", ".join(missing)
+        )
+    return {field: admission[field] for field in RECOMPUTED_ADMISSION_FIELDS}
 
 
 def replay_admission(
@@ -137,11 +158,13 @@ def replay_admission(
             + ", ".join(sorted(drift))
         )
 
+    recomputed_payload = recomputed_admission_payload(recomputed)
     return {
         "schema": REPLAY_SCHEMA,
         "replay_authority": REPLAY_AUTHORITY,
         "replay_gate_passed": True,
         "recomputed_fields": list(RECOMPUTED_ADMISSION_FIELDS),
+        "recomputed_admission_sha256": canonical_sha256(recomputed_payload),
         "input_artifact_sha256": verified_sha,
         "input_artifact_byte_count": verified_bytes,
     }
@@ -157,6 +180,10 @@ def validate_replay_receipt(value: object) -> Mapping[str, object]:
         raise AdmissionReplayInvalid("admission replay gate did not pass")
     if receipt.get("recomputed_fields") != list(RECOMPUTED_ADMISSION_FIELDS):
         raise AdmissionReplayInvalid("admission replay recomputed field set drifted")
+    _sha256(
+        receipt.get("recomputed_admission_sha256"),
+        "admission_replay.recomputed_admission_sha256",
+    )
 
     hashes = _mapping(
         receipt.get("input_artifact_sha256"),

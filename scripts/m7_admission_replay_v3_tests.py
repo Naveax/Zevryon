@@ -9,6 +9,8 @@ import tempfile
 from m7_admission_replay_v3 import (
     AdmissionReplayInvalid,
     INPUT_ARTIFACT_KEYS,
+    canonical_sha256,
+    recomputed_admission_payload,
     replay_admission,
     validate_replay_receipt,
 )
@@ -69,6 +71,20 @@ def main() -> int:
         require(
             set(receipt["input_artifact_byte_count"]) == set(INPUT_ARTIFACT_KEYS),
             "replay byte-count receipt set drifted",
+        )
+        require(
+            receipt["recomputed_admission_sha256"]
+            == canonical_sha256(recomputed_admission_payload(admission)),
+            "recomputed admission SHA did not bind the stored canonical fields",
+        )
+
+        forged_receipt = copy.deepcopy(receipt)
+        forged_receipt["recomputed_admission_sha256"] = "0" * 64
+        validate_replay_receipt(forged_receipt)
+        require(
+            forged_receipt["recomputed_admission_sha256"]
+            != canonical_sha256(recomputed_admission_payload(admission)),
+            "forged replay admission hash unexpectedly matched",
         )
 
         tampered = copy.deepcopy(admission)
