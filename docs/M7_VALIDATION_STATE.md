@@ -16,40 +16,39 @@ CI waiting is not a reason to stop unrelated work. New work may be prepared as u
 
 `main` is admitted through:
 
-- commit: `2b17dd067aa102acd1dab2e20b01b3daa3ff423b`;
-- tree: `e18a10ecb74edf98d4eeef5e81764c551467402a`;
-- exact-head validation run: `33119457934`;
+- commit: `d598b7fbb2db121569325932510378289e5641c1`;
+- tree: `eda8388f6fbc7471e2bb785dd7f0019e07060b94`;
+- exact-head validation run: `33120298227`;
 - run attempt: `1`;
 - conclusion: `SUCCESS`;
 - validated gates: Linux build/headless, Windows build/headless, Linux Unicode authority, Windows Unicode authority, Apple backend removal guard, real Win32 address-space gate and Linux i386 address-space gate.
 
-That admission includes:
+That admission includes everything previously admitted through `2b17dd067aa102acd1dab2e20b01b3daa3ff423b`, plus:
 
-- normalized Playwright/WebDriver browser case execution;
-- setup timing beginning before case-owned runtime launch;
-- warmup count bound into scenario identity;
-- parent-runner normalized evidence revalidation;
-- persistent Zevryon benchmark-session execution;
-- case-owned single-record M7 synthetic store construction after process launch;
-- exact 1 MiB canonical synthetic chunk restart semantics;
-- cross-boundary corpus SHA authority;
-- process-tree peak memory accounting through the final measured query and before teardown.
+- a separate fixed five-metric M7 leadership evaluator;
+- a legacy-independent normalized canonical browser full-set collector;
+- exact six-browser by two-mode case-matrix authority;
+- deterministic top-level, terminal and normalized corpus-SHA binding;
+- order-independent full-set validation;
+- fail-closed rejection of missing, duplicated, unavailable or non-comparable canonical evidence;
+- continued prohibition on leadership claims before the metric gate is separately evaluated.
 
 The legacy Zevryon process-per-query summary remains diagnostic-only.
 
-## Current next exact-head candidate
+## Prepared follow-on scope
 
-The next referenced candidate is:
+The next candidate is intentionally prepared as an unadmitted descendant rather than described here by a self-referential commit SHA. Its scope contains:
 
-- branch: `agent/m7-normalized-benchmark-runner-current-main-v1`;
-- commit: `d598b7fbb2db121569325932510378289e5641c1`;
-- tree: `eda8388f6fbc7471e2bb785dd7f0019e07060b94`;
-- exact-head run ID: `33120298227`;
-- scope: separate fixed five-metric evaluator plus legacy-independent normalized canonical six-browser x two-mode full-set collector.
+- exact-runtime launch/readiness preflight for Chrome, Firefox, Edge, WebKit, Servo and Ladybird;
+- host/system fingerprint binding between preflight and measurement;
+- stable runtime-identity binding that removes only the ephemeral Servo/Ladybird WebDriver port while preserving binary/version/SHA identity;
+- collection admission across preflight, canonical 6x2 browser evidence and both Zevryon normalized modes;
+- input-artifact SHA-256 receipts;
+- a canonical collection runbook;
+- single-bundle / no-cherry-pick ranking discipline;
+- CTest authority coverage for preflight and collection admission.
 
-Do not admit this candidate based on partial job success. Its exact run must reach a final successful conclusion. Do not rerun or redispatch it merely to poll state.
-
-Additional follow-on work may remain unreferenced until this exact-head candidate settles. Unreferenced commits are not admission evidence and must not be described as validated merely because their parent passed CI.
+This follow-on scope is not admitted until the exact branch head containing it completes one successful validation run. Parent success is not evidence for an unvalidated descendant.
 
 ## Canonical evidence discipline
 
@@ -62,10 +61,12 @@ Leadership evidence additionally requires:
 - exact M7 synthetic corpus identity;
 - complete normalized setup/query/memory evidence;
 - same-system comparability;
-- separately bound runtime-preflight identity when a preflight is used;
+- successful exact-runtime preflight when the preflight-bound admission path is used;
 - successful collection admission before the five-metric rule is evaluated.
 
 Missing runtime evidence is incomplete evidence, not a zero or a substituted engine. Branded Chrome/Edge may not be replaced by bundled Chromium. Servo/Ladybird may not be replaced by another WebDriver implementation.
+
+One leadership decision consumes one complete evidence bundle. Independent repeat bundles may be collected for diagnostics or reproducibility, but metrics from different bundles may not be mixed, cherry-picked or rerun until a preferred ranking appears. Any future repeated-run aggregation policy must be fixed in the metric contract before the corresponding evidence is collected.
 
 ## Historical non-admission runs
 

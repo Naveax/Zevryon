@@ -96,6 +96,28 @@ Run the same corpus and operations in Zevryon, Chrome, Firefox, Edge, WebKit, Se
 
 No leadership claim is allowed until Zevryon is first in at least four core efficiency metrics and within 5% of the leader in every remaining core metric.
 
+Implementation/admission state:
+
+- [x] Freeze the five lower-is-better core metrics and the 4-of-5 / remaining-within-5% ranking rule before final evidence collection.
+- [x] Define common setup, warmup, query-timing and case-owned process-tree memory boundaries.
+- [x] Bind warmup count and execution semantics into the canonical scenario fingerprint.
+- [x] Wire exact branded Chrome/Edge Playwright channels and exact Servo/Ladybird WebDriver identities without substitution.
+- [x] Normalize browser setup timing from pre-launch case start through post-warmup ready.
+- [x] Add persistent Zevryon benchmark-session execution with implementation-local raw query timing.
+- [x] Build the Zevryon case-owned canonical synthetic store after process launch and enforce exact 1 MiB chunk restart corpus semantics.
+- [x] Attach and revalidate raw normalized setup/query/memory evidence for successful cases.
+- [x] Add a legacy-independent exact canonical six-browser x two-mode normalized full-set collector.
+- [x] Add the separate machine-readable five-metric leadership evaluator; collection alone remains unable to claim leadership.
+- [ ] Admit the exact-runtime preflight and preflight-to-measurement runtime-identity binding candidate after one exact-head CI success.
+- [ ] Run the real six-runtime readiness preflight on the final benchmark host and preserve its evidence artifact.
+- [ ] Collect one complete canonical 6x2 browser evidence bundle on that same system with no runtime substitution.
+- [ ] Collect normalized Zevryon `virtualized` and `native-dom` evidence under the same system/scenario authority.
+- [ ] Admit the four artifacts through the collection binder, including artifact SHA-256 receipts and stable runtime identity checks.
+- [ ] Evaluate the fixed five-metric rule on the admitted bundle. Exit status `2` means valid evidence that does not satisfy leadership, not a harness failure.
+- [ ] Publish the complete admitted evidence and failure modes without cherry-picking metrics across repeat bundles.
+
+One leadership decision consumes one complete evidence bundle. Repeats may be collected as independent reproducibility evidence, but best-of-N reruns and cross-bundle metric mixing are not admissible. Any repeated-run aggregation policy must be frozen before collecting the evidence it would aggregate.
+
 ## M8 — 100/100 gate
 
 - Full certified adversarial envelope.
