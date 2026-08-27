@@ -1,6 +1,3 @@
-    const std::filesystem::path& store_root,
-    const MaterializedRecord& record,
-    const LayoutCheckpointIndex& checkpoint,
     std::uint64_t visible_start_q8,
     std::uint64_t visible_end_q8,
     std::size_t max_fragments,
