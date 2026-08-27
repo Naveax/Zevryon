@@ -21,9 +21,7 @@ Build the repository normally with testing enabled. The required native executab
 
 `zevryon-massivedoc-benchmark-session`
 
-On Windows the executable normally has the `.exe` suffix. Record the exact path used for evidence collection.
-
-The normalized Zevryon collector hashes this executable into its runtime identity.
+On Windows the executable normally has the `.exe` suffix. Record the exact path used for evidence collection. The normalized Zevryon collector hashes this executable into its runtime identity.
 
 ## 2. Configure exact Servo and Ladybird runtimes
 
@@ -32,15 +30,13 @@ When auto-discovery is not sufficient, use the explicit environment authorities 
 - `ZEVRYON_SERVO_BIN`
 - `ZEVRYON_LADYBIRD_WEBDRIVER_BIN`
 
-Do not point either variable at a wrapper that silently launches another engine.
-
-Chrome and Edge use their exact branded Playwright channels. Firefox and WebKit use their declared Playwright distributions. A missing distribution remains `unavailable`; it is not silently replaced.
+Do not point either variable at a wrapper that silently launches another engine. Chrome and Edge use their exact branded Playwright channels. Firefox and WebKit use their declared Playwright distributions. A missing distribution remains `unavailable`; it is not silently replaced.
 
 ## 3. Establish physical-host and thermal evidence
 
 Canonical M7 leadership evidence must satisfy the existing M0 physical benchmark certification rule. An ordinary CI runner, VM, container or unconfirmed workstation must not silently become leadership evidence.
 
-Set physical confirmation only when the collection is really being performed on the intended physical benchmark machine:
+Set physical confirmation only when collection is really being performed on the intended physical benchmark machine:
 
 ```text
 ZEVRYON_PHYSICAL_DEVICE=1
@@ -53,7 +49,7 @@ $env:ZEVRYON_PHYSICAL_DEVICE = '1'
 $env:ZEVRYON_BENCHMARK_RUN_LABEL = 'm7-canonical'
 ```
 
-A thermal observation is also mandatory. Linux may provide raw readings through sysfs automatically. On hosts where no authoritative automatic source is available, supply an observation from the actual lab/sensor state. For example, **replace the placeholder with the value actually observed at that stage**:
+A thermal observation is also mandatory. Linux may provide raw readings through sysfs automatically. On hosts where no authoritative automatic source is available, supply an observation from the actual lab/sensor state. Replace the placeholder with the value actually observed at that stage:
 
 ```powershell
 $env:ZEVRYON_THERMAL_C = '<observed-celsius-value>'
@@ -69,7 +65,7 @@ Do not invent `nominal`, a temperature, or any other thermal value merely to mak
 
 The M7 host metadata embeds the existing M0 `BenchmarkMachineMetadata` receipt. Its stable system fingerprint uses the M0 machine identity fields while dynamic capture time, run label and thermal values remain raw evidence outside the stable hash.
 
-Refresh any manual thermal observation before the runtime-preflight and browser-full-set collection boundaries so the embedded receipts describe the actual state at those stages.
+Refresh any manually supplied thermal observation immediately before each physical collection boundary so the embedded receipt describes the actual state.
 
 ## 4. Run runtime preflight as a separate readiness stage
 
@@ -97,31 +93,35 @@ Runtime preflight may warm executable/page-cache state. It is therefore delibera
 
 The later collection-admission binder checks stable runtime identity so the preflight and measurement cannot silently use different engine builds. Ephemeral WebDriver ports may differ and are normalized only for that identity comparison.
 
-## 5. Collect normalized Zevryon virtualized evidence
+## 5. Collect canonical physical Zevryon virtualized evidence
 
-Use the same payload/query/warmup/slice/timeout authority that will be used for the browser collection. With canonical defaults:
+Use the physical wrapper, not the lower-level normalized collector directly:
 
 ```text
-python scripts/m7_zevryon_normalized_case.py \
+python scripts/m7_zevryon_physical_case.py \
   --session-binary <path-to-zevryon-massivedoc-benchmark-session> \
   --mode virtualized \
   --timeout-seconds 180 \
   --output evidence/m7/zevryon-virtualized.json
 ```
 
-The Zevryon process constructs the exact single-record M7 synthetic store after process launch. Store construction, required preparation and warmups are charged to setup. The collector rejects a prebuilt-store authority.
+The wrapper captures and certifies M0 machine/thermal evidence immediately before and after the normalized timed case. Both raw receipts must map to the same stable system fingerprint as the normalized result. Missing physical confirmation, missing thermal observation, or a before/after machine-identity drift fails closed.
 
-## 6. Collect normalized Zevryon native-DOM evidence
+The underlying Zevryon process constructs the exact single-record M7 synthetic store after process launch. Store construction, required preparation and warmups are charged to setup. The collector rejects a prebuilt-store authority.
+
+## 6. Collect canonical physical Zevryon native-DOM evidence
+
+Refresh any manually supplied thermal observation, then run:
 
 ```text
-python scripts/m7_zevryon_normalized_case.py \
+python scripts/m7_zevryon_physical_case.py \
   --session-binary <path-to-zevryon-massivedoc-benchmark-session> \
   --mode native-dom \
   --timeout-seconds 420 \
   --output evidence/m7/zevryon-native-dom.json
 ```
 
-Native-DOM checkpoint/layout preparation occurs inside the case-owned lifecycle and is charged to setup.
+Native-DOM checkpoint/layout preparation occurs inside the case-owned lifecycle and is charged to setup. As with the virtualized case, both before/after physical-host receipts are mandatory leadership evidence.
 
 ## 7. Collect the exact canonical browser 6x2 full set
 
@@ -164,6 +164,7 @@ Admission revalidates:
 - nested M0 machine receipts against their top-level stable identities;
 - explicit physical-device confirmation;
 - observed thermal evidence at preflight and browser-full-set boundaries;
+- before/after M0 physical-host and thermal receipts for both Zevryon modes;
 - exact six-runtime identity binding;
 - both browser modes for every canonical competitor;
 - deterministic M7 corpus identity;
@@ -177,8 +178,6 @@ The admission artifact records the physical-host certification receipts and SHA-
 ## 9. Create the canonical publication manifest
 
 Run this from the exact admitted Git checkout used for collection. Tracked source files must still match `HEAD`; untracked evidence output files are allowed.
-
-First record the admitted tool commit. Then run:
 
 ```text
 python scripts/m7_evidence_bundle_manifest.py \
@@ -211,7 +210,7 @@ Treat exit codes deliberately:
 
 - `0`: the stage passed; for `m7_collection_admission.py`, the complete evidence bundle is leadership-eligible; for the publication-manifest stage, the already-admitted result was verified and packaged regardless of whether leadership is true or false;
 - `1`: invalid/incomplete/unavailable evidence, missing physical/thermal certification, source-tree mismatch, artifact hash mismatch, or harness/runtime failure; do not claim leadership;
-- `2`: **for `m7_collection_admission.py`, the evidence bundle is valid and the five-metric gate was evaluated, but Zevryon did not satisfy the fixed leadership threshold**.
+- `2`: for `m7_collection_admission.py`, the evidence bundle is valid and the five-metric gate was evaluated, but Zevryon did not satisfy the fixed leadership threshold.
 
 Exit code `2` is not an infrastructure failure and is not a reason to rerun identical evidence until a nicer number appears.
 

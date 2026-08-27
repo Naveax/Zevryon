@@ -46,8 +46,10 @@ The next candidate is intentionally prepared as an unadmitted descendant rather 
 - preservation of the full M0 machine/thermal receipt alongside the stable fingerprint;
 - explicit physical-host certification for M7 leadership evidence using the existing M0 `physical_certification_checks()` rule;
 - mandatory physical-device confirmation and observed thermal evidence at runtime-preflight and browser-full-set collection boundaries;
+- a canonical `m7_zevryon_physical_case.py` wrapper that captures and certifies raw M0 machine/thermal receipts immediately before and after each normalized Zevryon mode;
+- collection admission that recomputes all six physical-host receipts and rejects forged embedded Zevryon physical evidence;
 - publication of physical-host certification receipts inside the immutable evidence-bundle manifest;
-- CTest authority coverage for physical-host evidence and publication-manifest fail-closed behavior.
+- CTest authority coverage for physical-host evidence, physical Zevryon case binding and publication-manifest fail-closed behavior.
 
 This follow-on scope is not admitted until the exact branch head containing it completes one successful validation run. Parent success is not evidence for an unvalidated descendant.
 
@@ -63,7 +65,7 @@ Leadership evidence additionally requires:
 - complete normalized setup/query/memory evidence;
 - same-system comparability under the canonical system fingerprint;
 - successful exact-runtime preflight;
-- successful physical-host certification when the canonical physical leadership path is used;
+- successful M0 physical-host certification for preflight, browser collection and both before/after Zevryon case boundaries;
 - successful collection admission before the five-metric result is published.
 
 Missing runtime evidence is incomplete evidence, not a zero or a substituted engine. Branded Chrome/Edge may not be replaced by bundled Chromium. Servo/Ladybird may not be replaced by another WebDriver implementation.

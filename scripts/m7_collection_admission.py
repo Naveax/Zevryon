@@ -28,6 +28,7 @@ from m7_runtime_preflight import (
     RuntimePreflightInvalid,
     validate_runtime_preflight_report,
 )
+from m7_zevryon_physical_case import PHYSICAL_CASE_AUTHORITY
 
 
 ADMISSION_SCHEMA = "zevryon.competitor.collection-admission.v1"
@@ -175,9 +176,68 @@ def bind_runtime_identities(
     return bindings
 
 
+def _certify_zevryon_case_hosts(
+    case: Mapping[str, object],
+    *,
+    mode: str,
+    expected_system: str,
+) -> dict[str, object]:
+    if case.get("physical_case_authority") != PHYSICAL_CASE_AUTHORITY:
+        raise CollectionAdmissionInvalid(
+            f"Zevryon {mode} evidence did not use the canonical physical-case authority"
+        )
+    host_before = case.get("host")
+    host_after = case.get("host_after")
+    if not isinstance(host_before, Mapping) or not isinstance(host_after, Mapping):
+        raise CollectionAdmissionInvalid(
+            f"Zevryon {mode} raw physical host receipts are missing"
+        )
+    try:
+        before_receipt = certify_physical_host(
+            host_before,
+            label=f"zevryon-{mode}-before",
+        )
+        after_receipt = certify_physical_host(
+            host_after,
+            label=f"zevryon-{mode}-after",
+        )
+        before_system = normalized_system_fingerprint(host_before)
+        after_system = normalized_system_fingerprint(host_after)
+    except (PhysicalHostEvidenceInvalid, TypeError, ValueError) as exc:
+        raise CollectionAdmissionInvalid(
+            f"Zevryon {mode} physical host evidence invalid: {exc}"
+        ) from exc
+    if before_system != expected_system or after_system != expected_system:
+        raise CollectionAdmissionInvalid(
+            f"Zevryon {mode} physical host fingerprint differs from preflight system"
+        )
+    embedded = case.get("physical_host_evidence")
+    if not isinstance(embedded, Mapping):
+        raise CollectionAdmissionInvalid(
+            f"Zevryon {mode} embedded physical host evidence is missing"
+        )
+    if embedded.get("physical_host_gate_passed") is not True:
+        raise CollectionAdmissionInvalid(
+            f"Zevryon {mode} embedded physical host gate did not pass"
+        )
+    if embedded.get("before") != before_receipt or embedded.get("after") != after_receipt:
+        raise CollectionAdmissionInvalid(
+            f"Zevryon {mode} embedded physical host receipts drifted from raw M0 evidence"
+        )
+    return {
+        "before": before_receipt,
+        "after": after_receipt,
+        "physical_host_gate_passed": True,
+    }
+
+
 def _physical_host_receipts(
     preflight: Mapping[str, object],
     browser_report: Mapping[str, object],
+    zevryon_virtualized: Mapping[str, object],
+    zevryon_native_dom: Mapping[str, object],
+    *,
+    expected_system: str,
 ) -> dict[str, object]:
     preflight_host = preflight.get("host")
     browser_host = browser_report.get("host")
@@ -194,13 +254,32 @@ def _physical_host_receipts(
             browser_host,
             label="browser-full-set",
         )
-    except PhysicalHostEvidenceInvalid as exc:
+        preflight_system = normalized_system_fingerprint(preflight_host)
+        browser_system = normalized_system_fingerprint(browser_host)
+    except (PhysicalHostEvidenceInvalid, TypeError, ValueError) as exc:
         raise CollectionAdmissionInvalid(
             f"physical benchmark host evidence invalid: {exc}"
         ) from exc
+    if preflight_system != expected_system or browser_system != expected_system:
+        raise CollectionAdmissionInvalid(
+            "preflight/browser raw physical host receipts do not match admitted system"
+        )
+
+    virtual_receipts = _certify_zevryon_case_hosts(
+        zevryon_virtualized,
+        mode="virtualized",
+        expected_system=expected_system,
+    )
+    native_receipts = _certify_zevryon_case_hosts(
+        zevryon_native_dom,
+        mode="native-dom",
+        expected_system=expected_system,
+    )
     return {
         "runtime_preflight": preflight_receipt,
         "browser_full_set": browser_receipt,
+        "zevryon_virtualized": virtual_receipts,
+        "zevryon_native_dom": native_receipts,
         "physical_host_gate_passed": True,
     }
 
@@ -212,8 +291,14 @@ def admit_collection(
     zevryon_native_dom: Mapping[str, object],
 ) -> dict[str, object]:
     runtime_bindings = bind_runtime_identities(preflight, browser_report)
-    physical_host_evidence = _physical_host_receipts(preflight, browser_report)
     preflight_system = str(preflight.get("system_fingerprint", ""))
+    physical_host_evidence = _physical_host_receipts(
+        preflight,
+        browser_report,
+        zevryon_virtualized,
+        zevryon_native_dom,
+        expected_system=preflight_system,
+    )
 
     try:
         zevryon_virtual_normalized = validate_zevryon_normalized_case(
@@ -295,8 +380,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Bind physical-host certification, separately collected runtime preflight, "
-            "canonical 6x2 browser full set, and both Zevryon normalized modes before "
-            "evaluating M7 leadership."
+            "canonical 6x2 browser full set, and both canonical Zevryon physical normalized "
+            "modes before evaluating M7 leadership."
         )
     )
     parser.add_argument("--preflight", type=Path, required=True)

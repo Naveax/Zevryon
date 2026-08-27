@@ -112,8 +112,8 @@ Implementation/admission state:
 - [ ] Admit the follow-on physical-host/system-fingerprint/publication-manifest candidate after one exact-head CI success.
 - [ ] Run the real six-runtime readiness preflight on the final physical benchmark host and preserve its M0 machine/thermal evidence artifact.
 - [ ] Collect one complete canonical 6x2 browser evidence bundle on that same physical system with no runtime substitution and observed thermal evidence.
-- [ ] Collect normalized Zevryon `virtualized` and `native-dom` evidence under the same system/scenario authority.
-- [ ] Admit the four artifacts through the collection binder, including physical-host certification, artifact SHA-256 receipts and stable runtime identity checks.
+- [ ] Collect Zevryon `virtualized` and `native-dom` evidence through `m7_zevryon_physical_case.py`, preserving certified M0 machine/thermal receipts immediately before and after each normalized case.
+- [ ] Admit the four artifacts through the collection binder, including preflight/browser physical-host certification, both Zevryon before/after physical receipts, artifact SHA-256 receipts and stable runtime identity checks.
 - [ ] Evaluate the fixed five-metric rule on the admitted bundle. Exit status `2` means valid evidence that does not satisfy leadership, not a harness failure.
 - [ ] Create the canonical publication manifest binding the admission artifact, all four raw inputs, exact clean Git commit/tree, physical-host receipts, runtime bindings and evaluator result.
 - [ ] Publish the complete admitted evidence and failure modes without cherry-picking metrics across repeat bundles.

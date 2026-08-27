@@ -125,6 +125,11 @@ if(BUILD_TESTING)
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_zevryon_normalized_case_tests.py")
     add_test(
+      NAME m7-zevryon-physical-case-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_zevryon_physical_case_tests.py")
+    add_test(
       NAME m7-leadership-evaluator-tests
       COMMAND
         "${Python3_EXECUTABLE}"
@@ -176,6 +181,7 @@ if(BUILD_TESTING)
         competitor-normalized-browser-lifecycle-tests
         competitor-canonical-full-set-tests
         m7-zevryon-normalized-case-tests
+        m7-zevryon-physical-case-tests
         m7-leadership-evaluator-tests
         m7-normalized-browser-full-set-tests
         m7-runtime-preflight-tests

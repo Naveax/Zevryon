@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import copy
 
-from browser_competitor_benchmark_evidence import host_metadata
+from browser_competitor_benchmark_evidence import (
+    host_metadata,
+    normalized_system_fingerprint,
+)
 from browser_competitor_registry import CANONICAL_KEYS, get_spec
 from m7_collection_admission import (
     CollectionAdmissionInvalid,
@@ -19,6 +22,7 @@ from m7_leadership_evaluator_tests import (
 )
 from m7_normalized_browser_full_set import COLLECTION_AUTHORITY
 from m7_runtime_preflight import run_runtime_preflight
+from m7_zevryon_physical_case import attach_physical_host_evidence
 
 
 def require(condition: bool, message: str) -> None:
@@ -64,6 +68,21 @@ def webdriver_probe(competitor: str) -> dict[str, object]:
     return generic_probe(competitor)
 
 
+def _certified_host() -> dict[str, object]:
+    host = copy.deepcopy(host_metadata())
+    machine = host.get("benchmark_machine_metadata")
+    if not isinstance(machine, dict):
+        raise AssertionError("test host lacks M0 machine receipt")
+    machine["physical_device_confirmed"] = True
+    machine["run_label"] = "m7-collection-admission-test"
+    machine["thermal"] = {
+        "state": "nominal",
+        "source": "test-fixture",
+        "readings_c": [47.5, 48.0],
+    }
+    return host
+
+
 def _rebind_identity(target: dict[str, object], host: dict[str, object], fingerprint: str) -> None:
     target["host_platform"] = str(host["platform"])
     target["host_arch"] = str(host["arch"])
@@ -75,34 +94,19 @@ def _rebind_identity(target: dict[str, object], host: dict[str, object], fingerp
         normalized["system_fingerprint"] = fingerprint
 
 
-def _certify_fixture_host(preflight: dict[str, object]) -> None:
-    host = preflight.get("host")
-    if not isinstance(host, dict):
-        raise AssertionError("preflight fixture host is missing")
-    machine = host.get("benchmark_machine_metadata")
-    if not isinstance(machine, dict):
-        raise AssertionError("M0 fixture receipt is missing")
-    machine["physical_device_confirmed"] = True
-    machine["run_label"] = "m7-collection-admission-test"
-    machine["thermal"] = {
-        "state": "nominal",
-        "source": "test-fixture",
-        "readings_c": [45.0],
-    }
-
-
 def fixtures() -> tuple[dict[str, object], dict[str, object], dict[str, object], dict[str, object]]:
     preflight = run_runtime_preflight(
         playwright_probe=generic_probe,
         webdriver_probe=webdriver_probe,
     )
-    _certify_fixture_host(preflight)
-    host = copy.deepcopy(preflight["host"])
-    fingerprint = str(preflight["system_fingerprint"])
+    host = _certified_host()
+    fingerprint = normalized_system_fingerprint(host)
+    preflight["host"] = copy.deepcopy(host)
+    preflight["system_fingerprint"] = fingerprint
 
     browser = evaluator_browser_report()
     browser["collection_authority"] = COLLECTION_AUTHORITY
-    browser["host"] = host
+    browser["host"] = copy.deepcopy(host)
     browser["corpus_sha256"] = CORPUS_SHA
     browser["payload_bytes"] = PAYLOAD_BYTES
     browser["virtual_slice_bytes"] = VIRTUAL_SLICE_BYTES
@@ -139,6 +143,16 @@ def fixtures() -> tuple[dict[str, object], dict[str, object], dict[str, object],
     native = zevryon_case("native-dom")
     _rebind_identity(virtual, host, fingerprint)
     _rebind_identity(native, host, fingerprint)
+    virtual = attach_physical_host_evidence(
+        virtual,
+        host_before=copy.deepcopy(host),
+        host_after=copy.deepcopy(host),
+    )
+    native = attach_physical_host_evidence(
+        native,
+        host_before=copy.deepcopy(host),
+        host_after=copy.deepcopy(host),
+    )
     return preflight, browser, virtual, native
 
 
@@ -173,6 +187,16 @@ def main() -> int:
     require(
         admitted["physical_host_evidence"]["physical_host_gate_passed"] is True,
         "physical host gate did not pass",
+    )
+    require(
+        admitted["physical_host_evidence"]["zevryon_virtualized"]["before"]["checks"]["physical_metadata_complete"]
+        is True,
+        "Zevryon virtualized pre-case physical receipt was lost",
+    )
+    require(
+        admitted["physical_host_evidence"]["zevryon_native_dom"]["after"]["checks"]["physical_metadata_complete"]
+        is True,
+        "Zevryon native-DOM post-case physical receipt was lost",
     )
     require(
         set(admitted["runtime_bindings"]) == set(CANONICAL_KEYS),
@@ -221,6 +245,38 @@ def main() -> int:
         "Zevryon evidence from another system was accepted",
     )
 
+    missing_physical_authority = copy.deepcopy(virtual)
+    missing_physical_authority.pop("physical_case_authority")
+    require_invalid(
+        lambda: admit_collection(preflight, browser, missing_physical_authority, native),
+        "Zevryon evidence without physical-case authority was accepted",
+    )
+
+    missing_post_thermal = copy.deepcopy(native)
+    missing_post_thermal["host_after"]["benchmark_machine_metadata"]["thermal"] = {
+        "state": "unknown",
+        "source": "unavailable",
+        "readings_c": [],
+    }
+    require_invalid(
+        lambda: admit_collection(preflight, browser, virtual, missing_post_thermal),
+        "Zevryon evidence without post-case thermal observation was accepted",
+    )
+
+    forged_embedded_receipt = copy.deepcopy(virtual)
+    forged_embedded_receipt["physical_host_evidence"]["before"]["cpu_model"] = "forged"
+    require_invalid(
+        lambda: admit_collection(preflight, browser, forged_embedded_receipt, native),
+        "forged embedded Zevryon physical receipt was accepted",
+    )
+
+    preflight_unconfirmed = copy.deepcopy(preflight)
+    preflight_unconfirmed["host"]["benchmark_machine_metadata"]["physical_device_confirmed"] = False
+    require_invalid(
+        lambda: admit_collection(preflight_unconfirmed, browser, virtual, native),
+        "unconfirmed preflight host was accepted as physical leadership evidence",
+    )
+
     preflight_failed = copy.deepcopy(preflight)
     ladybird = next(
         record
@@ -245,27 +301,7 @@ def main() -> int:
         "browser corpus authority drift was accepted",
     )
 
-    unconfirmed_preflight = copy.deepcopy(preflight)
-    unconfirmed_preflight["host"]["benchmark_machine_metadata"][
-        "physical_device_confirmed"
-    ] = False
-    require_invalid(
-        lambda: admit_collection(unconfirmed_preflight, browser, virtual, native),
-        "unconfirmed physical host was admitted",
-    )
-
-    no_thermal_browser = copy.deepcopy(browser)
-    no_thermal_browser["host"]["benchmark_machine_metadata"]["thermal"] = {
-        "state": "unknown",
-        "source": "unavailable",
-        "readings_c": [],
-    }
-    require_invalid(
-        lambda: admit_collection(preflight, no_thermal_browser, virtual, native),
-        "browser collection without thermal observation was admitted",
-    )
-
-    print("M7 collection admission binding and physical-host tests passed")
+    print("M7 collection admission binding tests passed")
     return 0
 
 
