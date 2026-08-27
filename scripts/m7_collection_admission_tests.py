@@ -75,12 +75,29 @@ def _rebind_identity(target: dict[str, object], host: dict[str, object], fingerp
         normalized["system_fingerprint"] = fingerprint
 
 
+def _certify_fixture_host(preflight: dict[str, object]) -> None:
+    host = preflight.get("host")
+    if not isinstance(host, dict):
+        raise AssertionError("preflight fixture host is missing")
+    machine = host.get("benchmark_machine_metadata")
+    if not isinstance(machine, dict):
+        raise AssertionError("M0 fixture receipt is missing")
+    machine["physical_device_confirmed"] = True
+    machine["run_label"] = "m7-collection-admission-test"
+    machine["thermal"] = {
+        "state": "nominal",
+        "source": "test-fixture",
+        "readings_c": [45.0],
+    }
+
+
 def fixtures() -> tuple[dict[str, object], dict[str, object], dict[str, object], dict[str, object]]:
     preflight = run_runtime_preflight(
         playwright_probe=generic_probe,
         webdriver_probe=webdriver_probe,
     )
-    host = dict(preflight["host"])
+    _certify_fixture_host(preflight)
+    host = copy.deepcopy(preflight["host"])
     fingerprint = str(preflight["system_fingerprint"])
 
     browser = evaluator_browser_report()
@@ -154,6 +171,10 @@ def main() -> int:
     require(admitted["leadership_metric_gate_evaluated"] is True, "metric gate not evaluated")
     require(admitted["leadership_eligible"] is True, "valid collection was not eligible")
     require(
+        admitted["physical_host_evidence"]["physical_host_gate_passed"] is True,
+        "physical host gate did not pass",
+    )
+    require(
         set(admitted["runtime_bindings"]) == set(CANONICAL_KEYS),
         "runtime binding set drifted",
     )
@@ -224,7 +245,27 @@ def main() -> int:
         "browser corpus authority drift was accepted",
     )
 
-    print("M7 collection admission binding tests passed")
+    unconfirmed_preflight = copy.deepcopy(preflight)
+    unconfirmed_preflight["host"]["benchmark_machine_metadata"][
+        "physical_device_confirmed"
+    ] = False
+    require_invalid(
+        lambda: admit_collection(unconfirmed_preflight, browser, virtual, native),
+        "unconfirmed physical host was admitted",
+    )
+
+    no_thermal_browser = copy.deepcopy(browser)
+    no_thermal_browser["host"]["benchmark_machine_metadata"]["thermal"] = {
+        "state": "unknown",
+        "source": "unavailable",
+        "readings_c": [],
+    }
+    require_invalid(
+        lambda: admit_collection(preflight, no_thermal_browser, virtual, native),
+        "browser collection without thermal observation was admitted",
+    )
+
+    print("M7 collection admission binding and physical-host tests passed")
     return 0
 
 

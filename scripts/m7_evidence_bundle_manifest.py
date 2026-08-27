@@ -13,6 +13,7 @@ from typing import Callable, Mapping, Sequence
 from browser_competitor_registry import CANONICAL_KEYS, get_spec
 from m7_collection_admission import ADMISSION_AUTHORITY, ADMISSION_SCHEMA
 from m7_leadership_evaluator import EVALUATOR_SCHEMA
+from m7_physical_host_evidence import PHYSICAL_HOST_AUTHORITY
 
 
 BUNDLE_SCHEMA = "zevryon.competitor.evidence-bundle-manifest.v1"
@@ -73,6 +74,31 @@ def _required_text(value: object, field: str) -> str:
     return value.strip()
 
 
+def _validate_physical_host_evidence(value: object) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise EvidenceBundleInvalid("collection admission physical host evidence is missing")
+    if value.get("physical_host_gate_passed") is not True:
+        raise EvidenceBundleInvalid("collection admission physical host gate did not pass")
+    for stage in ("runtime_preflight", "browser_full_set"):
+        receipt = value.get(stage)
+        if not isinstance(receipt, Mapping):
+            raise EvidenceBundleInvalid(f"physical host receipt is missing: {stage}")
+        if receipt.get("authority") != PHYSICAL_HOST_AUTHORITY:
+            raise EvidenceBundleInvalid(f"physical host authority drifted: {stage}")
+        if receipt.get("physical_host_gate_passed") is not True:
+            raise EvidenceBundleInvalid(f"physical host stage did not pass: {stage}")
+        checks = receipt.get("checks")
+        if not isinstance(checks, Mapping) or checks.get("physical_metadata_complete") is not True:
+            raise EvidenceBundleInvalid(f"physical metadata checks are incomplete: {stage}")
+        _required_text(receipt.get("captured_at_utc"), f"physical_host_evidence.{stage}.captured_at_utc")
+        _required_text(receipt.get("cpu_model"), f"physical_host_evidence.{stage}.cpu_model")
+        thermal = receipt.get("thermal")
+        if not isinstance(thermal, Mapping):
+            raise EvidenceBundleInvalid(f"physical thermal receipt is missing: {stage}")
+        _required_text(thermal.get("source"), f"physical_host_evidence.{stage}.thermal.source")
+    return value
+
+
 def validate_admission_for_publication(admission: Mapping[str, object]) -> None:
     if admission.get("schema") != ADMISSION_SCHEMA:
         raise EvidenceBundleInvalid("collection admission schema mismatch")
@@ -80,6 +106,7 @@ def validate_admission_for_publication(admission: Mapping[str, object]) -> None:
         raise EvidenceBundleInvalid("collection admission authority mismatch")
     _required_sha256(admission.get("system_fingerprint"), "system_fingerprint")
     _required_sha256(admission.get("corpus_sha256"), "corpus_sha256")
+    _validate_physical_host_evidence(admission.get("physical_host_evidence"))
     if admission.get("leadership_metric_gate_evaluated") is not True:
         raise EvidenceBundleInvalid("collection admission did not evaluate the metric gate")
     if not isinstance(admission.get("leadership_eligible"), bool):
@@ -185,7 +212,12 @@ def git_source_receipt(
     commit = _required_git_object(stdout.strip().lower(), "git.commit")
 
     if expected_commit is not None:
-        expected = _required_git_object(expected_commit.lower(), "expected_tool_commit")
+        if not isinstance(expected_commit, str):
+            raise EvidenceBundleInvalid("expected_tool_commit must be text")
+        expected = _required_git_object(
+            expected_commit.strip().lower(),
+            "expected_tool_commit",
+        )
         if commit != expected:
             raise EvidenceBundleInvalid(
                 f"Git HEAD differs from admitted tool commit: expected={expected}, actual={commit}"
@@ -236,6 +268,9 @@ def build_bundle_manifest(
         raise EvidenceBundleInvalid("source receipt does not prove a clean tracked worktree")
 
     eligible = admission["leadership_eligible"] is True
+    physical_host_evidence = _validate_physical_host_evidence(
+        admission.get("physical_host_evidence")
+    )
     payload: dict[str, object] = {
         "schema": BUNDLE_SCHEMA,
         "bundle_authority": BUNDLE_AUTHORITY,
@@ -253,6 +288,7 @@ def build_bundle_manifest(
         },
         "system_fingerprint": admission["system_fingerprint"],
         "corpus_sha256": admission["corpus_sha256"],
+        "physical_host_evidence": dict(physical_host_evidence),
         "runtime_bindings": admission["runtime_bindings"],
         "leadership_evaluation": admission["leadership_evaluation"],
         "leadership_metric_gate_evaluated": True,
@@ -275,6 +311,7 @@ def validate_bundle_manifest(manifest: Mapping[str, object]) -> None:
         raise EvidenceBundleInvalid("bundle manifest authority mismatch")
     _required_sha256(manifest.get("system_fingerprint"), "system_fingerprint")
     _required_sha256(manifest.get("corpus_sha256"), "corpus_sha256")
+    _validate_physical_host_evidence(manifest.get("physical_host_evidence"))
     if manifest.get("leadership_metric_gate_evaluated") is not True:
         raise EvidenceBundleInvalid("bundle manifest metric gate was not evaluated")
     if not isinstance(manifest.get("leadership_eligible"), bool):
@@ -346,7 +383,7 @@ def _read_object(path: Path, label: str) -> Mapping[str, object]:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Create a canonical publication manifest for one admitted M7 evidence bundle. "
+            "Create a canonical publication manifest for one physically certified admitted M7 evidence bundle. "
             "The manifest verifies every input artifact SHA plus the exact clean Git commit/tree."
         )
     )

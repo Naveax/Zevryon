@@ -20,6 +20,10 @@ from m7_normalized_browser_full_set import (
     CanonicalNormalizedBrowserSetInvalid,
     validate_canonical_normalized_browser_report,
 )
+from m7_physical_host_evidence import (
+    PhysicalHostEvidenceInvalid,
+    certify_physical_host,
+)
 from m7_runtime_preflight import (
     RuntimePreflightInvalid,
     validate_runtime_preflight_report,
@@ -171,6 +175,36 @@ def bind_runtime_identities(
     return bindings
 
 
+def _physical_host_receipts(
+    preflight: Mapping[str, object],
+    browser_report: Mapping[str, object],
+) -> dict[str, object]:
+    preflight_host = preflight.get("host")
+    browser_host = browser_report.get("host")
+    if not isinstance(preflight_host, Mapping):
+        raise CollectionAdmissionInvalid("preflight host metadata is missing")
+    if not isinstance(browser_host, Mapping):
+        raise CollectionAdmissionInvalid("browser report host metadata is missing")
+    try:
+        preflight_receipt = certify_physical_host(
+            preflight_host,
+            label="runtime-preflight",
+        )
+        browser_receipt = certify_physical_host(
+            browser_host,
+            label="browser-full-set",
+        )
+    except PhysicalHostEvidenceInvalid as exc:
+        raise CollectionAdmissionInvalid(
+            f"physical benchmark host evidence invalid: {exc}"
+        ) from exc
+    return {
+        "runtime_preflight": preflight_receipt,
+        "browser_full_set": browser_receipt,
+        "physical_host_gate_passed": True,
+    }
+
+
 def admit_collection(
     preflight: Mapping[str, object],
     browser_report: Mapping[str, object],
@@ -178,6 +212,7 @@ def admit_collection(
     zevryon_native_dom: Mapping[str, object],
 ) -> dict[str, object]:
     runtime_bindings = bind_runtime_identities(preflight, browser_report)
+    physical_host_evidence = _physical_host_receipts(preflight, browser_report)
     preflight_system = str(preflight.get("system_fingerprint", ""))
 
     try:
@@ -227,6 +262,7 @@ def admit_collection(
         "admission_authority": ADMISSION_AUTHORITY,
         "system_fingerprint": preflight_system,
         "corpus_sha256": corpus_sha,
+        "physical_host_evidence": physical_host_evidence,
         "runtime_bindings": runtime_bindings,
         "leadership_evaluation": evaluation,
         "leadership_metric_gate_evaluated": True,
@@ -258,8 +294,9 @@ def _sha256_file(path: Path) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Bind a separately collected runtime preflight, canonical 6x2 browser "
-            "full set, and both Zevryon normalized modes before evaluating M7 leadership."
+            "Bind physical-host certification, separately collected runtime preflight, "
+            "canonical 6x2 browser full set, and both Zevryon normalized modes before "
+            "evaluating M7 leadership."
         )
     )
     parser.add_argument("--preflight", type=Path, required=True)

@@ -140,6 +140,11 @@ if(BUILD_TESTING)
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_runtime_preflight_tests.py")
     add_test(
+      NAME m7-physical-host-evidence-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_physical_host_evidence_tests.py")
+    add_test(
       NAME m7-collection-admission-tests
       COMMAND
         "${Python3_EXECUTABLE}"
@@ -174,6 +179,7 @@ if(BUILD_TESTING)
         m7-leadership-evaluator-tests
         m7-normalized-browser-full-set-tests
         m7-runtime-preflight-tests
+        m7-physical-host-evidence-tests
         m7-collection-admission-tests
         m7-evidence-bundle-manifest-tests)
       add_test(NAME "${_test_name}" COMMAND "${CMAKE_COMMAND}" -E false)

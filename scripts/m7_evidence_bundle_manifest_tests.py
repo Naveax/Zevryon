@@ -20,6 +20,7 @@ from m7_evidence_bundle_manifest import (
     verify_admission_input_artifacts,
 )
 from m7_leadership_evaluator import EVALUATOR_SCHEMA
+from m7_physical_host_evidence import PHYSICAL_HOST_AUTHORITY
 
 
 SHA_A = "a" * 64
@@ -41,6 +42,31 @@ def require_invalid(callable_, message: str) -> None:
     raise AssertionError(message)
 
 
+def physical_receipt(label: str) -> dict[str, object]:
+    return {
+        "authority": PHYSICAL_HOST_AUTHORITY,
+        "label": label,
+        "captured_at_utc": "2026-08-28T00:00:00Z",
+        "device_class": "desktop",
+        "physical_ram_mib": 32768,
+        "logical_cpu_count": 16,
+        "cpu_model": "Test CPU",
+        "thermal": {
+            "state": "nominal",
+            "source": "test-fixture",
+            "readings_c": [45.0],
+        },
+        "checks": {
+            "physical_device_confirmed": True,
+            "thermal_observed": True,
+            "device_profile_matches_ram": True,
+            "timestamp_is_utc": True,
+            "physical_metadata_complete": True,
+        },
+        "physical_host_gate_passed": True,
+    }
+
+
 def admission(*, eligible: bool = False) -> dict[str, object]:
     bindings = {
         competitor: {
@@ -60,6 +86,11 @@ def admission(*, eligible: bool = False) -> dict[str, object]:
         "admission_authority": ADMISSION_AUTHORITY,
         "system_fingerprint": SHA_A,
         "corpus_sha256": SHA_B,
+        "physical_host_evidence": {
+            "runtime_preflight": physical_receipt("runtime-preflight"),
+            "browser_full_set": physical_receipt("browser-full-set"),
+            "physical_host_gate_passed": True,
+        },
         "runtime_bindings": bindings,
         "leadership_evaluation": {
             "schema": EVALUATOR_SCHEMA,
@@ -122,6 +153,10 @@ def main() -> int:
             manifest["result_class"] == "valid_not_leadership",
             "valid non-leadership bundle result class drifted",
         )
+        require(
+            manifest["physical_host_evidence"]["physical_host_gate_passed"] is True,
+            "physical host evidence was not published",
+        )
         validate_bundle_manifest(manifest)
         payload = dict(manifest)
         recorded = payload.pop("manifest_payload_sha256")
@@ -139,6 +174,20 @@ def main() -> int:
         require(
             leadership_manifest["result_class"] == "leadership_eligible",
             "leadership bundle result class drifted",
+        )
+
+        missing_physical = copy.deepcopy(valid_admission)
+        missing_physical.pop("physical_host_evidence")
+        require_invalid(
+            lambda: validate_admission_for_publication(missing_physical),
+            "admission without physical host evidence was accepted",
+        )
+
+        failed_physical = copy.deepcopy(valid_admission)
+        failed_physical["physical_host_evidence"]["physical_host_gate_passed"] = False
+        require_invalid(
+            lambda: validate_admission_for_publication(failed_physical),
+            "failed physical host gate was accepted",
         )
 
         bad_eligibility = copy.deepcopy(valid_admission)
@@ -206,6 +255,14 @@ def main() -> int:
         ),
         "wrong expected Git commit was accepted",
     )
+    require_invalid(
+        lambda: git_source_receipt(
+            Path("."),
+            expected_commit=123,  # type: ignore[arg-type]
+            runner=clean_git_runner,
+        ),
+        "non-text expected Git commit was accepted",
+    )
 
     def dirty_git_runner(command: tuple[str, ...]) -> tuple[int, str, str]:
         args = command[3:]
@@ -226,7 +283,7 @@ def main() -> int:
         "dirty tracked Git worktree was accepted",
     )
 
-    print("M7 evidence bundle manifest authority tests passed")
+    print("M7 evidence bundle manifest and physical-host authority tests passed")
     return 0
 
 
