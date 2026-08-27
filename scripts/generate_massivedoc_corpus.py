@@ -9,6 +9,13 @@ import struct
 import time
 from typing import Iterator
 
+from m7_synthetic_corpus import (
+    PAYLOAD_PATTERN_TEXT,
+    iter_synthetic_payload,
+    synthetic_corpus_sha256,
+)
+
+
 MAGIC = b"ZMDOC001"
 HEADER = struct.Struct("<8sQQQQQQQ")
 RECORD_HEADER = struct.Struct("<QI")
@@ -19,7 +26,7 @@ PATTERNS = (
     "İstanbul ıslak IĞDIR normalize e\u0301 ",
     "العربية שלום mixed bidi ",
     "漢字仮名交じり文沒有空格 ",
-    "👨‍👩‍👧‍👦👍🏽🚀 ",
+    PAYLOAD_PATTERN_TEXT,
     "function f(x){return x*x;} // code\n",
 )
 
@@ -80,6 +87,15 @@ def main() -> int:
     parser.add_argument("--largest-record-limit-bytes", type=int, default=64 * 1024 * 1024)
     parser.add_argument("--giant-record-bytes", type=int, default=0)
     parser.add_argument("--giant-record-index", type=int)
+    parser.add_argument(
+        "--giant-record-profile",
+        choices=("legacy", "m7-competitor"),
+        default="legacy",
+        help=(
+            "legacy continues the record pattern across stream chunks; "
+            "m7-competitor reproduces the browser benchmark's repeated canonical 1 MiB blob chunk"
+        ),
+    )
     parser.add_argument("--stream-chunk-bytes", type=int, default=DEFAULT_STREAM_CHUNK_BYTES)
     parser.add_argument("--tail-marker", default="ZEVRYON_WORST_CASE_TAIL_MARKER")
     args = parser.parse_args()
@@ -104,8 +120,14 @@ def main() -> int:
             giant_index = args.records // 2
         if not 0 <= giant_index < args.records:
             parser.error("giant record index is outside the record range")
+        if args.giant_record_profile == "m7-competitor" and giant_index == args.records - 1:
+            parser.error(
+                "m7-competitor giant record cannot be the tail-marker record because that would mutate the canonical payload"
+            )
     else:
         giant_index = 0
+        if args.giant_record_profile != "legacy":
+            parser.error("a non-legacy giant-record profile requires --giant-record-bytes")
 
     nodes = args.logical_nodes if args.logical_nodes is not None else args.records * 8
     styles = args.style_runs if args.style_runs is not None else args.records * 4
@@ -126,6 +148,7 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     container_hasher = hashlib.sha256()
     payload_hasher = hashlib.sha256()
+    giant_record_hasher = hashlib.sha256() if args.giant_record_bytes else None
     tail_marker = args.tail_marker.encode("utf-8")
     started = time.perf_counter()
     with args.output.open("wb") as stream:
@@ -153,17 +176,35 @@ def main() -> int:
             record_header = RECORD_HEADER.pack(index, size)
             stream.write(record_header)
             container_hasher.update(record_header)
-            for chunk in iter_payload_chunks(
-                index,
-                size,
-                tail_marker=marker,
-                chunk_bytes=args.stream_chunk_bytes,
+            if (
+                args.giant_record_bytes
+                and index == giant_index
+                and args.giant_record_profile == "m7-competitor"
             ):
+                chunks = iter_synthetic_payload(size)
+            else:
+                chunks = iter_payload_chunks(
+                    index,
+                    size,
+                    tail_marker=marker,
+                    chunk_bytes=args.stream_chunk_bytes,
+                )
+            for chunk in chunks:
                 stream.write(chunk)
                 container_hasher.update(chunk)
                 payload_hasher.update(chunk)
+                if giant_record_hasher is not None and index == giant_index:
+                    giant_record_hasher.update(chunk)
     elapsed = time.perf_counter() - started
     physical_bytes = args.output.stat().st_size
+    giant_record_sha256 = (
+        giant_record_hasher.hexdigest() if giant_record_hasher is not None else None
+    )
+    expected_m7_sha256 = (
+        synthetic_corpus_sha256(args.giant_record_bytes)
+        if args.giant_record_bytes and args.giant_record_profile == "m7-competitor"
+        else None
+    )
     summary = {
         "format": "ZMDOC001",
         "path": str(args.output),
@@ -177,6 +218,12 @@ def main() -> int:
         "average_record_bytes": args.logical_bytes / args.records,
         "giant_record_bytes": args.giant_record_bytes,
         "giant_record_index": giant_index if args.giant_record_bytes else None,
+        "giant_record_profile": args.giant_record_profile if args.giant_record_bytes else None,
+        "giant_record_sha256": giant_record_sha256,
+        "giant_record_expected_m7_sha256": expected_m7_sha256,
+        "giant_record_matches_m7_synthetic": (
+            None if expected_m7_sha256 is None else giant_record_sha256 == expected_m7_sha256
+        ),
         "stream_chunk_bytes": args.stream_chunk_bytes,
         "physical_bytes": physical_bytes,
         "container_overhead_bytes": physical_bytes - args.logical_bytes,

@@ -45,6 +45,11 @@ if(BUILD_TESTING)
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_benchmark_evidence_tests.py")
     add_test(
+      NAME m7-synthetic-corpus-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_synthetic_corpus_tests.py")
+    add_test(
       NAME competitor-process-scope-tests
       COMMAND
         "${Python3_EXECUTABLE}"
@@ -105,6 +110,7 @@ if(BUILD_TESTING)
         competitor-playwright-adapter-tests
         competitor-benchmark-planner-tests
         competitor-benchmark-evidence-tests
+        m7-synthetic-corpus-tests
         competitor-process-scope-tests
         competitor-servo-adapter-tests
         competitor-ladybird-adapter-tests

@@ -9,12 +9,11 @@ import platform
 import re
 from typing import Mapping
 
-from browser_competitor_scenario_contract import (
+from browser_competitor_scenario_contract import scenario_semantics
+from m7_synthetic_corpus import (
     CORPUS_CHUNK_BYTES,
     SYNTHETIC_PATTERN,
-    VIEWPORT_HEIGHT,
-    VIEWPORT_WIDTH,
-    scenario_semantics,
+    synthetic_corpus_sha256,
 )
 
 
@@ -66,26 +65,6 @@ def normalized_system_fingerprint(host: Mapping[str, object]) -> str:
     if normalized["logical_cpus"] < 0:
         raise ValueError("system fingerprint logical_cpus cannot be negative")
     return canonical_sha256(normalized)
-
-
-def _synthetic_chunk() -> bytes:
-    repeats = (CORPUS_CHUNK_BYTES + len(SYNTHETIC_PATTERN) - 1) // len(
-        SYNTHETIC_PATTERN
-    )
-    return (SYNTHETIC_PATTERN * repeats)[:CORPUS_CHUNK_BYTES]
-
-
-def synthetic_corpus_sha256(payload_bytes: int) -> str:
-    if payload_bytes <= 0:
-        raise ValueError("payload_bytes must be positive")
-    chunk = _synthetic_chunk()
-    full_chunks, remainder = divmod(payload_bytes, CORPUS_CHUNK_BYTES)
-    digest = hashlib.sha256()
-    for _ in range(full_chunks):
-        digest.update(chunk)
-    if remainder:
-        digest.update(chunk[:remainder])
-    return digest.hexdigest()
 
 
 def scenario_fingerprint(
