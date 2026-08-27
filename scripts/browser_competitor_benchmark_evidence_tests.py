@@ -41,6 +41,22 @@ def direct_payload(payload_bytes: int) -> bytes:
     return chunk * full_chunks + chunk[:remainder]
 
 
+def scenario(
+    mode: str,
+    *,
+    virtual_slice_bytes: int = 128 * 1024,
+    warmup_query_count: int = 0,
+) -> str:
+    return scenario_fingerprint(
+        mode=mode,
+        payload_bytes=64 * 1024 * 1024,
+        query_count=21,
+        virtual_slice_bytes=virtual_slice_bytes,
+        timeout_seconds=180 if mode == "virtualized" else 420,
+        warmup_query_count=warmup_query_count,
+    )
+
+
 def main() -> int:
     require(
         canonical_sha256({"b": 2, "a": 1}) == canonical_sha256({"a": 1, "b": 2}),
@@ -70,29 +86,41 @@ def main() -> int:
     require(first_system == second_system, "system fingerprint is not canonical")
     require(_SHA256_RE.fullmatch(first_system) is not None, "system SHA format drift")
 
-    virtual = scenario_fingerprint(
-        mode="virtualized",
-        payload_bytes=64 * 1024 * 1024,
-        query_count=21,
-        virtual_slice_bytes=128 * 1024,
-        timeout_seconds=180,
-    )
-    virtual_again = scenario_fingerprint(
-        mode="virtualized",
-        payload_bytes=64 * 1024 * 1024,
-        query_count=21,
-        virtual_slice_bytes=128 * 1024,
-        timeout_seconds=180,
-    )
-    native = scenario_fingerprint(
-        mode="native-dom",
-        payload_bytes=64 * 1024 * 1024,
-        query_count=21,
-        virtual_slice_bytes=128 * 1024,
-        timeout_seconds=420,
-    )
+    virtual = scenario("virtualized")
+    virtual_again = scenario("virtualized")
+    native = scenario("native-dom")
     require(virtual == virtual_again, "scenario fingerprint is not deterministic")
     require(virtual != native, "materially different benchmark modes share an identity")
+
+    native_different_virtual_slice = scenario(
+        "native-dom", virtual_slice_bytes=256 * 1024
+    )
+    require(
+        native == native_different_virtual_slice,
+        "native-DOM identity depends on virtualized-only slice bytes",
+    )
+    virtual_different_slice = scenario(
+        "virtualized", virtual_slice_bytes=256 * 1024
+    )
+    require(
+        virtual != virtual_different_slice,
+        "virtualized identity ignored virtual slice bytes",
+    )
+
+    virtual_warm = scenario("virtualized", warmup_query_count=3)
+    native_warm = scenario("native-dom", warmup_query_count=3)
+    require(
+        virtual != virtual_warm,
+        "virtualized scenario identity ignored warmup count",
+    )
+    require(
+        native != native_warm,
+        "native-DOM scenario identity ignored warmup count",
+    )
+    require(
+        scenario("virtualized", warmup_query_count=3) == virtual_warm,
+        "warmup-authoritative scenario identity is not deterministic",
+    )
 
     corpus = synthetic_corpus_sha256(4097)
     identity = evidence_identity(
@@ -126,6 +154,28 @@ def main() -> int:
             timeout_seconds=1,
         ),
         "unknown benchmark mode was accepted",
+    )
+    require_value_error(
+        lambda: scenario_fingerprint(
+            mode="virtualized",
+            payload_bytes=1,
+            query_count=1,
+            virtual_slice_bytes=1,
+            timeout_seconds=1,
+            warmup_query_count=-1,
+        ),
+        "negative warmup count was accepted",
+    )
+    require_value_error(
+        lambda: scenario_fingerprint(
+            mode="virtualized",
+            payload_bytes=1,
+            query_count=1,
+            virtual_slice_bytes=1,
+            timeout_seconds=1,
+            warmup_query_count=True,
+        ),
+        "boolean warmup count was accepted",
     )
     require_value_error(
         lambda: evidence_identity(
