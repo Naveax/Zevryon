@@ -139,11 +139,20 @@ def main() -> int:
     parser.add_argument("--segment-mib", type=int, default=16)
     parser.add_argument("--largest-record-limit-bytes", type=int, default=64 * 1024 * 1024)
     parser.add_argument("--giant-record-bytes", type=int, default=0)
+    parser.add_argument(
+        "--giant-record-profile",
+        choices=("legacy", "m7-competitor"),
+        default="legacy",
+        help="opt into the exact M7 browser synthetic payload for the giant record",
+    )
     parser.add_argument("--viewport-height", type=int, default=720)
     parser.add_argument("--overscan", type=int, default=720)
     parser.add_argument("--cleanup-large-files", action="store_true")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
+
+    if not args.giant_record_bytes and args.giant_record_profile != "legacy":
+        parser.error("--giant-record-profile requires --giant-record-bytes")
 
     if args.work_dir.exists():
         shutil.rmtree(args.work_dir)
@@ -165,9 +174,21 @@ def main() -> int:
         str(args.largest_record_limit_bytes),
     ]
     if args.giant_record_bytes:
-        generator_command.extend(["--giant-record-bytes", str(args.giant_record_bytes)])
+        generator_command.extend(
+            [
+                "--giant-record-bytes",
+                str(args.giant_record_bytes),
+                "--giant-record-profile",
+                args.giant_record_profile,
+            ]
+        )
     generated = run_captured(generator_command)
     corpus_summary = json.loads(generated.stdout)
+    if (
+        args.giant_record_profile == "m7-competitor"
+        and corpus_summary.get("giant_record_matches_m7_synthetic") is not True
+    ):
+        raise RuntimeError("generated giant record does not match canonical M7 browser payload")
 
     imported = run_measured([str(args.binary), "import", str(corpus), str(store), str(args.segment_mib)])
     if args.cleanup_large_files:
@@ -256,6 +277,11 @@ def main() -> int:
         "largest_record_observed_bytes": corpus_summary["largest_record_observed_bytes"],
         "average_record_bytes": corpus_summary["average_record_bytes"],
         "giant_record_bytes": corpus_summary["giant_record_bytes"],
+        "giant_record_index": corpus_summary.get("giant_record_index"),
+        "giant_record_profile": corpus_summary.get("giant_record_profile"),
+        "giant_record_sha256": corpus_summary.get("giant_record_sha256"),
+        "giant_record_expected_m7_sha256": corpus_summary.get("giant_record_expected_m7_sha256"),
+        "giant_record_matches_m7_synthetic": corpus_summary.get("giant_record_matches_m7_synthetic"),
         "payload_sha256": store_sha,
         "export_sha256": export_sha,
         "physical_store_bytes": physical_store_bytes,
