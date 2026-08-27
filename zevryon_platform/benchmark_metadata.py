@@ -114,6 +114,7 @@ def _cpu_model(env: Mapping[str, str]) -> str:
     forced = env.get("ZEVRYON_CPU_MODEL", "").strip()
     if forced:
         return _bounded_text(forced, "unknown", 512)
+
     cpuinfo = Path("/proc/cpuinfo")
     if cpuinfo.exists():
         try:
@@ -122,6 +123,14 @@ def _cpu_model(env: Mapping[str, str]) -> str:
                     return _bounded_text(line.split(":", 1)[1], "unknown", 512)
         except OSError:
             pass
+
+    # Windows exposes a stable processor-family/model/vendor identity through the
+    # normal process environment. Prefer it over platform.processor(), which may
+    # collapse to a generic architecture string such as "AMD64" on some hosts.
+    processor_identifier = env.get("PROCESSOR_IDENTIFIER", "").strip()
+    if processor_identifier:
+        return _bounded_text(processor_identifier, "unknown", 512)
+
     return _bounded_text(platform.processor(), platform.machine() or "unknown", 512)
 
 

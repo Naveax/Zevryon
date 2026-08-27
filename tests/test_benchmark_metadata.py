@@ -63,6 +63,36 @@ def test_json_is_deterministic_and_contains_no_hostname_or_username_fields() -> 
     assert payload["device_class"] == "modern-phone"
 
 
+def test_windows_processor_identifier_is_preferred_over_generic_fallback() -> None:
+    meta = capture_benchmark_metadata(
+        env={
+            "PROCESSOR_IDENTIFIER": "AMD64 Family 25 Model 33 Stepping 2, AuthenticAMD",
+        },
+        captured_at=datetime(2026, 8, 21, 12, 0, tzinfo=timezone.utc),
+        physical_ram_mib_override=32768,
+        logical_cpu_count_override=16,
+    )
+    # On Linux /proc/cpuinfo is a stronger authority and legitimately wins. On
+    # platforms without /proc/cpuinfo (notably Windows), PROCESSOR_IDENTIFIER is
+    # preferred before platform.processor() so the machine identity does not
+    # collapse to a generic architecture label.
+    if not __import__("pathlib").Path("/proc/cpuinfo").exists():
+        assert meta.cpu_model == "AMD64 Family 25 Model 33 Stepping 2, AuthenticAMD"
+
+
+def test_explicit_cpu_model_remains_highest_authority() -> None:
+    meta = capture_benchmark_metadata(
+        env={
+            "ZEVRYON_CPU_MODEL": "Explicit Benchmark CPU",
+            "PROCESSOR_IDENTIFIER": "generic environment identity",
+        },
+        captured_at=datetime(2026, 8, 21, 12, 0, tzinfo=timezone.utc),
+        physical_ram_mib_override=32768,
+        logical_cpu_count_override=16,
+    )
+    assert meta.cpu_model == "Explicit Benchmark CPU"
+
+
 def test_invalid_thermal_override_fails_closed() -> None:
     with pytest.raises(ValueError):
         capture_benchmark_metadata(
