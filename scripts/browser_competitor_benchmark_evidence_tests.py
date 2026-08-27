@@ -8,6 +8,7 @@ from browser_competitor_benchmark_evidence import (
     CORPUS_CHUNK_BYTES,
     HARNESS_SCHEMA,
     SYNTHETIC_PATTERN,
+    SYSTEM_FINGERPRINT_SCHEMA,
     canonical_sha256,
     evidence_identity,
     normalized_system_fingerprint,
@@ -57,6 +58,20 @@ def scenario(
     )
 
 
+def canonical_host() -> dict[str, object]:
+    return {
+        "system_fingerprint_schema": SYSTEM_FINGERPRINT_SCHEMA,
+        "machine_metadata_schema": 1,
+        "platform": "TestOS",
+        "arch": "x86_64",
+        "kernel": "1.2.3-test",
+        "logical_cpus": 8,
+        "cpu_model": "Test CPU 8-Core",
+        "physical_ram_mib": 32768,
+        "device_class": "desktop",
+    }
+
+
 def main() -> int:
     require(
         canonical_sha256({"b": 2, "a": 1}) == canonical_sha256({"a": 1, "b": 2}),
@@ -75,16 +90,30 @@ def main() -> int:
         require(actual == expected, f"synthetic corpus SHA drift at {payload_bytes} bytes")
         require(_SHA256_RE.fullmatch(actual) is not None, "corpus SHA format drift")
 
-    host = {
-        "platform": "TestOS",
-        "arch": "x86_64",
-        "kernel": "1.2.3-test",
-        "logical_cpus": 8,
-    }
+    host = canonical_host()
     first_system = normalized_system_fingerprint(host)
     second_system = normalized_system_fingerprint(dict(reversed(list(host.items()))))
     require(first_system == second_system, "system fingerprint is not canonical")
     require(_SHA256_RE.fullmatch(first_system) is not None, "system SHA format drift")
+
+    changed_cpu = dict(host)
+    changed_cpu["cpu_model"] = "Different CPU"
+    require(
+        normalized_system_fingerprint(changed_cpu) != first_system,
+        "system fingerprint ignored CPU model",
+    )
+    changed_ram = dict(host)
+    changed_ram["physical_ram_mib"] = 65536
+    require(
+        normalized_system_fingerprint(changed_ram) != first_system,
+        "system fingerprint ignored physical RAM",
+    )
+    changed_device_class = dict(host)
+    changed_device_class["device_class"] = "modern-phone"
+    require(
+        normalized_system_fingerprint(changed_device_class) != first_system,
+        "system fingerprint ignored device class",
+    )
 
     virtual = scenario("virtualized")
     virtual_again = scenario("virtualized")
@@ -141,9 +170,26 @@ def main() -> int:
     )
     require_value_error(
         lambda: normalized_system_fingerprint(
-            {"platform": "", "arch": "x", "kernel": "k", "logical_cpus": 1}
+            {
+                "platform": "TestOS",
+                "arch": "x86_64",
+                "kernel": "k",
+                "logical_cpus": 8,
+            }
         ),
-        "blank platform was accepted",
+        "legacy weak host identity was accepted by fingerprint v2",
+    )
+    missing_cpu = canonical_host()
+    missing_cpu["cpu_model"] = ""
+    require_value_error(
+        lambda: normalized_system_fingerprint(missing_cpu),
+        "blank CPU model was accepted",
+    )
+    bad_ram = canonical_host()
+    bad_ram["physical_ram_mib"] = 128
+    require_value_error(
+        lambda: normalized_system_fingerprint(bad_ram),
+        "implausibly small physical RAM was accepted",
     )
     require_value_error(
         lambda: scenario_fingerprint(

@@ -90,6 +90,18 @@ A missing/empty process scope is invalid evidence, never zero-memory success.
 
 Normalized evidence reuses the canonical `EvidenceIdentity` / M0 -> EvidenceContext path. No second SystemState or Scenario fingerprint model is introduced.
 
+The canonical M7 system fingerprint uses schema `zevryon.competitor.system-fingerprint.v2` and derives its stable machine fields from the existing M0 `BenchmarkMachineMetadata` authority. The fingerprint includes:
+
+- M0 machine-metadata schema version;
+- OS name and release/kernel identity;
+- architecture;
+- logical CPU count;
+- normalized CPU model;
+- physical RAM MiB;
+- derived device class.
+
+Dynamic observations such as capture timestamp, run label and thermal readings remain benchmark evidence but are intentionally excluded from the stable system fingerprint. Excluding thermal state from the fingerprint does **not** make thermal state irrelevant: collection still must follow the symmetric system-state discipline and publish available thermal evidence. The stable fingerprint answers “is this the same machine class/identity surface?”, not “is the machine at the same instantaneous temperature/load?”.
+
 A comparable group must have identical:
 
 - host platform and architecture;
@@ -121,7 +133,7 @@ Preflight is a separate stage rather than an automatic immediate precursor to ti
 
 ## Current implementation status
 
-As of admitted `main` commit `2b17dd067aa102acd1dab2e20b01b3daa3ff423b`:
+As of admitted `main` commit `d598b7fbb2db121569325932510378289e5641c1`:
 
 - browser cases start normalized setup timing before case-owned runtime launch;
 - declared warmups complete before the ready boundary and are part of scenario identity;
@@ -131,11 +143,13 @@ As of admitted `main` commit `2b17dd067aa102acd1dab2e20b01b3daa3ff423b`:
 - Zevryon constructs the exact single-record M7 synthetic store inside the case-owned process after launch;
 - the Zevryon synthetic stream is bound to the canonical 1 MiB chunk restart semantics and cross-boundary SHA authority;
 - Zevryon normalized memory accounting ends at the final measured query before teardown;
+- the legacy-independent canonical six-browser x two-mode collector is admitted;
+- the separate fixed five-metric leadership evaluator is admitted;
 - legacy Zevryon giant-document summaries remain diagnostic only.
 
-Exact-head run `33119457934` validated this admitted tree across the repository's Linux, Windows, Unicode, Apple-removal, Win32 and i386 gates.
+Exact-head run `33120298227` validated this admitted tree across the repository's Linux, Windows, Unicode, Apple-removal, Win32 and i386 gates.
 
-The next candidate layer adds a legacy-independent canonical six-browser full-set collector and the separate fixed five-metric evaluator. Those surfaces do not grant leadership by existing in the repository; real comparable evidence is still required.
+The next candidate layers add exact-runtime preflight, preflight-to-measurement runtime binding, collection admission, immutable publication receipts and the stronger M0-backed system-fingerprint v2. Those surfaces do not grant leadership by existing in the repository; real comparable evidence is still required.
 
 ## Required implementation sequence
 
@@ -145,7 +159,9 @@ The next candidate layer adds a legacy-independent canonical six-browser full-se
 4. **ADMITTED** - add one persistent Zevryon benchmark-session path with implementation-local raw query timings;
 5. **ADMITTED** - measure both paths with the same process-ownership window semantics;
 6. **ADMITTED** - attach validated normalized core evidence to successful terminal records;
-7. **IMPLEMENTED / EVIDENCE PENDING** - collect the real canonical six-competitor full set with exact runtime identity and corpus authority;
-8. **IMPLEMENTED / EVIDENCE PENDING** - run the separate five-metric leadership evaluator only after complete comparable evidence is admitted.
+7. **ADMITTED IMPLEMENTATION / REAL EVIDENCE PENDING** - provide the exact canonical 6x2 normalized collector and separate five-metric evaluator;
+8. **CANDIDATE / CI ADMISSION PENDING** - bind exact-runtime preflight to measurement and strengthen stable system identity with M0 machine metadata;
+9. **REAL EVIDENCE PENDING** - collect and admit one complete six-runtime plus two-Zevryon-mode bundle on one benchmark host;
+10. **PUBLICATION PENDING** - bind the admitted result to raw artifact hashes and exact clean Git commit/tree before publication.
 
 No implementation step, preflight PASS, unit-test PASS or CI PASS is itself a leadership claim. Leadership eligibility exists only for a complete admitted evidence bundle that satisfies the fixed metric rule.

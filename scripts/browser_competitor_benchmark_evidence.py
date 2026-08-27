@@ -4,10 +4,16 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import hashlib
 import json
-import os
-import platform
+from pathlib import Path
 import re
+import sys
 from typing import Mapping
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from zevryon_platform.benchmark_metadata import capture_benchmark_metadata
 
 from browser_competitor_scenario_contract import scenario_semantics
 from m7_synthetic_corpus import (
@@ -18,6 +24,7 @@ from m7_synthetic_corpus import (
 
 
 HARNESS_SCHEMA = "zevryon.competitor.giant-document.v2"
+SYSTEM_FINGERPRINT_SCHEMA = "zevryon.competitor.system-fingerprint.v2"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -45,25 +52,54 @@ def canonical_sha256(value: object) -> str:
 
 
 def host_metadata() -> dict[str, object]:
+    machine = capture_benchmark_metadata()
     return {
-        "platform": platform.system() or "unknown",
-        "arch": platform.machine() or "unknown",
-        "kernel": platform.release() or "unknown",
-        "logical_cpus": int(os.cpu_count() or 0),
+        "system_fingerprint_schema": SYSTEM_FINGERPRINT_SCHEMA,
+        "machine_metadata_schema": machine.schema_version,
+        "platform": machine.os_name,
+        "arch": machine.architecture,
+        "kernel": machine.os_release,
+        "logical_cpus": machine.logical_cpu_count,
+        "cpu_model": machine.cpu_model,
+        "physical_ram_mib": machine.physical_ram_mib,
+        "device_class": machine.device_class.value,
     }
 
 
 def normalized_system_fingerprint(host: Mapping[str, object]) -> str:
+    schema = str(host.get("system_fingerprint_schema", "")).strip()
+    if schema != SYSTEM_FINGERPRINT_SCHEMA:
+        raise ValueError(
+            f"system fingerprint requires schema {SYSTEM_FINGERPRINT_SCHEMA}"
+        )
+
+    try:
+        machine_metadata_schema = int(host.get("machine_metadata_schema", 0))
+        logical_cpus = int(host.get("logical_cpus", 0))
+        physical_ram_mib = int(host.get("physical_ram_mib", 0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("system fingerprint numeric host metadata is invalid") from exc
+
     normalized = {
+        "schema": SYSTEM_FINGERPRINT_SCHEMA,
+        "machine_metadata_schema": machine_metadata_schema,
         "platform": str(host.get("platform", "")).strip(),
         "arch": str(host.get("arch", "")).strip(),
         "kernel": str(host.get("kernel", "")).strip(),
-        "logical_cpus": int(host.get("logical_cpus", 0)),
+        "logical_cpus": logical_cpus,
+        "cpu_model": " ".join(str(host.get("cpu_model", "")).split()).strip(),
+        "physical_ram_mib": physical_ram_mib,
+        "device_class": str(host.get("device_class", "")).strip(),
     }
-    if not normalized["platform"] or not normalized["arch"] or not normalized["kernel"]:
-        raise ValueError("system fingerprint requires platform, arch, and kernel")
-    if normalized["logical_cpus"] < 0:
-        raise ValueError("system fingerprint logical_cpus cannot be negative")
+    for field in ("platform", "arch", "kernel", "cpu_model", "device_class"):
+        if not normalized[field]:
+            raise ValueError(f"system fingerprint requires {field}")
+    if normalized["machine_metadata_schema"] <= 0:
+        raise ValueError("system fingerprint machine metadata schema must be positive")
+    if normalized["logical_cpus"] <= 0:
+        raise ValueError("system fingerprint logical_cpus must be positive")
+    if normalized["physical_ram_mib"] < 256:
+        raise ValueError("system fingerprint physical RAM is implausibly small")
     return canonical_sha256(normalized)
 
 
