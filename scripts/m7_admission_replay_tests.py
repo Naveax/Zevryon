@@ -11,6 +11,7 @@ from m7_admission_replay import (
     INPUT_ARTIFACT_KEYS,
     file_sha256,
     replay_admission,
+    resolve_artifact_path,
     validate_replay_receipt,
 )
 from m7_collection_admission import admit_collection
@@ -69,6 +70,36 @@ def main() -> int:
             "replay artifact hash set drifted",
         )
 
+        resolved = resolve_artifact_path(root, Path("evidence/preflight.json"))
+        require(resolved == (root / "evidence" / "preflight.json").resolve(), "contained artifact resolution drifted")
+
+        outside = root.parent / "outside-m7-replay.json"
+        outside.write_text("{}\n", encoding="utf-8")
+        try:
+            require_invalid(
+                lambda: resolve_artifact_path(root, Path("../outside-m7-replay.json")),
+                "relative artifact_root escape was accepted",
+            )
+            require_invalid(
+                lambda: resolve_artifact_path(root, outside.resolve()),
+                "absolute artifact_root escape was accepted",
+            )
+
+            escaped_admission = copy.deepcopy(admission)
+            escaped_admission["input_artifacts"]["preflight"] = {
+                "path": "../outside-m7-replay.json",
+                "sha256": file_sha256(outside),
+            }
+            require_invalid(
+                lambda: replay_admission(escaped_admission, artifact_root=root),
+                "admission replay read an artifact outside artifact_root",
+            )
+        finally:
+            try:
+                outside.unlink()
+            except OSError:
+                pass
+
         forged_admission = copy.deepcopy(admission)
         forged_admission["leadership_eligible"] = not bool(admission["leadership_eligible"])
         require_invalid(
@@ -108,7 +139,7 @@ def main() -> int:
             "failed replay receipt was accepted",
         )
 
-    print("M7 admission replay authority tests passed")
+    print("M7 admission replay and artifact-root containment tests passed")
     return 0
 
 

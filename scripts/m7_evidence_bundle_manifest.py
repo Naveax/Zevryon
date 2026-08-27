@@ -14,6 +14,7 @@ from browser_competitor_registry import CANONICAL_KEYS, get_spec
 from m7_admission_replay import (
     AdmissionReplayInvalid,
     replay_admission,
+    resolve_artifact_path,
     validate_replay_receipt,
 )
 from m7_collection_admission import ADMISSION_AUTHORITY, ADMISSION_SCHEMA
@@ -194,7 +195,10 @@ def verify_admission_input_artifacts(
         raw_receipt = raw_artifacts[name]
         assert isinstance(raw_receipt, Mapping)
         declared_path = Path(str(raw_receipt["path"]))
-        resolved = declared_path if declared_path.is_absolute() else artifact_root / declared_path
+        try:
+            resolved = resolve_artifact_path(artifact_root, declared_path)
+        except AdmissionReplayInvalid as exc:
+            raise EvidenceBundleInvalid(f"input artifact path invalid: {name}: {exc}") from exc
         expected_sha = str(raw_receipt["sha256"])
         actual_sha = file_sha256(resolved)
         if actual_sha != expected_sha:
@@ -203,7 +207,7 @@ def verify_admission_input_artifacts(
             )
         receipts[name] = {
             "declared_path": str(declared_path),
-            "resolved_path": str(resolved.resolve()),
+            "resolved_path": str(resolved),
             "sha256": actual_sha,
         }
     return receipts
@@ -440,7 +444,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Create a canonical publication manifest for one physically certified admitted M7 evidence bundle. "
-            "The manifest verifies raw artifact SHA receipts, replays collection admission, and binds the exact clean Git commit/tree."
+            "The manifest constrains raw artifacts to artifact_root, verifies their SHA receipts, replays collection admission, and binds the exact clean Git commit/tree."
         )
     )
     parser.add_argument("--admission", type=Path, required=True)

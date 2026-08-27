@@ -43,6 +43,26 @@ def _sha256(value: object, field: str) -> str:
     return value
 
 
+def resolve_artifact_path(artifact_root: Path, declared_path: Path) -> Path:
+    root = artifact_root.resolve()
+    candidate = declared_path if declared_path.is_absolute() else root / declared_path
+    try:
+        resolved = candidate.resolve()
+    except OSError as exc:
+        raise AdmissionReplayInvalid(
+            f"cannot resolve raw artifact path {declared_path}: {exc}"
+        ) from exc
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise AdmissionReplayInvalid(
+            f"raw artifact path escapes artifact_root: {declared_path}"
+        ) from exc
+    if resolved == root:
+        raise AdmissionReplayInvalid("raw artifact path resolves to artifact_root itself")
+    return resolved
+
+
 def file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     try:
@@ -82,7 +102,7 @@ def replay_admission(
         receipt = _mapping(receipts.get(name), f"input_artifacts.{name}")
         declared = Path(_text(receipt.get("path"), f"input_artifacts.{name}.path"))
         expected = _sha256(receipt.get("sha256"), f"input_artifacts.{name}.sha256")
-        resolved = declared if declared.is_absolute() else artifact_root / declared
+        resolved = resolve_artifact_path(artifact_root, declared)
         actual = file_sha256(resolved)
         if actual != expected:
             raise AdmissionReplayInvalid(
