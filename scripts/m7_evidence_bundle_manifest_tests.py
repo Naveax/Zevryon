@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 
 from browser_competitor_registry import CANONICAL_KEYS, get_spec
+from m7_admission_replay import REPLAY_AUTHORITY, REPLAY_SCHEMA
 from m7_collection_admission import ADMISSION_AUTHORITY, ADMISSION_SCHEMA
 from m7_evidence_bundle_manifest import (
     BUNDLE_SCHEMA,
@@ -67,6 +68,14 @@ def physical_receipt(label: str) -> dict[str, object]:
     }
 
 
+def zevryon_physical_stage(mode: str) -> dict[str, object]:
+    return {
+        "before": physical_receipt(f"zevryon-{mode}-before"),
+        "after": physical_receipt(f"zevryon-{mode}-after"),
+        "physical_host_gate_passed": True,
+    }
+
+
 def admission(*, eligible: bool = False) -> dict[str, object]:
     bindings = {
         competitor: {
@@ -89,6 +98,8 @@ def admission(*, eligible: bool = False) -> dict[str, object]:
         "physical_host_evidence": {
             "runtime_preflight": physical_receipt("runtime-preflight"),
             "browser_full_set": physical_receipt("browser-full-set"),
+            "zevryon_virtualized": zevryon_physical_stage("virtualized"),
+            "zevryon_native_dom": zevryon_physical_stage("native-dom"),
             "physical_host_gate_passed": True,
         },
         "runtime_bindings": bindings,
@@ -124,6 +135,28 @@ def prepare_artifacts(root: Path, value: dict[str, object]) -> dict[str, dict[st
     return verify_admission_input_artifacts(value, artifact_root=root)
 
 
+def replay_receipt(verified: dict[str, dict[str, str]]) -> dict[str, object]:
+    return {
+        "schema": REPLAY_SCHEMA,
+        "replay_authority": REPLAY_AUTHORITY,
+        "replay_gate_passed": True,
+        "recomputed_fields": [
+            "schema",
+            "admission_authority",
+            "system_fingerprint",
+            "corpus_sha256",
+            "physical_host_evidence",
+            "runtime_bindings",
+            "leadership_evaluation",
+            "leadership_metric_gate_evaluated",
+            "leadership_eligible",
+        ],
+        "input_artifact_sha256": {
+            name: str(verified[name]["sha256"]) for name in INPUT_ARTIFACT_KEYS
+        },
+    }
+
+
 def source_receipt() -> dict[str, object]:
     return {
         "repository_root": "/repo",
@@ -139,6 +172,7 @@ def main() -> int:
         root = Path(temp)
         valid_admission = admission()
         verified = prepare_artifacts(root, valid_admission)
+        replay = replay_receipt(verified)
         validate_admission_for_publication(valid_admission)
 
         manifest = build_bundle_manifest(
@@ -146,6 +180,7 @@ def main() -> int:
             admission_path=root / "admission.json",
             admission_sha256="e" * 64,
             artifact_receipts=verified,
+            admission_replay=replay,
             source=source_receipt(),
         )
         require(manifest["schema"] == BUNDLE_SCHEMA, "bundle schema drifted")
@@ -156,6 +191,10 @@ def main() -> int:
         require(
             manifest["physical_host_evidence"]["physical_host_gate_passed"] is True,
             "physical host evidence was not published",
+        )
+        require(
+            manifest["admission_replay"]["replay_gate_passed"] is True,
+            "admission replay evidence was not published",
         )
         validate_bundle_manifest(manifest)
         payload = dict(manifest)
@@ -169,6 +208,7 @@ def main() -> int:
             admission_path=root / "leadership-admission.json",
             admission_sha256="f" * 64,
             artifact_receipts=leadership_verified,
+            admission_replay=replay_receipt(leadership_verified),
             source=source_receipt(),
         )
         require(
@@ -190,6 +230,13 @@ def main() -> int:
             "failed physical host gate was accepted",
         )
 
+        missing_zev_after = copy.deepcopy(valid_admission)
+        missing_zev_after["physical_host_evidence"]["zevryon_native_dom"].pop("after")
+        require_invalid(
+            lambda: validate_admission_for_publication(missing_zev_after),
+            "missing Zevryon post-case physical receipt was accepted",
+        )
+
         bad_eligibility = copy.deepcopy(valid_admission)
         bad_eligibility["leadership_evaluation"]["leadership_eligible"] = True
         require_invalid(
@@ -209,6 +256,20 @@ def main() -> int:
         require_invalid(
             lambda: validate_admission_for_publication(unmatched_binding),
             "unmatched runtime binding was accepted",
+        )
+
+        bad_replay = copy.deepcopy(replay)
+        bad_replay["input_artifact_sha256"]["browser_report"] = "9" * 64
+        require_invalid(
+            lambda: build_bundle_manifest(
+                valid_admission,
+                admission_path=root / "admission.json",
+                admission_sha256="e" * 64,
+                artifact_receipts=verified,
+                admission_replay=bad_replay,
+                source=source_receipt(),
+            ),
+            "replay/raw artifact SHA drift was accepted",
         )
 
         changed_artifact = root / "evidence" / f"{INPUT_ARTIFACT_KEYS[0]}.json"
@@ -283,7 +344,7 @@ def main() -> int:
         "dirty tracked Git worktree was accepted",
     )
 
-    print("M7 evidence bundle manifest and physical-host authority tests passed")
+    print("M7 evidence bundle manifest, replay and physical-host authority tests passed")
     return 0
 
 

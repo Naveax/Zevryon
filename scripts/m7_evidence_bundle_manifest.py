@@ -11,6 +11,11 @@ import sys
 from typing import Callable, Mapping, Sequence
 
 from browser_competitor_registry import CANONICAL_KEYS, get_spec
+from m7_admission_replay import (
+    AdmissionReplayInvalid,
+    replay_admission,
+    validate_replay_receipt,
+)
 from m7_collection_admission import ADMISSION_AUTHORITY, ADMISSION_SCHEMA
 from m7_leadership_evaluator import EVALUATOR_SCHEMA
 from m7_physical_host_evidence import PHYSICAL_HOST_AUTHORITY
@@ -74,28 +79,53 @@ def _required_text(value: object, field: str) -> str:
     return value.strip()
 
 
+def _validate_single_physical_receipt(value: object, field: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise EvidenceBundleInvalid(f"physical host receipt is missing: {field}")
+    if value.get("authority") != PHYSICAL_HOST_AUTHORITY:
+        raise EvidenceBundleInvalid(f"physical host authority drifted: {field}")
+    if value.get("physical_host_gate_passed") is not True:
+        raise EvidenceBundleInvalid(f"physical host stage did not pass: {field}")
+    checks = value.get("checks")
+    if not isinstance(checks, Mapping) or checks.get("physical_metadata_complete") is not True:
+        raise EvidenceBundleInvalid(f"physical metadata checks are incomplete: {field}")
+    _required_text(value.get("captured_at_utc"), f"{field}.captured_at_utc")
+    _required_text(value.get("cpu_model"), f"{field}.cpu_model")
+    thermal = value.get("thermal")
+    if not isinstance(thermal, Mapping):
+        raise EvidenceBundleInvalid(f"physical thermal receipt is missing: {field}")
+    _required_text(thermal.get("source"), f"{field}.thermal.source")
+    return value
+
+
 def _validate_physical_host_evidence(value: object) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise EvidenceBundleInvalid("collection admission physical host evidence is missing")
     if value.get("physical_host_gate_passed") is not True:
         raise EvidenceBundleInvalid("collection admission physical host gate did not pass")
-    for stage in ("runtime_preflight", "browser_full_set"):
-        receipt = value.get(stage)
-        if not isinstance(receipt, Mapping):
-            raise EvidenceBundleInvalid(f"physical host receipt is missing: {stage}")
-        if receipt.get("authority") != PHYSICAL_HOST_AUTHORITY:
-            raise EvidenceBundleInvalid(f"physical host authority drifted: {stage}")
-        if receipt.get("physical_host_gate_passed") is not True:
-            raise EvidenceBundleInvalid(f"physical host stage did not pass: {stage}")
-        checks = receipt.get("checks")
-        if not isinstance(checks, Mapping) or checks.get("physical_metadata_complete") is not True:
-            raise EvidenceBundleInvalid(f"physical metadata checks are incomplete: {stage}")
-        _required_text(receipt.get("captured_at_utc"), f"physical_host_evidence.{stage}.captured_at_utc")
-        _required_text(receipt.get("cpu_model"), f"physical_host_evidence.{stage}.cpu_model")
-        thermal = receipt.get("thermal")
-        if not isinstance(thermal, Mapping):
-            raise EvidenceBundleInvalid(f"physical thermal receipt is missing: {stage}")
-        _required_text(thermal.get("source"), f"physical_host_evidence.{stage}.thermal.source")
+
+    _validate_single_physical_receipt(
+        value.get("runtime_preflight"),
+        "physical_host_evidence.runtime_preflight",
+    )
+    _validate_single_physical_receipt(
+        value.get("browser_full_set"),
+        "physical_host_evidence.browser_full_set",
+    )
+    for mode_key in ("zevryon_virtualized", "zevryon_native_dom"):
+        stage = value.get(mode_key)
+        if not isinstance(stage, Mapping):
+            raise EvidenceBundleInvalid(f"physical Zevryon stage is missing: {mode_key}")
+        if stage.get("physical_host_gate_passed") is not True:
+            raise EvidenceBundleInvalid(f"physical Zevryon stage did not pass: {mode_key}")
+        _validate_single_physical_receipt(
+            stage.get("before"),
+            f"physical_host_evidence.{mode_key}.before",
+        )
+        _validate_single_physical_receipt(
+            stage.get("after"),
+            f"physical_host_evidence.{mode_key}.after",
+        )
     return value
 
 
@@ -250,18 +280,39 @@ def git_source_receipt(
     }
 
 
+def _validate_replay_against_artifacts(
+    replay_value: object,
+    artifact_receipts: Mapping[str, Mapping[str, str]],
+) -> Mapping[str, object]:
+    try:
+        replay = validate_replay_receipt(replay_value)
+    except AdmissionReplayInvalid as exc:
+        raise EvidenceBundleInvalid(f"admission replay receipt invalid: {exc}") from exc
+    hashes = replay.get("input_artifact_sha256")
+    assert isinstance(hashes, Mapping)
+    for name in INPUT_ARTIFACT_KEYS:
+        receipt = artifact_receipts.get(name)
+        if not isinstance(receipt, Mapping):
+            raise EvidenceBundleInvalid(f"verified artifact receipt is missing: {name}")
+        if hashes.get(name) != receipt.get("sha256"):
+            raise EvidenceBundleInvalid(f"admission replay/raw artifact SHA drifted: {name}")
+    return replay
+
+
 def build_bundle_manifest(
     admission: Mapping[str, object],
     *,
     admission_path: Path,
     admission_sha256: str,
     artifact_receipts: Mapping[str, Mapping[str, str]],
+    admission_replay: Mapping[str, object],
     source: Mapping[str, object],
 ) -> dict[str, object]:
     validate_admission_for_publication(admission)
     admission_digest = _required_sha256(admission_sha256, "admission_sha256")
     if set(artifact_receipts) != set(INPUT_ARTIFACT_KEYS):
         raise EvidenceBundleInvalid("verified artifact receipt set drifted")
+    replay_receipt = _validate_replay_against_artifacts(admission_replay, artifact_receipts)
     commit = _required_git_object(source.get("commit"), "source.commit")
     tree = _required_git_object(source.get("tree"), "source.tree")
     if source.get("tracked_worktree_clean") is not True:
@@ -286,6 +337,7 @@ def build_bundle_manifest(
         "input_artifacts": {
             name: dict(artifact_receipts[name]) for name in INPUT_ARTIFACT_KEYS
         },
+        "admission_replay": dict(replay_receipt),
         "system_fingerprint": admission["system_fingerprint"],
         "corpus_sha256": admission["corpus_sha256"],
         "physical_host_evidence": dict(physical_host_evidence),
@@ -349,6 +401,10 @@ def validate_bundle_manifest(manifest: Mapping[str, object]) -> None:
         _required_text(receipt.get("resolved_path"), f"{name}.resolved_path")
         _required_sha256(receipt.get("sha256"), f"{name}.sha256")
 
+    replay = _validate_replay_against_artifacts(manifest.get("admission_replay"), artifacts)
+    if replay.get("replay_gate_passed") is not True:
+        raise EvidenceBundleInvalid("bundle admission replay did not pass")
+
     evaluation = manifest.get("leadership_evaluation")
     if not isinstance(evaluation, Mapping) or evaluation.get("schema") != EVALUATOR_SCHEMA:
         raise EvidenceBundleInvalid("bundle leadership evaluation is invalid")
@@ -384,7 +440,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Create a canonical publication manifest for one physically certified admitted M7 evidence bundle. "
-            "The manifest verifies every input artifact SHA plus the exact clean Git commit/tree."
+            "The manifest verifies raw artifact SHA receipts, replays collection admission, and binds the exact clean Git commit/tree."
         )
     )
     parser.add_argument("--admission", type=Path, required=True)
@@ -401,6 +457,10 @@ def main() -> int:
             admission,
             artifact_root=args.artifact_root,
         )
+        replay = replay_admission(
+            admission,
+            artifact_root=args.artifact_root,
+        )
         source = git_source_receipt(
             args.repo_root,
             expected_commit=args.expected_tool_commit,
@@ -410,9 +470,10 @@ def main() -> int:
             admission_path=args.admission,
             admission_sha256=admission_sha,
             artifact_receipts=artifacts,
+            admission_replay=replay,
             source=source,
         )
-    except EvidenceBundleInvalid as exc:
+    except (EvidenceBundleInvalid, AdmissionReplayInvalid) as exc:
         print(f"M7 evidence bundle manifest rejected: {exc}", file=sys.stderr)
         return 1
 
