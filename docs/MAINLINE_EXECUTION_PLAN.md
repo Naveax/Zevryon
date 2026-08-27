@@ -114,6 +114,7 @@ Implementation/admission state:
 - [ ] Collect normalized Zevryon `virtualized` and `native-dom` evidence under the same system/scenario authority.
 - [ ] Admit the four artifacts through the collection binder, including artifact SHA-256 receipts and stable runtime identity checks.
 - [ ] Evaluate the fixed five-metric rule on the admitted bundle. Exit status `2` means valid evidence that does not satisfy leadership, not a harness failure.
+- [ ] Create the canonical publication manifest binding the admission artifact, all four raw inputs, exact clean Git commit/tree, runtime bindings and evaluator result.
 - [ ] Publish the complete admitted evidence and failure modes without cherry-picking metrics across repeat bundles.
 
 One leadership decision consumes one complete evidence bundle. Repeats may be collected as independent reproducibility evidence, but best-of-N reruns and cross-bundle metric mixing are not admissible. Any repeated-run aggregation policy must be frozen before collecting the evidence it would aggregate.

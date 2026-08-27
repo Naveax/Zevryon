@@ -136,13 +136,43 @@ Admission revalidates:
 
 The admission artifact also records SHA-256 hashes of the four input evidence files.
 
+## 8. Create the canonical publication manifest
+
+Run this from the exact admitted Git checkout used for collection. Tracked source files must still match `HEAD`; untracked evidence output files are allowed.
+
+First record the admitted tool commit. Then run:
+
+```text
+python scripts/m7_evidence_bundle_manifest.py \
+  --admission evidence/m7/collection-admission.json \
+  --artifact-root . \
+  --repo-root . \
+  --expected-tool-commit <admitted-40-hex-commit> \
+  --output evidence/m7/evidence-bundle-manifest.json
+```
+
+The publication manifest verifies and binds:
+
+- SHA-256 of `collection-admission.json`;
+- SHA-256 of runtime preflight, browser full-set and both Zevryon evidence artifacts;
+- exact Git `HEAD` commit;
+- exact Git tree;
+- a clean tracked worktree relative to `HEAD`;
+- system fingerprint and corpus SHA-256;
+- all six stable runtime bindings;
+- the complete five-metric evaluation and final eligibility result.
+
+The manifest has its own canonical `manifest_payload_sha256`. Any later field mutation without recomputing a new manifest is rejected.
+
+A valid bundle that does **not** satisfy the leadership threshold is still publishable evidence. Its manifest uses `result_class: valid_not_leadership`. Publication must preserve that result rather than rerun unchanged evidence until a preferred ranking appears.
+
 ## Exit-code semantics
 
 Treat exit codes deliberately:
 
-- `0`: the stage passed; for `m7_collection_admission.py`, the complete evidence bundle is leadership-eligible;
-- `1`: invalid/incomplete/unavailable evidence or harness/runtime failure; do not claim leadership;
-- `2`: **the evidence bundle is valid and the five-metric gate was evaluated, but Zevryon did not satisfy the fixed leadership threshold**.
+- `0`: the stage passed; for `m7_collection_admission.py`, the complete evidence bundle is leadership-eligible; for the publication-manifest stage, the already-admitted result was verified and packaged regardless of whether leadership is true or false;
+- `1`: invalid/incomplete/unavailable evidence, source-tree mismatch, artifact hash mismatch, or harness/runtime failure; do not claim leadership;
+- `2`: **for `m7_collection_admission.py`, the evidence bundle is valid and the five-metric gate was evaluated, but Zevryon did not satisfy the fixed leadership threshold**.
 
 Exit code `2` is not an infrastructure failure and is not a reason to rerun identical evidence until a nicer number appears.
 
@@ -165,7 +195,7 @@ Exact ties count as first. Overall M7 leadership eligibility requires both `virt
 
 ## Evidence hygiene
 
-Preserve the original JSON artifacts unchanged after collection admission. Do not hand-edit runtime identities, timings, query samples, corpus hashes, coverage summaries or status fields.
+Preserve the original JSON artifacts unchanged after collection admission and publication-manifest generation. Do not hand-edit runtime identities, timings, query samples, corpus hashes, coverage summaries, status fields, admission fields or publication receipts.
 
 If a new binary, browser/engine version, timeout, warmup count, query count, payload, slice size or other scenario-semantic parameter is introduced, collect a new internally consistent evidence set. Do not combine records from incompatible scenario fingerprints.
 
