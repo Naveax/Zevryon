@@ -95,6 +95,11 @@ if(BUILD_TESTING)
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_case_executor_tests.py")
     add_test(
+      NAME competitor-normalized-case-executor-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_normalized_case_executor_tests.py")
+    add_test(
       NAME competitor-benchmark-runner-tests
       COMMAND
         "${Python3_EXECUTABLE}"
@@ -130,6 +135,7 @@ if(BUILD_TESTING)
         competitor-webdriver-runtime-tests
         competitor-scenario-contract-tests
         competitor-case-executor-tests
+        competitor-normalized-case-executor-tests
         competitor-benchmark-runner-tests
         competitor-normalized-core-evidence-tests
         competitor-normalized-browser-lifecycle-tests
