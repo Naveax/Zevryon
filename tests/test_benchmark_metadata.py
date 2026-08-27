@@ -3,6 +3,7 @@ import json
 
 import pytest
 
+from zevryon_platform import benchmark_metadata as benchmark_metadata_module
 from zevryon_platform.benchmark_metadata import (
     ThermalState,
     capture_benchmark_metadata,
@@ -63,24 +64,36 @@ def test_json_is_deterministic_and_contains_no_hostname_or_username_fields() -> 
     assert payload["device_class"] == "modern-phone"
 
 
-def test_windows_processor_identifier_is_preferred_over_generic_fallback() -> None:
-    meta = capture_benchmark_metadata(
-        env={
-            "PROCESSOR_IDENTIFIER": "AMD64 Family 25 Model 33 Stepping 2, AuthenticAMD",
-        },
-        captured_at=datetime(2026, 8, 21, 12, 0, tzinfo=timezone.utc),
-        physical_ram_mib_override=32768,
-        logical_cpu_count_override=16,
+def test_windows_registry_processor_name_precedes_environment_fallback(monkeypatch) -> None:
+    monkeypatch.setattr(benchmark_metadata_module.Path, "exists", lambda self: False)
+    monkeypatch.setattr(
+        benchmark_metadata_module,
+        "_windows_registry_cpu_model",
+        lambda: "AMD Ryzen 7 5800X 8-Core Processor",
     )
-    # On Linux /proc/cpuinfo is a stronger authority and legitimately wins. On
-    # platforms without /proc/cpuinfo (notably Windows), PROCESSOR_IDENTIFIER is
-    # preferred before platform.processor() so the machine identity does not
-    # collapse to a generic architecture label.
-    if not __import__("pathlib").Path("/proc/cpuinfo").exists():
-        assert meta.cpu_model == "AMD64 Family 25 Model 33 Stepping 2, AuthenticAMD"
+    assert benchmark_metadata_module._cpu_model(
+        {"PROCESSOR_IDENTIFIER": "AMD64 Family 25 Model 33, AuthenticAMD"}
+    ) == "AMD Ryzen 7 5800X 8-Core Processor"
 
 
-def test_explicit_cpu_model_remains_highest_authority() -> None:
+def test_windows_processor_identifier_precedes_generic_platform_fallback(monkeypatch) -> None:
+    monkeypatch.setattr(benchmark_metadata_module.Path, "exists", lambda self: False)
+    monkeypatch.setattr(
+        benchmark_metadata_module,
+        "_windows_registry_cpu_model",
+        lambda: None,
+    )
+    assert benchmark_metadata_module._cpu_model(
+        {"PROCESSOR_IDENTIFIER": "AMD64 Family 25 Model 33 Stepping 2, AuthenticAMD"}
+    ) == "AMD64 Family 25 Model 33 Stepping 2, AuthenticAMD"
+
+
+def test_explicit_cpu_model_remains_highest_authority(monkeypatch) -> None:
+    monkeypatch.setattr(
+        benchmark_metadata_module,
+        "_windows_registry_cpu_model",
+        lambda: "Registry CPU Must Not Win",
+    )
     meta = capture_benchmark_metadata(
         env={
             "ZEVRYON_CPU_MODEL": "Explicit Benchmark CPU",
