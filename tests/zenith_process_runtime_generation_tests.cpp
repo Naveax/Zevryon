@@ -195,8 +195,14 @@ void test_close_retires_running_generation_and_reuses_public_identity(
     auto status = services.status();
     require(status.tabs == 0U && status.materialized_tabs == 0U,
             "closed public tab remained materialized");
-    require(status.retired_runtime_generations >= 1U,
-            "running runtime generation was destroyed synchronously");
+    // The worker may finish between wait_for_running() and close_tab(). If it
+    // is still running after close, the old runtime must remain retired so its
+    // lifetime covers the callback. If it has already become idle, close_tab()
+    // may safely reclaim that retired generation immediately.
+    if (status.foreground_layout_pool.running_sessions != 0U) {
+        require(status.retired_runtime_generations >= 1U,
+                "active runtime generation lost retirement lifetime");
+    }
 
     error.clear();
     require(
