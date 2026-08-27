@@ -24,121 +24,30 @@ if(BUILD_TESTING)
 
   find_package(Python3 QUIET COMPONENTS Interpreter)
   if(Python3_Interpreter_FOUND)
-    add_test(
-      NAME competitor-registry-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_registry_tests.py")
-    add_test(
-      NAME competitor-playwright-adapter-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_playwright_tests.py")
-    add_test(
-      NAME competitor-benchmark-planner-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_benchmark_plan_tests.py")
-    add_test(
-      NAME competitor-benchmark-evidence-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_benchmark_evidence_tests.py")
-    add_test(
-      NAME competitor-query-plan-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_query_plan_tests.py")
-    add_test(
-      NAME m7-synthetic-corpus-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_synthetic_corpus_tests.py")
-    add_test(
-      NAME competitor-process-scope-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_process_scope_tests.py")
-    add_test(
-      NAME competitor-servo-adapter-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_servo_tests.py")
-    add_test(
-      NAME competitor-ladybird-adapter-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_ladybird_tests.py")
-    add_test(
-      NAME competitor-webdriver-transport-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_webdriver_tests.py")
-    add_test(
-      NAME competitor-webdriver-scenario-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_webdriver_scenario_tests.py")
-    add_test(
-      NAME competitor-webdriver-runtime-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_webdriver_runtime_tests.py")
-    add_test(
-      NAME competitor-scenario-contract-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_scenario_contract_tests.py")
-    add_test(
-      NAME competitor-case-executor-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_case_executor_tests.py")
-    add_test(
-      NAME competitor-normalized-case-executor-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_normalized_case_executor_tests.py")
-    add_test(
-      NAME competitor-benchmark-runner-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_benchmark_runner_tests.py")
-    add_test(
-      NAME competitor-normalized-core-evidence-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_normalized_core_evidence_tests.py")
-    add_test(
-      NAME competitor-normalized-browser-lifecycle-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_normalized_browser_lifecycle_tests.py")
-    add_test(
-      NAME competitor-canonical-full-set-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_canonical_full_set_tests.py")
-    add_test(
-      NAME m7-zevryon-normalized-case-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_zevryon_normalized_case_tests.py")
-    add_test(
-      NAME m7-leadership-evaluator-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_leadership_evaluator_tests.py")
-    add_test(
-      NAME m7-normalized-browser-full-set-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_normalized_browser_full_set_tests.py")
-    add_test(
-      NAME m7-runtime-preflight-tests
-      COMMAND
-        "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_runtime_preflight_tests.py")
+    add_test(NAME competitor-registry-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_registry_tests.py")
+    add_test(NAME competitor-playwright-adapter-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_playwright_tests.py")
+    add_test(NAME competitor-benchmark-planner-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_benchmark_plan_tests.py")
+    add_test(NAME competitor-benchmark-evidence-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_benchmark_evidence_tests.py")
+    add_test(NAME competitor-query-plan-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_query_plan_tests.py")
+    add_test(NAME m7-synthetic-corpus-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_synthetic_corpus_tests.py")
+    add_test(NAME competitor-process-scope-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_process_scope_tests.py")
+    add_test(NAME competitor-servo-adapter-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_servo_tests.py")
+    add_test(NAME competitor-ladybird-adapter-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_ladybird_tests.py")
+    add_test(NAME competitor-webdriver-transport-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_webdriver_tests.py")
+    add_test(NAME competitor-webdriver-scenario-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_webdriver_scenario_tests.py")
+    add_test(NAME competitor-webdriver-runtime-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_webdriver_runtime_tests.py")
+    add_test(NAME competitor-scenario-contract-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_scenario_contract_tests.py")
+    add_test(NAME competitor-case-executor-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_case_executor_tests.py")
+    add_test(NAME competitor-normalized-case-executor-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_normalized_case_executor_tests.py")
+    add_test(NAME competitor-benchmark-runner-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_benchmark_runner_tests.py")
+    add_test(NAME competitor-normalized-core-evidence-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_normalized_core_evidence_tests.py")
+    add_test(NAME competitor-normalized-browser-lifecycle-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_normalized_browser_lifecycle_tests.py")
+    add_test(NAME competitor-canonical-full-set-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_canonical_full_set_tests.py")
+    add_test(NAME m7-zevryon-normalized-case-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_zevryon_normalized_case_tests.py")
+    add_test(NAME m7-leadership-evaluator-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_leadership_evaluator_tests.py")
+    add_test(NAME m7-normalized-browser-full-set-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_normalized_browser_full_set_tests.py")
+    add_test(NAME m7-runtime-preflight-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_runtime_preflight_tests.py")
+    add_test(NAME m7-collection-admission-tests COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_collection_admission_tests.py")
   else()
     foreach(_test_name IN ITEMS
         competitor-registry-tests
@@ -163,7 +72,8 @@ if(BUILD_TESTING)
         m7-zevryon-normalized-case-tests
         m7-leadership-evaluator-tests
         m7-normalized-browser-full-set-tests
-        m7-runtime-preflight-tests)
+        m7-runtime-preflight-tests
+        m7-collection-admission-tests)
       add_test(NAME "${_test_name}" COMMAND "${CMAKE_COMMAND}" -E false)
     endforeach()
   endif()
