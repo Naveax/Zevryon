@@ -1,4 +1,27 @@
+target_sources(
+  zevryon-massivedoc-core
+  PRIVATE src/massivedoc_benchmark_session.cpp)
+
+add_executable(
+  zevryon-massivedoc-benchmark-session
+  src/massivedoc_benchmark_session_main.cpp)
+target_link_libraries(
+  zevryon-massivedoc-benchmark-session
+  PRIVATE zevryon-massivedoc-core)
+zevryon_options(zevryon-massivedoc-benchmark-session)
+
 if(BUILD_TESTING)
+  add_executable(
+    zevryon-massivedoc-benchmark-session-tests
+    tests/massivedoc_benchmark_session_tests.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-benchmark-session-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-benchmark-session-tests)
+  add_test(
+    NAME massivedoc-benchmark-session-tests
+    COMMAND zevryon-massivedoc-benchmark-session-tests)
+
   find_package(Python3 QUIET COMPONENTS Interpreter)
   if(Python3_Interpreter_FOUND)
     add_test(
