@@ -3,12 +3,16 @@ from __future__ import annotations
 
 import copy
 
+from browser_competitor_benchmark_evidence import HARNESS_SCHEMA, synthetic_corpus_sha256
 from browser_competitor_canonical_full_set import (
     CanonicalFullSetInvalid,
     validate_canonical_full_set_report,
+    validate_zevryon_corpus_report,
 )
-from browser_competitor_benchmark_evidence import HARNESS_SCHEMA
 from browser_competitor_registry import CANONICAL_KEYS
+
+
+PAYLOAD_BYTES = 64 * 1024 * 1024
 
 
 def require_invalid(callable_, message: str) -> None:
@@ -17,6 +21,19 @@ def require_invalid(callable_, message: str) -> None:
     except CanonicalFullSetInvalid:
         return
     raise AssertionError(message)
+
+
+def zevryon_report() -> dict[str, object]:
+    expected_sha = synthetic_corpus_sha256(PAYLOAD_BYTES)
+    return {
+        "schema": "zevryon.massivedoc.benchmark.v4",
+        "giant_record_bytes": PAYLOAD_BYTES,
+        "giant_record_index": 17,
+        "giant_record_profile": "m7-competitor",
+        "giant_record_sha256": expected_sha,
+        "giant_record_expected_m7_sha256": expected_sha,
+        "giant_record_matches_m7_synthetic": True,
+    }
 
 
 def coverage() -> dict[str, object]:
@@ -49,6 +66,70 @@ def report() -> dict[str, object]:
 
 
 def main() -> int:
+    valid_zevryon = zevryon_report()
+    validate_zevryon_corpus_report(valid_zevryon, PAYLOAD_BYTES)
+
+    require_invalid(
+        lambda: validate_zevryon_corpus_report(valid_zevryon, 0),
+        "non-positive canonical payload size was accepted",
+    )
+
+    wrong_schema = copy.deepcopy(valid_zevryon)
+    wrong_schema["schema"] = "zevryon.massivedoc.benchmark.v3"
+    require_invalid(
+        lambda: validate_zevryon_corpus_report(wrong_schema, PAYLOAD_BYTES),
+        "legacy Zevryon benchmark schema was accepted",
+    )
+
+    wrong_size = copy.deepcopy(valid_zevryon)
+    wrong_size["giant_record_bytes"] = PAYLOAD_BYTES - 1
+    require_invalid(
+        lambda: validate_zevryon_corpus_report(wrong_size, PAYLOAD_BYTES),
+        "giant record with wrong byte count was accepted",
+    )
+
+    legacy_profile = copy.deepcopy(valid_zevryon)
+    legacy_profile["giant_record_profile"] = "legacy"
+    require_invalid(
+        lambda: validate_zevryon_corpus_report(legacy_profile, PAYLOAD_BYTES),
+        "legacy giant-record profile was accepted",
+    )
+
+    bool_index = copy.deepcopy(valid_zevryon)
+    bool_index["giant_record_index"] = True
+    require_invalid(
+        lambda: validate_zevryon_corpus_report(bool_index, PAYLOAD_BYTES),
+        "boolean giant record index was accepted",
+    )
+
+    negative_index = copy.deepcopy(valid_zevryon)
+    negative_index["giant_record_index"] = -1
+    require_invalid(
+        lambda: validate_zevryon_corpus_report(negative_index, PAYLOAD_BYTES),
+        "negative giant record index was accepted",
+    )
+
+    wrong_sha = copy.deepcopy(valid_zevryon)
+    wrong_sha["giant_record_sha256"] = "0" * 64
+    require_invalid(
+        lambda: validate_zevryon_corpus_report(wrong_sha, PAYLOAD_BYTES),
+        "wrong giant-record SHA was accepted",
+    )
+
+    drifted_authority = copy.deepcopy(valid_zevryon)
+    drifted_authority["giant_record_expected_m7_sha256"] = "f" * 64
+    require_invalid(
+        lambda: validate_zevryon_corpus_report(drifted_authority, PAYLOAD_BYTES),
+        "drifted expected-M7 SHA authority was accepted",
+    )
+
+    no_parity = copy.deepcopy(valid_zevryon)
+    no_parity["giant_record_matches_m7_synthetic"] = False
+    require_invalid(
+        lambda: validate_zevryon_corpus_report(no_parity, PAYLOAD_BYTES),
+        "missing exact corpus parity receipt was accepted",
+    )
+
     valid = report()
     validate_canonical_full_set_report(valid)
 
@@ -107,7 +188,7 @@ def main() -> int:
         "premature leadership claim was accepted",
     )
 
-    print("canonical full-set evidence gate tests passed")
+    print("canonical full-set evidence and Zevryon corpus parity gate tests passed")
     return 0
 
 

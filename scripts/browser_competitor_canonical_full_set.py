@@ -8,12 +8,42 @@ import subprocess
 import sys
 from typing import Mapping
 
-from browser_competitor_benchmark_evidence import HARNESS_SCHEMA
+from browser_competitor_benchmark_evidence import (
+    HARNESS_SCHEMA,
+    synthetic_corpus_sha256,
+)
 from browser_competitor_registry import CANONICAL_KEYS
+
+
+ZEVRYON_BENCHMARK_SCHEMA = "zevryon.massivedoc.benchmark.v4"
 
 
 class CanonicalFullSetInvalid(ValueError):
     pass
+
+
+def validate_zevryon_corpus_report(
+    report: Mapping[str, object], payload_bytes: int
+) -> None:
+    if payload_bytes <= 0:
+        raise CanonicalFullSetInvalid("canonical payload bytes must be positive")
+    if report.get("schema") != ZEVRYON_BENCHMARK_SCHEMA:
+        raise CanonicalFullSetInvalid("Zevryon benchmark report schema mismatch")
+    if report.get("giant_record_bytes") != payload_bytes:
+        raise CanonicalFullSetInvalid("Zevryon giant record size differs from browser payload")
+    if report.get("giant_record_profile") != "m7-competitor":
+        raise CanonicalFullSetInvalid("Zevryon giant record does not use the canonical M7 profile")
+    giant_index = report.get("giant_record_index")
+    if isinstance(giant_index, bool) or not isinstance(giant_index, int) or giant_index < 0:
+        raise CanonicalFullSetInvalid("Zevryon giant record index is invalid")
+
+    expected_sha = synthetic_corpus_sha256(payload_bytes)
+    if report.get("giant_record_sha256") != expected_sha:
+        raise CanonicalFullSetInvalid("Zevryon giant record SHA differs from browser payload")
+    if report.get("giant_record_expected_m7_sha256") != expected_sha:
+        raise CanonicalFullSetInvalid("Zevryon report expected-M7 SHA authority drifted")
+    if report.get("giant_record_matches_m7_synthetic") is not True:
+        raise CanonicalFullSetInvalid("Zevryon report did not prove exact M7 corpus parity")
 
 
 def validate_canonical_full_set_report(report: Mapping[str, object]) -> None:
@@ -86,6 +116,15 @@ def main() -> int:
     parser.add_argument("--virtual-timeout-seconds", type=int, default=180)
     parser.add_argument("--native-timeout-seconds", type=int, default=420)
     args = parser.parse_args()
+
+    try:
+        zevryon_report = json.loads(args.zevryon_report.read_text(encoding="utf-8"))
+        if not isinstance(zevryon_report, dict):
+            raise CanonicalFullSetInvalid("Zevryon benchmark report is not a JSON object")
+        validate_zevryon_corpus_report(zevryon_report, args.payload_bytes)
+    except (OSError, json.JSONDecodeError, CanonicalFullSetInvalid) as exc:
+        print(f"canonical full-set Zevryon corpus rejected: {exc}", file=sys.stderr)
+        return 1
 
     benchmark = Path(__file__).with_name("browser_competitor_benchmark.py")
     command = [
