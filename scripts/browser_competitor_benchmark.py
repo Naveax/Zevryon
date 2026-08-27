@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import multiprocessing as mp
 from pathlib import Path
 import queue
@@ -20,27 +21,51 @@ from browser_competitor_benchmark_plan import (
     plan_benchmark_cases,
     unsupported_case_record,
 )
-from browser_competitor_case_executor import failure_case_record, worker_entry
+from browser_competitor_case_executor import failure_case_record
+from browser_competitor_normalized_case_executor import normalized_worker_entry
+from browser_competitor_normalized_core_evidence import (
+    IDENTITY_KEYS,
+    NormalizedCoreEvidenceInvalid,
+    validate_normalized_core_evidence,
+)
+from browser_competitor_query_plan import DEFAULT_WARMUP_QUERY_COUNT
 from browser_competitor_registry import leadership_coverage, validate_terminal_record
+
+
+def _invalid_case_result(
+    plan: BenchmarkCasePlan,
+    payload_bytes: int,
+    reason: str,
+    result: Mapping[str, Any],
+) -> dict[str, Any]:
+    return dict(
+        failure_case_record(
+            plan.competitor,
+            plan.mode,
+            payload_bytes,
+            "invalid",
+            reason,
+            worker_result=dict(result),
+        )
+    )
 
 
 def _validate_case_result(
     plan: BenchmarkCasePlan,
     payload_bytes: int,
     result: Mapping[str, Any],
+    *,
+    expected_query_count: int | None = None,
+    expected_warmup_query_count: int | None = None,
 ) -> dict[str, Any]:
     try:
         validate_terminal_record(result)
     except ValueError as exc:
-        return dict(
-            failure_case_record(
-                plan.competitor,
-                plan.mode,
-                payload_bytes,
-                "invalid",
-                f"worker terminal evidence validation failed: {exc}",
-                worker_result=dict(result),
-            )
+        return _invalid_case_result(
+            plan,
+            payload_bytes,
+            f"worker terminal evidence validation failed: {exc}",
+            result,
         )
 
     mismatches: list[str] = []
@@ -55,48 +80,204 @@ def _validate_case_result(
     if result.get("adapter") != plan.adapter:
         mismatches.append("adapter")
     if mismatches:
-        return dict(
-            failure_case_record(
-                plan.competitor,
-                plan.mode,
-                payload_bytes,
-                "invalid",
-                "worker case identity drifted: " + ", ".join(mismatches),
-                worker_result=dict(result),
-            )
+        return _invalid_case_result(
+            plan,
+            payload_bytes,
+            "worker case identity drifted: " + ", ".join(mismatches),
+            result,
         )
 
-    if result.get("status") == "success":
-        if result.get("memory_metric_status") != "valid":
-            return dict(
-                failure_case_record(
-                    plan.competitor,
-                    plan.mode,
-                    payload_bytes,
-                    "invalid",
-                    "successful worker result lacks valid browser process-scope memory evidence",
-                    worker_result=dict(result),
-                )
+    if result.get("status") != "success":
+        if result.get("normalized_core_evidence") is not None:
+            return _invalid_case_result(
+                plan,
+                payload_bytes,
+                "non-success worker result carried normalized core evidence",
+                result,
             )
-        query_details = result.get("query_details")
-        query_count = result.get("query_count")
+        return dict(result)
+
+    if result.get("memory_metric_status") != "valid":
+        return _invalid_case_result(
+            plan,
+            payload_bytes,
+            "successful worker result lacks valid browser process-scope memory evidence",
+            result,
+        )
+
+    query_details = result.get("query_details")
+    query_count = result.get("query_count")
+    if (
+        not isinstance(query_count, int)
+        or isinstance(query_count, bool)
+        or query_count <= 0
+        or not isinstance(query_details, list)
+        or len(query_details) != query_count
+    ):
+        return _invalid_case_result(
+            plan,
+            payload_bytes,
+            "successful worker result has inconsistent query evidence",
+            result,
+        )
+    if expected_query_count is not None and query_count != expected_query_count:
+        return _invalid_case_result(
+            plan,
+            payload_bytes,
+            "worker measured query count drifted from runner authority",
+            result,
+        )
+
+    warmup_details = result.get("warmup_query_details")
+    warmup_count = result.get("warmup_query_count")
+    if (
+        not isinstance(warmup_count, int)
+        or isinstance(warmup_count, bool)
+        or warmup_count < 0
+        or not isinstance(warmup_details, list)
+        or len(warmup_details) != warmup_count
+    ):
+        return _invalid_case_result(
+            plan,
+            payload_bytes,
+            "successful worker result has inconsistent warmup evidence",
+            result,
+        )
+    if (
+        expected_warmup_query_count is not None
+        and warmup_count != expected_warmup_query_count
+    ):
+        return _invalid_case_result(
+            plan,
+            payload_bytes,
+            "worker warmup query count drifted from runner authority",
+            result,
+        )
+
+    normalized = result.get("normalized_core_evidence")
+    if not isinstance(normalized, Mapping):
+        return _invalid_case_result(
+            plan,
+            payload_bytes,
+            "successful worker result lacks normalized core evidence",
+            result,
+        )
+    try:
+        validate_normalized_core_evidence(normalized)
+    except NormalizedCoreEvidenceInvalid as exc:
+        return _invalid_case_result(
+            plan,
+            payload_bytes,
+            f"normalized core evidence validation failed: {exc}",
+            result,
+        )
+
+    identity_drift = [
+        key for key in IDENTITY_KEYS if normalized.get(key) != result.get(key)
+    ]
+    if identity_drift:
+        return _invalid_case_result(
+            plan,
+            payload_bytes,
+            "normalized core evidence identity drifted from terminal evidence: "
+            + ", ".join(identity_drift),
+            result,
+        )
+    if normalized.get("query_sample_count") != query_count:
+        return _invalid_case_result(
+            plan,
+            payload_bytes,
+            "normalized query sample count drifted from terminal query count",
+            result,
+        )
+    if normalized.get("warmup_query_count") != warmup_count:
+        return _invalid_case_result(
+            plan,
+            payload_bytes,
+            "normalized warmup count drifted from terminal warmup evidence",
+            result,
+        )
+
+    raw_samples = normalized.get("query_samples_ms")
+    if not isinstance(raw_samples, list) or len(raw_samples) != len(query_details):
+        return _invalid_case_result(
+            plan,
+            payload_bytes,
+            "normalized raw query samples do not match query detail cardinality",
+            result,
+        )
+    for index, (sample, detail) in enumerate(zip(raw_samples, query_details)):
+        if not isinstance(detail, Mapping):
+            return _invalid_case_result(
+                plan,
+                payload_bytes,
+                f"query detail {index} is not an object",
+                result,
+            )
+        milliseconds = detail.get("milliseconds")
         if (
-            not isinstance(query_count, int)
-            or isinstance(query_count, bool)
-            or query_count <= 0
-            or not isinstance(query_details, list)
-            or len(query_details) != query_count
-        ):
-            return dict(
-                failure_case_record(
-                    plan.competitor,
-                    plan.mode,
-                    payload_bytes,
-                    "invalid",
-                    "successful worker result has inconsistent query evidence",
-                    worker_result=dict(result),
-                )
+            isinstance(milliseconds, bool)
+            or not isinstance(milliseconds, (int, float))
+            or not math.isfinite(float(milliseconds))
+            or not math.isclose(
+                float(sample),
+                float(milliseconds),
+                rel_tol=1e-12,
+                abs_tol=1e-9,
             )
+        ):
+            return _invalid_case_result(
+                plan,
+                payload_bytes,
+                f"normalized raw query sample {index} drifted from query detail timing",
+                result,
+            )
+
+    metrics = normalized.get("core_metrics")
+    if not isinstance(metrics, Mapping):
+        return _invalid_case_result(
+            plan,
+            payload_bytes,
+            "normalized core metric object is missing",
+            result,
+        )
+    setup_to_ready = result.get("normalized_setup_to_ready_seconds")
+    if (
+        isinstance(setup_to_ready, bool)
+        or not isinstance(setup_to_ready, (int, float))
+        or not math.isfinite(float(setup_to_ready))
+        or not math.isclose(
+            float(metrics["setup_to_ready_seconds"]),
+            float(setup_to_ready),
+            rel_tol=1e-12,
+            abs_tol=1e-9,
+        )
+    ):
+        return _invalid_case_result(
+            plan,
+            payload_bytes,
+            "normalized setup metric drifted from worker lifecycle receipt",
+            result,
+        )
+
+    browser_scope_peak_mb = result.get("browser_scope_peak_mb")
+    if (
+        isinstance(browser_scope_peak_mb, bool)
+        or not isinstance(browser_scope_peak_mb, (int, float))
+        or not math.isfinite(float(browser_scope_peak_mb))
+        or not math.isclose(
+            float(metrics["incremental_peak_memory_mb"]),
+            float(browser_scope_peak_mb),
+            rel_tol=1e-12,
+            abs_tol=1e-9,
+        )
+    ):
+        return _invalid_case_result(
+            plan,
+            payload_bytes,
+            "normalized memory metric drifted from browser process-scope receipt",
+            result,
+        )
 
     return dict(result)
 
@@ -105,6 +286,7 @@ def run_case(
     plan: BenchmarkCasePlan,
     payload_bytes: int,
     query_count: int,
+    warmup_query_count: int,
     slice_bytes: int,
     timeout_seconds: int,
     evidence_kwargs: dict[str, str],
@@ -115,13 +297,14 @@ def run_case(
     context = mp.get_context("spawn")
     output_queue = context.Queue()
     process = context.Process(
-        target=worker_entry,
+        target=normalized_worker_entry,
         args=(
             plan.adapter,
             plan.competitor,
             plan.mode,
             payload_bytes,
             query_count,
+            warmup_query_count,
             slice_bytes,
             timeout_seconds,
             evidence_kwargs,
@@ -169,7 +352,13 @@ def run_case(
                 worker_result_type=type(raw_result).__name__,
             )
         )
-    return _validate_case_result(plan, payload_bytes, raw_result)
+    return _validate_case_result(
+        plan,
+        payload_bytes,
+        raw_result,
+        expected_query_count=query_count,
+        expected_warmup_query_count=warmup_query_count,
+    )
 
 
 def zevryon_summary(report: dict[str, Any]) -> dict[str, Any]:
@@ -286,6 +475,11 @@ def main() -> int:
     )
     parser.add_argument("--payload-bytes", type=int, default=64 * 1024 * 1024)
     parser.add_argument("--query-count", type=int, default=21)
+    parser.add_argument(
+        "--warmup-query-count",
+        type=int,
+        default=DEFAULT_WARMUP_QUERY_COUNT,
+    )
     parser.add_argument("--virtual-slice-bytes", type=int, default=128 * 1024)
     parser.add_argument("--virtual-timeout-seconds", type=int, default=180)
     parser.add_argument("--native-timeout-seconds", type=int, default=420)
@@ -297,8 +491,11 @@ def main() -> int:
         or args.virtual_slice_bytes <= 0
         or args.virtual_timeout_seconds <= 0
         or args.native_timeout_seconds <= 0
+        or args.warmup_query_count < 0
     ):
-        parser.error("benchmark arguments must be positive")
+        parser.error(
+            "benchmark sizes/counts/timeouts must be positive and warmup count non-negative"
+        )
 
     try:
         plans = plan_benchmark_cases(args.competitors)
@@ -320,6 +517,7 @@ def main() -> int:
             mode=plan.mode,
             payload_bytes=args.payload_bytes,
             query_count=args.query_count,
+            warmup_query_count=args.warmup_query_count,
             virtual_slice_bytes=args.virtual_slice_bytes,
             timeout_seconds=timeout_seconds,
         )
@@ -333,6 +531,7 @@ def main() -> int:
                 plan,
                 args.payload_bytes,
                 args.query_count,
+                args.warmup_query_count,
                 args.virtual_slice_bytes,
                 timeout_seconds,
                 identity.as_terminal_kwargs(),
@@ -365,6 +564,7 @@ def main() -> int:
                     mode="virtualized",
                     payload_bytes=args.payload_bytes,
                     query_count=args.query_count,
+                    warmup_query_count=args.warmup_query_count,
                     virtual_slice_bytes=args.virtual_slice_bytes,
                     timeout_seconds=args.virtual_timeout_seconds,
                 ),
@@ -373,18 +573,19 @@ def main() -> int:
         "corpus_sha256": corpus_sha256,
         "payload_bytes": args.payload_bytes,
         "query_count": args.query_count,
+        "warmup_query_count": args.warmup_query_count,
         "virtual_slice_bytes": args.virtual_slice_bytes,
         "requested_competitors": requested_competitors,
         "executable_competitors": executable_competitors,
         "unsupported_competitors": unsupported_competitors,
         **status_sets,
         "scope_notes": [
-            "Zevryon checkpoint timings include CLI process start, store open, checkpoint open, bounded read, and JSON serialization.",
-            "Browser query timings are steady-context page timings after adapter-specific launch and payload setup.",
-            "Browser memory is scoped only to descendants created after each adapter control baseline, with PID-plus-create-time identity, Linux PSS, and RSS fallback.",
-            "A missing or empty browser process scope invalidates successful memory evidence instead of falling back to Python/driver process memory.",
-            "Playwright and W3C WebDriver cases share the admitted Unicode corpus, DOM geometry, exact 800x720 inner viewport, deterministic offsets, warmup policy, and double-requestAnimationFrame timing boundary.",
-            "Native DOM uses real browser text layout; Zevryon currently uses deterministic average-advance fragments.",
+            "Browser cases use the admitted normalized executor: case-owned runtime launch starts setup timing and declared warmups finish before ready.",
+            "Browser per-query samples are implementation-local page/engine timings and exclude automation transport.",
+            "Browser normalized memory is case-owned process-tree peak above the pre-launch control baseline, with PID-plus-create-time identity.",
+            "A missing or empty browser process scope invalidates successful normalized evidence.",
+            "Playwright and W3C WebDriver cases share the admitted Unicode corpus, DOM geometry, exact 800x720 inner viewport, deterministic warmup/measured offsets, and double-requestAnimationFrame completion boundary.",
+            "Native DOM uses real browser text layout; the Zevryon legacy summary remains diagnostic until its normalized persistent-session evidence is bound into the final metric evaluator.",
             "Branded Chrome/Edge channels are never replaced by bundled Chromium when unavailable.",
         ],
         "zevryon": zevryon_summary(zevryon_report),
