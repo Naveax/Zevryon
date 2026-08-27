@@ -58,9 +58,9 @@ Measured query latency represents implementation-local query work, not harness I
 
 For browser/WebDriver/Playwright cases, the authoritative sample is the page-side elapsed time from query mutation/work start until the existing double-`requestAnimationFrame` completion boundary.
 
-For Zevryon, the authoritative sample must be measured inside one persistent case-owned process from query execution start until the bounded result is ready. Pipe/stdin/stdout transport, process creation, store/checkpoint open and JSON serialization are excluded from per-query samples because their corresponding browser automation transport is also excluded.
+For Zevryon, the authoritative sample is measured inside one persistent case-owned process from query execution start until the bounded result is ready. Pipe/stdin/stdout transport, process creation, store/checkpoint open and JSON serialization are excluded from per-query samples because their corresponding browser automation transport is also excluded.
 
-This requires a persistent Zevryon benchmark session. Legacy `checkpoint-window` process-per-query wall-clock timings are diagnostics and are not normalized leadership evidence.
+The persistent Zevryon path is the only normalized timing source. Legacy `checkpoint-window` process-per-query wall-clock timings remain diagnostics and are not normalized leadership evidence.
 
 Every successful normalized case must publish the raw measured sample list and sample count. P50/P95/P99 are recomputed from that exact list by the normalized evidence authority.
 
@@ -88,7 +88,7 @@ A missing/empty process scope is invalid evidence, never zero-memory success.
 
 ## Identity and scenario binding
 
-Normalized evidence must reuse the existing canonical `EvidenceIdentity` / M0 -> EvidenceContext path. No second SystemState or Scenario fingerprint model may be introduced.
+Normalized evidence reuses the canonical `EvidenceIdentity` / M0 -> EvidenceContext path. No second SystemState or Scenario fingerprint model is introduced.
 
 A comparable group must have identical:
 
@@ -103,25 +103,49 @@ A comparable group must have identical:
 - measured query count;
 - core metric units.
 
-The scenario fingerprint authority must include every parameter that changes execution semantics, including normalized warmup count. Virtualized-only parameters remain non-authoritative for native-DOM exactly as required by the existing evidence-context contract.
+The scenario fingerprint authority includes every parameter that changes execution semantics, including normalized warmup count. Virtualized-only parameters remain non-authoritative for native-DOM exactly as required by the evidence-context contract.
+
+## Canonical synthetic corpus authority
+
+The M7 browser corpus is generated in deterministic 1 MiB chunks. Each canonical chunk restarts the declared Unicode byte pattern. Zevryon's case-owned synthetic store must reproduce those exact chunk semantics rather than treating the payload as one unbroken pattern stream.
+
+The admitted Zevryon store builder streams the corpus into a single-record MassiveDoc store after process launch. Store construction is therefore charged to setup, and the emitted store payload SHA-256 must equal the shared deterministic browser corpus SHA-256 before normalized evidence is admissible.
+
+A prebuilt Zevryon store is diagnostic-only and cannot satisfy normalized leadership admission.
+
+## Runtime preflight boundary
+
+Runtime availability checks are not benchmark measurements. A runtime preflight may launch and close exact browser/engine distributions to prove readiness, but the preflight report must explicitly state that measurement did not start.
+
+Preflight is a separate stage rather than an automatic immediate precursor to timed collection. This avoids silently biasing setup measurements through runtime page-cache warming. A later collection admission layer may bind the preflight host/system fingerprint and stable runtime identities to measured evidence. Ephemeral WebDriver ports are transport details and may be normalized for identity matching; engine binary path, version/SHA, distribution and adapter identity may not.
 
 ## Current implementation status
 
-The current browser executor is not yet normalized for `setup_to_ready_seconds` because its setup timer starts after runtime/context/page launch.
+As of admitted `main` commit `2b17dd067aa102acd1dab2e20b01b3daa3ff423b`:
 
-The current Zevryon legacy giant-document summary is not normalized because each checkpoint query launches a new CLI process and includes process launch, store/checkpoint open and JSON serialization in its wall-clock timing while browser query samples exclude automation transport.
+- browser cases start normalized setup timing before case-owned runtime launch;
+- declared warmups complete before the ready boundary and are part of scenario identity;
+- browser successful terminal records carry validated normalized core evidence;
+- browser process-tree memory accounting uses PID plus create-time ownership and fails closed on empty scope;
+- Zevryon has a persistent benchmark-session path with implementation-local raw query timing;
+- Zevryon constructs the exact single-record M7 synthetic store inside the case-owned process after launch;
+- the Zevryon synthetic stream is bound to the canonical 1 MiB chunk restart semantics and cross-boundary SHA authority;
+- Zevryon normalized memory accounting ends at the final measured query before teardown;
+- legacy Zevryon giant-document summaries remain diagnostic only.
 
-Therefore neither legacy timing set may feed the five-metric evaluator unchanged.
+Exact-head run `33119457934` validated this admitted tree across the repository's Linux, Windows, Unicode, Apple-removal, Win32 and i386 gates.
+
+The next candidate layer adds a legacy-independent canonical six-browser full-set collector and the separate fixed five-metric evaluator. Those surfaces do not grant leadership by existing in the repository; real comparable evidence is still required.
 
 ## Required implementation sequence
 
-1. preserve this boundary contract and the fixed five-metric contract;
-2. extend the canonical scenario authority with normalized warmup semantics;
-3. move browser case start before case-owned runtime launch and publish normalized setup evidence;
-4. add one persistent Zevryon benchmark-session path with implementation-local raw query timings;
-5. measure both paths with the same process-ownership window;
-6. attach validated normalized core evidence to successful terminal records;
-7. collect the real canonical six-competitor full set;
-8. only then run the separate five-metric leadership evaluator.
+1. **ADMITTED** - preserve this boundary contract and the fixed five-metric contract;
+2. **ADMITTED** - extend canonical scenario authority with normalized warmup semantics;
+3. **ADMITTED** - move browser case start before case-owned runtime launch and publish normalized setup evidence;
+4. **ADMITTED** - add one persistent Zevryon benchmark-session path with implementation-local raw query timings;
+5. **ADMITTED** - measure both paths with the same process-ownership window semantics;
+6. **ADMITTED** - attach validated normalized core evidence to successful terminal records;
+7. **IMPLEMENTED / EVIDENCE PENDING** - collect the real canonical six-competitor full set with exact runtime identity and corpus authority;
+8. **IMPLEMENTED / EVIDENCE PENDING** - run the separate five-metric leadership evaluator only after complete comparable evidence is admitted.
 
-No step in this document grants leadership eligibility by itself.
+No implementation step, preflight PASS, unit-test PASS or CI PASS is itself a leadership claim. Leadership eligibility exists only for a complete admitted evidence bundle that satisfies the fixed metric rule.
