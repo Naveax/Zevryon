@@ -105,6 +105,11 @@ if(BUILD_TESTING)
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_normalized_core_evidence_tests.py")
     add_test(
+      NAME competitor-normalized-browser-lifecycle-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_normalized_browser_lifecycle_tests.py")
+    add_test(
       NAME competitor-canonical-full-set-tests
       COMMAND
         "${Python3_EXECUTABLE}"
@@ -127,6 +132,7 @@ if(BUILD_TESTING)
         competitor-case-executor-tests
         competitor-benchmark-runner-tests
         competitor-normalized-core-evidence-tests
+        competitor-normalized-browser-lifecycle-tests
         competitor-canonical-full-set-tests)
       add_test(NAME "${_test_name}" COMMAND "${CMAKE_COMMAND}" -E false)
     endforeach()
