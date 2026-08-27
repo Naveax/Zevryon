@@ -4,15 +4,15 @@
 
 `docs/MAINLINE_EXECUTION_PLAN.md` requires Zevryon to be first in at least four core efficiency metrics and within 5% of the leader in every remaining core metric before a leadership claim is allowed. The plan does not enumerate those metrics, so the metric set must be fixed before any evaluator can issue a leadership decision.
 
-This contract defines the core set without pretending that the current Zevryon and browser timing boundaries are already equivalent.
+This contract defines the core set and the ranking discipline. Legacy/non-normalized fields remain diagnostic even when they use similar units.
 
 ## Core metric set
 
 The canonical M7 leadership set contains exactly five lower-is-better metrics:
 
 1. `setup_to_ready_seconds`
-   - wall-clock time from the declared cold case start boundary until the implementation is ready to execute the first measured query;
-   - adapter/process launch, source/store open, payload preparation, index/checkpoint preparation and any required warmup must be included or excluded identically according to the scenario contract;
+   - wall-clock time from the declared cold **case** start boundary until the implementation is ready to execute the first measured query;
+   - adapter/process launch, source/store open or construction, payload preparation, index/checkpoint preparation and required warmup are included according to the normalized lifecycle contract;
    - implementation-specific setup subphases may be reported separately but do not replace this normalized field.
 
 2. `query_milliseconds_p50`
@@ -29,6 +29,12 @@ The canonical M7 leadership set contains exactly five lower-is-better metrics:
    - the process-tree scope and baseline sampling boundary must be identical across competitors for a leadership comparison.
 
 All five metrics are lower-is-better.
+
+### Meaning of cold case start
+
+`cold case start` means the case-owned runtime/process, implementation-specific source/store, index/checkpoint state and measured-query session do not exist before the declared case start boundary.
+
+It does **not** silently claim that the operating-system page cache, filesystem cache, CPU caches or thermal state have been globally purged. Those machine-state conditions must be symmetric under the declared benchmark system-state discipline. An implementation may not receive a private pre-launched runtime or prebuilt implementation-specific source state while another pays that work inside setup.
 
 ## Diagnostic but non-core fields
 
@@ -48,29 +54,52 @@ This prevents a result from manufacturing extra "core metrics" after measurement
 
 ## Comparison authority
 
-A metric value is leadership-admissible only when the corresponding case already passes the M7 evidence/comparability gate and the metric itself has a common measurement boundary.
+A metric value is leadership-admissible only when the corresponding case already passes the M7 evidence/comparability gate and the metric itself has the common normalized measurement boundary from `docs/M7_NORMALIZED_MEASUREMENT_CONTRACT.md`.
 
-In particular, the current giant-document harness is not yet sufficient for the final metric gate because it explicitly reports different timing semantics:
+The admitted normalized path uses:
 
-- Zevryon checkpoint query timings currently include CLI process start, store open, checkpoint open, bounded read and JSON serialization;
-- browser query timings currently measure steady-context page work after browser and payload setup;
-- browser memory is reported as incremental process-tree PSS above the Python/Playwright harness baseline, while the Zevryon summary does not yet publish the same normalized process-tree baseline contract.
+- browser setup timing beginning immediately before case-owned runtime launch;
+- browser implementation-local page/engine query timings after the post-warmup ready boundary;
+- Zevryon implementation-local query timings inside one persistent case-owned benchmark process;
+- case-owned process-tree peak memory above the pre-launch harness baseline for both paths;
+- exact deterministic M7 synthetic corpus identity;
+- the same normalized evidence schema and identity authority.
 
-Therefore the evaluator must reject legacy/non-normalized fields rather than compare them numerically as though they were equivalent.
+Legacy Zevryon process-per-query/checkpoint-window timing and legacy giant-document summaries do not satisfy this comparison authority and cannot feed the final metric gate.
 
 ## Required normalized evidence
 
-Every competitor result admitted to the final metric gate must publish all five core fields under the same scenario fingerprint plus:
+Every competitor result admitted to the final metric gate must publish all five core fields under the same comparable scenario authority plus:
 
 - raw per-query samples used to compute P50/P95/P99;
 - sample count;
-- declared warmup count and whether warmups are excluded from percentiles;
+- declared warmup count and proof that warmups are excluded from percentiles;
 - exact setup start and ready boundaries;
 - exact process-tree ownership rule;
 - memory baseline boundary;
-- units and schema version.
+- units and schema version;
+- exact corpus SHA-256;
+- exact runtime identity evidence required by the canonical adapter contract.
 
 No percentile may be copied from a differently filtered sample set.
+
+## Repeat-run and cherry-pick discipline
+
+The current fixed leadership gate evaluates **one complete admitted evidence bundle** for one declared host/system/runtime/scenario state. A complete bundle contains all six canonical competitors in both required modes plus both normalized Zevryon modes.
+
+Additional complete runs may be collected for reproducibility analysis, but they remain separate bundles unless a repetition/aggregation contract is fixed **before** those measurements are collected.
+
+The following are not permitted:
+
+- rerunning an unchanged valid bundle merely because Zevryon did not meet the leadership threshold;
+- selecting the best setup result from one run and the best query/memory values from another;
+- selecting the most favorable pass per competitor;
+- silently discarding a valid but slower complete pass;
+- introducing median-of-runs, best-of-N, trimmed means or other cross-run aggregation after seeing results.
+
+If repeated-run aggregation is desired for a future leadership gate, the repetition count, execution order, system-state treatment, aggregation function and failure handling must be declared in a contract revision before the first evidence in that series is collected. Existing single-bundle evidence cannot be retroactively reclassified into such a series.
+
+An invalid or incomplete run may be replaced only after its invalidity is preserved and explained; replacement does not turn the invalid run into leadership evidence.
 
 ## Ranking rule
 
@@ -82,22 +111,24 @@ For each core metric:
 - Zevryon is `first` when its value equals the minimum value; exact ties are co-leadership and count as first;
 - otherwise Zevryon is `within_5_percent` only when `zevryon_value <= leader_value * 1.05`;
 - negative, non-finite or dimensionally invalid values are invalid evidence;
-- a zero leader value is admissible only when zero is physically meaningful under the metric contract; otherwise the evidence is invalid rather than divided by zero.
+- a zero leader value is admissible only when zero is physically meaningful under the metric contract; for the current five measured efficiency metrics a zero observed leader is treated as invalid evidence by the evaluator.
 
 Final leadership eligibility requires:
 
 - all five metrics complete and comparable;
 - Zevryon first in at least four of the five;
-- Zevryon no worse than 5% above the leader in every metric where it is not first.
+- Zevryon no worse than 5% above the leader in every metric where it is not first;
+- the mode-specific rule to pass independently for both `virtualized` and `native-dom` in the current evaluator.
 
 ## Deliberate boundary
 
-This document defines the metric authority only. It does not claim that current legacy benchmark output already satisfies the normalized field contract, and it does not grant leadership eligibility by itself.
+This document defines metric and ranking authority. It does not grant leadership eligibility because a benchmark implementation, unit test, runtime preflight or CI run exists.
 
-The implementation order remains:
+The implementation/evidence order is:
 
 1. competitor/evidence authority;
 2. identity-preserving adapters;
 3. explicit benchmark planning and real adapter routing;
 4. normalized common timing/memory evidence;
-5. only then the machine-readable five-metric leadership evaluator.
+5. exact canonical evidence collection and admission;
+6. only then the machine-readable five-metric leadership evaluator.
