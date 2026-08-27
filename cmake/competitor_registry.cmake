@@ -129,6 +129,11 @@ if(BUILD_TESTING)
       COMMAND
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_leadership_evaluator_tests.py")
+    add_test(
+      NAME m7-normalized-browser-full-set-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m7_normalized_browser_full_set_tests.py")
   else()
     foreach(_test_name IN ITEMS
         competitor-registry-tests
@@ -151,7 +156,8 @@ if(BUILD_TESTING)
         competitor-normalized-browser-lifecycle-tests
         competitor-canonical-full-set-tests
         m7-zevryon-normalized-case-tests
-        m7-leadership-evaluator-tests)
+        m7-leadership-evaluator-tests
+        m7-normalized-browser-full-set-tests)
       add_test(NAME "${_test_name}" COMMAND "${CMAKE_COMMAND}" -E false)
     endforeach()
   endif()
