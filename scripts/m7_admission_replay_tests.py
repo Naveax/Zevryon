@@ -9,6 +9,7 @@ import tempfile
 from m7_admission_replay import (
     AdmissionReplayInvalid,
     INPUT_ARTIFACT_KEYS,
+    RECOMPUTED_ADMISSION_FIELDS,
     file_sha256,
     replay_admission,
     resolve_artifact_path,
@@ -66,6 +67,10 @@ def main() -> int:
         validate_replay_receipt(receipt)
         require(receipt["replay_gate_passed"] is True, "valid admission did not replay")
         require(
+            receipt["recomputed_fields"] == list(RECOMPUTED_ADMISSION_FIELDS),
+            "replay field authority drifted",
+        )
+        require(
             set(receipt["input_artifact_sha256"]) == set(INPUT_ARTIFACT_KEYS),
             "replay artifact hash set drifted",
         )
@@ -73,11 +78,11 @@ def main() -> int:
         resolved = resolve_artifact_path(root, Path("evidence/preflight.json"))
         require(resolved == (root / "evidence" / "preflight.json").resolve(), "contained artifact resolution drifted")
 
-        outside = root.parent / "outside-m7-replay.json"
+        outside = root.parent / f"{root.name}-outside.json"
         outside.write_text("{}\n", encoding="utf-8")
         try:
             require_invalid(
-                lambda: resolve_artifact_path(root, Path("../outside-m7-replay.json")),
+                lambda: resolve_artifact_path(root, Path("..") / outside.name),
                 "relative artifact_root escape was accepted",
             )
             require_invalid(
@@ -87,7 +92,7 @@ def main() -> int:
 
             escaped_admission = copy.deepcopy(admission)
             escaped_admission["input_artifacts"]["preflight"] = {
-                "path": "../outside-m7-replay.json",
+                "path": str(Path("..") / outside.name),
                 "sha256": file_sha256(outside),
             }
             require_invalid(
@@ -137,6 +142,13 @@ def main() -> int:
         require_invalid(
             lambda: validate_replay_receipt(bad_receipt),
             "failed replay receipt was accepted",
+        )
+
+        bad_fields = copy.deepcopy(receipt)
+        bad_fields["recomputed_fields"] = list(RECOMPUTED_ADMISSION_FIELDS[:-1])
+        require_invalid(
+            lambda: validate_replay_receipt(bad_fields),
+            "partial replay field authority was accepted",
         )
 
     print("M7 admission replay and artifact-root containment tests passed")

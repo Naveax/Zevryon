@@ -18,6 +18,17 @@ INPUT_ARTIFACT_KEYS = (
     "zevryon_virtualized",
     "zevryon_native_dom",
 )
+RECOMPUTED_ADMISSION_FIELDS = (
+    "admission_authority",
+    "corpus_sha256",
+    "leadership_eligible",
+    "leadership_evaluation",
+    "leadership_metric_gate_evaluated",
+    "physical_host_evidence",
+    "runtime_bindings",
+    "schema",
+    "system_fingerprint",
+)
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -123,7 +134,11 @@ def replay_admission(
             f"raw artifacts no longer reproduce a valid collection admission: {exc}"
         ) from exc
 
-    expected_keys = set(recomputed) | {"input_artifacts"}
+    if set(recomputed) != set(RECOMPUTED_ADMISSION_FIELDS):
+        raise AdmissionReplayInvalid(
+            "recomputed admission authority field set drifted from replay contract"
+        )
+    expected_keys = set(RECOMPUTED_ADMISSION_FIELDS) | {"input_artifacts"}
     if set(admission) != expected_keys:
         extra = sorted(set(admission) - expected_keys)
         missing = sorted(expected_keys - set(admission))
@@ -141,7 +156,7 @@ def replay_admission(
         "schema": REPLAY_SCHEMA,
         "replay_authority": REPLAY_AUTHORITY,
         "replay_gate_passed": True,
-        "recomputed_fields": sorted(recomputed),
+        "recomputed_fields": list(RECOMPUTED_ADMISSION_FIELDS),
         "input_artifact_sha256": verified_sha,
     }
 
@@ -155,8 +170,8 @@ def validate_replay_receipt(value: object) -> Mapping[str, object]:
     if receipt.get("replay_gate_passed") is not True:
         raise AdmissionReplayInvalid("admission replay gate did not pass")
     fields = receipt.get("recomputed_fields")
-    if not isinstance(fields, list) or not fields or not all(isinstance(item, str) and item for item in fields):
-        raise AdmissionReplayInvalid("admission replay recomputed field receipt is invalid")
+    if fields != list(RECOMPUTED_ADMISSION_FIELDS):
+        raise AdmissionReplayInvalid("admission replay recomputed field set drifted")
     hashes = _mapping(receipt.get("input_artifact_sha256"), "admission_replay.input_artifact_sha256")
     if set(hashes) != set(INPUT_ARTIFACT_KEYS):
         raise AdmissionReplayInvalid("admission replay artifact hash set drifted")

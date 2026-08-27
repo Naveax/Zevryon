@@ -22,8 +22,8 @@ from m7_leadership_evaluator import EVALUATOR_SCHEMA
 from m7_physical_host_evidence import PHYSICAL_HOST_AUTHORITY
 
 
-BUNDLE_SCHEMA = "zevryon.competitor.evidence-bundle-manifest.v1"
-BUNDLE_AUTHORITY = "m7-canonical-admitted-evidence-publication-v1"
+BUNDLE_SCHEMA = "zevryon.competitor.evidence-bundle-manifest.v2"
+BUNDLE_AUTHORITY = "m7-canonical-admitted-evidence-publication-v2"
 INPUT_ARTIFACT_KEYS = (
     "preflight",
     "browser_report",
@@ -443,8 +443,8 @@ def _read_object(path: Path, label: str) -> Mapping[str, object]:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Create a canonical publication manifest for one physically certified admitted M7 evidence bundle. "
-            "The manifest constrains raw artifacts to artifact_root, verifies their SHA receipts, replays collection admission, and binds the exact clean Git commit/tree."
+            "Create a v2 canonical publication manifest for one physically certified admitted M7 evidence bundle. "
+            "The manifest constrains admission/raw artifacts to artifact_root, verifies their SHA receipts, replays collection admission, and binds the exact clean Git commit/tree."
         )
     )
     parser.add_argument("--admission", type=Path, required=True)
@@ -455,8 +455,9 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        admission = _read_object(args.admission, "collection admission")
-        admission_sha = file_sha256(args.admission)
+        resolved_admission = resolve_artifact_path(args.artifact_root, args.admission)
+        admission = _read_object(resolved_admission, "collection admission")
+        admission_sha = file_sha256(resolved_admission)
         artifacts = verify_admission_input_artifacts(
             admission,
             artifact_root=args.artifact_root,

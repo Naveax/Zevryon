@@ -7,7 +7,11 @@ from pathlib import Path
 import tempfile
 
 from browser_competitor_registry import CANONICAL_KEYS, get_spec
-from m7_admission_replay import REPLAY_AUTHORITY, REPLAY_SCHEMA
+from m7_admission_replay import (
+    RECOMPUTED_ADMISSION_FIELDS,
+    REPLAY_AUTHORITY,
+    REPLAY_SCHEMA,
+)
 from m7_collection_admission import ADMISSION_AUTHORITY, ADMISSION_SCHEMA
 from m7_evidence_bundle_manifest import (
     BUNDLE_SCHEMA,
@@ -140,17 +144,7 @@ def replay_receipt(verified: dict[str, dict[str, str]]) -> dict[str, object]:
         "schema": REPLAY_SCHEMA,
         "replay_authority": REPLAY_AUTHORITY,
         "replay_gate_passed": True,
-        "recomputed_fields": [
-            "schema",
-            "admission_authority",
-            "system_fingerprint",
-            "corpus_sha256",
-            "physical_host_evidence",
-            "runtime_bindings",
-            "leadership_evaluation",
-            "leadership_metric_gate_evaluated",
-            "leadership_eligible",
-        ],
+        "recomputed_fields": list(RECOMPUTED_ADMISSION_FIELDS),
         "input_artifact_sha256": {
             name: str(verified[name]["sha256"]) for name in INPUT_ARTIFACT_KEYS
         },
@@ -177,7 +171,7 @@ def main() -> int:
 
         manifest = build_bundle_manifest(
             valid_admission,
-            admission_path=root / "admission.json",
+            admission_path=Path("evidence/admission.json"),
             admission_sha256="e" * 64,
             artifact_receipts=verified,
             admission_replay=replay,
@@ -205,7 +199,7 @@ def main() -> int:
         leadership_verified = prepare_artifacts(root, leadership_admission)
         leadership_manifest = build_bundle_manifest(
             leadership_admission,
-            admission_path=root / "leadership-admission.json",
+            admission_path=Path("evidence/leadership-admission.json"),
             admission_sha256="f" * 64,
             artifact_receipts=leadership_verified,
             admission_replay=replay_receipt(leadership_verified),
@@ -263,13 +257,20 @@ def main() -> int:
         require_invalid(
             lambda: build_bundle_manifest(
                 valid_admission,
-                admission_path=root / "admission.json",
+                admission_path=Path("evidence/admission.json"),
                 admission_sha256="e" * 64,
                 artifact_receipts=verified,
                 admission_replay=bad_replay,
                 source=source_receipt(),
             ),
             "replay/raw artifact SHA drift was accepted",
+        )
+
+        escaped = copy.deepcopy(valid_admission)
+        escaped["input_artifacts"]["preflight"]["path"] = "../escape.json"
+        require_invalid(
+            lambda: verify_admission_input_artifacts(escaped, artifact_root=root),
+            "publication verifier accepted an artifact_root escape",
         )
 
         changed_artifact = root / "evidence" / f"{INPUT_ARTIFACT_KEYS[0]}.json"
@@ -344,7 +345,7 @@ def main() -> int:
         "dirty tracked Git worktree was accepted",
     )
 
-    print("M7 evidence bundle manifest, replay and physical-host authority tests passed")
+    print("M7 v2 evidence bundle manifest, replay and physical-host authority tests passed")
     return 0
 
 

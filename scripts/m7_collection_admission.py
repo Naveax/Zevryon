@@ -31,8 +31,8 @@ from m7_runtime_preflight import (
 from m7_zevryon_physical_case import PHYSICAL_CASE_AUTHORITY
 
 
-ADMISSION_SCHEMA = "zevryon.competitor.collection-admission.v1"
-ADMISSION_AUTHORITY = "m7-preflight-runtime-and-normalized-evidence-binding-v1"
+ADMISSION_SCHEMA = "zevryon.competitor.collection-admission.v2"
+ADMISSION_AUTHORITY = "m7-physical-preflight-runtime-and-normalized-evidence-binding-v2"
 _WEBDRIVER_ENDPOINT_RE = re.compile(r"webdriver=127\.0\.0\.1:(\d+)")
 
 
