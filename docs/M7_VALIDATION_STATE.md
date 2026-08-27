@@ -16,22 +16,23 @@ CI waiting is not a reason to stop unrelated work. New work may be prepared as u
 
 `main` is admitted through:
 
-- commit: `d598b7fbb2db121569325932510378289e5641c1`;
-- tree: `eda8388f6fbc7471e2bb785dd7f0019e07060b94`;
-- exact-head validation run: `33120298227`;
+- commit: `6ea7a74123069dbdb035bd59cf93a3f870f85a9d`;
+- tree: `f6714ec7361ba99c2b6de04fa150b29b0a55bf84`;
+- exact-head validation run: `33122221313`;
 - run attempt: `1`;
 - conclusion: `SUCCESS`;
 - validated gates: Linux build/headless, Windows build/headless, Linux Unicode authority, Windows Unicode authority, Apple backend removal guard, real Win32 address-space gate and Linux i386 address-space gate.
 
-That admission includes everything previously admitted through `2b17dd067aa102acd1dab2e20b01b3daa3ff423b`, plus:
+That admission includes everything previously admitted through `d598b7fbb2db121569325932510378289e5641c1`, plus:
 
-- a separate fixed five-metric M7 leadership evaluator;
-- a legacy-independent normalized canonical browser full-set collector;
-- exact six-browser by two-mode case-matrix authority;
-- deterministic top-level, terminal and normalized corpus-SHA binding;
-- order-independent full-set validation;
-- fail-closed rejection of missing, duplicated, unavailable or non-comparable canonical evidence;
-- continued prohibition on leadership claims before the metric gate is separately evaluated.
+- exact-runtime launch/readiness preflight for Chrome, Firefox, Edge, WebKit, Servo and Ladybird;
+- host/system fingerprint binding between preflight and measurement;
+- stable runtime-identity binding that removes only the ephemeral Servo/Ladybird WebDriver port while preserving binary/version/SHA identity;
+- collection admission across preflight, canonical 6x2 browser evidence and both Zevryon normalized modes;
+- input-artifact SHA-256 receipts;
+- the canonical collection runbook;
+- single-bundle / no-cherry-pick ranking discipline;
+- CTest authority coverage for runtime preflight and collection admission.
 
 The legacy Zevryon process-per-query summary remains diagnostic-only.
 
@@ -39,14 +40,14 @@ The legacy Zevryon process-per-query summary remains diagnostic-only.
 
 The next candidate is intentionally prepared as an unadmitted descendant rather than described here by a self-referential commit SHA. Its scope contains:
 
-- exact-runtime launch/readiness preflight for Chrome, Firefox, Edge, WebKit, Servo and Ladybird;
-- host/system fingerprint binding between preflight and measurement;
-- stable runtime-identity binding that removes only the ephemeral Servo/Ladybird WebDriver port while preserving binary/version/SHA identity;
-- collection admission across preflight, canonical 6x2 browser evidence and both Zevryon normalized modes;
-- input-artifact SHA-256 receipts;
-- a canonical collection runbook;
-- single-bundle / no-cherry-pick ranking discipline;
-- CTest authority coverage for preflight and collection admission.
+- canonical publication manifest binding collection admission, all raw evidence SHA-256 receipts and exact clean Git commit/tree;
+- M0-backed system-fingerprint v2 using OS/release, architecture, logical CPU count, CPU model, physical RAM and device class;
+- stronger Windows CPU model discovery through the existing M0 benchmark metadata authority;
+- preservation of the full M0 machine/thermal receipt alongside the stable fingerprint;
+- explicit physical-host certification for M7 leadership evidence using the existing M0 `physical_certification_checks()` rule;
+- mandatory physical-device confirmation and observed thermal evidence at runtime-preflight and browser-full-set collection boundaries;
+- publication of physical-host certification receipts inside the immutable evidence-bundle manifest;
+- CTest authority coverage for physical-host evidence and publication-manifest fail-closed behavior.
 
 This follow-on scope is not admitted until the exact branch head containing it completes one successful validation run. Parent success is not evidence for an unvalidated descendant.
 
@@ -60,9 +61,10 @@ Leadership evidence additionally requires:
 - both `virtualized` and `native-dom` modes for every canonical runtime;
 - exact M7 synthetic corpus identity;
 - complete normalized setup/query/memory evidence;
-- same-system comparability;
-- successful exact-runtime preflight when the preflight-bound admission path is used;
-- successful collection admission before the five-metric rule is evaluated.
+- same-system comparability under the canonical system fingerprint;
+- successful exact-runtime preflight;
+- successful physical-host certification when the canonical physical leadership path is used;
+- successful collection admission before the five-metric result is published.
 
 Missing runtime evidence is incomplete evidence, not a zero or a substituted engine. Branded Chrome/Edge may not be replaced by bundled Chromium. Servo/Ladybird may not be replaced by another WebDriver implementation.
 

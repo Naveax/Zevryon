@@ -108,13 +108,14 @@ Implementation/admission state:
 - [x] Attach and revalidate raw normalized setup/query/memory evidence for successful cases.
 - [x] Add a legacy-independent exact canonical six-browser x two-mode normalized full-set collector.
 - [x] Add the separate machine-readable five-metric leadership evaluator; collection alone remains unable to claim leadership.
-- [ ] Admit the exact-runtime preflight and preflight-to-measurement runtime-identity binding candidate after one exact-head CI success.
-- [ ] Run the real six-runtime readiness preflight on the final benchmark host and preserve its evidence artifact.
-- [ ] Collect one complete canonical 6x2 browser evidence bundle on that same system with no runtime substitution.
+- [x] Admit exact-runtime preflight, stable preflight-to-measurement runtime identity binding, collection admission and single-bundle/no-cherry-pick discipline through exact-head run `33122221313` on commit `6ea7a74123069dbdb035bd59cf93a3f870f85a9d`.
+- [ ] Admit the follow-on physical-host/system-fingerprint/publication-manifest candidate after one exact-head CI success.
+- [ ] Run the real six-runtime readiness preflight on the final physical benchmark host and preserve its M0 machine/thermal evidence artifact.
+- [ ] Collect one complete canonical 6x2 browser evidence bundle on that same physical system with no runtime substitution and observed thermal evidence.
 - [ ] Collect normalized Zevryon `virtualized` and `native-dom` evidence under the same system/scenario authority.
-- [ ] Admit the four artifacts through the collection binder, including artifact SHA-256 receipts and stable runtime identity checks.
+- [ ] Admit the four artifacts through the collection binder, including physical-host certification, artifact SHA-256 receipts and stable runtime identity checks.
 - [ ] Evaluate the fixed five-metric rule on the admitted bundle. Exit status `2` means valid evidence that does not satisfy leadership, not a harness failure.
-- [ ] Create the canonical publication manifest binding the admission artifact, all four raw inputs, exact clean Git commit/tree, runtime bindings and evaluator result.
+- [ ] Create the canonical publication manifest binding the admission artifact, all four raw inputs, exact clean Git commit/tree, physical-host receipts, runtime bindings and evaluator result.
 - [ ] Publish the complete admitted evidence and failure modes without cherry-picking metrics across repeat bundles.
 
 One leadership decision consumes one complete evidence bundle. Repeats may be collected as independent reproducibility evidence, but best-of-N reruns and cross-bundle metric mixing are not admissible. Any repeated-run aggregation policy must be frozen before collecting the evidence it would aggregate.
