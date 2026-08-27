@@ -4,9 +4,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from m7_synthetic_corpus import (
+    CORPUS_CHUNK_BYTES,
+    PAYLOAD_PATTERN_TEXT,
+    SYNTHETIC_PATTERN,
+)
 
-PAYLOAD_PATTERN_TEXT = "👨‍👩‍👧‍👦👍🏽🚀 "
-CORPUS_CHUNK_BYTES = 1024 * 1024
+
 VIEWPORT_WIDTH = 800
 VIEWPORT_HEIGHT = 720
 CONTENT_HORIZONTAL_PADDING = 12
@@ -20,8 +24,6 @@ WARMUP_POLICY = "setup-gc-250ms"
 SCRIPT_COMPLETION_POLICY = "double-raf-playwright-promise-or-w3c-async-callback-v1"
 PAYLOAD_GENERATOR_POLICY = "zevryon.m7.synthetic-unicode-blob.v1"
 OFFSET_GENERATOR_POLICY = "lcg-0x243f6a88-v1"
-
-SYNTHETIC_PATTERN = PAYLOAD_PATTERN_TEXT.encode("utf-8")
 
 SCENARIO_HTML = f"""<!doctype html>
 <meta charset="utf-8">
