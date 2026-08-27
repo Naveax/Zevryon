@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-from browser_competitor_benchmark_evidence import (
+from browser_competitor_scenario_contract import (
     SYNTHETIC_PATTERN,
     VIEWPORT_HEIGHT,
     VIEWPORT_WIDTH,
