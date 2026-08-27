@@ -14,6 +14,7 @@ from browser_competitor_registry import (
 
 DEFAULT_COMPETITORS = ("chromium", "firefox")
 BENCHMARK_MODES = ("virtualized", "native-dom")
+EXECUTABLE_ADAPTERS = frozenset({"playwright", "webdriver"})
 
 
 @dataclass(frozen=True)
@@ -30,7 +31,7 @@ class BenchmarkCasePlan:
 def _case_plan(spec: CompetitorSpec, mode: str) -> BenchmarkCasePlan:
     if mode not in BENCHMARK_MODES:
         raise ValueError(f"unknown benchmark mode: {mode}")
-    executable = spec.adapter == "playwright"
+    executable = spec.adapter in EXECUTABLE_ADAPTERS
     reason = None
     if not executable:
         reason = (

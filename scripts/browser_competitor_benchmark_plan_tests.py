@@ -4,6 +4,7 @@ from __future__ import annotations
 from browser_competitor_benchmark_plan import (
     BENCHMARK_MODES,
     DEFAULT_COMPETITORS,
+    EXECUTABLE_ADAPTERS,
     BenchmarkCasePlan,
     plan_benchmark_cases,
     unsupported_case_record,
@@ -25,9 +26,11 @@ def require_value_error(callable_, message: str) -> None:
 
 
 def main() -> int:
-    default_cases = plan_benchmark_cases()
     require(DEFAULT_COMPETITORS == ("chromium", "firefox"), "default competitor drift")
     require(BENCHMARK_MODES == ("virtualized", "native-dom"), "mode order drift")
+    require(EXECUTABLE_ADAPTERS == {"playwright", "webdriver"}, "executable adapter set drift")
+
+    default_cases = plan_benchmark_cases()
     require(len(default_cases) == 4, "default matrix must remain 2 competitors x 2 modes")
     require(
         [(case.competitor, case.mode) for case in default_cases]
@@ -41,43 +44,40 @@ def main() -> int:
     )
     require(all(case.executable for case in default_cases), "default cases stopped being executable")
 
-    branded = plan_benchmark_cases(["chrome", "edge", "webkit"], ["virtualized"])
+    playwright = plan_benchmark_cases(["chrome", "edge", "webkit"], ["virtualized"])
     require(
-        [case.competitor for case in branded] == ["chrome", "edge", "webkit"],
+        [case.competitor for case in playwright] == ["chrome", "edge", "webkit"],
         "requested competitor order changed",
     )
-    require(all(case.adapter == "playwright" for case in branded), "Playwright adapter mismatch")
-    require(all(case.executable for case in branded), "Playwright cases were not executable")
+    require(all(case.adapter == "playwright" for case in playwright), "Playwright routing mismatch")
+    require(all(case.executable for case in playwright), "Playwright cases were not executable")
 
-    pending = plan_benchmark_cases(["servo", "ladybird"], ["virtualized"])
-    require(len(pending) == 2, "pending adapter plan count mismatch")
-    require(not pending[0].executable and pending[0].adapter == "webdriver", "Servo routing mismatch")
-    require(
-        not pending[1].executable and pending[1].adapter == "ladybird-headless",
-        "Ladybird routing mismatch",
-    )
-
-    servo_record = unsupported_case_record(pending[0], payload_bytes=64 * 1024 * 1024)
-    validate_terminal_record(servo_record)
-    require(servo_record["status"] == "unsupported", "Servo unsupported state mismatch")
-    require(servo_record["competitor"] == "servo", "Servo identity lost")
-    require(servo_record["canonical"] is True, "Servo canonical flag lost")
-    require(servo_record["adapter"] == "webdriver", "Servo adapter identity lost")
-    require(isinstance(servo_record["reason"], str) and servo_record["reason"], "Servo reason missing")
+    webdriver = plan_benchmark_cases(["servo", "ladybird"], ["virtualized"])
+    require(len(webdriver) == 2, "WebDriver adapter plan count mismatch")
+    require(all(case.adapter == "webdriver" for case in webdriver), "WebDriver routing mismatch")
+    require(all(case.executable for case in webdriver), "WebDriver cases were not executable")
+    require(all(case.reason is None for case in webdriver), "executable WebDriver case carried unsupported reason")
 
     full = plan_benchmark_cases(
         ["chrome", "firefox", "edge", "webkit", "servo", "ladybird"],
         ["virtualized", "native-dom"],
     )
     require(len(full) == 12, "canonical full-set matrix must contain 12 cases")
-    require(
-        sum(1 for case in full if case.executable) == 8,
-        "current Playwright-executable canonical case count mismatch",
+    require(all(case.executable for case in full), "canonical adapter matrix is not fully dispatchable")
+
+    forced_pending = BenchmarkCasePlan(
+        competitor="servo",
+        canonical_name="Servo",
+        canonical=True,
+        adapter="webdriver",
+        mode="virtualized",
+        executable=False,
+        reason="synthetic adapter capability gap",
     )
-    require(
-        sum(1 for case in full if not case.executable) == 4,
-        "pending Servo/Ladybird case count mismatch",
-    )
+    unsupported = unsupported_case_record(forced_pending, payload_bytes=64 * 1024 * 1024)
+    validate_terminal_record(unsupported)
+    require(unsupported["status"] == "unsupported", "forced unsupported state mismatch")
+    require(unsupported["competitor"] == "servo", "forced unsupported identity lost")
 
     tampered = BenchmarkCasePlan(
         competitor="servo",
@@ -86,11 +86,11 @@ def main() -> int:
         adapter="webdriver",
         mode="virtualized",
         executable=False,
-        reason="test unsupported",
+        reason="synthetic adapter capability gap",
     )
     require_value_error(
         lambda: unsupported_case_record(tampered, payload_bytes=1),
-        "planner identity drift bypassed the canonical registry",
+        "planner identity drift bypassed canonical registry",
     )
     require_value_error(
         lambda: plan_benchmark_cases(["chrome", "chrome"]),
@@ -113,11 +113,11 @@ def main() -> int:
         "unknown benchmark mode was accepted",
     )
     require_value_error(
-        lambda: unsupported_case_record(branded[0], payload_bytes=1),
+        lambda: unsupported_case_record(playwright[0], payload_bytes=1),
         "executable case was serialized as unsupported",
     )
     require_value_error(
-        lambda: unsupported_case_record(pending[0], payload_bytes=0),
+        lambda: unsupported_case_record(forced_pending, payload_bytes=0),
         "non-positive payload was accepted",
     )
 
