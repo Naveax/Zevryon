@@ -16,31 +16,14 @@ CI waiting is not a reason to stop unrelated work. New work may be prepared as u
 
 `main` is admitted through:
 
-- commit: `6ea7a74123069dbdb035bd59cf93a3f870f85a9d`;
-- tree: `f6714ec7361ba99c2b6de04fa150b29b0a55bf84`;
-- exact-head validation run: `33122221313`;
+- commit: `fcd211776675993a8ce7ad0954f2134b24389143`;
+- tree: `4352204712eb5956a2417d8c3494f93a0d370a87`;
+- exact-head validation run: `33125276373`;
 - run attempt: `1`;
 - conclusion: `SUCCESS`;
 - validated gates: Linux build/headless, Windows build/headless, Linux Unicode authority, Windows Unicode authority, Apple backend removal guard, real Win32 address-space gate and Linux i386 address-space gate.
 
-That admission includes everything previously admitted through `d598b7fbb2db121569325932510378289e5641c1`, plus:
-
-- exact-runtime launch/readiness preflight for Chrome, Firefox, Edge, WebKit, Servo and Ladybird;
-- host/system fingerprint binding between preflight and measurement;
-- stable runtime-identity binding that removes only the ephemeral Servo/Ladybird WebDriver port while preserving binary/version/SHA identity;
-- collection admission across preflight, canonical 6x2 browser evidence and both Zevryon normalized modes;
-- input-artifact SHA-256 receipts;
-- the canonical collection runbook;
-- single-bundle / no-cherry-pick ranking discipline;
-- CTest authority coverage for runtime preflight and collection admission.
-
-The legacy Zevryon process-per-query summary remains diagnostic-only.
-
-## Current exact-head candidate
-
-The branch candidate is `fcd211776675993a8ce7ad0954f2134b24389143`. Its exact-head run is `33125276373`, attempt `1`. It is not admitted until that run completes successfully across every required gate.
-
-This candidate adds:
+That admission includes everything previously admitted through `6ea7a74123069dbdb035bd59cf93a3f870f85a9d`, plus:
 
 - M0-backed system-fingerprint v2 using OS/release, architecture, logical CPU count, CPU model, physical RAM and device class;
 - stronger Windows CPU model discovery through the existing M0 benchmark metadata authority;
@@ -51,22 +34,26 @@ This candidate adds:
 - collection admission that recomputes all six physical-host receipts and rejects forged embedded Zevryon physical evidence;
 - canonical publication-manifest authority binding raw evidence hashes, physical receipts, runtime identities, evaluator result and exact clean Git commit/tree.
 
+The push of this exact admitted SHA to `main` may produce its own workflow run. That run is additional main-ref CI evidence; it is not a reason to rerun the already successful branch exact-head validation.
+
 ## Prepared follow-on scope
 
-While the exact-head candidate validates, the next child is kept unreferenced. It adds publication replay rather than trusting an already-written admission JSON:
+The next child is intentionally unadmitted until its own exact-head CI succeeds. It adds publication replay and final pre-evidence schema freezing:
 
+- physical-host collection admission schema `zevryon.competitor.collection-admission.v2`;
+- replay-capable publication schema `zevryon.competitor.evidence-bundle-manifest.v2`;
 - re-hash all four canonical raw artifacts;
-- constrain every raw artifact path to the declared `artifact_root` after canonical path resolution;
-- reject `..`, absolute out-of-root paths and other resolved path escapes before raw evidence is read;
+- constrain the admission artifact and every raw artifact path to the declared `artifact_root` after canonical path resolution;
+- reject relative traversal, absolute out-of-root paths and other resolved path escapes before evidence is read;
 - re-read runtime preflight, browser 6x2 evidence and both physical Zevryon mode artifacts;
 - recompute `admit_collection()` from those four raw artifacts;
 - require the stored admission JSON to equal the recomputed admission field-for-field, apart from its explicit `input_artifacts` receipts;
-- publish an admission-replay receipt containing the exact raw artifact SHA-256 set;
+- require the replay receipt to carry the exact canonical recomputed-field set and four raw artifact SHA-256 values;
 - bind that replay receipt into the immutable publication-manifest payload;
 - require replay SHA receipts to equal the manifest's independently verified artifact SHA receipts;
 - preserve both Zevryon before/after physical-host receipts in manifest validation.
 
-This follow-on scope is not admitted by the parent run. It requires its own exact-head validation after the current candidate is admitted. Parent success is not evidence for an unvalidated descendant.
+Parent success is not evidence for this follow-on child. It requires one new exact-head validation run after its ref is advanced.
 
 ## Canonical evidence discipline
 
