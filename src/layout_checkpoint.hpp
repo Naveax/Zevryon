@@ -11,6 +11,8 @@
 
 namespace zevryon::massivedoc {
 
+class StoreReader;
+
 struct LayoutCheckpointConfig {
     std::uint32_t width_q8{800U * 256U};
     std::uint32_t average_advance_q8{8U * 256U};
@@ -74,8 +76,25 @@ private:
     bool opened_{false};
 };
 
+// Convenience path for one-shot callers. Opens a bounded StoreReader for this
+// scan and then delegates to the persistent-reader overload below.
 bool scan_layout_window_from_checkpoint(
     const std::filesystem::path& store_root,
+    const MaterializedRecord& record,
+    const LayoutCheckpointIndex& checkpoint,
+    std::uint64_t visible_start_q8,
+    std::uint64_t visible_end_q8,
+    std::size_t max_fragments,
+    std::vector<LayoutFragment>* fragments,
+    std::uint64_t* source_bytes_read,
+    std::uint64_t* checkpoint_source_offset,
+    bool* truncated,
+    std::string* error);
+
+// Persistent path for benchmark/runtime callers that already own an opened
+// StoreReader. This keeps store-open work outside repeated query boundaries.
+bool scan_layout_window_from_checkpoint(
+    const StoreReader& reader,
     const MaterializedRecord& record,
     const LayoutCheckpointIndex& checkpoint,
     std::uint64_t visible_start_q8,

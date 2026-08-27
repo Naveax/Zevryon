@@ -1,3 +1,45 @@
+    const std::filesystem::path& store_root,
+    const MaterializedRecord& record,
+    const LayoutCheckpointIndex& checkpoint,
+    std::uint64_t visible_start_q8,
+    std::uint64_t visible_end_q8,
+    std::size_t max_fragments,
+    std::vector<LayoutFragment>* fragments,
+    std::uint64_t* source_bytes_read,
+    std::uint64_t* checkpoint_source_offset,
+    bool* truncated,
+    std::string* error) {
+    if (fragments == nullptr || source_bytes_read == nullptr || checkpoint_source_offset == nullptr ||
+        truncated == nullptr || error == nullptr || max_fragments == 0U ||
+        visible_end_q8 <= visible_start_q8) {
+        if (error != nullptr) {
+            *error = "invalid checkpoint layout-window request";
+        }
+        return false;
+    }
+
+    StoreReader reader(store_root);
+    if (!reader.open(error)) {
+        return false;
+    }
+    return scan_layout_window_from_checkpoint(
+        reader,
+        record,
+        checkpoint,
+        visible_start_q8,
+        visible_end_q8,
+        max_fragments,
+        fragments,
+        source_bytes_read,
+        checkpoint_source_offset,
+        truncated,
+        error);
+}
+
+bool scan_layout_window_from_checkpoint(
+    const StoreReader& reader,
+    const MaterializedRecord& record,
+    const LayoutCheckpointIndex& checkpoint,
     std::uint64_t visible_start_q8,
     std::uint64_t visible_end_q8,
     std::size_t max_fragments,
@@ -28,11 +70,6 @@
     const LayoutCheckpointConfig& config = stats.config;
     const LayoutCheckpointEntry& start_entry = checkpoint.entry_for_y(visible_start_q8);
     *checkpoint_source_offset = start_entry.source_offset;
-
-    StoreReader reader(store_root);
-    if (!reader.open(error)) {
-        return false;
-    }
 
     const std::uint64_t horizontal = static_cast<std::uint64_t>(config.horizontal_padding_q8) * 2U;
     const std::uint64_t content_width = config.width_q8 > horizontal
