@@ -95,6 +95,7 @@ def scenario_fingerprint(
     query_count: int,
     virtual_slice_bytes: int,
     timeout_seconds: int,
+    warmup_query_count: int = 0,
 ) -> str:
     if mode not in {"virtualized", "native-dom"}:
         raise ValueError(f"unknown benchmark mode: {mode}")
@@ -105,11 +106,18 @@ def scenario_fingerprint(
         or timeout_seconds <= 0
     ):
         raise ValueError("scenario fingerprint arguments must be positive")
+    if (
+        isinstance(warmup_query_count, bool)
+        or not isinstance(warmup_query_count, int)
+        or warmup_query_count < 0
+    ):
+        raise ValueError("warmup_query_count must be a non-negative integer")
     payload = {
         "schema": HARNESS_SCHEMA,
         "mode": mode,
         "payload_bytes": payload_bytes,
         "query_count": query_count,
+        "warmup_query_count": warmup_query_count,
         "virtual_slice_bytes": (
             virtual_slice_bytes if mode == "virtualized" else None
         ),
