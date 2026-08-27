@@ -123,14 +123,18 @@ python scripts/m7_zevryon_physical_case.py \
 
 Native-DOM checkpoint/layout preparation occurs inside the case-owned lifecycle and is charged to setup. As with the virtualized case, both before/after physical-host receipts are mandatory leadership evidence.
 
-## 7. Collect the exact canonical browser 6x2 full set
+## 7. Collect the exact canonical physical browser 6x2 full set
 
-Refresh a manually supplied thermal observation immediately before this stage when applicable, then run the legacy-independent collector:
+Refresh a manually supplied thermal observation immediately before this stage when applicable, then use the physical wrapper rather than the lower-level normalized collector directly:
 
 ```text
-python scripts/m7_normalized_browser_full_set.py \
+python scripts/m7_physical_browser_full_set.py \
   --output evidence/m7/browser-full-set.json
 ```
+
+The wrapper captures and certifies M0 machine/thermal evidence immediately before and immediately after the complete 6x2 browser stage. Both receipts must retain the same stable system fingerprint as the normalized browser report. Missing physical confirmation, missing thermal observation, post-stage machine drift or forged embedded physical receipts fail closed.
+
+The stage-level before/after design is deliberate. A manually supplied Windows thermal environment value is not a live per-case sensor; duplicating one static override into 24 synthetic per-case snapshots would create false precision rather than stronger evidence. A future per-case thermal contract requires an actual live provider or another precommitted observation authority.
 
 The canonical defaults are:
 
@@ -141,16 +145,16 @@ The canonical defaults are:
 - virtualized timeout: 180 seconds;
 - native-DOM timeout: 420 seconds.
 
-If any canonical runtime/case is unavailable, unsupported, invalid, times out or errors, the collector preserves that terminal record but the full-set gate fails. Do not delete failed records and do not recast missing evidence as zero.
+If any canonical runtime/case is unavailable, unsupported, invalid, times out or errors, the underlying collector preserves that terminal record but the full-set gate fails. Do not delete failed records and do not recast missing evidence as zero.
 
-This collector does not require the legacy `zevryon.massivedoc.benchmark.v4` report. Legacy giant-document summaries remain diagnostics only.
+The physical wrapper remains independent of the legacy `zevryon.massivedoc.benchmark.v4` report. Legacy giant-document summaries remain diagnostics only.
 
-## 8. Bind and admit the evidence bundle
+## 8. Bind and admit the evidence bundle with atomic artifact snapshots
 
 After all four evidence artifacts exist, run:
 
 ```text
-python scripts/m7_collection_admission.py \
+python scripts/m7_collection_admission_v3.py \
   --preflight evidence/m7/runtime-preflight.json \
   --browser-report evidence/m7/browser-full-set.json \
   --zevryon-virtualized evidence/m7/zevryon-virtualized.json \
@@ -158,12 +162,15 @@ python scripts/m7_collection_admission.py \
   --output evidence/m7/collection-admission.json
 ```
 
+Admission v3 reads each raw JSON input exactly once. The SHA-256 receipt, byte count, UTF-8 decoding and JSON object used for admission all come from that same byte snapshot. The admission therefore does not hash one version of a file and parse another version through a separate I/O call.
+
 Admission revalidates:
 
 - stable preflight/browser host system fingerprint;
 - nested M0 machine receipts against their top-level stable identities;
 - explicit physical-device confirmation;
-- observed thermal evidence at preflight and browser-full-set boundaries;
+- observed thermal evidence at preflight;
+- browser full-set before/after physical-host and thermal receipts;
 - before/after M0 physical-host and thermal receipts for both Zevryon modes;
 - exact six-runtime identity binding;
 - both browser modes for every canonical competitor;
@@ -173,14 +180,14 @@ Admission revalidates:
 - cross-implementation comparability;
 - the fixed five-metric leadership rule.
 
-The admission artifact records the physical-host certification receipts and SHA-256 hashes of the four input evidence files. The physical-host admission contract used for canonical publication is schema `zevryon.competitor.collection-admission.v2`.
+The canonical admission contract is schema `zevryon.competitor.collection-admission.v3`. Each raw input receipt records `path`, `sha256` and `byte_count` from the exact atomic byte snapshot used by the admission calculation.
 
-## 9. Create the canonical publication manifest
+## 9. Create the canonical v3 publication manifest
 
 Run this from the exact admitted Git checkout used for collection. Tracked source files must still match `HEAD`; untracked evidence output files are allowed.
 
 ```text
-python scripts/m7_evidence_bundle_manifest.py \
+python scripts/m7_evidence_bundle_manifest_v3.py \
   --admission evidence/m7/collection-admission.json \
   --artifact-root . \
   --repo-root . \
@@ -188,32 +195,31 @@ python scripts/m7_evidence_bundle_manifest.py \
   --output evidence/m7/evidence-bundle-manifest.json
 ```
 
-Publication does not trust `collection-admission.json` merely because it has the expected schema or a matching file hash. Before the v2 manifest is written, the publisher:
+Publication does not trust `collection-admission.json` merely because it has the expected schema or a matching file hash. The v3 publisher performs this sequence:
 
-- resolves the admission artifact and all four declared raw evidence paths under `artifact_root`;
-- rejects relative traversal, absolute out-of-root paths, and any other resolved path escape before reading those artifacts;
-- re-hashes and re-reads runtime preflight, browser full-set, Zevryon virtualized and Zevryon native-DOM evidence;
-- reruns `admit_collection()` from those exact four raw objects;
-- requires the stored admission JSON to match the recomputed admission field-for-field apart from its explicit `input_artifacts` receipts;
-- emits an admission-replay receipt with the exact four raw artifact SHA-256 values;
-- requires replay hashes to equal the publication verifier's independently checked artifact hashes.
+1. constrain the admission artifact under `artifact_root` and read it once as an atomic byte snapshot;
+2. constrain all four declared raw evidence paths under `artifact_root`;
+3. read each raw artifact once, deriving SHA-256, byte count and parsed JSON from the same bytes;
+4. rerun the v3 `admit_collection()` authority from those four raw objects;
+5. require the stored admission JSON to equal the recomputed admission field-for-field apart from its explicit raw-artifact receipts;
+6. calculate and record a canonical SHA-256 over the recomputed admission authority fields themselves;
+7. require the replay receipt's raw SHA/byte-count set to equal the stored admission receipts;
+8. verify exact Git `HEAD`, exact tree and a clean tracked worktree.
 
-A hand-edited admission JSON therefore cannot become publishable by recomputing only its own file hash.
+The publication manifest then binds:
 
-The publication manifest verifies and binds:
-
-- SHA-256 of `collection-admission.json`;
-- SHA-256 of runtime preflight, browser full-set and both Zevryon evidence artifacts;
+- SHA-256 and byte count of `collection-admission.json` from its atomic snapshot;
+- SHA-256 and byte count of runtime preflight, physical browser full-set and both physical Zevryon raw artifacts;
 - the raw-artifact admission-replay receipt;
-- exact Git `HEAD` commit;
-- exact Git tree;
+- the canonical recomputed-admission core SHA-256;
+- exact Git `HEAD` commit and tree;
 - a clean tracked worktree relative to `HEAD`;
 - system fingerprint and corpus SHA-256;
-- physical-host/thermal certification receipts, including both Zevryon before/after receipts;
+- preflight physical receipt, browser full-set before/after receipts and both Zevryon before/after receipts;
 - all six stable runtime bindings;
 - the complete five-metric evaluation and final eligibility result.
 
-The canonical replay-capable publication contract is schema `zevryon.competitor.evidence-bundle-manifest.v2`. The manifest has its own canonical `manifest_payload_sha256`. Any later field mutation without recomputing a new valid manifest is rejected.
+The canonical publication contract is schema `zevryon.competitor.evidence-bundle-manifest.v3`. The manifest has its own canonical `manifest_payload_sha256`. Manifest validation reconstructs the bound v3 admission core from the manifest fields and requires it to reproduce the replay/admission core SHA before accepting the manifest payload hash.
 
 A valid bundle that does **not** satisfy the leadership threshold is still publishable evidence. Its manifest uses `result_class: valid_not_leadership`. Publication must preserve that result rather than rerun unchanged evidence until a preferred ranking appears.
 
@@ -221,9 +227,9 @@ A valid bundle that does **not** satisfy the leadership threshold is still publi
 
 Treat exit codes deliberately:
 
-- `0`: the stage passed; for `m7_collection_admission.py`, the complete evidence bundle is leadership-eligible; for the publication-manifest stage, the already-admitted result was replayed, verified and packaged regardless of whether leadership is true or false;
-- `1`: invalid/incomplete/unavailable evidence, missing physical/thermal certification, artifact-root escape, admission-replay mismatch, source-tree mismatch, artifact hash mismatch, or harness/runtime failure; do not claim leadership;
-- `2`: for `m7_collection_admission.py`, the evidence bundle is valid and the five-metric gate was evaluated, but Zevryon did not satisfy the fixed leadership threshold.
+- `0`: the stage passed; for `m7_collection_admission_v3.py`, the complete evidence bundle is leadership-eligible; for `m7_evidence_bundle_manifest_v3.py`, the already-admitted result was replayed, verified and packaged regardless of whether leadership is true or false;
+- `1`: invalid/incomplete/unavailable evidence, missing physical/thermal certification, artifact-root escape, admission-replay mismatch, admission-core hash mismatch, source-tree mismatch, artifact SHA/byte-count mismatch, or harness/runtime failure; do not claim leadership;
+- `2`: for `m7_collection_admission_v3.py`, the evidence bundle is valid and the five-metric gate was evaluated, but Zevryon did not satisfy the fixed leadership threshold.
 
 Exit code `2` is not an infrastructure failure and is not a reason to rerun identical evidence until a nicer number appears.
 

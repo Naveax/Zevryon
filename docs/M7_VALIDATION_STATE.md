@@ -16,42 +16,42 @@ CI waiting is not a reason to stop unrelated work. New work may be prepared as u
 
 `main` is admitted through:
 
-- commit: `fcd211776675993a8ce7ad0954f2134b24389143`;
-- tree: `4352204712eb5956a2417d8c3494f93a0d370a87`;
-- exact-head validation run: `33125276373`;
+- commit: `c8b083d3cee84c634bc772f9e350e6566601efba`;
+- tree: `3aa0080faaa0eb22536fd0857627027abe169ed0`;
+- exact-head validation run: `33126282659`;
 - run attempt: `1`;
 - conclusion: `SUCCESS`;
 - validated gates: Linux build/headless, Windows build/headless, Linux Unicode authority, Windows Unicode authority, Apple backend removal guard, real Win32 address-space gate and Linux i386 address-space gate.
 
-That admission includes everything previously admitted through `6ea7a74123069dbdb035bd59cf93a3f870f85a9d`, plus:
+That admission includes everything previously admitted through `fcd211776675993a8ce7ad0954f2134b24389143`, plus:
 
-- M0-backed system-fingerprint v2 using OS/release, architecture, logical CPU count, CPU model, physical RAM and device class;
-- stronger Windows CPU model discovery through the existing M0 benchmark metadata authority;
-- preservation of the full M0 machine/thermal receipt alongside the stable fingerprint;
-- explicit physical-host certification for M7 leadership evidence using the existing M0 `physical_certification_checks()` rule;
-- mandatory physical-device confirmation and observed thermal evidence at runtime-preflight and browser-full-set collection boundaries;
-- canonical `m7_zevryon_physical_case.py` capture of certified raw M0 machine/thermal receipts immediately before and after both normalized Zevryon modes;
-- collection admission that recomputes all six physical-host receipts and rejects forged embedded Zevryon physical evidence;
-- canonical publication-manifest authority binding raw evidence hashes, physical receipts, runtime identities, evaluator result and exact clean Git commit/tree.
+- physical-host collection admission schema `zevryon.competitor.collection-admission.v2`;
+- replay-capable publication schema `zevryon.competitor.evidence-bundle-manifest.v2`;
+- raw-artifact admission replay from runtime preflight, browser 6x2 evidence and both physical Zevryon modes;
+- canonical `artifact_root` containment for the admission artifact and all four raw artifacts;
+- rejection of relative traversal, absolute out-of-root paths and resolved path escapes before publication reads evidence;
+- exact stored-admission versus recomputed-admission equality apart from explicit raw-artifact receipts;
+- replay receipts carrying the canonical recomputed-field set and raw artifact SHA-256 values;
+- immutable publication binding of replay evidence, physical-host receipts, runtime identities, evaluator result and exact clean Git commit/tree.
 
 The push of this exact admitted SHA to `main` may produce its own workflow run. That run is additional main-ref CI evidence; it is not a reason to rerun the already successful branch exact-head validation.
 
 ## Prepared follow-on scope
 
-The next child is intentionally unadmitted until its own exact-head CI succeeds. It adds publication replay and final pre-evidence schema freezing:
+The next child remains unadmitted until its own exact-head CI succeeds. It closes the remaining physical-browser-stage and artifact-snapshot asymmetries before real evidence collection:
 
-- physical-host collection admission schema `zevryon.competitor.collection-admission.v2`;
-- replay-capable publication schema `zevryon.competitor.evidence-bundle-manifest.v2`;
-- re-hash all four canonical raw artifacts;
-- constrain the admission artifact and every raw artifact path to the declared `artifact_root` after canonical path resolution;
-- reject relative traversal, absolute out-of-root paths and other resolved path escapes before evidence is read;
-- re-read runtime preflight, browser 6x2 evidence and both physical Zevryon mode artifacts;
-- recompute `admit_collection()` from those four raw artifacts;
-- require the stored admission JSON to equal the recomputed admission field-for-field, apart from its explicit `input_artifacts` receipts;
-- require the replay receipt to carry the exact canonical recomputed-field set and four raw artifact SHA-256 values;
-- bind that replay receipt into the immutable publication-manifest payload;
-- require replay SHA receipts to equal the manifest's independently verified artifact SHA receipts;
-- preserve both Zevryon before/after physical-host receipts in manifest validation.
+- canonical `m7_physical_browser_full_set.py` wrapper around the normalized six-browser x two-mode collector;
+- certified M0 machine/thermal receipts immediately before and after the complete browser full-set stage;
+- stable-fingerprint binding of both browser stage receipts to the normalized report host;
+- explicit rejection of missing pre/post physical certification, missing thermal observation, post-stage machine drift and forged embedded receipts;
+- one-read JSON artifact snapshots so SHA-256, byte count and parsed JSON all derive from the same bytes;
+- collection admission schema `zevryon.competitor.collection-admission.v3` requiring the physical browser wrapper and preserving browser before/after receipts;
+- atomic replay schema `zevryon.competitor.collection-admission-replay.v2` requiring raw SHA-256 plus byte-count equality;
+- a canonical SHA-256 over the exact recomputed admission authority fields;
+- publication schema `zevryon.competitor.evidence-bundle-manifest.v3` binding the admission artifact snapshot, raw SHA/byte-count receipts, replay admission-core hash, browser and Zevryon physical-stage evidence, runtime identities, evaluator result and exact clean Git commit/tree;
+- standalone manifest reconstruction of the v3 admission core before accepting `manifest_payload_sha256`.
+
+The browser physical wrapper uses before/after receipts for the whole 6x2 stage rather than pretending a static Windows thermal environment override is a live per-case sensor. Any future per-case thermal contract requires a real live provider or another precommitted observation authority.
 
 Parent success is not evidence for this follow-on child. It requires one new exact-head validation run after its ref is advanced.
 
@@ -67,7 +67,7 @@ Leadership evidence additionally requires:
 - complete normalized setup/query/memory evidence;
 - same-system comparability under the canonical system fingerprint;
 - successful exact-runtime preflight;
-- successful M0 physical-host certification for preflight, browser collection and both before/after Zevryon case boundaries;
+- successful M0 physical-host certification for preflight, browser stage before/after, and both before/after Zevryon case boundaries;
 - successful collection admission before the five-metric result is published;
 - publication replay from the exact four raw artifacts before a canonical manifest can be produced.
 

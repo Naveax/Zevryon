@@ -110,13 +110,14 @@ Implementation/admission state:
 - [x] Add the separate machine-readable five-metric leadership evaluator; collection alone remains unable to claim leadership.
 - [x] Admit exact-runtime preflight, stable preflight-to-measurement runtime identity binding, collection admission and single-bundle/no-cherry-pick discipline through exact-head run `33122221313` on commit `6ea7a74123069dbdb035bd59cf93a3f870f85a9d`.
 - [x] Admit the physical-host/system-fingerprint/physical-Zevryon/publication-manifest milestone through exact-head run `33125276373` on commit `fcd211776675993a8ce7ad0954f2134b24389143`.
-- [ ] Admit the follow-on v2 raw-artifact admission-replay and artifact-root-containment candidate after its own exact-head CI success; parent CI does not validate this child.
+- [x] Admit v2 raw-artifact admission replay, admission/raw `artifact_root` containment and replay-capable publication through exact-head run `33126282659` on commit `c8b083d3cee84c634bc772f9e350e6566601efba`.
+- [ ] Admit the follow-on v3 physical-browser-stage + atomic-artifact-snapshot + admission-core-hash publication candidate after its own exact-head CI success; parent CI does not validate this child.
 - [ ] Run the real six-runtime readiness preflight on the final physical benchmark host and preserve its M0 machine/thermal evidence artifact.
-- [ ] Collect one complete canonical 6x2 browser evidence bundle on that same physical system with no runtime substitution and observed thermal evidence.
+- [ ] Collect one complete canonical browser 6x2 evidence bundle through `m7_physical_browser_full_set.py`, preserving certified M0 machine/thermal receipts immediately before and after the full browser stage with no runtime substitution.
 - [ ] Collect Zevryon `virtualized` and `native-dom` evidence through `m7_zevryon_physical_case.py`, preserving certified M0 machine/thermal receipts immediately before and after each normalized case.
-- [ ] Admit the four artifacts through the v2 collection binder, including preflight/browser physical-host certification, both Zevryon before/after physical receipts, artifact SHA-256 receipts and stable runtime identity checks.
+- [ ] Admit the four raw artifacts through `m7_collection_admission_v3.py`, deriving each input SHA-256, byte count and parsed JSON from one atomic byte snapshot and binding preflight/browser/Zevryon physical evidence plus stable runtime identities.
 - [ ] Evaluate the fixed five-metric rule on the admitted bundle. Exit status `2` means valid evidence that does not satisfy leadership, not a harness failure.
-- [ ] Create the canonical v2 publication manifest only after constraining the admission/raw artifacts to `artifact_root`, re-hashing and re-reading all four raw artifacts, replaying `admit_collection()`, verifying exact clean Git commit/tree, and binding physical-host receipts, runtime identities and evaluator result.
+- [ ] Create the canonical v3 publication manifest only after replaying the exact four atomic raw snapshots, matching raw SHA/byte-count receipts, binding the canonical recomputed-admission core SHA, and verifying exact clean Git commit/tree.
 - [ ] Publish the complete admitted evidence and failure modes without cherry-picking metrics across repeat bundles.
 
 One leadership decision consumes one complete evidence bundle. Repeats may be collected as independent reproducibility evidence, but best-of-N reruns and cross-bundle metric mixing are not admissible. Any repeated-run aggregation policy must be frozen before collecting the evidence it would aggregate.
