@@ -53,6 +53,7 @@ def canonical_sha256(value: object) -> str:
 
 def host_metadata() -> dict[str, object]:
     machine = capture_benchmark_metadata()
+    machine_receipt = machine.to_dict()
     return {
         "system_fingerprint_schema": SYSTEM_FINGERPRINT_SCHEMA,
         "machine_metadata_schema": machine.schema_version,
@@ -63,6 +64,11 @@ def host_metadata() -> dict[str, object]:
         "cpu_model": machine.cpu_model,
         "physical_ram_mib": machine.physical_ram_mib,
         "device_class": machine.device_class.value,
+        # Preserve the full existing M0 machine/thermal receipt as raw benchmark
+        # evidence. normalized_system_fingerprint intentionally hashes only the
+        # stable subset above so timestamps and thermal readings do not turn the
+        # same physical host into a different machine identity between stages.
+        "benchmark_machine_metadata": machine_receipt,
     }
 
 

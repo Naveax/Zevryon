@@ -110,6 +110,23 @@ def _bounded_text(value: str, fallback: str, limit: int) -> str:
     return cleaned[:limit]
 
 
+def _windows_registry_cpu_model() -> str | None:
+    if platform.system() != "Windows":
+        return None
+    try:
+        import winreg
+
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"HARDWARE\DESCRIPTION\System\CentralProcessor\0",
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "ProcessorNameString")
+    except (ImportError, OSError):
+        return None
+    normalized = " ".join(str(value).split()).strip()
+    return normalized or None
+
+
 def _cpu_model(env: Mapping[str, str]) -> str:
     forced = env.get("ZEVRYON_CPU_MODEL", "").strip()
     if forced:
@@ -124,9 +141,13 @@ def _cpu_model(env: Mapping[str, str]) -> str:
         except OSError:
             pass
 
-    # Windows exposes a stable processor-family/model/vendor identity through the
-    # normal process environment. Prefer it over platform.processor(), which may
-    # collapse to a generic architecture string such as "AMD64" on some hosts.
+    registry_model = _windows_registry_cpu_model()
+    if registry_model:
+        return _bounded_text(registry_model, "unknown", 512)
+
+    # Windows also exposes processor-family/model/vendor identity through the
+    # process environment. Prefer it over platform.processor(), which can collapse
+    # to a generic architecture string such as "AMD64" on some hosts.
     processor_identifier = env.get("PROCESSOR_IDENTIFIER", "").strip()
     if processor_identifier:
         return _bounded_text(processor_identifier, "unknown", 512)
