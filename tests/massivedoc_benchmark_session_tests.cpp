@@ -2,6 +2,8 @@
 #include "massivedoc_store.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdlib>
 #include <cstdint>
 #include <filesystem>
@@ -103,6 +105,68 @@ void test_query_generator_matches_scenario_lcg() {
     }
 }
 
+void test_m7_synthetic_store_matches_authority() {
+    const auto root = temp_root("benchmark-session-m7-synthetic");
+    const auto boundary_root = temp_root("benchmark-session-m7-boundary");
+    constexpr std::uint64_t kPayloadBytes = 4096U;
+    constexpr std::uint64_t kBoundaryPayloadBytes = (1024U * 1024U) + 4096U;
+    constexpr std::array<std::uint8_t, 38U> kPattern = {
+        0xf0U, 0x9fU, 0x91U, 0xa8U, 0xe2U, 0x80U, 0x8dU, 0xf0U,
+        0x9fU, 0x91U, 0xa9U, 0xe2U, 0x80U, 0x8dU, 0xf0U, 0x9fU,
+        0x91U, 0xa7U, 0xe2U, 0x80U, 0x8dU, 0xf0U, 0x9fU, 0x91U,
+        0xa6U, 0xf0U, 0x9fU, 0x91U, 0x8dU, 0xf0U, 0x9fU, 0x8fU,
+        0xbdU, 0xf0U, 0x9fU, 0x9aU, 0x80U, 0x20U,
+    };
+
+    zevryon::massivedoc::BenchmarkSyntheticStoreReady ready;
+    std::string error;
+    require(
+        zevryon::massivedoc::build_m7_synthetic_benchmark_store(
+            root,
+            kPayloadBytes,
+            &ready,
+            &error),
+        error);
+    require(ready.record_index == 0U, "M7 synthetic record index drifted");
+    require(ready.payload_bytes == kPayloadBytes, "M7 synthetic payload size drifted");
+    require(ready.physical_bytes > 0U, "M7 synthetic physical store is empty");
+    require(
+        ready.payload_sha256 ==
+            "23e690fc443b9033db51f7ad48cc94c1673b5c948bd34dc7d6a34d0c7753eb12",
+        "M7 synthetic payload SHA drifted from Python corpus authority");
+
+    {
+        zevryon::massivedoc::StoreReader reader(root);
+        require(reader.open(&error), error);
+        std::vector<std::byte> bytes;
+        require(
+            reader.read_record_slice(0U, 0U, static_cast<std::size_t>(kPayloadBytes), &bytes, &error),
+            error);
+        require(bytes.size() == kPayloadBytes, "M7 synthetic readback size drifted");
+        for (std::size_t index = 0U; index < bytes.size(); ++index) {
+            require(
+                std::to_integer<std::uint8_t>(bytes[index]) == kPattern[index % kPattern.size()],
+                "M7 synthetic byte pattern drifted");
+        }
+    }
+
+    zevryon::massivedoc::BenchmarkSyntheticStoreReady boundary_ready;
+    require(
+        zevryon::massivedoc::build_m7_synthetic_benchmark_store(
+            boundary_root,
+            kBoundaryPayloadBytes,
+            &boundary_ready,
+            &error),
+        error);
+    require(
+        boundary_ready.payload_sha256 ==
+            "0a38209592bae74baf6e5232a6612792cbbbd1d417f6f561e4b5866a51fd0630",
+        "M7 synthetic 1 MiB chunk-boundary SHA drifted from Python authority");
+
+    cleanup(root);
+    cleanup(boundary_root);
+}
+
 void test_virtualized_session_reuses_open_store() {
     const auto root = temp_root("benchmark-session-virtual");
     constexpr std::size_t kPayloadBytes = 256U * 1024U;
@@ -202,6 +266,7 @@ void test_native_session_reuses_one_record_checkpoint() {
 
 int main() {
     test_query_generator_matches_scenario_lcg();
+    test_m7_synthetic_store_matches_authority();
     test_virtualized_session_reuses_open_store();
     test_native_session_reuses_one_record_checkpoint();
     std::cout << "Zevryon MassiveDoc persistent benchmark-session tests passed\n";

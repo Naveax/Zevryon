@@ -6,10 +6,12 @@
 #include "unicode_stream.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <limits>
 #include <memory_resource>
 #include <span>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -24,6 +26,14 @@ constexpr std::uint64_t kAverageAdvanceQ8 = 8ULL * kQ8;
 constexpr std::uint64_t kLineHeightQ8 = 18ULL * kQ8;
 constexpr std::uint64_t kHorizontalPaddingQ8 = 12ULL * kQ8;
 constexpr std::uint64_t kVerticalPaddingQ8 = 12ULL * kQ8;
+constexpr std::uint64_t kM7SyntheticChunkBytes = 1024ULL * 1024ULL;
+constexpr std::array<std::uint8_t, 38U> kM7SyntheticPattern = {
+    0xf0U, 0x9fU, 0x91U, 0xa8U, 0xe2U, 0x80U, 0x8dU, 0xf0U,
+    0x9fU, 0x91U, 0xa9U, 0xe2U, 0x80U, 0x8dU, 0xf0U, 0x9fU,
+    0x91U, 0xa7U, 0xe2U, 0x80U, 0x8dU, 0xf0U, 0x9fU, 0x91U,
+    0xa6U, 0xf0U, 0x9fU, 0x91U, 0x8dU, 0xf0U, 0x9fU, 0x8fU,
+    0xbdU, 0xf0U, 0x9fU, 0x9aU, 0x80U, 0x20U,
+};
 
 std::uint64_t saturating_add(std::uint64_t left, std::uint64_t right) noexcept {
     if (left > std::numeric_limits<std::uint64_t>::max() - right) {
@@ -173,6 +183,79 @@ std::uint64_t DeterministicBenchmarkQueryGenerator::next() noexcept {
         return 0U;
     }
     return scale_ratio(static_cast<std::uint64_t>(state_), maximum_, kLcgDivisor);
+}
+
+bool build_m7_synthetic_benchmark_store(
+    const std::filesystem::path& store_root,
+    std::uint64_t payload_bytes,
+    BenchmarkSyntheticStoreReady* ready,
+    std::string* error) {
+    if (ready == nullptr || error == nullptr) {
+        return false;
+    }
+    if (store_root.empty()) {
+        *error = "M7 synthetic benchmark store root cannot be empty";
+        return false;
+    }
+    if (payload_bytes == 0U) {
+        *error = "M7 synthetic benchmark payload must be positive";
+        return false;
+    }
+
+    std::error_code remove_error;
+    std::filesystem::remove_all(store_root, remove_error);
+    if (remove_error) {
+        *error = "cannot clear M7 synthetic benchmark store: " + remove_error.message();
+        return false;
+    }
+
+    StoreWriter writer(store_root);
+    std::uint64_t emitted = 0U;
+    const auto reader = [&](std::span<std::byte> output) -> std::size_t {
+        const std::uint64_t remaining = payload_bytes - emitted;
+        const std::size_t count = static_cast<std::size_t>(
+            std::min<std::uint64_t>(remaining, static_cast<std::uint64_t>(output.size())));
+        for (std::size_t index = 0U; index < count; ++index) {
+            const std::uint64_t source_index = emitted + static_cast<std::uint64_t>(index);
+            const std::uint64_t chunk_offset = source_index % kM7SyntheticChunkBytes;
+            output[index] = static_cast<std::byte>(
+                kM7SyntheticPattern[static_cast<std::size_t>(
+                    chunk_offset % kM7SyntheticPattern.size())]);
+        }
+        emitted += static_cast<std::uint64_t>(count);
+        return count;
+    };
+    if (!writer.append_stream(1001U, payload_bytes, reader, error)) {
+        return false;
+    }
+    if (emitted != payload_bytes) {
+        *error = "M7 synthetic benchmark stream length drifted";
+        return false;
+    }
+
+    CorpusMetadata metadata;
+    metadata.logical_utf8_bytes = payload_bytes;
+    metadata.logical_records = 1U;
+    metadata.logical_nodes = 1U;
+    metadata.largest_record_bytes = payload_bytes;
+    StoreStats stats;
+    if (!writer.finalize(metadata, &stats, error)) {
+        return false;
+    }
+    if (stats.corpus.logical_utf8_bytes != payload_bytes ||
+        stats.corpus.logical_records != 1U ||
+        stats.corpus.largest_record_bytes != payload_bytes ||
+        stats.payload_sha256.empty() || stats.physical_bytes == 0U) {
+        *error = "M7 synthetic benchmark store receipt drifted";
+        return false;
+    }
+
+    ready->record_index = 0U;
+    ready->payload_bytes = payload_bytes;
+    ready->physical_bytes = stats.physical_bytes;
+    ready->payload_sha256 = stats.payload_sha256;
+    error->clear();
+    return true;
 }
 
 MassiveDocBenchmarkSession::MassiveDocBenchmarkSession()

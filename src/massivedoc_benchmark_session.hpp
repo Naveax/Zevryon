@@ -31,6 +31,13 @@ struct BenchmarkSessionReady {
     std::uint64_t native_checkpoint_bytes{0U};
 };
 
+struct BenchmarkSyntheticStoreReady {
+    std::uint64_t record_index{0U};
+    std::uint64_t payload_bytes{0U};
+    std::uint64_t physical_bytes{0U};
+    std::string payload_sha256;
+};
+
 struct BenchmarkQueryReceipt {
     std::uint64_t coordinate{0U};
     double milliseconds{0.0};
@@ -83,6 +90,12 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+
+bool build_m7_synthetic_benchmark_store(
+    const std::filesystem::path& store_root,
+    std::uint64_t payload_bytes,
+    BenchmarkSyntheticStoreReady* ready,
+    std::string* error);
 
 const char* benchmark_session_mode_name(BenchmarkSessionMode mode) noexcept;
 

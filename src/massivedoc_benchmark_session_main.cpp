@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <optional>
@@ -16,8 +17,14 @@ using zevryon::massivedoc::BenchmarkQueryReceipt;
 using zevryon::massivedoc::BenchmarkSessionConfig;
 using zevryon::massivedoc::BenchmarkSessionMode;
 using zevryon::massivedoc::BenchmarkSessionReady;
+using zevryon::massivedoc::BenchmarkSyntheticStoreReady;
 using zevryon::massivedoc::DeterministicBenchmarkQueryGenerator;
 using zevryon::massivedoc::MassiveDocBenchmarkSession;
+
+constexpr std::string_view kM7SourceAuthority =
+    "case-owned-m7-synthetic-single-record-v1";
+constexpr std::string_view kLegacySourceAuthority =
+    "prebuilt-store-diagnostic-v1";
 
 template <typename T>
 std::optional<T> parse_number(std::string_view text) {
@@ -44,9 +51,14 @@ std::optional<BenchmarkSessionMode> parse_mode(std::string_view text) {
 
 void usage() {
     std::cerr
-        << "Usage: zevryon-massivedoc-benchmark-session "
+        << "Usage:\n"
+        << "  zevryon-massivedoc-benchmark-session "
         << "<virtualized|native-dom> <store-dir> <record-index> <payload-bytes> "
         << "<query-count> <warmup-count> <slice-bytes> <viewport-width-px> "
+        << "<viewport-height-px> <max-fragments>\n"
+        << "  zevryon-massivedoc-benchmark-session --m7-synthetic "
+        << "<virtualized|native-dom> <case-root> <payload-bytes> <query-count> "
+        << "<warmup-count> <slice-bytes> <viewport-width-px> "
         << "<viewport-height-px> <max-fragments>\n";
 }
 
@@ -81,8 +93,12 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    const auto mode = parse_mode(argv[1]);
-    const auto record_index = parse_number<std::uint64_t>(argv[3]);
+    const bool m7_synthetic = std::string_view(argv[1]) == "--m7-synthetic";
+    const int mode_index = m7_synthetic ? 2 : 1;
+    const auto mode = parse_mode(argv[mode_index]);
+    const auto record_index = m7_synthetic
+        ? std::optional<std::uint64_t>{0U}
+        : parse_number<std::uint64_t>(argv[3]);
     const auto payload_bytes = parse_number<std::uint64_t>(argv[4]);
     const auto query_count = parse_number<std::size_t>(argv[5]);
     const auto warmup_count = parse_number<std::size_t>(argv[6]);
@@ -99,19 +115,42 @@ int main(int argc, char** argv) {
         return 2;
     }
 
+    std::filesystem::path store_root;
+    BenchmarkSyntheticStoreReady synthetic_ready;
+    if (m7_synthetic) {
+        const std::filesystem::path case_root = argv[3];
+        if (case_root.empty()) {
+            std::cerr << "M7 synthetic case root cannot be empty\n";
+            return 2;
+        }
+        store_root = case_root / "store";
+    } else {
+        store_root = argv[2];
+    }
+
+    const auto setup_started = std::chrono::steady_clock::now();
+    std::string error;
+    if (m7_synthetic &&
+        !zevryon::massivedoc::build_m7_synthetic_benchmark_store(
+            store_root,
+            *payload_bytes,
+            &synthetic_ready,
+            &error)) {
+        std::cerr << "M7 synthetic benchmark store build failed: " << error << '\n';
+        return 1;
+    }
+
     BenchmarkSessionConfig config;
-    config.store_root = argv[2];
-    config.record_index = *record_index;
+    config.store_root = store_root;
+    config.record_index = m7_synthetic ? synthetic_ready.record_index : *record_index;
     config.payload_bytes = *payload_bytes;
     config.virtual_slice_bytes = *slice_bytes;
     config.viewport_width_px = *viewport_width;
     config.viewport_height_px = *viewport_height;
     config.max_fragments = *max_fragments;
 
-    const auto setup_started = std::chrono::steady_clock::now();
     MassiveDocBenchmarkSession session;
     BenchmarkSessionReady ready;
-    std::string error;
     if (!session.open(*mode, config, &ready, &error)) {
         std::cerr << "persistent benchmark session open failed: " << error << '\n';
         return 1;
@@ -145,7 +184,19 @@ int main(int argc, char** argv) {
               << "\"native_total_height_q8\":" << ready.native_total_height_q8 << ','
               << "\"native_checkpoint_bytes\":" << ready.native_checkpoint_bytes << ','
               << "\"internal_setup_seconds\":" << internal_setup_seconds << ','
-              << "\"normalized_leadership_evidence\":false"
+              << "\"source_authority\":\""
+              << (m7_synthetic ? kM7SourceAuthority : kLegacySourceAuthority)
+              << "\","
+              << "\"record_index\":" << config.record_index << ',';
+    if (m7_synthetic) {
+        std::cout << "\"store_payload_sha256\":\""
+                  << synthetic_ready.payload_sha256 << "\","
+                  << "\"store_physical_bytes\":" << synthetic_ready.physical_bytes << ',';
+    } else {
+        std::cout << "\"store_payload_sha256\":null,"
+                  << "\"store_physical_bytes\":0,";
+    }
+    std::cout << "\"normalized_leadership_evidence\":false"
               << "}\n"
               << std::flush;
 
