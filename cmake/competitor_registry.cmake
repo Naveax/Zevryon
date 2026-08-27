@@ -66,6 +66,11 @@ if(BUILD_TESTING)
       COMMAND
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_benchmark_runner_tests.py")
+    add_test(
+      NAME competitor-normalized-core-evidence-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/browser_competitor_normalized_core_evidence_tests.py")
   else()
     foreach(_test_name IN ITEMS
         competitor-registry-tests
@@ -80,7 +85,8 @@ if(BUILD_TESTING)
         competitor-webdriver-runtime-tests
         competitor-scenario-contract-tests
         competitor-case-executor-tests
-        competitor-benchmark-runner-tests)
+        competitor-benchmark-runner-tests
+        competitor-normalized-core-evidence-tests)
       add_test(NAME "${_test_name}" COMMAND "${CMAKE_COMMAND}" -E false)
     endforeach()
   endif()
