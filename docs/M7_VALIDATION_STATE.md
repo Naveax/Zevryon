@@ -36,22 +36,37 @@ That admission includes everything previously admitted through `d598b7fbb2db1215
 
 The legacy Zevryon process-per-query summary remains diagnostic-only.
 
-## Prepared follow-on scope
+## Current exact-head candidate
 
-The next candidate is intentionally prepared as an unadmitted descendant rather than described here by a self-referential commit SHA. Its scope contains:
+The branch candidate is `fcd211776675993a8ce7ad0954f2134b24389143`. Its exact-head run is `33125276373`, attempt `1`. It is not admitted until that run completes successfully across every required gate.
 
-- canonical publication manifest binding collection admission, all raw evidence SHA-256 receipts and exact clean Git commit/tree;
+This candidate adds:
+
 - M0-backed system-fingerprint v2 using OS/release, architecture, logical CPU count, CPU model, physical RAM and device class;
 - stronger Windows CPU model discovery through the existing M0 benchmark metadata authority;
 - preservation of the full M0 machine/thermal receipt alongside the stable fingerprint;
 - explicit physical-host certification for M7 leadership evidence using the existing M0 `physical_certification_checks()` rule;
 - mandatory physical-device confirmation and observed thermal evidence at runtime-preflight and browser-full-set collection boundaries;
-- a canonical `m7_zevryon_physical_case.py` wrapper that captures and certifies raw M0 machine/thermal receipts immediately before and after each normalized Zevryon mode;
+- canonical `m7_zevryon_physical_case.py` capture of certified raw M0 machine/thermal receipts immediately before and after both normalized Zevryon modes;
 - collection admission that recomputes all six physical-host receipts and rejects forged embedded Zevryon physical evidence;
-- publication of physical-host certification receipts inside the immutable evidence-bundle manifest;
-- CTest authority coverage for physical-host evidence, physical Zevryon case binding and publication-manifest fail-closed behavior.
+- canonical publication-manifest authority binding raw evidence hashes, physical receipts, runtime identities, evaluator result and exact clean Git commit/tree.
 
-This follow-on scope is not admitted until the exact branch head containing it completes one successful validation run. Parent success is not evidence for an unvalidated descendant.
+## Prepared follow-on scope
+
+While the exact-head candidate validates, the next child is kept unreferenced. It adds publication replay rather than trusting an already-written admission JSON:
+
+- re-hash all four canonical raw artifacts;
+- constrain every raw artifact path to the declared `artifact_root` after canonical path resolution;
+- reject `..`, absolute out-of-root paths and other resolved path escapes before raw evidence is read;
+- re-read runtime preflight, browser 6x2 evidence and both physical Zevryon mode artifacts;
+- recompute `admit_collection()` from those four raw artifacts;
+- require the stored admission JSON to equal the recomputed admission field-for-field, apart from its explicit `input_artifacts` receipts;
+- publish an admission-replay receipt containing the exact raw artifact SHA-256 set;
+- bind that replay receipt into the immutable publication-manifest payload;
+- require replay SHA receipts to equal the manifest's independently verified artifact SHA receipts;
+- preserve both Zevryon before/after physical-host receipts in manifest validation.
+
+This follow-on scope is not admitted by the parent run. It requires its own exact-head validation after the current candidate is admitted. Parent success is not evidence for an unvalidated descendant.
 
 ## Canonical evidence discipline
 
@@ -66,7 +81,8 @@ Leadership evidence additionally requires:
 - same-system comparability under the canonical system fingerprint;
 - successful exact-runtime preflight;
 - successful M0 physical-host certification for preflight, browser collection and both before/after Zevryon case boundaries;
-- successful collection admission before the five-metric result is published.
+- successful collection admission before the five-metric result is published;
+- publication replay from the exact four raw artifacts before a canonical manifest can be produced.
 
 Missing runtime evidence is incomplete evidence, not a zero or a substituted engine. Branded Chrome/Edge may not be replaced by bundled Chromium. Servo/Ladybird may not be replaced by another WebDriver implementation.
 
