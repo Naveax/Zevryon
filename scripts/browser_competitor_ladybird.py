@@ -28,6 +28,11 @@ class LadybirdLaunchPlan:
     webdriver_url: str
 
 
+def _expand_binary_path(path: str) -> str:
+    """Expand the user home without rewriting path separator semantics."""
+    return os.path.expanduser(path)
+
+
 def resolve_ladybird_webdriver_binary(
     explicit: str | None = None,
     *,
@@ -37,11 +42,11 @@ def resolve_ladybird_webdriver_binary(
     env = os.environ if environment is None else environment
     candidate = explicit or env.get(LADYBIRD_WEBDRIVER_BINARY_ENV)
     if candidate:
-        return str(Path(candidate).expanduser())
+        return _expand_binary_path(candidate)
 
     discovered = which("WebDriver")
     if discovered:
-        return str(Path(discovered).expanduser())
+        return _expand_binary_path(discovered)
 
     raise LadybirdAdapterUnavailable(
         "Ladybird WebDriver binary is unavailable; pass an explicit path, set "
@@ -50,7 +55,7 @@ def resolve_ladybird_webdriver_binary(
 
 
 def build_ladybird_launch_plan(binary: str, port: int) -> LadybirdLaunchPlan:
-    normalized_binary = str(Path(binary).expanduser())
+    normalized_binary = _expand_binary_path(binary)
     if not normalized_binary.strip():
         raise LadybirdAdapterInvalid("Ladybird WebDriver binary path cannot be blank")
     if not isinstance(port, int) or isinstance(port, bool) or port < 1 or port > 65535:

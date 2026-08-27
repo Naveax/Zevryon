@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
-from pathlib import Path
 import shutil
 from typing import Callable, Mapping
 
@@ -28,6 +27,11 @@ class ServoLaunchPlan:
     identity_command: tuple[str, ...]
 
 
+def _expand_binary_path(path: str) -> str:
+    """Expand the user home without rewriting path separator semantics."""
+    return os.path.expanduser(path)
+
+
 def resolve_servo_binary(
     explicit: str | None = None,
     *,
@@ -37,11 +41,11 @@ def resolve_servo_binary(
     env = os.environ if environment is None else environment
     candidate = explicit or env.get(SERVO_BINARY_ENV)
     if candidate:
-        return str(Path(candidate).expanduser())
+        return _expand_binary_path(candidate)
 
     discovered = which("servo") or which("servoshell")
     if discovered:
-        return str(Path(discovered).expanduser())
+        return _expand_binary_path(discovered)
 
     raise ServoAdapterUnavailable(
         "Servo binary is unavailable; pass an explicit path, set "
@@ -50,7 +54,7 @@ def resolve_servo_binary(
 
 
 def build_servo_launch_plan(binary: str, port: int) -> ServoLaunchPlan:
-    normalized_binary = str(Path(binary).expanduser())
+    normalized_binary = _expand_binary_path(binary)
     if not normalized_binary.strip():
         raise ServoAdapterInvalid("Servo binary path cannot be blank")
     if not isinstance(port, int) or isinstance(port, bool) or port < 1 or port > 65535:
