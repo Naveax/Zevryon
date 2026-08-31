@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: m4-unicode-search-authority-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   unicode-17-authority:
