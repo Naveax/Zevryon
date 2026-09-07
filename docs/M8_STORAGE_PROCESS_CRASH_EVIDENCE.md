@@ -16,6 +16,14 @@ Exit code `86` is reserved by this test authority as the injected abrupt-exit re
 
 This is process-termination evidence. It is **not** physical power-loss, torn-sector, volatile-drive-cache-loss, kernel-panic or storage-device-failure certification. Every emitted report therefore carries `power_loss_certified: false`.
 
+## Fresh-process receipt rule
+
+The controller launches every seed, crash, retry/resume and recovery probe as a separate operating-system process and records the child PID returned by the process launcher.
+
+For every crash case, the crash PID and immediate recovery PID must differ. For every retry/resume case, the mutation PID and its subsequent recovery PID must also differ. A case without these raw PID receipts cannot claim fresh-process recovery merely by setting a summary boolean.
+
+PID receipts prove process separation for this harness. They do not elevate process termination into physical power-loss evidence.
+
 ## Publication matrix
 
 The controller must execute all five publication cuts independently from fresh fixture roots:
@@ -64,10 +72,13 @@ A passing machine-readable report must contain:
 - injected crash exit code;
 - the complete ordered publication and compaction cut lists;
 - one terminal result for every required cut;
+- seed, crash and recovery PIDs for every crash case;
+- retry/resume and subsequent recovery PIDs where applicable;
+- a verified fresh-process receipt for every individual case;
 - recovery object after every crash;
 - retry/resume recovery object where required;
 - quarantine receipt counts;
-- `fresh_process_recovery: true`;
+- `fresh_process_recovery: true` and `fresh_process_receipts_verified: true` only after every per-case process receipt passes;
 - `power_loss_certified: false`;
 - top-level `gate_passed: true` only when every case independently passes.
 
@@ -75,7 +86,7 @@ Recovery validation must check the committed generation, deterministic source-id
 
 ## Failure semantics
 
-Any missing cut, unexpected exit code, timeout, invalid recovery JSON, wrong generation, identity drift, authority payload drift, segment inventory drift, retry failure, resume failure or quarantine-count mismatch makes the report fail closed.
+Any missing cut, unexpected exit code, timeout, missing or invalid process receipt, invalid recovery JSON, wrong generation, identity drift, authority payload drift, segment inventory drift, retry failure, resume failure or quarantine-count mismatch makes the report fail closed.
 
 A failed raw report must be preserved as failure evidence rather than rerunning the identical binary/input until it happens to pass. A code fix creates a new exact candidate and a new evidence run.
 
