@@ -6,7 +6,18 @@ Raw profile input schema: `zevryon.m8.profile-observations.v1`.
 
 Recomputed gate output schema: `zevryon.m8.profile-gate.v1` with authority `m8-four-profile-no-compensation-v1`.
 
-This gate exists so final M8 certification cannot treat one device profile as representative of another or trust hand-authored `score_100` fields.
+This gate exists so final M8 certification cannot treat one device profile as representative of another or trust hand-authored verdicts.
+
+## Exact top-level schema
+
+A raw input document contains exactly these top-level fields:
+
+- `schema`;
+- `candidate_commit`;
+- `candidate_tree`;
+- `observations`.
+
+Missing fields or any extra top-level field make the evidence invalid. In particular, collector-authored `gate_passed`, `score_100`, `checks` or equivalent verdict fields are forbidden rather than ignored.
 
 ## Exact profile set
 
@@ -58,7 +69,7 @@ This slice validates the binding format and preserves the identifiers. Final art
 
 Every one of the four observations is evaluated independently.
 
-Top-level `gate_passed` is true only if all four recomputed per-profile `score_100` values are true. A desktop surplus cannot compensate for a legacy-phone miss. Passing a hard cap does not compensate for missing the stricter target when `score_100` requires both.
+Top-level `gate_passed` in the recomputed output is true only if all four recomputed per-profile `score_100` values are true. A desktop surplus cannot compensate for a legacy-phone miss. Passing a hard cap does not compensate for missing the stricter target when `score_100` requires both.
 
 The Titan adversarial dimensions are also recomputed independently through the canonical evaluator. One byte below any required Titan threshold fails that profile's score.
 
