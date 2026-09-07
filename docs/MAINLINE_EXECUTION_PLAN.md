@@ -134,7 +134,8 @@ Implementation state:
 - [x] Add the destructive child-process crash runner over every frozen publication/compaction cut and emit machine-readable fresh-process restart evidence; admitted by PR #134 exact-head run `34107984010`.
 - [x] Bind Titan giant-record, unbroken-token and pathological-grapheme dimensions into the `score_100` evaluator authority so none can be omitted or compensated.
 - [ ] Collect and admit raw full-Titan evidence proving every content-envelope dimension, including the three adversarial size axes.
-- [ ] Certify every device profile against its hard memory cap and frozen latency/throughput limits.
+- [x] Implement the strict raw four-profile no-compensation evaluator authority with exact profile-set enforcement and recomputed `score_100` results.
+- [ ] Collect and admit real raw observations for every device profile against its hard memory cap and frozen latency/throughput limits.
 - [ ] Add and execute the continuous 24-hour soak gate.
 - [ ] Add and execute at least ten million mixed mutations with deterministic integrity receipts.
 - [ ] Add Unicode, serializer, index and sequence property-fuzzing evidence authorities.
