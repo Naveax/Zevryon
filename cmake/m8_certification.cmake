@@ -110,6 +110,12 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_profile_case_collector_tests.py")
 
     add_test(
+      NAME m8-profile-case-provenance-verifier-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_profile_case_provenance_verifier_tests.py")
+
+    add_test(
       NAME m8-mixed-mutation-authority-tests
       COMMAND
         "${Python3_EXECUTABLE}"
