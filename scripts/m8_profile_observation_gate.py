@@ -23,6 +23,7 @@ from zevryon_platform.performance_contract import (  # noqa: E402
 INPUT_SCHEMA = "zevryon.m8.profile-observations.v1"
 OUTPUT_SCHEMA = "zevryon.m8.profile-gate.v1"
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
+TOP_LEVEL_FIELDS = {"schema", "candidate_commit", "candidate_tree", "observations"}
 
 OBSERVATION_FIELDS = (
     "device_class",
@@ -112,6 +113,11 @@ def parse_observation(raw: Any) -> BenchmarkObservation:
 
 def evaluate_document(document: Any, raw_bytes: bytes) -> tuple[dict[str, Any], bool]:
     require(isinstance(document, dict), "profile evidence must be a JSON object")
+    actual_top_level = set(document)
+    missing_top_level = sorted(TOP_LEVEL_FIELDS - actual_top_level)
+    extra_top_level = sorted(actual_top_level - TOP_LEVEL_FIELDS)
+    require(not missing_top_level, "profile evidence missing top-level fields: " + ", ".join(missing_top_level))
+    require(not extra_top_level, "profile evidence contains non-raw top-level fields: " + ", ".join(extra_top_level))
     require(document.get("schema") == INPUT_SCHEMA, "profile evidence schema mismatch")
 
     commit = document.get("candidate_commit")
