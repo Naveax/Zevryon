@@ -9,8 +9,9 @@ import tempfile
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_ROOT = SOURCE_ROOT / "scripts"
-if str(SCRIPT_ROOT) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_ROOT))
+for import_root in (SOURCE_ROOT, SCRIPT_ROOT):
+    if str(import_root) not in sys.path:
+        sys.path.insert(0, str(import_root))
 
 import m8_final_evidence_binder as binder  # noqa: E402
 from m8_bundle_common import EvidenceInvalid, canonical_json, sha256_bytes  # noqa: E402
