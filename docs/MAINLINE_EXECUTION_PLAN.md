@@ -131,8 +131,9 @@ Implementation state:
 - [x] Expose publication cuts after payload flush, PREPARE, durable manifest temp, published manifest and COMMIT while preserving historical cut numeric values.
 - [x] Expose a resumable compaction cut after the first durable stale-manifest quarantine while preserving historical compaction cut numeric values.
 - [x] Wire `m8-storage-crash-cut-tests` into the normal CTest path to verify pre-COMMIT non-promotion, same-generation retry, post-COMMIT recovery and resumable partial quarantine.
-- [ ] Add the destructive child-process crash runner over every frozen publication/compaction cut and emit machine-readable restart evidence.
-- [ ] Bind the full Titan adversarial envelope, including giant-record, unbroken-token and pathological-grapheme dimensions, into final certification evidence.
+- [x] Add the destructive child-process crash runner over every frozen publication/compaction cut and emit machine-readable fresh-process restart evidence; admitted by PR #134 exact-head run `34107984010`.
+- [x] Bind Titan giant-record, unbroken-token and pathological-grapheme dimensions into the `score_100` evaluator authority so none can be omitted or compensated.
+- [ ] Collect and admit raw full-Titan evidence proving every content-envelope dimension, including the three adversarial size axes.
 - [ ] Certify every device profile against its hard memory cap and frozen latency/throughput limits.
 - [ ] Add and execute the continuous 24-hour soak gate.
 - [ ] Add and execute at least ten million mixed mutations with deterministic integrity receipts.
