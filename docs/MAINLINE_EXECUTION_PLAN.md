@@ -137,7 +137,8 @@ Implementation state:
 - [x] Implement the strict raw four-profile no-compensation evaluator authority with exact profile-set enforcement and recomputed `score_100` results.
 - [ ] Collect and admit real raw observations for every device profile against its hard memory cap and frozen latency/throughput limits.
 - [ ] Add and execute the continuous 24-hour soak gate.
-- [ ] Add and execute at least ten million mixed mutations with deterministic integrity receipts.
+- [x] Implement the deterministic mixed-mutation integrity authority with terminal raw receipts, five-class coverage, snapshot verification and a 50,000-operation CI smoke path.
+- [ ] Execute and admit a certification-mode mixed-mutation run with at least 10,000,000 completed operations and deterministic integrity receipts.
 - [ ] Add Unicode, serializer, index and sequence property-fuzzing evidence authorities.
 - [ ] Build the final M8 evidence binder that recomputes every gate and rejects compensation, hand-authored pass booleans or mixed-run cherry-picking.
 - [ ] Publish final certification only with zero crash/OOM, data corruption, invalid UTF-8 output or logical-order mismatch.
