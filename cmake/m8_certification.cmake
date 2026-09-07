@@ -28,5 +28,11 @@ if(BUILD_TESTING)
         --probe "$<TARGET_FILE:zevryon-m8-storage-crash-probe>"
         --work-dir "${CMAKE_CURRENT_BINARY_DIR}/m8-storage-process-crash"
         --output "${CMAKE_CURRENT_BINARY_DIR}/evidence/m8/storage-process-crash.json")
+
+    add_test(
+      NAME m8-profile-observation-gate-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_profile_observation_gate_tests.py")
   endif()
 endif()
