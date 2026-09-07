@@ -13,7 +13,10 @@ from m8_profile_observation_gate import EvidenceInvalid as ProfileEvidenceInvali
 _original_gate = implementation.gate
 _original_validate_profile = implementation.validate_profile
 _original_load_bundle_plan = implementation.load_bundle_plan
+_original_exclusive_write = implementation.exclusive_write
 _current_root: Path | None = None
+_current_plan: dict[str, Any] | None = None
+_current_plan_raw: bytes | None = None
 
 
 def _strict_gate(condition: bool, message: str) -> None:
@@ -30,9 +33,14 @@ def _strict_validate_profile(raw: bytes, plan: dict[str, Any]) -> dict[str, Any]
 
 
 def _capture_root(artifact_root: Path, verify_current: bool = True):
-    global _current_root
+    global _current_root, _current_plan, _current_plan_raw
     _current_root = Path(artifact_root).resolve()
-    return _original_load_bundle_plan(artifact_root, verify_current=verify_current)
+    _current_plan = None
+    _current_plan_raw = None
+    plan, raw = _original_load_bundle_plan(artifact_root, verify_current=verify_current)
+    _current_plan = plan
+    _current_plan_raw = raw
+    return plan, raw
 
 
 def _load_json(raw: bytes, label: str) -> dict[str, Any]:
@@ -161,11 +169,38 @@ def _strict_validate_profile_receipt(value: Any, plan: dict[str, Any], raw: byte
     return value
 
 
+def _strict_exclusive_write(path: Path, text: str) -> None:
+    if _current_root is not None and _current_plan is not None and _current_plan_raw is not None:
+        final_path = implementation.resolve_contained(_current_root, _current_plan["final_output"], "final output")
+        if Path(path).resolve(strict=False) == final_path:
+            try:
+                value = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise EvidenceInvalid(f"final decision is not valid JSON: {exc}") from exc
+            if not isinstance(value, dict):
+                raise EvidenceInvalid("final decision must be a JSON object")
+            if value.get("schema") == implementation.FINAL_SCHEMA and value.get("gate_passed") is False:
+                bindings = {
+                    "bundle_id": _current_plan["bundle_id"],
+                    "candidate_commit": _current_plan["candidate_commit"],
+                    "candidate_tree": _current_plan["candidate_tree"],
+                    "bundle_plan_sha256": sha256_bytes(_current_plan_raw),
+                }
+                enriched = dict(value)
+                for key, wanted in bindings.items():
+                    if key in enriched and enriched[key] != wanted:
+                        raise EvidenceInvalid(f"final decision {key} conflicts with frozen bundle identity")
+                    enriched[key] = wanted
+                text = implementation.canonical_json(enriched)
+    _original_exclusive_write(path, text)
+
+
 def main() -> int:
     implementation.gate = _strict_gate
     implementation.validate_profile = _strict_validate_profile
     implementation.load_bundle_plan = _capture_root
     implementation.validate_profile_receipt = _strict_validate_profile_receipt
+    implementation.exclusive_write = _strict_exclusive_write
     return implementation.main()
 
 
