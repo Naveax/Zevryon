@@ -50,6 +50,14 @@ if(BUILD_TESTING)
     PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-m8-profile-runtime-policy-probe)
 
+  add_executable(
+    zevryon-m8-profile-case-probe
+    tests/m8_profile_case_probe.cpp)
+  target_link_libraries(
+    zevryon-m8-profile-case-probe
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-m8-profile-case-probe)
+
   find_package(Python3 QUIET COMPONENTS Interpreter)
   if(Python3_Interpreter_FOUND)
     add_test(
@@ -75,6 +83,13 @@ if(BUILD_TESTING)
         --work-dir "${CMAKE_CURRENT_BINARY_DIR}/m8-titan-fixture-smoke")
 
     add_test(
+      NAME m8-titan-fixture-utf8-authority-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_titan_fixture_utf8_tests.py"
+        --work-dir "${CMAKE_CURRENT_BINARY_DIR}/m8-titan-fixture-utf8-smoke")
+
+    add_test(
       NAME m8-profile-runtime-policy-tests
       COMMAND
         "${Python3_EXECUTABLE}"
@@ -86,6 +101,26 @@ if(BUILD_TESTING)
       COMMAND
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_profile_collection_binder_tests.py")
+
+    add_test(
+      NAME m8-profile-case-probe-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_profile_case_probe_utf8_tests.py"
+        --probe "$<TARGET_FILE:zevryon-m8-profile-case-probe>"
+        --work-dir "${CMAKE_CURRENT_BINARY_DIR}/m8-profile-case-probe-smoke")
+
+    add_test(
+      NAME m8-profile-case-collector-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_profile_case_collector_tests.py")
+
+    add_test(
+      NAME m8-profile-case-provenance-verifier-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_profile_case_provenance_verifier_tests.py")
 
     add_test(
       NAME m8-mixed-mutation-authority-tests

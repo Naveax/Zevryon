@@ -190,8 +190,11 @@ std::uint64_t anchored_scroll(const ScrollAnchor& anchor, std::uint64_t original
 } // namespace
 
 struct LayoutWindowEngine::Impl {
-    explicit Impl(const std::filesystem::path& root_value, LayoutConfig config_value)
-        : root(root_value), config(config_value), store(root_value), arena(root_value) {}
+    explicit Impl(
+        const std::filesystem::path& root_value,
+        LayoutConfig config_value,
+        const StoreReadConfig& store_read_config)
+        : root(root_value), config(config_value), store(root_value, store_read_config), arena(root_value) {}
 
     std::filesystem::path root;
     LayoutConfig config;
@@ -438,7 +441,13 @@ struct LayoutWindowEngine::Impl {
 };
 
 LayoutWindowEngine::LayoutWindowEngine(const std::filesystem::path& store_root, LayoutConfig config)
-    : impl_(std::make_unique<Impl>(store_root, config)) {}
+    : LayoutWindowEngine(store_root, config, StoreReadConfig{}) {}
+
+LayoutWindowEngine::LayoutWindowEngine(
+    const std::filesystem::path& store_root,
+    LayoutConfig config,
+    const StoreReadConfig& store_read_config)
+    : impl_(std::make_unique<Impl>(store_root, config, store_read_config)) {}
 
 LayoutWindowEngine::~LayoutWindowEngine() = default;
 
