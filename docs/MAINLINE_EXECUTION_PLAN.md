@@ -142,5 +142,5 @@ Implementation state:
 - [ ] Execute and admit a certification-mode mixed-mutation run with at least 10,000,000 completed operations and deterministic integrity receipts.
 - [x] Implement the deterministic Unicode, serializer, index and sequence property-fuzz authority with per-domain receipts and same-seed replay smoke coverage.
 - [ ] Execute and admit certification-mode property fuzzing with at least 10,000 completed cases in each of the four domains.
-- [ ] Build the final M8 evidence binder that recomputes every gate and rejects compensation, hand-authored pass booleans or mixed-run cherry-picking.
+- [x] Build and admit the final M8 evidence binder v2 that recomputes every gate and rejects compensation, hand-authored profile observations and mixed-run cherry-picking; admitted by PR #143 exact-head run `34141947892` on `183eb00a45e92a3a3a4dcd5d7fc6b8eeca60495a`, squash-merged as canonical `ba02e59f47cdbf5314d5eca4c51282aac9a78e68`.
 - [ ] Publish final certification only with zero crash/OOM, data corruption, invalid UTF-8 output or logical-order mismatch.
