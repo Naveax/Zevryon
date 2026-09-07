@@ -1,3 +1,28 @@
+bool generation_quarantine_uncommitted_manifest(
+    const std::filesystem::path& store_root,
+    const std::filesystem::path& path,
+    std::string* error) {
+    if (!generation_ensure_directory(
+            generation_quarantine_root(store_root),
+            "cannot create generation quarantine directory",
+            error)) {
+        return false;
+    }
+    const auto destination = generation_unique_quarantine_path(
+        store_root, path.filename().string() + ".uncommitted");
+    std::error_code rename_error;
+    std::filesystem::rename(path, destination, rename_error);
+    if (rename_error) {
+        *error = "cannot quarantine uncommitted generation manifest: " +
+                 rename_error.message();
+        return false;
+    }
+    if (!generation_durable_sync_directory(path.parent_path(), error)) {
+        return false;
+    }
+    return generation_durable_sync_directory(destination.parent_path(), error);
+}
+
 std::filesystem::path store_generation_path(
     const std::filesystem::path& store_root,
     std::uint64_t generation) {
@@ -61,18 +86,17 @@ bool publish_store_generation(
     const auto final_path = store_generation_path(store_root, generation);
     const auto temporary_path = generation_temporary_path(store_root, generation);
     std::error_code exists_error;
-    if (std::filesystem::exists(final_path, exists_error)) {
-        if (exists_error) {
-            *error = "cannot inspect generation final file";
-        } else {
-            *error = "generation final file already exists";
-        }
+    const bool final_exists = std::filesystem::exists(final_path, exists_error);
+    if (exists_error) {
+        *error = "cannot inspect generation final file";
         return false;
     }
-    if (exists_error || !generation_remove_stale_temp(temporary_path, error)) {
-        if (exists_error) {
-            *error = "cannot inspect generation final file";
-        }
+    if (final_exists &&
+        !generation_quarantine_uncommitted_manifest(
+            store_root, final_path, error)) {
+        return false;
+    }
+    if (!generation_remove_stale_temp(temporary_path, error)) {
         return false;
     }
 
