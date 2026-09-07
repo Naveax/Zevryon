@@ -34,6 +34,14 @@ if(BUILD_TESTING)
     PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-m8-continuous-soak-probe)
 
+  add_executable(
+    zevryon-m8-property-fuzz-probe
+    tests/m8_property_fuzz_probe.cpp)
+  target_link_libraries(
+    zevryon-m8-property-fuzz-probe
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-m8-property-fuzz-probe)
+
   find_package(Python3 QUIET COMPONENTS Interpreter)
   if(Python3_Interpreter_FOUND)
     add_test(
@@ -66,5 +74,13 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_continuous_soak_probe_tests.py"
         --probe "$<TARGET_FILE:zevryon-m8-continuous-soak-probe>"
         --work-dir "${CMAKE_CURRENT_BINARY_DIR}/m8-continuous-soak-smoke")
+
+    add_test(
+      NAME m8-property-fuzz-authority-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_property_fuzz_probe_tests.py"
+        --probe "$<TARGET_FILE:zevryon-m8-property-fuzz-probe>"
+        --work-dir "${CMAKE_CURRENT_BINARY_DIR}/m8-property-fuzz-smoke")
   endif()
 endif()
