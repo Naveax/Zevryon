@@ -1,6 +1,7 @@
 #include "massivedoc_benchmark_session.hpp"
 #include "zenith_process_memory_pressure.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -63,6 +64,8 @@ struct SoakState {
     std::uint64_t current_rss_bytes{0U};
     std::uint64_t peak_rss_bytes{0U};
     std::uint64_t rolling_digest{0U};
+    std::uint64_t last_checkpoint_elapsed_ms{0U};
+    std::uint64_t max_checkpoint_gap_ms{0U};
     double max_virtualized_query_ms{0.0};
     double max_native_query_ms{0.0};
 };
@@ -131,8 +134,9 @@ bool parse_args(int argc, char** argv, Config* config, std::string* error) {
         *error = "--work-dir is required";
         return false;
     }
-    if (config->duration_seconds == 0U) {
-        *error = "duration must be positive";
+    if (config->duration_seconds == 0U ||
+        config->duration_seconds > std::numeric_limits<std::uint64_t>::max() / 1000ULL) {
+        *error = "duration must be a positive millisecond-safe value";
         return false;
     }
     if (config->payload_bytes < kMinimumPayloadBytes) {
@@ -157,6 +161,11 @@ std::uint64_t process_id() noexcept {
 std::uint64_t elapsed_ms(Clock::time_point started) noexcept {
     return static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - started).count());
+}
+
+std::uint64_t minimum_checkpoint_count(std::uint64_t target_ms, std::uint64_t checkpoint_ms) noexcept {
+    const std::uint64_t nominal = target_ms / checkpoint_ms;
+    return nominal > 0U ? nominal - 1U : 0U;
 }
 
 std::string json_escape(std::string_view text) {
@@ -250,6 +259,18 @@ private:
     std::ofstream file_;
 };
 
+std::string setup_failure_event(std::string_view stage, std::string_view error) {
+    std::ostringstream stream;
+    stream << "{\"schema\":\"zevryon.m8.soak-event.v1\","
+           << "\"authority\":\"m8-continuous-dual-mode-soak-v1\","
+           << "\"event\":\"setup-failure\","
+           << "\"process_id\":" << process_id() << ','
+           << "\"stage\":\"" << json_escape(stage) << "\","
+           << "\"failure_reason\":\"" << json_escape(error) << "\","
+           << "\"gate_passed\":false}";
+    return stream.str();
+}
+
 bool capture_memory(SoakState* state, std::string* error) {
     ZenithProcessMemorySnapshot snapshot;
     std::string capture_error;
@@ -308,7 +329,10 @@ std::string start_event(
     return stream.str();
 }
 
-std::string checkpoint_event(const SoakState& state, std::uint64_t elapsed) {
+std::string checkpoint_event(
+    const SoakState& state,
+    std::uint64_t elapsed,
+    std::uint64_t checkpoint_gap_ms) {
     std::ostringstream stream;
     stream << std::setprecision(17)
            << "{\"schema\":\"zevryon.m8.soak-event.v1\","
@@ -317,6 +341,8 @@ std::string checkpoint_event(const SoakState& state, std::uint64_t elapsed) {
            << "\"process_id\":" << process_id() << ','
            << "\"ordinal\":" << state.checkpoints << ','
            << "\"elapsed_ms\":" << elapsed << ','
+           << "\"checkpoint_gap_ms\":" << checkpoint_gap_ms << ','
+           << "\"max_checkpoint_gap_ms\":" << state.max_checkpoint_gap_ms << ','
            << "\"virtualized_queries\":" << state.virtualized_queries << ','
            << "\"native_queries\":" << state.native_queries << ','
            << "\"rolling_digest\":\"" << hex64(state.rolling_digest) << "\","
@@ -337,14 +363,17 @@ std::string complete_event(
     bool passed,
     std::string_view failure_reason) {
     const std::uint64_t target_ms = config.duration_seconds * 1000ULL;
-    const std::uint64_t minimum_checkpoints = target_ms / checkpoint_ms;
+    const std::uint64_t minimum_checkpoints = minimum_checkpoint_count(target_ms, checkpoint_ms);
     const bool duration_met = elapsed >= target_ms;
     const bool checkpoint_coverage = state.checkpoints >= minimum_checkpoints;
+    const bool checkpoint_gap_within_limit =
+        state.checkpoints == 0U || state.max_checkpoint_gap_ms <= checkpoint_ms * 2ULL;
     const bool dual_mode_queries = state.virtualized_queries > 0U && state.native_queries > 0U;
-    const bool certification_eligible = config.certification && duration_met && checkpoint_coverage &&
-        dual_mode_queries && passed;
-    const bool gate_passed = passed && duration_met && checkpoint_coverage && dual_mode_queries &&
-        (!config.certification || certification_eligible);
+    const bool memory_evidence = state.memory_samples > 0U && state.memory_snapshot_failures == 0U;
+    const bool query_evidence = state.query_failures == 0U && state.rolling_digest != 0U;
+    const bool base_gate = passed && duration_met && checkpoint_coverage && checkpoint_gap_within_limit &&
+        dual_mode_queries && memory_evidence && query_evidence;
+    const bool certification_eligible = config.certification && base_gate;
 
     std::ostringstream stream;
     stream << std::setprecision(17)
@@ -356,8 +385,10 @@ std::string complete_event(
            << "\"elapsed_ms\":" << elapsed << ','
            << "\"duration_target_met\":" << (duration_met ? "true" : "false") << ','
            << "\"checkpoint_coverage_met\":" << (checkpoint_coverage ? "true" : "false") << ','
+           << "\"checkpoint_gap_within_limit\":" << (checkpoint_gap_within_limit ? "true" : "false") << ','
            << "\"checkpoint_count\":" << state.checkpoints << ','
            << "\"minimum_checkpoint_count\":" << minimum_checkpoints << ','
+           << "\"max_checkpoint_gap_ms\":" << state.max_checkpoint_gap_ms << ','
            << "\"virtualized_queries\":" << state.virtualized_queries << ','
            << "\"native_queries\":" << state.native_queries << ','
            << "\"rolling_digest\":\"" << hex64(state.rolling_digest) << "\","
@@ -375,7 +406,7 @@ std::string complete_event(
     } else {
         stream << '"' << json_escape(failure_reason) << '"';
     }
-    stream << ",\"gate_passed\":" << (gate_passed ? "true" : "false") << '}';
+    stream << ",\"gate_passed\":" << (base_gate ? "true" : "false") << '}';
     return stream.str();
 }
 
@@ -405,6 +436,15 @@ bool query_once(
     return true;
 }
 
+bool write_setup_failure(EventWriter* writer, std::string_view stage, std::string_view error) {
+    std::string write_error;
+    if (!writer->write(setup_failure_event(stage, error), &write_error)) {
+        std::cerr << "M8 soak setup-failure receipt write failed: " << write_error << '\n';
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -412,12 +452,6 @@ int main(int argc, char** argv) {
     std::string error;
     if (!parse_args(argc, argv, &config, &error)) {
         std::cerr << "M8 soak configuration invalid: " << error << '\n';
-        return 1;
-    }
-
-    EventWriter writer;
-    if (!writer.open(config, &error)) {
-        std::cerr << "M8 soak event-log initialization failed: " << error << '\n';
         return 1;
     }
 
@@ -433,6 +467,12 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    EventWriter writer;
+    if (!writer.open(config, &error)) {
+        std::cerr << "M8 soak event-log initialization failed: " << error << '\n';
+        return 1;
+    }
+
     const auto setup_started = Clock::now();
     const auto store_root = config.work_dir / "store";
     BenchmarkSyntheticStoreReady store_ready;
@@ -441,7 +481,14 @@ int main(int argc, char** argv) {
             config.payload_bytes,
             &store_ready,
             &error)) {
+        write_setup_failure(&writer, "synthetic-store", error);
         std::cerr << "M8 soak synthetic store build failed: " << error << '\n';
+        return 2;
+    }
+    if (store_ready.payload_bytes != config.payload_bytes || store_ready.payload_sha256.empty()) {
+        error = "synthetic-store authority receipt drifted";
+        write_setup_failure(&writer, "synthetic-store-receipt", error);
+        std::cerr << "M8 soak setup failed: " << error << '\n';
         return 2;
     }
 
@@ -460,11 +507,21 @@ int main(int argc, char** argv) {
     BenchmarkSessionReady virtual_ready;
     BenchmarkSessionReady native_ready;
     if (!virtualized.open(BenchmarkSessionMode::Virtualized, session_config, &virtual_ready, &error)) {
+        write_setup_failure(&writer, "virtualized-open", error);
         std::cerr << "M8 soak virtualized open failed: " << error << '\n';
         return 2;
     }
     if (!native.open(BenchmarkSessionMode::NativeDom, session_config, &native_ready, &error)) {
+        write_setup_failure(&writer, "native-open", error);
         std::cerr << "M8 soak native open failed: " << error << '\n';
+        return 2;
+    }
+    if (virtual_ready.payload_bytes != store_ready.payload_bytes ||
+        native_ready.payload_bytes != store_ready.payload_bytes ||
+        native_ready.native_total_height_q8 == 0U || native_ready.native_checkpoint_bytes == 0U) {
+        error = "persistent session ready receipt drifted";
+        write_setup_failure(&writer, "session-ready", error);
+        std::cerr << "M8 soak setup failed: " << error << '\n';
         return 2;
     }
 
@@ -481,6 +538,7 @@ int main(int argc, char** argv) {
     for (std::size_t index = 0U; index < kWarmupQueriesPerMode; ++index) {
         if (!query_once(&virtualized, &virtual_generator, BenchmarkSessionMode::Virtualized, &state, &error) ||
             !query_once(&native, &native_generator, BenchmarkSessionMode::NativeDom, &state, &error)) {
+            write_setup_failure(&writer, "warmup", error);
             std::cerr << "M8 soak warmup failed: " << error << '\n';
             return 2;
         }
@@ -496,6 +554,7 @@ int main(int argc, char** argv) {
     }
 
     const auto started = Clock::now();
+    const std::uint64_t target_ms = config.duration_seconds * 1000ULL;
     std::uint64_t next_checkpoint_ms = checkpoint_ms;
     std::uint64_t next_memory_sample_ms = 0U;
     bool passed = true;
@@ -519,20 +578,27 @@ int main(int argc, char** argv) {
             next_memory_sample_ms = elapsed + memory_sample_ms;
         }
 
-        while (elapsed >= next_checkpoint_ms) {
+        if (elapsed >= next_checkpoint_ms) {
+            const std::uint64_t gap = state.checkpoints == 0U
+                ? elapsed
+                : elapsed - state.last_checkpoint_elapsed_ms;
+            state.last_checkpoint_elapsed_ms = elapsed;
+            state.max_checkpoint_gap_ms = std::max(state.max_checkpoint_gap_ms, gap);
             ++state.checkpoints;
-            if (!writer.write(checkpoint_event(state, elapsed), &error)) {
+            if (!writer.write(checkpoint_event(state, elapsed, gap), &error)) {
                 passed = false;
                 failure_reason = error;
                 break;
             }
-            next_checkpoint_ms += checkpoint_ms;
-        }
-        if (!passed) {
-            break;
+            if (gap > checkpoint_ms * 2ULL) {
+                passed = false;
+                failure_reason = "checkpoint continuity gap exceeded twice the frozen interval";
+                break;
+            }
+            next_checkpoint_ms = elapsed + checkpoint_ms;
         }
 
-        if (elapsed >= config.duration_seconds * 1000ULL) {
+        if (elapsed >= target_ms) {
             break;
         }
     }
@@ -558,16 +624,19 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (!passed) {
-        std::cerr << "M8 soak failure: " << failure_reason << '\n';
-        return 2;
-    }
-
-    const std::uint64_t minimum_checkpoints = (config.duration_seconds * 1000ULL) / checkpoint_ms;
-    if (final_elapsed < config.duration_seconds * 1000ULL ||
-        state.checkpoints < minimum_checkpoints ||
-        state.virtualized_queries == 0U || state.native_queries == 0U) {
-        std::cerr << "M8 soak terminal coverage gate failed\n";
+    const std::uint64_t minimum_checkpoints = minimum_checkpoint_count(target_ms, checkpoint_ms);
+    const bool terminal_gate = passed && final_elapsed >= target_ms &&
+        state.checkpoints >= minimum_checkpoints &&
+        (state.checkpoints == 0U || state.max_checkpoint_gap_ms <= checkpoint_ms * 2ULL) &&
+        state.virtualized_queries > 0U && state.native_queries > 0U &&
+        state.memory_samples > 0U && state.memory_snapshot_failures == 0U &&
+        state.query_failures == 0U && state.rolling_digest != 0U;
+    if (!terminal_gate) {
+        if (!failure_reason.empty()) {
+            std::cerr << "M8 soak failure: " << failure_reason << '\n';
+        } else {
+            std::cerr << "M8 soak terminal coverage gate failed\n";
+        }
         return 2;
     }
     return 0;
