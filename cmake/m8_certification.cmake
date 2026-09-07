@@ -83,6 +83,13 @@ if(BUILD_TESTING)
         --work-dir "${CMAKE_CURRENT_BINARY_DIR}/m8-titan-fixture-smoke")
 
     add_test(
+      NAME m8-titan-fixture-utf8-authority-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_titan_fixture_utf8_tests.py"
+        --work-dir "${CMAKE_CURRENT_BINARY_DIR}/m8-titan-fixture-utf8-smoke")
+
+    add_test(
       NAME m8-profile-runtime-policy-tests
       COMMAND
         "${Python3_EXECUTABLE}"
@@ -99,7 +106,7 @@ if(BUILD_TESTING)
       NAME m8-profile-case-probe-tests
       COMMAND
         "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_profile_case_probe_tests.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_profile_case_probe_utf8_tests.py"
         --probe "$<TARGET_FILE:zevryon-m8-profile-case-probe>"
         --work-dir "${CMAKE_CURRENT_BINARY_DIR}/m8-profile-case-probe-smoke")
 
