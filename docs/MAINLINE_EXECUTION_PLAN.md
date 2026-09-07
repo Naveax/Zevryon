@@ -123,10 +123,19 @@ One leadership decision consumes one complete evidence bundle. Repeats may be co
 
 ## M8 — 100/100 gate
 
-- Full certified adversarial envelope.
-- Every device profile within its hard cap.
-- 24-hour soak.
-- Ten million mixed mutations.
-- Crash injection during every storage transaction stage.
-- Unicode, serializer, index and sequence property fuzzing.
-- Zero crash/OOM, data corruption, invalid UTF-8 output or logical-order mismatch.
+Final M8 certification remains no-compensation: every required axis must independently pass from raw evidence.
+
+Implementation state:
+
+- [x] Freeze the deterministic storage crash-cut contract without relabeling cut-return tests as real process/power-loss evidence.
+- [x] Expose publication cuts after payload flush, PREPARE, durable manifest temp, published manifest and COMMIT while preserving historical cut numeric values.
+- [x] Expose a resumable compaction cut after the first durable stale-manifest quarantine while preserving historical compaction cut numeric values.
+- [x] Wire `m8-storage-crash-cut-tests` into the normal CTest path to verify pre-COMMIT non-promotion, same-generation retry, post-COMMIT recovery and resumable partial quarantine.
+- [ ] Add the destructive child-process crash runner over every frozen publication/compaction cut and emit machine-readable restart evidence.
+- [ ] Bind the full Titan adversarial envelope, including giant-record, unbroken-token and pathological-grapheme dimensions, into final certification evidence.
+- [ ] Certify every device profile against its hard memory cap and frozen latency/throughput limits.
+- [ ] Add and execute the continuous 24-hour soak gate.
+- [ ] Add and execute at least ten million mixed mutations with deterministic integrity receipts.
+- [ ] Add Unicode, serializer, index and sequence property-fuzzing evidence authorities.
+- [ ] Build the final M8 evidence binder that recomputes every gate and rejects compensation, hand-authored pass booleans or mixed-run cherry-picking.
+- [ ] Publish final certification only with zero crash/OOM, data corruption, invalid UTF-8 output or logical-order mismatch.

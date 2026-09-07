@@ -19,6 +19,9 @@ enum class GenerationPublicationCut : std::uint32_t {
     none = 0U,
     after_prepare = 1U,
     after_manifest = 2U,
+    after_payload_flush = 3U,
+    after_manifest_temp = 4U,
+    after_commit = 5U,
 };
 
 struct GenerationRecovery {
@@ -36,6 +39,7 @@ enum class GenerationCompactionCut : std::uint32_t {
     none = 0U,
     after_journal_temp = 1U,
     after_journal_replace = 2U,
+    after_stale_quarantine = 3U,
 };
 
 struct GenerationCompactionConfig {

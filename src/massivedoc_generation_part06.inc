@@ -258,6 +258,9 @@ bool compact_store_generation_metadata(
             return false;
         }
         ++result->quarantined_stale_manifests;
+        if (cut == GenerationCompactionCut::after_stale_quarantine) {
+            return true;
+        }
     }
     if (iteration_error) {
         *error = "cannot enumerate generation manifests during compaction: " +
