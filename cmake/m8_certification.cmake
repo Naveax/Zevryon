@@ -60,6 +60,13 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_profile_observation_gate_tests.py")
 
     add_test(
+      NAME m8-titan-fixture-authority-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_titan_fixture_tests.py"
+        --work-dir "${CMAKE_CURRENT_BINARY_DIR}/m8-titan-fixture-smoke")
+
+    add_test(
       NAME m8-mixed-mutation-authority-tests
       COMMAND
         "${Python3_EXECUTABLE}"
