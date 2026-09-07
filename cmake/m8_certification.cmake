@@ -127,6 +127,12 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_final_evidence_raw_recomputation_tests.py")
 
     add_test(
+      NAME m8-final-diagnostic-identity-binding-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_final_evidence_diagnostic_binding_tests.py")
+
+    add_test(
       NAME m8-profile-case-probe-tests
       COMMAND
         "${Python3_EXECUTABLE}"
