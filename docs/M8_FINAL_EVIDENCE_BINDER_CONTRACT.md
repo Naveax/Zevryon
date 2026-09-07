@@ -19,7 +19,9 @@ The plan freezes:
 - exact clean Git tree;
 - exact artifact and receipt paths;
 - exact final-output path;
-- SHA-256 of every source file that implements an M8 certification authority or final binder.
+- SHA-256 of the explicitly frozen authority entrypoints, probes and orchestration sources listed by `AUTHORITY_SOURCE_FILES`.
+
+The exact Git tree is the complete candidate-content authority and therefore binds every tracked implementation file, including supporting/internal modules that are not duplicated in the explicit authority-source hash list. The explicit source hashes are an additional drift receipt for the files that define or launch certification authorities; they do not replace the full-tree binding.
 
 The artifact root must not be inside the source repository. Evidence generation therefore cannot make the candidate tree dirty merely by writing results.
 
@@ -58,6 +60,8 @@ The four-device raw observation document is imported exactly once through `m8_bu
 Before import the canonical `m8_profile_observation_gate.evaluate_document()` authority is rerun from raw observations. The document must bind the same exact candidate commit and tree frozen in the bundle plan.
 
 Invalid profile evidence seals a failure receipt. Valid but nonpassing profile evidence remains valid failure evidence and returns exit status `2`.
+
+A hand-authored profile JSON is not certification evidence merely because it satisfies the schema. The raw observation document must come from an admitted measurement collector whose own receipts bind every measured field to the frozen candidate and measurement environment. Until that collector is admitted and real observations are collected, the physical-profile axis remains open.
 
 ## Final recomputation rule
 
@@ -172,4 +176,4 @@ A structurally valid failure and an invalid evidence package are deliberately di
 
 ## Certification boundary
 
-Passing the binder certifies only the M8 contract for the exact frozen candidate represented by that bundle. It does not manufacture missing physical M7 competitor evidence and does not convert fresh-process crash evidence into physical power-loss evidence.
+Passing the binder certifies only the M8 contract for the exact frozen candidate represented by that bundle. It does not manufacture missing physical M7 competitor evidence, does not convert fresh-process crash evidence into physical power-loss evidence, and does not turn a hand-authored profile observation document into measured device evidence.
