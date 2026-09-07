@@ -79,6 +79,9 @@ bool publish_store_generation(
     if (!generation_durable_flush_store_payload(store_root, segments, error)) {
         return false;
     }
+    if (cut == GenerationPublicationCut::after_payload_flush) {
+        return true;
+    }
     if (!generation_append_journal_record(
             store_root,
             generation,
@@ -91,8 +94,13 @@ bool publish_store_generation(
         return true;
     }
 
-    if (!generation_write_durable_temp(temporary_path, generation_bytes, error) ||
-        !generation_publish_no_replace(temporary_path, final_path, error)) {
+    if (!generation_write_durable_temp(temporary_path, generation_bytes, error)) {
+        return false;
+    }
+    if (cut == GenerationPublicationCut::after_manifest_temp) {
+        return true;
+    }
+    if (!generation_publish_no_replace(temporary_path, final_path, error)) {
         return false;
     }
     if (cut == GenerationPublicationCut::after_manifest) {
@@ -106,6 +114,9 @@ bool publish_store_generation(
             fingerprint,
             error)) {
         return false;
+    }
+    if (cut == GenerationPublicationCut::after_commit) {
+        return true;
     }
 
     GenerationRecovery committed;
