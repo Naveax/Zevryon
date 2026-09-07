@@ -115,6 +115,12 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_bundle_import_profile_tests.py")
 
     add_test(
+      NAME m8-final-profile-receipt-v2-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_final_evidence_profile_receipt_v2_tests.py")
+
+    add_test(
       NAME m8-profile-case-probe-tests
       COMMAND
         "${Python3_EXECUTABLE}"
