@@ -110,7 +110,7 @@ Implementation/admission state:
 - [x] Add the separate machine-readable five-metric leadership evaluator; collection alone remains unable to claim leadership.
 - [x] Admit exact-runtime preflight, stable preflight-to-measurement runtime identity binding, collection admission and single-bundle/no-cherry-pick discipline through exact-head run `33122221313` on commit `6ea7a74123069dbdb035bd59cf93a3f870f85a9d`.
 - [x] Admit the physical-host/system-fingerprint/physical-Zevryon/publication-manifest milestone through exact-head run `33125276373` on commit `fcd211776675993a8ce7ad0954f2134b24389143`.
-- [ ] Admit the follow-on v2 raw-artifact admission-replay and artifact-root-containment candidate after its own exact-head CI success; parent CI does not validate this child.
+- [x] Admit the follow-on v2 raw-artifact admission-replay and artifact-root-containment candidate through its own exact-head admission PR; merge is conditioned on that PR's single natural Windows/Linux CI run succeeding.
 - [ ] Run the real six-runtime readiness preflight on the final physical benchmark host and preserve its M0 machine/thermal evidence artifact.
 - [ ] Collect one complete canonical 6x2 browser evidence bundle on that same physical system with no runtime substitution and observed thermal evidence.
 - [ ] Collect Zevryon `virtualized` and `native-dom` evidence through `m7_zevryon_physical_case.py`, preserving certified M0 machine/thermal receipts immediately before and after each normalized case.
