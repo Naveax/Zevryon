@@ -12,9 +12,9 @@ An M7 milestone is admitted only when one exact-head run completes successfully 
 
 CI waiting is not a reason to stop unrelated work. New work may be prepared as unreferenced Git objects/commits while an existing run executes, but no ref movement may create a duplicate active run for the same exact candidate.
 
-## Last admitted milestone
+## Last admitted implementation milestone
 
-`main` is admitted through:
+`main` is admitted through the physical-host/publication-v1 implementation milestone:
 
 - commit: `fcd211776675993a8ce7ad0954f2134b24389143`;
 - tree: `4352204712eb5956a2417d8c3494f93a0d370a87`;
@@ -36,9 +36,25 @@ That admission includes everything previously admitted through `6ea7a74123069dbd
 
 The push of this exact admitted SHA to `main` may produce its own workflow run. That run is additional main-ref CI evidence; it is not a reason to rerun the already successful branch exact-head validation.
 
-## Prepared follow-on scope
+## V2 replay admission closure
 
-The next child is intentionally unadmitted until its own exact-head CI succeeds. It adds publication replay and final pre-evidence schema freezing:
+The v2 raw-artifact replay implementation is already present in the current `main` ancestry. The historical implementation commit `a2d94dc99a76476f6e8c5d0ab2d195e83bbc8c13` did not itself receive an Actions run, so ancestor/parent CI must not be retroactively treated as its exact-head admission.
+
+The canonical closure is therefore a fresh admission PR based on the current `main` tree. That PR makes no product-semantic change to the replay implementation and is admissible only if its single natural exact-head `Windows and Linux CI` run succeeds. No rerun or equivalent dispatch is allowed while that run is queued or in progress.
+
+The exact-head suite must include and pass the existing v2 authorities:
+
+- `m7-collection-admission-tests`;
+- `m7-admission-replay-tests`;
+- `m7-evidence-bundle-manifest-tests`;
+- Linux and Windows build/headless suites;
+- Linux and Windows Unicode authority;
+- Apple backend removal guard;
+- real Win32 and Linux i386 address-space gates.
+
+After that exact tree is admitted and merged without changing its tree, the v2 scope is considered closed and the next canonical work is physical evidence collection, not another replay implementation rewrite.
+
+The admitted v2 scope contains:
 
 - physical-host collection admission schema `zevryon.competitor.collection-admission.v2`;
 - replay-capable publication schema `zevryon.competitor.evidence-bundle-manifest.v2`;
@@ -52,8 +68,6 @@ The next child is intentionally unadmitted until its own exact-head CI succeeds.
 - bind that replay receipt into the immutable publication-manifest payload;
 - require replay SHA receipts to equal the manifest's independently verified artifact SHA receipts;
 - preserve both Zevryon before/after physical-host receipts in manifest validation.
-
-Parent success is not evidence for this follow-on child. It requires one new exact-head validation run after its ref is advanced.
 
 ## Canonical evidence discipline
 
