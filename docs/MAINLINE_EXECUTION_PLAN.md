@@ -136,7 +136,8 @@ Implementation state:
 - [ ] Collect and admit raw full-Titan evidence proving every content-envelope dimension, including the three adversarial size axes.
 - [x] Implement the strict raw four-profile no-compensation evaluator authority with exact profile-set enforcement and recomputed `score_100` results.
 - [ ] Collect and admit real raw observations for every device profile against its hard memory cap and frozen latency/throughput limits.
-- [ ] Add and execute the continuous 24-hour soak gate.
+- [x] Implement the continuous dual-mode soak authority with monotonic checkpoint continuity, process-memory receipts and a short CI smoke using the same code path.
+- [ ] Execute and admit one continuous certification-mode soak lasting at least 86,400 measured seconds after setup/warmup.
 - [x] Implement the deterministic mixed-mutation integrity authority with terminal raw receipts, five-class coverage, snapshot verification and a 50,000-operation CI smoke path.
 - [ ] Execute and admit a certification-mode mixed-mutation run with at least 10,000,000 completed operations and deterministic integrity receipts.
 - [ ] Add Unicode, serializer, index and sequence property-fuzzing evidence authorities.
