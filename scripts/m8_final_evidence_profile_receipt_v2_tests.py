@@ -116,7 +116,7 @@ def test_valid_and_tamper() -> None:
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)
         observations, plan, receipt = make_fixture(root)
-        subject._current_root = root
+        subject._current_root = root.resolve()
         assert subject._strict_validate_profile_receipt(receipt, plan, observations) is receipt
         target = root / subject.PROFILE_SUPPORT_PATHS["legacy-phone.provenance"]
         target.write_bytes(target.read_bytes() + b" ")
@@ -132,7 +132,7 @@ def test_external_and_candidate_binding() -> None:
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)
         observations, plan, receipt = make_fixture(root)
-        subject._current_root = root
+        subject._current_root = root.resolve()
         bad = copy.deepcopy(receipt)
         bad["external_artifacts"]["titan_container"]["sha256"] = "f" * 64
         try:
