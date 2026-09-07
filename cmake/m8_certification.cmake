@@ -82,5 +82,13 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_property_fuzz_probe_tests.py"
         --probe "$<TARGET_FILE:zevryon-m8-property-fuzz-probe>"
         --work-dir "${CMAKE_CURRENT_BINARY_DIR}/m8-property-fuzz-smoke")
+
+    add_test(
+      NAME m8-final-evidence-binder-tests
+      COMMAND
+        "${CMAKE_COMMAND}" -E env
+        "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}"
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_final_evidence_binder_tests.py")
   endif()
 endif()
