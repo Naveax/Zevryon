@@ -142,5 +142,5 @@ Implementation state:
 - [ ] Execute and admit a certification-mode mixed-mutation run with at least 10,000,000 completed operations and deterministic integrity receipts.
 - [x] Implement the deterministic Unicode, serializer, index and sequence property-fuzz authority with per-domain receipts and same-seed replay smoke coverage.
 - [ ] Execute and admit certification-mode property fuzzing with at least 10,000 completed cases in each of the four domains.
-- [ ] Build the final M8 evidence binder that recomputes every gate and rejects compensation, hand-authored pass booleans or mixed-run cherry-picking.
-- [ ] Publish final certification only with zero crash/OOM, data corruption, invalid UTF-8 output or logical-order mismatch.
+- [x] Implement the pre-frozen single-bundle final evidence binder with create-only artifact slots, exact candidate/source hashing and raw no-compensation recomputation.
+- [ ] Execute one complete frozen M8 certification bundle and publish final certification only with zero crash/OOM, data corruption, invalid UTF-8 output or logical-order mismatch.
