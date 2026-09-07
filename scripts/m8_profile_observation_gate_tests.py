@@ -111,6 +111,12 @@ def test_hand_authored_score_field_is_rejected() -> None:
     expect_invalid(value, "non-raw fields")
 
 
+def test_hand_authored_top_level_verdict_is_rejected() -> None:
+    value = document()
+    value["gate_passed"] = True
+    expect_invalid(value, "non-raw top-level fields")
+
+
 def test_adversarial_titan_dimension_is_recomputed() -> None:
     value = document()
     observations = value["observations"]
@@ -136,6 +142,7 @@ def main() -> int:
     test_one_profile_failure_cannot_be_compensated()
     test_missing_or_duplicate_profile_is_invalid_evidence()
     test_hand_authored_score_field_is_rejected()
+    test_hand_authored_top_level_verdict_is_rejected()
     test_adversarial_titan_dimension_is_recomputed()
     test_nonfinite_json_is_invalid()
     print("Zevryon M8 four-profile observation gate tests passed")
