@@ -4,11 +4,13 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import hashlib
+import itertools
 import json
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 from typing import Any
 
 SCHEMA = "zevryon.m8.storage-process-crash.v1"
@@ -25,6 +27,7 @@ COMPACTION_CUTS = (
     "after-journal-replace",
     "after-stale-quarantine",
 )
+_INVOCATION_COUNTER = itertools.count(1)
 
 
 class CrashGateInvalid(RuntimeError):
@@ -33,7 +36,10 @@ class CrashGateInvalid(RuntimeError):
 
 @dataclass(frozen=True)
 class ProbeResult:
+    invocation_id: int
     pid: int
+    started_monotonic_ns: int
+    ended_monotonic_ns: int
     returncode: int
     stdout: str
     stderr: str
@@ -59,12 +65,24 @@ def expected_identity_hex(generation: int) -> str:
     return "".join(f"{(generation * 17 + index) & 0xff:02x}" for index in range(32))
 
 
+def process_receipt(result: ProbeResult) -> dict[str, int]:
+    return {
+        "invocation_id": result.invocation_id,
+        "pid": result.pid,
+        "started_monotonic_ns": result.started_monotonic_ns,
+        "ended_monotonic_ns": result.ended_monotonic_ns,
+        "returncode": result.returncode,
+    }
+
+
 def run_probe(
     probe: Path,
     *args: str,
     expected_exit: int = 0,
     timeout: float = 30.0,
 ) -> ProbeResult:
+    invocation_id = next(_INVOCATION_COUNTER)
+    started_ns = time.monotonic_ns()
     process = subprocess.Popen(
         [str(probe), *args],
         text=True,
@@ -78,13 +96,19 @@ def run_probe(
     except subprocess.TimeoutExpired as exc:
         process.kill()
         stdout, stderr = process.communicate()
+        ended_ns = time.monotonic_ns()
         raise CrashGateInvalid(
             "probe timed out for "
             + " ".join(args)
-            + f"; pid={process.pid}; stdout={stdout!r}; stderr={stderr!r}"
+            + f"; invocation={invocation_id}; pid={process.pid}; "
+            + f"started_ns={started_ns}; ended_ns={ended_ns}; stdout={stdout!r}; stderr={stderr!r}"
         ) from exc
+    ended_ns = time.monotonic_ns()
     result = ProbeResult(
+        invocation_id=invocation_id,
         pid=process.pid,
+        started_monotonic_ns=started_ns,
+        ended_monotonic_ns=ended_ns,
         returncode=int(process.returncode),
         stdout=stdout,
         stderr=stderr,
@@ -93,13 +117,14 @@ def run_probe(
         raise CrashGateInvalid(
             "probe exit mismatch for "
             + " ".join(args)
-            + f": expected {expected_exit}, got {result.returncode}; pid={result.pid}; "
+            + f": expected {expected_exit}, got {result.returncode}; "
+            + f"invocation={result.invocation_id}; pid={result.pid}; "
             + f"stdout={result.stdout!r}; stderr={result.stderr!r}"
         )
     return result
 
 
-def recover(probe: Path, root: Path) -> tuple[dict[str, Any], int]:
+def recover(probe: Path, root: Path) -> tuple[dict[str, Any], ProbeResult]:
     result = run_probe(probe, "recover", str(root))
     try:
         value = json.loads(result.stdout)
@@ -107,7 +132,18 @@ def recover(probe: Path, root: Path) -> tuple[dict[str, Any], int]:
         raise CrashGateInvalid(f"recovery probe emitted invalid JSON: {result.stdout!r}") from exc
     if not isinstance(value, dict):
         raise CrashGateInvalid("recovery probe JSON is not an object")
-    return value, result.pid
+    return value, result
+
+
+def validate_fresh_successor(previous: ProbeResult, successor: ProbeResult, context: str) -> None:
+    require(
+        previous.invocation_id != successor.invocation_id,
+        f"{context}: process invocation receipt was reused",
+    )
+    require(
+        previous.ended_monotonic_ns <= successor.started_monotonic_ns,
+        f"{context}: successor recovery started before predecessor exited",
+    )
 
 
 def validate_generation(value: dict[str, Any], generation: int, context: str) -> None:
@@ -129,11 +165,7 @@ def validate_generation(value: dict[str, Any], generation: int, context: str) ->
 def count_suffix(root: Path, suffix: str) -> int:
     if not root.exists():
         return 0
-    return sum(
-        1
-        for path in root.rglob("*")
-        if path.is_file() and suffix in path.name
-    )
+    return sum(1 for path in root.rglob("*") if path.is_file() and suffix in path.name)
 
 
 def publication_case(probe: Path, base: Path, cut: str) -> dict[str, Any]:
@@ -147,19 +179,16 @@ def publication_case(probe: Path, base: Path, cut: str) -> dict[str, Any]:
         cut,
         expected_exit=INJECTED_CRASH_EXIT_CODE,
     )
-    after_crash, recovery_pid = recover(probe, root)
-    require(
-        crashed.pid != recovery_pid,
-        f"publication/{cut}: crash and recovery reused the same process id",
-    )
+    after_crash, recovery = recover(probe, root)
+    validate_fresh_successor(crashed, recovery, f"publication/{cut}/crash-recovery")
     expected_after_crash = 2 if cut == "after-commit" else 1
     validate_generation(after_crash, expected_after_crash, f"publication/{cut}/after-crash")
 
     record: dict[str, Any] = {
         "cut": cut,
-        "seed_pid": seed.pid,
-        "crash_pid": crashed.pid,
-        "recovery_pid_after_crash": recovery_pid,
+        "seed_process": process_receipt(seed),
+        "crash_process": process_receipt(crashed),
+        "recovery_process_after_crash": process_receipt(recovery),
         "injected_exit_code": crashed.returncode,
         "recovery_after_crash": after_crash,
         "uncommitted_quarantine_before_retry": count_suffix(root, ".uncommitted"),
@@ -167,14 +196,11 @@ def publication_case(probe: Path, base: Path, cut: str) -> dict[str, Any]:
 
     if cut != "after-commit":
         retry = run_probe(probe, "publish", str(root), "2", "none")
-        after_retry, retry_recovery_pid = recover(probe, root)
-        require(
-            retry.pid != retry_recovery_pid,
-            f"publication/{cut}: retry and retry-recovery reused the same process id",
-        )
+        after_retry, retry_recovery = recover(probe, root)
+        validate_fresh_successor(retry, retry_recovery, f"publication/{cut}/retry-recovery")
         validate_generation(after_retry, 2, f"publication/{cut}/after-retry")
-        record["retry_pid"] = retry.pid
-        record["recovery_pid_after_retry"] = retry_recovery_pid
+        record["retry_process"] = process_receipt(retry)
+        record["recovery_process_after_retry"] = process_receipt(retry_recovery)
         record["recovery_after_retry"] = after_retry
         record["uncommitted_quarantine_after_retry"] = count_suffix(root, ".uncommitted")
         if cut == "after-manifest":
@@ -208,11 +234,8 @@ def compaction_case(probe: Path, base: Path, cut: str) -> dict[str, Any]:
         cut,
         expected_exit=INJECTED_CRASH_EXIT_CODE,
     )
-    after_crash, recovery_pid = recover(probe, root)
-    require(
-        crashed.pid != recovery_pid,
-        f"compaction/{cut}: crash and recovery reused the same process id",
-    )
+    after_crash, recovery = recover(probe, root)
+    validate_fresh_successor(crashed, recovery, f"compaction/{cut}/crash-recovery")
     validate_generation(after_crash, 4, f"compaction/{cut}/after-crash")
 
     stale_before_finish = count_suffix(root, ".stale")
@@ -223,11 +246,8 @@ def compaction_case(probe: Path, base: Path, cut: str) -> dict[str, Any]:
     )
 
     resume = run_probe(probe, "compact", str(root), "none")
-    after_resume, resume_recovery_pid = recover(probe, root)
-    require(
-        resume.pid != resume_recovery_pid,
-        f"compaction/{cut}: resume and recovery reused the same process id",
-    )
+    after_resume, resume_recovery = recover(probe, root)
+    validate_fresh_successor(resume, resume_recovery, f"compaction/{cut}/resume-recovery")
     validate_generation(after_resume, 4, f"compaction/{cut}/after-resume")
     stale_after_finish = count_suffix(root, ".stale")
     require(
@@ -237,14 +257,14 @@ def compaction_case(probe: Path, base: Path, cut: str) -> dict[str, Any]:
 
     return {
         "cut": cut,
-        "seed_pid": seed.pid,
-        "crash_pid": crashed.pid,
-        "recovery_pid_after_crash": recovery_pid,
+        "seed_process": process_receipt(seed),
+        "crash_process": process_receipt(crashed),
+        "recovery_process_after_crash": process_receipt(recovery),
         "injected_exit_code": crashed.returncode,
         "recovery_after_crash": after_crash,
         "stale_quarantine_before_resume": stale_before_finish,
-        "resume_pid": resume.pid,
-        "recovery_pid_after_resume": resume_recovery_pid,
+        "resume_process": process_receipt(resume),
+        "recovery_process_after_resume": process_receipt(resume_recovery),
         "recovery_after_resume": after_resume,
         "stale_quarantine_after_resume": stale_after_finish,
         "fresh_process_receipt_verified": True,
@@ -276,6 +296,7 @@ def build_report(probe: Path, work_dir: Path) -> dict[str, Any]:
         "compaction_results": compaction,
         "fresh_process_recovery": True,
         "fresh_process_receipts_verified": True,
+        "process_receipt_semantics": "separate-popen-invocation-with-nonoverlapping-monotonic-lifetime-v1",
         "power_loss_certified": False,
         "gate_passed": True,
     }
