@@ -140,6 +140,7 @@ Implementation state:
 - [ ] Execute and admit one continuous certification-mode soak lasting at least 86,400 measured seconds after setup/warmup.
 - [x] Implement the deterministic mixed-mutation integrity authority with terminal raw receipts, five-class coverage, snapshot verification and a 50,000-operation CI smoke path.
 - [ ] Execute and admit a certification-mode mixed-mutation run with at least 10,000,000 completed operations and deterministic integrity receipts.
-- [ ] Add Unicode, serializer, index and sequence property-fuzzing evidence authorities.
+- [x] Implement the deterministic Unicode, serializer, index and sequence property-fuzz authority with per-domain receipts and same-seed replay smoke coverage.
+- [ ] Execute and admit certification-mode property fuzzing with at least 10,000 completed cases in each of the four domains.
 - [ ] Build the final M8 evidence binder that recomputes every gate and rejects compensation, hand-authored pass booleans or mixed-run cherry-picking.
 - [ ] Publish final certification only with zero crash/OOM, data corruption, invalid UTF-8 output or logical-order mismatch.
