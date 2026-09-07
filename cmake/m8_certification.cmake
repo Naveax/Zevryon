@@ -90,5 +90,13 @@ if(BUILD_TESTING)
         "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}"
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_final_evidence_binder_tests.py")
+
+    add_test(
+      NAME m8-final-evidence-entrypoint-tests
+      COMMAND
+        "${CMAKE_COMMAND}" -E env
+        "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}"
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_final_evidence_entrypoint_tests.py")
   endif()
 endif()
