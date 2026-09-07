@@ -103,6 +103,12 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_profile_collection_binder_tests.py")
 
     add_test(
+      NAME m8-profile-collection-binder-v2-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_profile_collection_binder_v2_tests.py")
+
+    add_test(
       NAME m8-profile-case-probe-tests
       COMMAND
         "${Python3_EXECUTABLE}"
