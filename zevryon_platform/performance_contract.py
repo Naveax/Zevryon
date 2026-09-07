@@ -37,6 +37,8 @@ class ContentEnvelope:
             raise ValueError("largest_record_bytes exceeds total logical payload")
         if self.largest_unbroken_token_bytes > self.largest_record_bytes:
             raise ValueError("largest_unbroken_token_bytes exceeds largest record")
+        if self.pathological_grapheme_bytes > self.largest_record_bytes:
+            raise ValueError("pathological_grapheme_bytes exceeds largest record")
 
 
 @dataclass(frozen=True)
@@ -111,6 +113,9 @@ class BenchmarkObservation:
     logical_nodes: int
     style_runs: int
     resource_references: int
+    largest_record_bytes: int
+    largest_unbroken_token_bytes: int
+    pathological_grapheme_bytes: int
     process_group_pss_mb: float
     first_viewport_preindexed_ms: float
     first_viewport_streaming_ms: float
@@ -133,6 +138,9 @@ def evaluate(observation: BenchmarkObservation) -> dict[str, bool]:
         "certified_nodes": observation.logical_nodes >= TITAN_WORST_CASE.logical_nodes,
         "certified_style_runs": observation.style_runs >= TITAN_WORST_CASE.style_runs,
         "certified_resources": observation.resource_references >= TITAN_WORST_CASE.resource_references,
+        "certified_largest_record": observation.largest_record_bytes >= TITAN_WORST_CASE.largest_record_bytes,
+        "certified_unbroken_token": observation.largest_unbroken_token_bytes >= TITAN_WORST_CASE.largest_unbroken_token_bytes,
+        "certified_pathological_grapheme": observation.pathological_grapheme_bytes >= TITAN_WORST_CASE.pathological_grapheme_bytes,
         "memory_target": observation.process_group_pss_mb <= profile.process_group_pss_target_mb,
         "memory_hard_cap": observation.process_group_pss_mb <= profile.process_group_pss_hard_cap_mb,
         "first_viewport_preindexed": observation.first_viewport_preindexed_ms <= profile.first_viewport_preindexed_ms,
