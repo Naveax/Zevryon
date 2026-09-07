@@ -25,7 +25,8 @@ The canonical `GenerationPublicationCut` matrix is:
 4. `after_manifest`
    - the final generation manifest has been durably published;
    - COMMIT has not been appended;
-   - the published-but-uncommitted generation must never become authority.
+   - the published-but-uncommitted generation must never become authority;
+   - an exact same-generation retry must durably move that abandoned final manifest into quarantine as `.uncommitted` evidence before republishing, rather than deleting it or treating it as committed authority.
 5. `after_commit`
    - matching PREPARE and COMMIT records plus the final manifest are durable;
    - the normal post-write self-verification has not run;
@@ -55,7 +56,8 @@ The pre-existing numeric values for `none`, `after_journal_temp`, and `after_jou
 `m8-storage-crash-cut-tests` must run through the normal CTest path on Windows and Linux. It proves the following deterministic invariants:
 
 - a cut before COMMIT cannot promote a new generation;
-- a durable manifest temp cannot poison same-generation retry;
+- durable PREPARE/temp/final pre-COMMIT states cannot permanently poison an exact same-generation retry;
+- a published-but-uncommitted final manifest is preserved as quarantine evidence before retry rather than silently discarded;
 - a cut after COMMIT is recoverable even though the normal post-write verifier never ran;
 - a cut after one stale-manifest quarantine preserves the current authority and compaction is resumable;
 - historical cut enum values do not silently change.
