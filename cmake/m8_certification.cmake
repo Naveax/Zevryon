@@ -82,6 +82,12 @@ if(BUILD_TESTING)
         --probe "$<TARGET_FILE:zevryon-m8-profile-runtime-policy-probe>")
 
     add_test(
+      NAME m8-profile-collection-binder-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_profile_collection_binder_tests.py")
+
+    add_test(
       NAME m8-mixed-mutation-authority-tests
       COMMAND
         "${Python3_EXECUTABLE}"
