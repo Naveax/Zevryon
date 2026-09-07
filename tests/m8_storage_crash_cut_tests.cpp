@@ -134,6 +134,25 @@ void require_generation(
         context + ": authority source identity drifted");
 }
 
+std::size_t count_quarantine_files_with_suffix(
+    const std::filesystem::path& root,
+    std::string_view suffix) {
+    const auto quarantine = root / "quarantine";
+    std::error_code exists_error;
+    if (!std::filesystem::exists(quarantine, exists_error)) {
+        require(!exists_error, "cannot inspect M8 quarantine directory");
+        return 0U;
+    }
+    std::size_t count = 0U;
+    for (const auto& entry : std::filesystem::directory_iterator(quarantine)) {
+        if (entry.is_regular_file() &&
+            entry.path().filename().string().find(suffix) != std::string::npos) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 void test_payload_flush_cut_cannot_create_authority() {
     auto fixture = make_fixture("m8-payload-flush-cut");
     publish(&fixture, 1U, GenerationPublicationCut::after_payload_flush);
@@ -176,6 +195,11 @@ void test_all_precommit_cuts_preserve_previous_authority() {
             recover(fixture.root),
             2U,
             std::string(names[index]) + " restart completion");
+        if (cuts[index] == GenerationPublicationCut::after_manifest) {
+            require(
+                count_quarantine_files_with_suffix(fixture.root, ".uncommitted") == 1U,
+                "published-uncommitted manifest was not preserved in quarantine before retry");
+        }
         cleanup(fixture.root);
     }
 }
@@ -186,23 +210,6 @@ void test_commit_cut_is_recoverable_without_postwrite_verifier() {
     publish(&fixture, 2U, GenerationPublicationCut::after_commit);
     require_generation(recover(fixture.root), 2U, "after-commit crash recovery");
     cleanup(fixture.root);
-}
-
-std::size_t count_stale_quarantine_files(const std::filesystem::path& root) {
-    const auto quarantine = root / "quarantine";
-    std::error_code exists_error;
-    if (!std::filesystem::exists(quarantine, exists_error)) {
-        require(!exists_error, "cannot inspect M8 stale quarantine directory");
-        return 0U;
-    }
-    std::size_t count = 0U;
-    for (const auto& entry : std::filesystem::directory_iterator(quarantine)) {
-        if (entry.is_regular_file() &&
-            entry.path().filename().string().find(".stale") != std::string::npos) {
-            ++count;
-        }
-    }
-    return count;
 }
 
 void test_compaction_post_quarantine_cut_is_recoverable_and_resumable() {
@@ -226,7 +233,7 @@ void test_compaction_post_quarantine_cut_is_recoverable_and_resumable() {
         "post-quarantine cut did not stop after the first durable stale quarantine");
     require_generation(recover(fixture.root), 4U, "post-quarantine crash recovery");
     require(
-        count_stale_quarantine_files(fixture.root) == 1U,
+        count_quarantine_files_with_suffix(fixture.root, ".stale") == 1U,
         "post-quarantine crash receipt count drifted");
 
     require(
@@ -239,7 +246,7 @@ void test_compaction_post_quarantine_cut_is_recoverable_and_resumable() {
         error);
     require_generation(recover(fixture.root), 4U, "post-quarantine resumed compaction");
     require(
-        count_stale_quarantine_files(fixture.root) == 2U,
+        count_quarantine_files_with_suffix(fixture.root, ".stale") == 2U,
         "resumed compaction did not quarantine every stale manifest");
     cleanup(fixture.root);
 }
