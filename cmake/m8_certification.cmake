@@ -42,6 +42,14 @@ if(BUILD_TESTING)
     PRIVATE zevryon-massivedoc-core)
   zevryon_options(zevryon-m8-property-fuzz-probe)
 
+  add_executable(
+    zevryon-m8-profile-runtime-policy-probe
+    tests/m8_profile_runtime_policy_probe.cpp)
+  target_link_libraries(
+    zevryon-m8-profile-runtime-policy-probe
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-m8-profile-runtime-policy-probe)
+
   find_package(Python3 QUIET COMPONENTS Interpreter)
   if(Python3_Interpreter_FOUND)
     add_test(
@@ -65,6 +73,19 @@ if(BUILD_TESTING)
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_titan_fixture_tests.py"
         --work-dir "${CMAKE_CURRENT_BINARY_DIR}/m8-titan-fixture-smoke")
+
+    add_test(
+      NAME m8-profile-runtime-policy-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_profile_runtime_policy_tests.py"
+        --probe "$<TARGET_FILE:zevryon-m8-profile-runtime-policy-probe>")
+
+    add_test(
+      NAME m8-profile-collection-binder-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/m8_profile_collection_binder_tests.py")
 
     add_test(
       NAME m8-mixed-mutation-authority-tests
