@@ -9,6 +9,8 @@
 
 namespace zevryon::massivedoc {
 
+struct StoreReadConfig;
+
 struct LayoutConfig {
     std::uint32_t average_advance_q8{8U * 256U};
     std::uint32_t line_height_q8{18U * 256U};
@@ -69,6 +71,10 @@ struct LayoutWindowResult {
 class LayoutWindowEngine {
 public:
     explicit LayoutWindowEngine(const std::filesystem::path& store_root, LayoutConfig config = {});
+    LayoutWindowEngine(
+        const std::filesystem::path& store_root,
+        LayoutConfig config,
+        const StoreReadConfig& store_read_config);
     ~LayoutWindowEngine();
 
     LayoutWindowEngine(const LayoutWindowEngine&) = delete;
