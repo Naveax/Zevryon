@@ -10,6 +10,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace {
 
@@ -119,11 +120,13 @@ bool copy_file_bytes(
     return static_cast<bool>(input) && static_cast<bool>(output);
 }
 
-bool flip_first_marker_byte(const std::filesystem::path& marker) {
+bool flip_marker_payload_byte(const std::filesystem::path& marker) {
     std::fstream stream(marker, std::ios::binary | std::ios::in | std::ios::out);
     if (!stream) {
         return false;
     }
+    constexpr std::streamoff kNodeCountOffset = 32;
+    stream.seekg(kNodeCountOffset, std::ios::beg);
     char value = 0;
     stream.read(&value, 1);
     if (!stream) {
@@ -131,7 +134,7 @@ bool flip_first_marker_byte(const std::filesystem::path& marker) {
     }
     value = static_cast<char>(static_cast<unsigned char>(value) ^ 0x01U);
     stream.clear();
-    stream.seekp(0, std::ios::beg);
+    stream.seekp(kNodeCountOffset, std::ios::beg);
     stream.write(&value, 1);
     stream.flush();
     return static_cast<bool>(stream);
@@ -220,12 +223,16 @@ bool test_marker_crc_tamper_fails_closed() {
     std::string error;
     if (!require(build_arena(root, 0x33U, &error), error) ||
         !require(
-            flip_first_marker_byte(root / "node-arena-v2" / "manifest-v2.bin"),
-            "marker tamper fixture")) {
+            flip_marker_payload_byte(
+                root / "node-arena-v2" / "manifest-v2.bin"),
+            "marker CRC tamper fixture")) {
         return false;
     }
     LogicalNodeArenaV2Reader reader(root);
-    if (!require(!reader.open(&error), "tampered v2 marker is rejected")) {
+    if (!require(!reader.open(&error), "marker with invalid CRC is rejected") ||
+        !require(
+            error.find("CRC") != std::string::npos,
+            "marker payload tamper reaches CRC authority")) {
         return false;
     }
     return true;
@@ -250,7 +257,10 @@ bool test_valid_crc_marker_transplant_fails_closed() {
     LogicalNodeArenaV2Reader reader(root_b);
     if (!require(
             !reader.open(&error),
-            "marker from another nested arena is rejected despite valid CRC")) {
+            "marker from another nested arena is rejected despite valid CRC") ||
+        !require(
+            error.find("does not bind") != std::string::npos,
+            "marker transplant reaches nested-manifest binding authority")) {
         return false;
     }
     return true;
