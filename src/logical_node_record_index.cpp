@@ -1,3 +1,7 @@
+#if !defined(_WIN32) && !defined(_FILE_OFFSET_BITS)
+#define _FILE_OFFSET_BITS 64
+#endif
+
 #include "logical_node_record_index.hpp"
 
 #include "font_content_identity.hpp"
@@ -7,10 +11,8 @@
 
 #include <algorithm>
 #include <array>
-#include <cerrno>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -22,16 +24,6 @@
 #include <utility>
 #include <vector>
 
-#if defined(_WIN32)
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#else
-#include <fcntl.h>
-#include <unistd.h>
-#endif
-
 namespace zevryon::massivedoc {
 namespace {
 
@@ -40,11 +32,15 @@ constexpr std::array<std::uint8_t, 8> kManifestMagic{
 constexpr std::size_t kManifestBytes = 152U;
 constexpr std::size_t kRecordEntryBytes = 24U;
 constexpr std::size_t kHeadEntryBytes = 32U;
-constexpr std::size_t kPostingEntryBytes = 40U;
+constexpr std::size_t kPostingEntryBytes = 48U;
 constexpr std::size_t kStoreRecordDescriptorBytes = 32U;
 constexpr std::size_t kStoreRecordLengthOffset = 16U;
 constexpr std::string_view kArenaIdentityDomain =
     "ZEVRYON-NODE-RECORD-INDEX-ARENA-V1";
+
+static_assert(
+    sizeof(std::streamoff) >= sizeof(std::int64_t),
+    "logical-node record-index builder requires 64-bit stream offsets");
 
 struct RecordEntry {
     std::uint64_t absolute_start{0U};
@@ -60,6 +56,7 @@ struct HeadEntry {
 struct PostingEntry {
     std::uint64_t node_ordinal{0U};
     std::uint64_t next_posting{kNoLogicalNodeRecordPosting};
+    std::uint64_t source_record_index{0U};
     std::uint64_t record_byte_offset{0U};
     std::uint64_t record_byte_length{0U};
 };
@@ -161,7 +158,9 @@ bool sha_update(
     std::span<const std::byte> bytes,
     std::string* error) {
     if (sha == nullptr || !sha->update(bytes)) {
-        return fail(error, "logical-node record-index arena identity exceeds SHA-256 input bounds");
+        return fail(
+            error,
+            "logical-node record-index arena identity exceeds SHA-256 input bounds");
     }
     return true;
 }
@@ -211,8 +210,10 @@ bool compute_arena_identity(
             error) ||
         !sha_update_le(&sha, manifest.format_version, error) ||
         !sha_update_le(&sha, manifest.storage_manifest.format_version, error) ||
-        !sha_update_le(&sha, manifest.storage_manifest.semantic_bucket_count, error) ||
-        !sha_update_le(&sha, manifest.storage_manifest.semantic_hash_bits, error) ||
+        !sha_update_le(
+            &sha, manifest.storage_manifest.semantic_bucket_count, error) ||
+        !sha_update_le(
+            &sha, manifest.storage_manifest.semantic_hash_bits, error) ||
         !sha_update_le(&sha, manifest.storage_manifest.node_count, error) ||
         !sha_update_le(&sha, manifest.storage_manifest.attribute_count, error)) {
         return false;
@@ -238,7 +239,9 @@ bool compute_arena_identity(
 
     zevryon::text::Sha256Digest result{};
     if (!sha.finish(&result)) {
-        return fail(error, "cannot finalize logical-node record-index arena identity");
+        return fail(
+            error,
+            "cannot finalize logical-node record-index arena identity");
     }
     for (std::size_t index = 0U; index < digest->size(); ++index) {
         (*digest)[index] = std::to_integer<std::uint8_t>(result[index]);
@@ -264,11 +267,15 @@ bool decode_record_entry(
     RecordEntry* entry,
     std::string* error) {
     if (entry == nullptr || bytes.size() != kRecordEntryBytes) {
-        return fail(error, "logical-node record-index record entry has invalid size");
+        return fail(
+            error,
+            "logical-node record-index record entry has invalid size");
     }
     if (get_le<std::uint32_t>(bytes, 16U) != 0U ||
         crc32(bytes.first(20U)) != get_le<std::uint32_t>(bytes, 20U)) {
-        return fail(error, "logical-node record-index record entry CRC/reserved mismatch");
+        return fail(
+            error,
+            "logical-node record-index record entry CRC/reserved mismatch");
     }
     entry->absolute_start = get_le<std::uint64_t>(bytes, 0U);
     entry->byte_length = get_le<std::uint64_t>(bytes, 8U);
@@ -294,11 +301,15 @@ bool decode_head_entry(
     HeadEntry* entry,
     std::string* error) {
     if (entry == nullptr || bytes.size() != kHeadEntryBytes) {
-        return fail(error, "logical-node record-index head entry has invalid size");
+        return fail(
+            error,
+            "logical-node record-index head entry has invalid size");
     }
     if (get_le<std::uint32_t>(bytes, 24U) != 0U ||
         crc32(bytes.first(28U)) != get_le<std::uint32_t>(bytes, 28U)) {
-        return fail(error, "logical-node record-index head entry CRC/reserved mismatch");
+        return fail(
+            error,
+            "logical-node record-index head entry CRC/reserved mismatch");
     }
     entry->first_posting = get_le<std::uint64_t>(bytes, 0U);
     entry->last_posting = get_le<std::uint64_t>(bytes, 8U);
@@ -307,7 +318,9 @@ bool decode_head_entry(
     if (empty !=
         (entry->first_posting == kNoLogicalNodeRecordPosting &&
          entry->last_posting == kNoLogicalNodeRecordPosting)) {
-        return fail(error, "logical-node record-index head empty-state mismatch");
+        return fail(
+            error,
+            "logical-node record-index head empty-state mismatch");
     }
     return true;
 }
@@ -317,13 +330,14 @@ std::array<std::uint8_t, kPostingEntryBytes> encode_posting_entry(
     std::array<std::uint8_t, kPostingEntryBytes> bytes{};
     put_le(&bytes, 0U, entry.node_ordinal);
     put_le(&bytes, 8U, entry.next_posting);
-    put_le(&bytes, 16U, entry.record_byte_offset);
-    put_le(&bytes, 24U, entry.record_byte_length);
-    put_le(&bytes, 32U, std::uint32_t{0U});
+    put_le(&bytes, 16U, entry.source_record_index);
+    put_le(&bytes, 24U, entry.record_byte_offset);
+    put_le(&bytes, 32U, entry.record_byte_length);
+    put_le(&bytes, 40U, std::uint32_t{0U});
     put_le(
         &bytes,
-        36U,
-        crc32(std::span<const std::uint8_t>(bytes.data(), 36U)));
+        44U,
+        crc32(std::span<const std::uint8_t>(bytes.data(), 44U)));
     return bytes;
 }
 
@@ -332,18 +346,25 @@ bool decode_posting_entry(
     PostingEntry* entry,
     std::string* error) {
     if (entry == nullptr || bytes.size() != kPostingEntryBytes) {
-        return fail(error, "logical-node record-index posting entry has invalid size");
+        return fail(
+            error,
+            "logical-node record-index posting entry has invalid size");
     }
-    if (get_le<std::uint32_t>(bytes, 32U) != 0U ||
-        crc32(bytes.first(36U)) != get_le<std::uint32_t>(bytes, 36U)) {
-        return fail(error, "logical-node record-index posting entry CRC/reserved mismatch");
+    if (get_le<std::uint32_t>(bytes, 40U) != 0U ||
+        crc32(bytes.first(44U)) != get_le<std::uint32_t>(bytes, 44U)) {
+        return fail(
+            error,
+            "logical-node record-index posting entry CRC/reserved mismatch");
     }
     entry->node_ordinal = get_le<std::uint64_t>(bytes, 0U);
     entry->next_posting = get_le<std::uint64_t>(bytes, 8U);
-    entry->record_byte_offset = get_le<std::uint64_t>(bytes, 16U);
-    entry->record_byte_length = get_le<std::uint64_t>(bytes, 24U);
+    entry->source_record_index = get_le<std::uint64_t>(bytes, 16U);
+    entry->record_byte_offset = get_le<std::uint64_t>(bytes, 24U);
+    entry->record_byte_length = get_le<std::uint64_t>(bytes, 32U);
     if (entry->record_byte_length == 0U) {
-        return fail(error, "logical-node record-index posting has zero overlap length");
+        return fail(
+            error,
+            "logical-node record-index posting has zero overlap length");
     }
     return true;
 }
@@ -383,7 +404,9 @@ bool decode_manifest(
     LogicalNodeRecordIndexManifest* manifest,
     std::string* error) {
     if (manifest == nullptr || bytes.size() != kManifestBytes) {
-        return fail(error, "logical-node record-index manifest has invalid size");
+        return fail(
+            error,
+            "logical-node record-index manifest has invalid size");
     }
     if (!std::equal(
             kManifestMagic.begin(),
@@ -394,7 +417,9 @@ bool decode_manifest(
         get_le<std::uint32_t>(bytes, 12U) != kManifestBytes ||
         get_le<std::uint32_t>(bytes, 144U) != 0U ||
         crc32(bytes.first(148U)) != get_le<std::uint32_t>(bytes, 148U)) {
-        return fail(error, "logical-node record-index manifest magic/version/CRC mismatch");
+        return fail(
+            error,
+            "logical-node record-index manifest magic/version/CRC mismatch");
     }
 
     LogicalNodeRecordIndexManifest parsed;
@@ -404,12 +429,18 @@ bool decode_manifest(
     parsed.posting_count = get_le<std::uint64_t>(bytes, 32U);
     parsed.total_source_bytes = get_le<std::uint64_t>(bytes, 40U);
     parsed.source_binding.source_record_count = parsed.source_record_count;
-    std::copy_n(bytes.begin() + 48, 32U, parsed.source_binding.payload_sha256.begin());
+    std::copy_n(
+        bytes.begin() + 48,
+        32U,
+        parsed.source_binding.payload_sha256.begin());
     std::copy_n(
         bytes.begin() + 80,
         32U,
         parsed.source_binding.record_sequence_sha256.begin());
-    std::copy_n(bytes.begin() + 112, 32U, parsed.arena_identity_sha256.begin());
+    std::copy_n(
+        bytes.begin() + 112,
+        32U,
+        parsed.arena_identity_sha256.begin());
     *manifest = parsed;
     return true;
 }
@@ -419,126 +450,80 @@ bool write_exact(
     std::span<const std::byte> bytes,
     std::string* error) {
     if (stream == nullptr || !*stream) {
-        return fail(error, "logical-node record-index output stream is not writable");
+        return fail(
+            error,
+            "logical-node record-index output stream is not writable");
+    }
+    if (bytes.size() >
+        static_cast<std::size_t>(
+            std::numeric_limits<std::streamsize>::max())) {
+        return fail(
+            error,
+            "logical-node record-index output transfer exceeds streamsize");
     }
     stream->write(
         reinterpret_cast<const char*>(bytes.data()),
         static_cast<std::streamsize>(bytes.size()));
     if (!*stream) {
-        return fail(error, "cannot write logical-node record-index staging file");
+        return fail(
+            error,
+            "cannot write logical-node record-index staging file");
     }
     return true;
 }
 
-class PositionalRwFile final {
+class RandomAccessFile final {
 public:
-    explicit PositionalRwFile(std::filesystem::path path)
+    explicit RandomAccessFile(std::filesystem::path path)
         : path_(std::move(path)) {}
 
-    ~PositionalRwFile() {
-#if defined(_WIN32)
-        if (handle_ != INVALID_HANDLE_VALUE) {
-            CloseHandle(handle_);
-        }
-#else
-        if (fd_ >= 0) {
-            ::close(fd_);
-        }
-#endif
-    }
-
-    PositionalRwFile(const PositionalRwFile&) = delete;
-    PositionalRwFile& operator=(const PositionalRwFile&) = delete;
+    RandomAccessFile(const RandomAccessFile&) = delete;
+    RandomAccessFile& operator=(const RandomAccessFile&) = delete;
 
     bool open(std::string* error) {
-#if defined(_WIN32)
-        handle_ = CreateFileW(
-            path_.c_str(),
-            GENERIC_READ | GENERIC_WRITE,
-            FILE_SHARE_READ,
-            nullptr,
-            OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL,
-            nullptr);
-        if (handle_ == INVALID_HANDLE_VALUE) {
+        stream_.open(
+            path_,
+            std::ios::binary | std::ios::in | std::ios::out);
+        if (!stream_) {
             return fail(
                 error,
-                "cannot open logical-node record-index random-write file, Win32 error " +
-                    std::to_string(GetLastError()));
+                "cannot open logical-node record-index random-access file");
         }
-#else
-        fd_ = ::open(path_.c_str(), O_RDWR);
-        if (fd_ < 0) {
-            return fail(
-                error,
-                "cannot open logical-node record-index random-write file: " +
-                    std::string(std::strerror(errno)));
-        }
-#endif
         return true;
     }
 
     bool read_exact_at(
         std::uint64_t offset,
         std::span<std::uint8_t> output,
-        std::string* error) const {
-#if defined(_WIN32)
-        std::size_t done = 0U;
-        while (done < output.size()) {
-            const std::size_t remaining = output.size() - done;
-            const DWORD request = static_cast<DWORD>(
-                std::min<std::size_t>(
-                    remaining,
-                    static_cast<std::size_t>(
-                        std::numeric_limits<DWORD>::max())));
-            const std::uint64_t absolute = offset + static_cast<std::uint64_t>(done);
-            OVERLAPPED overlap{};
-            overlap.Offset = static_cast<DWORD>(absolute & 0xffffffffULL);
-            overlap.OffsetHigh = static_cast<DWORD>(absolute >> 32U);
-            DWORD transferred = 0U;
-            if (!ReadFile(
-                    handle_,
-                    output.data() + done,
-                    request,
-                    &transferred,
-                    &overlap) ||
-                transferred == 0U) {
-                return fail(
-                    error,
-                    "cannot read logical-node record-index random-write file, Win32 error " +
-                        std::to_string(GetLastError()));
-            }
-            done += static_cast<std::size_t>(transferred);
+        std::string* error) {
+        if (!stream_) {
+            return fail(
+                error,
+                "logical-node record-index random-access file is not open");
         }
-#else
-        std::size_t done = 0U;
-        while (done < output.size()) {
-            const std::uint64_t absolute = offset + static_cast<std::uint64_t>(done);
-            if (absolute >
-                static_cast<std::uint64_t>(
-                    std::numeric_limits<off_t>::max())) {
-                return fail(error, "logical-node record-index read offset exceeds off_t");
-            }
-            const ssize_t result = ::pread(
-                fd_,
-                output.data() + done,
-                output.size() - done,
-                static_cast<off_t>(absolute));
-            if (result < 0) {
-                if (errno == EINTR) {
-                    continue;
-                }
-                return fail(
-                    error,
-                    "cannot read logical-node record-index random-write file: " +
-                        std::string(std::strerror(errno)));
-            }
-            if (result == 0) {
-                return fail(error, "unexpected EOF in logical-node record-index random-write file");
-            }
-            done += static_cast<std::size_t>(result);
+        if (offset > static_cast<std::uint64_t>(
+                         std::numeric_limits<std::streamoff>::max()) ||
+            output.size() > static_cast<std::size_t>(
+                                std::numeric_limits<std::streamsize>::max())) {
+            return fail(
+                error,
+                "logical-node record-index random-access read exceeds stream range");
         }
-#endif
+        stream_.clear();
+        stream_.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
+        if (!stream_) {
+            return fail(
+                error,
+                "cannot seek logical-node record-index random-access reader");
+        }
+        stream_.read(
+            reinterpret_cast<char*>(output.data()),
+            static_cast<std::streamsize>(output.size()));
+        if (stream_.gcount() != static_cast<std::streamsize>(output.size())) {
+            return fail(
+                error,
+                "unexpected EOF in logical-node record-index random-access file");
+        }
         return true;
     }
 
@@ -546,92 +531,56 @@ public:
         std::uint64_t offset,
         std::span<const std::uint8_t> input,
         std::string* error) {
-#if defined(_WIN32)
-        std::size_t done = 0U;
-        while (done < input.size()) {
-            const std::size_t remaining = input.size() - done;
-            const DWORD request = static_cast<DWORD>(
-                std::min<std::size_t>(
-                    remaining,
-                    static_cast<std::size_t>(
-                        std::numeric_limits<DWORD>::max())));
-            const std::uint64_t absolute = offset + static_cast<std::uint64_t>(done);
-            OVERLAPPED overlap{};
-            overlap.Offset = static_cast<DWORD>(absolute & 0xffffffffULL);
-            overlap.OffsetHigh = static_cast<DWORD>(absolute >> 32U);
-            DWORD transferred = 0U;
-            if (!WriteFile(
-                    handle_,
-                    input.data() + done,
-                    request,
-                    &transferred,
-                    &overlap) ||
-                transferred == 0U) {
-                return fail(
-                    error,
-                    "cannot write logical-node record-index random-write file, Win32 error " +
-                        std::to_string(GetLastError()));
-            }
-            done += static_cast<std::size_t>(transferred);
+        if (!stream_) {
+            return fail(
+                error,
+                "logical-node record-index random-access file is not open");
         }
-#else
-        std::size_t done = 0U;
-        while (done < input.size()) {
-            const std::uint64_t absolute = offset + static_cast<std::uint64_t>(done);
-            if (absolute >
-                static_cast<std::uint64_t>(
-                    std::numeric_limits<off_t>::max())) {
-                return fail(error, "logical-node record-index write offset exceeds off_t");
-            }
-            const ssize_t result = ::pwrite(
-                fd_,
-                input.data() + done,
-                input.size() - done,
-                static_cast<off_t>(absolute));
-            if (result < 0) {
-                if (errno == EINTR) {
-                    continue;
-                }
-                return fail(
-                    error,
-                    "cannot write logical-node record-index random-write file: " +
-                        std::string(std::strerror(errno)));
-            }
-            if (result == 0) {
-                return fail(error, "zero-byte write in logical-node record-index random-write file");
-            }
-            done += static_cast<std::size_t>(result);
+        if (offset > static_cast<std::uint64_t>(
+                         std::numeric_limits<std::streamoff>::max()) ||
+            input.size() > static_cast<std::size_t>(
+                               std::numeric_limits<std::streamsize>::max())) {
+            return fail(
+                error,
+                "logical-node record-index random-access write exceeds stream range");
         }
-#endif
+        stream_.clear();
+        stream_.seekp(static_cast<std::streamoff>(offset), std::ios::beg);
+        if (!stream_) {
+            return fail(
+                error,
+                "cannot seek logical-node record-index random-access writer");
+        }
+        stream_.write(
+            reinterpret_cast<const char*>(input.data()),
+            static_cast<std::streamsize>(input.size()));
+        if (!stream_) {
+            return fail(
+                error,
+                "cannot write logical-node record-index random-access file");
+        }
         return true;
     }
 
     bool flush(std::string* error) {
-#if defined(_WIN32)
-        if (!FlushFileBuffers(handle_)) {
+        stream_.flush();
+        if (!stream_) {
             return fail(
                 error,
-                "cannot flush logical-node record-index random-write file, Win32 error " +
-                    std::to_string(GetLastError()));
+                "cannot flush logical-node record-index random-access file");
         }
-#else
-        if (::fsync(fd_) != 0) {
-            return fail(
-                error,
-                "cannot flush logical-node record-index random-write file: " +
-                    std::string(std::strerror(errno)));
-        }
-#endif
         return true;
+    }
+
+    void close() noexcept {
+        if (stream_.is_open()) {
+            stream_.close();
+        }
     }
 
 private:
     std::filesystem::path path_;
-#if defined(_WIN32)
-    HANDLE handle_{INVALID_HANDLE_VALUE};
-#else
-    int fd_{-1};
-#endif
+    std::fstream stream_;
 };
 
 template <std::size_t N>
@@ -689,21 +638,22 @@ bool read_posting_entry_at(
 }
 
 bool read_head_entry_rw(
-    const PositionalRwFile& file,
+    RandomAccessFile* file,
     std::uint64_t record_index,
     HeadEntry* entry,
     std::string* error) {
     std::uint64_t offset = 0U;
-    if (!checked_mul(record_index, kHeadEntryBytes, &offset, error)) {
+    if (file == nullptr ||
+        !checked_mul(record_index, kHeadEntryBytes, &offset, error)) {
         return false;
     }
     std::array<std::uint8_t, kHeadEntryBytes> bytes{};
-    return file.read_exact_at(offset, bytes, error) &&
+    return file->read_exact_at(offset, bytes, error) &&
         decode_head_entry(bytes, entry, error);
 }
 
 bool write_head_entry_rw(
-    PositionalRwFile* file,
+    RandomAccessFile* file,
     std::uint64_t record_index,
     const HeadEntry& entry,
     std::string* error) {
@@ -717,21 +667,22 @@ bool write_head_entry_rw(
 }
 
 bool read_posting_entry_rw(
-    const PositionalRwFile& file,
+    RandomAccessFile* file,
     std::uint64_t posting_ordinal,
     PostingEntry* entry,
     std::string* error) {
     std::uint64_t offset = 0U;
-    if (!checked_mul(posting_ordinal, kPostingEntryBytes, &offset, error)) {
+    if (file == nullptr ||
+        !checked_mul(posting_ordinal, kPostingEntryBytes, &offset, error)) {
         return false;
     }
     std::array<std::uint8_t, kPostingEntryBytes> bytes{};
-    return file.read_exact_at(offset, bytes, error) &&
+    return file->read_exact_at(offset, bytes, error) &&
         decode_posting_entry(bytes, entry, error);
 }
 
 bool write_posting_entry_rw(
-    PositionalRwFile* file,
+    RandomAccessFile* file,
     std::uint64_t posting_ordinal,
     const PostingEntry& entry,
     std::string* error) {
@@ -757,10 +708,14 @@ struct StagingCleanup {
     bool published{false};
 };
 
-bool create_empty_file(const std::filesystem::path& path, std::string* error) {
+bool create_empty_file(
+    const std::filesystem::path& path,
+    std::string* error) {
     std::ofstream stream(path, std::ios::binary | std::ios::trunc);
     if (!stream) {
-        return fail(error, "cannot create logical-node record-index staging file");
+        return fail(
+            error,
+            "cannot create logical-node record-index staging file");
     }
     return true;
 }
@@ -791,8 +746,15 @@ bool validate_posting_overlap(
     std::uint64_t source_record_index,
     const PostingEntry& posting,
     std::string* error) {
+    if (posting.source_record_index != source_record_index) {
+        return fail(
+            error,
+            "logical-node record-index posting belongs to a different source record");
+    }
     if (posting.node_ordinal >= manifest.node_count) {
-        return fail(error, "logical-node record-index posting node ordinal is out of range");
+        return fail(
+            error,
+            "logical-node record-index posting node ordinal is out of range");
     }
 
     LogicalNodeRecord node;
@@ -801,7 +763,9 @@ bool validate_posting_overlap(
     }
     if (node.source_byte_length == 0U ||
         node.source_record_index >= manifest.source_record_count) {
-        return fail(error, "logical-node record-index posting references invalid node source span");
+        return fail(
+            error,
+            "logical-node record-index posting references invalid node source span");
     }
 
     RecordEntry node_start_record;
@@ -813,7 +777,9 @@ bool validate_posting_overlap(
         return false;
     }
     if (node.source_byte_offset > node_start_record.byte_length) {
-        return fail(error, "logical-node source offset exceeds indexed start record");
+        return fail(
+            error,
+            "logical-node source offset exceeds indexed start record");
     }
 
     std::uint64_t node_start = 0U;
@@ -833,21 +799,27 @@ bool validate_posting_overlap(
         return false;
     }
     if (node_end > manifest.total_source_bytes) {
-        return fail(error, "logical-node source span exceeds indexed source bytes");
+        return fail(
+            error,
+            "logical-node source span exceeds indexed source bytes");
     }
 
     const std::uint64_t overlap_start =
         std::max(node_start, target_record.absolute_start);
     const std::uint64_t overlap_end = std::min(node_end, target_end);
     if (overlap_start >= overlap_end) {
-        return fail(error, "logical-node record-index posting does not overlap queried record");
+        return fail(
+            error,
+            "logical-node record-index posting does not overlap queried record");
     }
     const std::uint64_t expected_offset =
         overlap_start - target_record.absolute_start;
     const std::uint64_t expected_length = overlap_end - overlap_start;
     if (posting.record_byte_offset != expected_offset ||
         posting.record_byte_length != expected_length) {
-        return fail(error, "logical-node record-index posting overlap payload is inconsistent");
+        return fail(
+            error,
+            "logical-node record-index posting overlap payload is inconsistent");
     }
     return true;
 }
@@ -889,7 +861,9 @@ bool build_logical_node_record_index(
     }
     if (!source_binding_equal(binding, arena.source_binding()) ||
         binding.source_record_count != store.stats().corpus.logical_records) {
-        return fail(error, "logical-node record-index store/arena binding mismatch");
+        return fail(
+            error,
+            "logical-node record-index store/arena binding mismatch");
     }
 
     LogicalNodeRecordIndexManifest manifest;
@@ -917,13 +891,16 @@ bool build_logical_node_record_index(
     if (!store_records.open(error) ||
         store_records.file_size() != expected_records_index_bytes) {
         if (error->empty()) {
-            *error = "records.idx size changed while building logical-node record-index";
+            *error =
+                "records.idx size changed while building logical-node record-index";
         }
         return false;
     }
 
     if (!std::filesystem::create_directory(staging)) {
-        return fail(error, "cannot create logical-node record-index staging directory");
+        return fail(
+            error,
+            "cannot create logical-node record-index staging directory");
     }
     StagingCleanup cleanup(staging);
 
@@ -931,14 +908,21 @@ bool build_logical_node_record_index(
     const std::filesystem::path heads_path = staging / "heads.bin";
     const std::filesystem::path postings_path = staging / "postings.bin";
     {
-        std::ofstream records_out(records_path, std::ios::binary | std::ios::trunc);
-        std::ofstream heads_out(heads_path, std::ios::binary | std::ios::trunc);
+        std::ofstream records_out(
+            records_path,
+            std::ios::binary | std::ios::trunc);
+        std::ofstream heads_out(
+            heads_path,
+            std::ios::binary | std::ios::trunc);
         if (!records_out || !heads_out) {
-            return fail(error, "cannot create logical-node record-index record/head tables");
+            return fail(
+                error,
+                "cannot create logical-node record-index record/head tables");
         }
 
         const std::size_t descriptors_per_batch = std::max<std::size_t>(
-            1U, kIoWindowBytes / kStoreRecordDescriptorBytes);
+            1U,
+            kIoWindowBytes / kStoreRecordDescriptorBytes);
         std::vector<std::byte> raw(
             descriptors_per_batch * kStoreRecordDescriptorBytes);
         std::uint64_t prefix = 0U;
@@ -952,21 +936,20 @@ bool build_logical_node_record_index(
                 count * kStoreRecordDescriptorBytes;
             std::span<std::byte> batch(raw.data(), byte_count);
             if (!store_records.read_exact_at(
-                    first *
-                        static_cast<std::uint64_t>(
-                            kStoreRecordDescriptorBytes),
+                    first * static_cast<std::uint64_t>(
+                                kStoreRecordDescriptorBytes),
                     batch,
                     error)) {
                 return false;
             }
 
+            const auto descriptor = std::span<const std::uint8_t>(
+                reinterpret_cast<const std::uint8_t*>(raw.data()),
+                byte_count);
             for (std::size_t relative = 0U; relative < count; ++relative) {
                 const std::size_t base =
                     relative * kStoreRecordDescriptorBytes +
                     kStoreRecordLengthOffset;
-                const auto descriptor = std::span<const std::uint8_t>(
-                    reinterpret_cast<const std::uint8_t*>(raw.data()),
-                    byte_count);
                 const std::uint64_t length =
                     get_le<std::uint64_t>(descriptor, base);
                 const auto record_bytes =
@@ -990,7 +973,9 @@ bool build_logical_node_record_index(
         records_out.flush();
         heads_out.flush();
         if (!records_out || !heads_out) {
-            return fail(error, "cannot flush logical-node record-index record/head tables");
+            return fail(
+                error,
+                "cannot flush logical-node record-index record/head tables");
         }
     }
     if (!create_empty_file(postings_path, error)) {
@@ -1001,122 +986,146 @@ bool build_logical_node_record_index(
     if (!record_table.open(error)) {
         return false;
     }
-    PositionalRwFile heads(heads_path);
-    PositionalRwFile postings(postings_path);
-    if (!heads.open(error) || !postings.open(error)) {
-        return false;
-    }
 
     std::uint64_t posting_count = 0U;
-    for (std::uint64_t node_ordinal = 0U;
-         node_ordinal < manifest.node_count;
-         ++node_ordinal) {
-        LogicalNodeRecord node;
-        if (!arena.node_by_ordinal(node_ordinal, &node, error)) {
+    {
+        RandomAccessFile heads(heads_path);
+        RandomAccessFile postings(postings_path);
+        if (!heads.open(error) || !postings.open(error)) {
             return false;
         }
-        if (node.source_byte_length == 0U) {
-            continue;
-        }
-        if (node.source_record_index >= manifest.source_record_count) {
-            return fail(error, "logical-node source record is outside record-index domain");
-        }
 
-        std::uint64_t record_index = node.source_record_index;
-        std::uint64_t local_offset = node.source_byte_offset;
-        std::uint64_t remaining = node.source_byte_length;
-        while (remaining != 0U) {
-            RecordEntry record;
-            if (!read_record_entry_at(
-                    record_table, record_index, &record, error)) {
+        for (std::uint64_t node_ordinal = 0U;
+             node_ordinal < manifest.node_count;
+             ++node_ordinal) {
+            LogicalNodeRecord node;
+            if (!arena.node_by_ordinal(node_ordinal, &node, error)) {
                 return false;
             }
-            if (local_offset > record.byte_length) {
-                return fail(error, "logical-node source offset exceeds physical record length");
+            if (node.source_byte_length == 0U) {
+                continue;
             }
-            const std::uint64_t available =
-                record.byte_length - local_offset;
-            const std::uint64_t overlap =
-                std::min(remaining, available);
-            if (overlap != 0U) {
-                if (posting_count ==
-                    std::numeric_limits<std::uint64_t>::max()) {
-                    return fail(error, "logical-node record-index posting count overflows");
-                }
+            if (node.source_record_index >= manifest.source_record_count) {
+                return fail(
+                    error,
+                    "logical-node source record is outside record-index domain");
+            }
 
-                HeadEntry head;
-                if (!read_head_entry_rw(
-                        heads, record_index, &head, error)) {
+            std::uint64_t record_index = node.source_record_index;
+            std::uint64_t local_offset = node.source_byte_offset;
+            std::uint64_t remaining = node.source_byte_length;
+            while (remaining != 0U) {
+                RecordEntry record;
+                if (!read_record_entry_at(
+                        record_table, record_index, &record, error)) {
                     return false;
                 }
-                if (head.posting_count ==
-                    std::numeric_limits<std::uint64_t>::max()) {
-                    return fail(error, "logical-node record-index per-record posting count overflows");
+                if (local_offset > record.byte_length) {
+                    return fail(
+                        error,
+                        "logical-node source offset exceeds physical record length");
                 }
-
-                const PostingEntry appended{
-                    node_ordinal,
-                    kNoLogicalNodeRecordPosting,
-                    local_offset,
-                    overlap};
-                if (!write_posting_entry_rw(
-                        &postings,
-                        posting_count,
-                        appended,
-                        error)) {
-                    return false;
-                }
-
-                if (head.posting_count == 0U) {
-                    head.first_posting = posting_count;
-                    head.last_posting = posting_count;
-                } else {
-                    if (head.last_posting >= posting_count) {
-                        return fail(error, "logical-node record-index tail ordering is invalid");
+                const std::uint64_t available =
+                    record.byte_length - local_offset;
+                const std::uint64_t overlap =
+                    std::min(remaining, available);
+                if (overlap != 0U) {
+                    if (posting_count ==
+                        std::numeric_limits<std::uint64_t>::max()) {
+                        return fail(
+                            error,
+                            "logical-node record-index posting count overflows");
                     }
-                    PostingEntry tail;
-                    if (!read_posting_entry_rw(
-                            postings,
-                            head.last_posting,
-                            &tail,
-                            error) ||
-                        tail.next_posting != kNoLogicalNodeRecordPosting) {
-                        if (error->empty()) {
-                            *error = "logical-node record-index tail is already linked";
-                        }
+
+                    HeadEntry head;
+                    if (!read_head_entry_rw(
+                            &heads, record_index, &head, error)) {
                         return false;
                     }
-                    tail.next_posting = posting_count;
+                    if (head.posting_count ==
+                        std::numeric_limits<std::uint64_t>::max()) {
+                        return fail(
+                            error,
+                            "logical-node record-index per-record posting count overflows");
+                    }
+
+                    const PostingEntry appended{
+                        node_ordinal,
+                        kNoLogicalNodeRecordPosting,
+                        record_index,
+                        local_offset,
+                        overlap};
                     if (!write_posting_entry_rw(
                             &postings,
-                            head.last_posting,
-                            tail,
+                            posting_count,
+                            appended,
                             error)) {
                         return false;
                     }
-                    head.last_posting = posting_count;
-                }
-                ++head.posting_count;
-                if (!write_head_entry_rw(
-                        &heads, record_index, head, error)) {
-                    return false;
-                }
-                ++posting_count;
-                remaining -= overlap;
-            }
 
-            if (remaining == 0U) {
-                break;
+                    if (head.posting_count == 0U) {
+                        head.first_posting = posting_count;
+                        head.last_posting = posting_count;
+                    } else {
+                        if (head.last_posting >= posting_count) {
+                            return fail(
+                                error,
+                                "logical-node record-index tail ordering is invalid");
+                        }
+                        PostingEntry tail;
+                        if (!read_posting_entry_rw(
+                                &postings,
+                                head.last_posting,
+                                &tail,
+                                error) ||
+                            tail.source_record_index != record_index ||
+                            tail.next_posting !=
+                                kNoLogicalNodeRecordPosting) {
+                            if (error->empty()) {
+                                *error =
+                                    "logical-node record-index tail identity/link is invalid";
+                            }
+                            return false;
+                        }
+                        tail.next_posting = posting_count;
+                        if (!write_posting_entry_rw(
+                                &postings,
+                                head.last_posting,
+                                tail,
+                                error)) {
+                            return false;
+                        }
+                        head.last_posting = posting_count;
+                    }
+                    ++head.posting_count;
+                    if (!write_head_entry_rw(
+                            &heads, record_index, head, error)) {
+                        return false;
+                    }
+                    ++posting_count;
+                    remaining -= overlap;
+                }
+
+                if (remaining == 0U) {
+                    break;
+                }
+                if (record_index + 1U >= manifest.source_record_count) {
+                    return fail(
+                        error,
+                        "logical-node source span escapes physical record sequence");
+                }
+                ++record_index;
+                local_offset = 0U;
             }
-            if (record_index + 1U >= manifest.source_record_count) {
-                return fail(error, "logical-node source span escapes physical record sequence");
-            }
-            ++record_index;
-            local_offset = 0U;
         }
-    }
-    if (!heads.flush(error) || !postings.flush(error)) {
-        return false;
+        if (!heads.flush(error) || !postings.flush(error)) {
+            return false;
+        }
+        // Close staging-file handles before directory publication. This is
+        // required on Windows, where open non-delete-sharing handles can block
+        // the final directory rename.
+        heads.close();
+        postings.close();
     }
 
     manifest.posting_count = posting_count;
@@ -1131,7 +1140,9 @@ bool build_logical_node_record_index(
         }
         manifest_out.flush();
         if (!manifest_out) {
-            return fail(error, "cannot flush logical-node record-index manifest");
+            return fail(
+                error,
+                "cannot flush logical-node record-index manifest");
         }
     }
 
@@ -1176,7 +1187,9 @@ bool LogicalNodeRecordIndexReader::open(std::string* error) {
     }
     error->clear();
     if (impl_->opened) {
-        return fail(error, "logical-node record-index reader is already open");
+        return fail(
+            error,
+            "logical-node record-index reader is already open");
     }
 
     const std::filesystem::path root =
@@ -1187,7 +1200,8 @@ bool LogicalNodeRecordIndexReader::open(std::string* error) {
     if (!manifest_reader.open(error) ||
         manifest_reader.file_size() != kManifestBytes) {
         if (error->empty()) {
-            *error = "logical-node record-index manifest has invalid file size";
+            *error =
+                "logical-node record-index manifest has invalid file size";
         }
         return false;
     }
@@ -1205,7 +1219,8 @@ bool LogicalNodeRecordIndexReader::open(std::string* error) {
         !source_binding_equal(
             current_binding, impl_->manifest.source_binding)) {
         if (error->empty()) {
-            *error = "logical-node record-index native-store binding mismatch";
+            *error =
+                "logical-node record-index native-store binding mismatch";
         }
         return false;
     }
@@ -1215,7 +1230,8 @@ bool LogicalNodeRecordIndexReader::open(std::string* error) {
         store.stats().corpus.logical_utf8_bytes !=
             impl_->manifest.total_source_bytes) {
         if (error->empty()) {
-            *error = "logical-node record-index total source-byte mismatch";
+            *error =
+                "logical-node record-index total source-byte mismatch";
         }
         return false;
     }
@@ -1230,7 +1246,8 @@ bool LogicalNodeRecordIndexReader::open(std::string* error) {
         impl_->arena->manifest().storage_manifest.node_count !=
             impl_->manifest.node_count) {
         if (error->empty()) {
-            *error = "logical-node record-index arena binding/count mismatch";
+            *error =
+                "logical-node record-index arena binding/count mismatch";
         }
         return false;
     }
@@ -1239,9 +1256,11 @@ bool LogicalNodeRecordIndexReader::open(std::string* error) {
             impl_->arena->manifest(),
             &current_arena_identity,
             error) ||
-        current_arena_identity != impl_->manifest.arena_identity_sha256) {
+        current_arena_identity !=
+            impl_->manifest.arena_identity_sha256) {
         if (error->empty()) {
-            *error = "logical-node record-index arena identity mismatch";
+            *error =
+                "logical-node record-index arena identity mismatch";
         }
         return false;
     }
@@ -1297,14 +1316,20 @@ bool LogicalNodeRecordIndexReader::read_record(
     *result = LogicalNodeRecordIndexWindow{};
     error->clear();
     if (!impl_->opened) {
-        return fail(error, "logical-node record-index reader is not open");
+        return fail(
+            error,
+            "logical-node record-index reader is not open");
     }
     if (source_record_index >= impl_->manifest.source_record_count) {
-        return fail(error, "logical-node record-index source record is out of range");
+        return fail(
+            error,
+            "logical-node record-index source record is out of range");
     }
     if (max_nodes == 0U ||
         max_nodes > kMaximumLogicalNodeRecordWindowNodes) {
-        return fail(error, "logical-node record-index max_nodes is outside supported bounds");
+        return fail(
+            error,
+            "logical-node record-index max_nodes is outside supported bounds");
     }
 
     HeadEntry head;
@@ -1312,13 +1337,28 @@ bool LogicalNodeRecordIndexReader::read_record(
             *impl_->heads, source_record_index, &head, error)) {
         return false;
     }
+    if (head.first_posting != kNoLogicalNodeRecordPosting &&
+        head.first_posting >= impl_->manifest.posting_count) {
+        return fail(
+            error,
+            "logical-node record-index head first posting is out of range");
+    }
+    if (head.last_posting != kNoLogicalNodeRecordPosting &&
+        head.last_posting >= impl_->manifest.posting_count) {
+        return fail(
+            error,
+            "logical-node record-index head last posting is out of range");
+    }
+
     std::uint64_t current = continuation_posting_ordinal;
     std::uint64_t expected_remaining = kNoLogicalNodeRecordPosting;
     if (current == kNoLogicalNodeRecordPosting) {
         current = head.first_posting;
         expected_remaining = head.posting_count;
     } else if (current >= impl_->manifest.posting_count) {
-        return fail(error, "logical-node record-index continuation is out of range");
+        return fail(
+            error,
+            "logical-node record-index continuation is out of range");
     }
 
     result->postings.reserve(
@@ -1327,7 +1367,9 @@ bool LogicalNodeRecordIndexReader::read_record(
     while (current != kNoLogicalNodeRecordPosting &&
            result->postings.size() < max_nodes) {
         if (current >= impl_->manifest.posting_count) {
-            return fail(error, "logical-node record-index posting link is out of range");
+            return fail(
+                error,
+                "logical-node record-index posting link is out of range");
         }
         PostingEntry posting;
         if (!read_posting_entry_at(
@@ -1343,7 +1385,9 @@ bool LogicalNodeRecordIndexReader::read_record(
         }
         if (posting.next_posting != kNoLogicalNodeRecordPosting &&
             posting.next_posting <= current) {
-            return fail(error, "logical-node record-index posting link is not strictly forward");
+            return fail(
+                error,
+                "logical-node record-index posting link is not strictly forward");
         }
 
         result->postings.push_back(LogicalNodeRecordPosting{
@@ -1357,21 +1401,26 @@ bool LogicalNodeRecordIndexReader::read_record(
 
     if (expected_remaining != kNoLogicalNodeRecordPosting) {
         if (emitted > expected_remaining) {
-            return fail(error, "logical-node record-index head count underflows");
+            return fail(
+                error,
+                "logical-node record-index head count underflows");
         }
         if (current == kNoLogicalNodeRecordPosting &&
             emitted != expected_remaining) {
-            return fail(error, "logical-node record-index head count disagrees with posting chain");
+            return fail(
+                error,
+                "logical-node record-index head count disagrees with posting chain");
         }
         if (current != kNoLogicalNodeRecordPosting &&
             emitted == expected_remaining) {
-            return fail(error, "logical-node record-index posting chain exceeds head count");
+            return fail(
+                error,
+                "logical-node record-index posting chain exceeds head count");
         }
     }
 
     result->next_posting_ordinal = current;
-    result->truncated =
-        current != kNoLogicalNodeRecordPosting;
+    result->truncated = current != kNoLogicalNodeRecordPosting;
     return true;
 }
 
