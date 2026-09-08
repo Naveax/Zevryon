@@ -1,13 +1,17 @@
 #include "streaming_html_node_source.hpp"
 
+#include "ledger_memory_resource.hpp"
 #include "logical_node_source.hpp"
 #include "massivedoc_store.hpp"
+#include "resource_ledger.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <memory_resource>
+#include <new>
 #include <span>
 #include <string>
 #include <string_view>
@@ -18,14 +22,25 @@ namespace zevryon::massivedoc {
 namespace {
 
 constexpr std::size_t kMaximumConfiguredTokenBytes = 16U * 1024U * 1024U;
+constexpr std::size_t kMaximumConfiguredWorkingSetBytes = 512U * 1024U * 1024U;
 constexpr std::uint32_t kMaximumConfiguredAttributes = 65536U;
 constexpr std::uint32_t kMaximumConfiguredDepth = 65536U;
+
+using PmrString = std::pmr::string;
 
 bool fail_html(std::string* error, std::string message) {
     if (error != nullptr) {
         *error = std::move(message);
     }
     return false;
+}
+
+std::string owned(PmrString const& value) {
+    return std::string(value.data(), value.size());
+}
+
+std::string_view view(PmrString const& value) noexcept {
+    return std::string_view(value.data(), value.size());
 }
 
 bool ascii_space(char value) noexcept {
@@ -49,13 +64,12 @@ char ascii_lower(char value) noexcept {
     return value;
 }
 
-std::string ascii_lower_copy(std::string_view value) {
-    std::string output;
-    output.reserve(value.size());
+void ascii_lower_assign(std::string_view value, PmrString* output) {
+    output->clear();
+    output->reserve(value.size());
     for (const char character : value) {
-        output.push_back(ascii_lower(character));
+        output->push_back(ascii_lower(character));
     }
-    return output;
 }
 
 bool ascii_iequals(std::string_view left, std::string_view right) noexcept {
@@ -106,7 +120,7 @@ bool unsupported_foreign_root(std::string_view tag) noexcept {
     return tag == "svg" || tag == "math";
 }
 
-bool append_utf8(std::uint32_t codepoint, std::string* output) {
+bool append_utf8(std::uint32_t codepoint, PmrString* output) {
     if (codepoint == 0U || codepoint > 0x10ffffU ||
         (codepoint >= 0xd800U && codepoint <= 0xdfffU)) {
         return false;
@@ -131,7 +145,7 @@ bool append_utf8(std::uint32_t codepoint, std::string* output) {
 
 bool decode_character_references(
     std::string_view input,
-    std::string* output,
+    PmrString* output,
     std::string* error) {
     output->clear();
     output->reserve(input.size());
@@ -196,15 +210,21 @@ bool decode_character_references(
 }
 
 struct ParsedAttribute {
-    std::string name;
-    std::string value;
+    explicit ParsedAttribute(std::pmr::memory_resource* memory)
+        : name(memory), value(memory) {}
+
+    PmrString name;
+    PmrString value;
 };
 
 struct ParsedStartTag {
-    std::string tag;
-    std::vector<ParsedAttribute> attributes;
-    std::string role;
-    std::string style;
+    explicit ParsedStartTag(std::pmr::memory_resource* memory)
+        : tag(memory), attributes(memory), role(memory), style(memory) {}
+
+    PmrString tag;
+    std::pmr::vector<ParsedAttribute> attributes;
+    PmrString role;
+    PmrString style;
     bool self_closing{false};
 };
 
@@ -218,7 +238,7 @@ bool parse_name(
     std::string_view token,
     std::size_t* cursor,
     bool attribute,
-    std::string* output,
+    PmrString* output,
     std::string* error) {
     const std::size_t begin = *cursor;
     while (*cursor < token.size() &&
@@ -227,16 +247,18 @@ bool parse_name(
         ++*cursor;
     }
     if (*cursor == begin) {
-        return fail_html(error, attribute ? "missing HTML attribute name" : "missing HTML tag name");
+        return fail_html(
+            error,
+            attribute ? "missing HTML attribute name" : "missing HTML tag name");
     }
-    *output = ascii_lower_copy(token.substr(begin, *cursor - begin));
+    ascii_lower_assign(token.substr(begin, *cursor - begin), output);
     return true;
 }
 
 bool parse_attribute_value(
     std::string_view token,
     std::size_t* cursor,
-    std::string* output,
+    PmrString* output,
     std::string* error) {
     if (*cursor >= token.size()) {
         return fail_html(error, "missing HTML attribute value");
@@ -276,6 +298,7 @@ bool parse_attribute_value(
 bool parse_start_tag(
     std::string_view token,
     std::uint32_t maximum_attributes,
+    std::pmr::memory_resource* memory,
     ParsedStartTag* parsed,
     std::string* error) {
     if (token.size() < 3U || token.front() != '<' || token.back() != '>') {
@@ -285,11 +308,17 @@ bool parse_start_tag(
     if (!parse_name(token, &cursor, false, &parsed->tag, error)) {
         return false;
     }
-    if (unsupported_raw_text_element(parsed->tag)) {
-        return fail_html(error, "raw-text HTML element is not implemented in strict parser profile: " + parsed->tag);
+    if (unsupported_raw_text_element(view(parsed->tag))) {
+        return fail_html(
+            error,
+            "raw-text HTML element is not implemented in strict parser profile: " +
+                owned(parsed->tag));
     }
-    if (unsupported_foreign_root(parsed->tag)) {
-        return fail_html(error, "foreign-content HTML element is not implemented in strict parser profile: " + parsed->tag);
+    if (unsupported_foreign_root(view(parsed->tag))) {
+        return fail_html(
+            error,
+            "foreign-content HTML element is not implemented in strict parser profile: " +
+                owned(parsed->tag));
     }
 
     parsed->attributes.clear();
@@ -321,13 +350,16 @@ bool parse_start_tag(
             return fail_html(error, "HTML element exceeds bounded attribute count");
         }
 
-        ParsedAttribute attribute;
+        ParsedAttribute attribute(memory);
         if (!parse_name(token, &cursor, true, &attribute.name, error)) {
             return false;
         }
         for (const ParsedAttribute& existing : parsed->attributes) {
             if (existing.name == attribute.name) {
-                return fail_html(error, "duplicate HTML attribute in strict parser profile: " + attribute.name);
+                return fail_html(
+                    error,
+                    "duplicate HTML attribute in strict parser profile: " +
+                        owned(attribute.name));
             }
         }
         skip_space(token, &cursor);
@@ -350,7 +382,7 @@ bool parse_start_tag(
 
 bool parse_end_tag(
     std::string_view token,
-    std::string* tag,
+    PmrString* tag,
     std::string* error) {
     if (token.size() < 4U || token[0] != '<' || token[1] != '/' ||
         token.back() != '>') {
@@ -396,7 +428,13 @@ bool parse_doctype(std::string_view token, std::string* error) {
 }
 
 struct OpenElement {
-    std::string tag;
+    OpenElement(
+        std::string_view value,
+        std::uint64_t node_ordinal,
+        std::pmr::memory_resource* memory)
+        : tag(value.data(), value.size(), memory), ordinal(node_ordinal) {}
+
+    PmrString tag;
     std::uint64_t ordinal{0U};
 };
 
@@ -406,11 +444,15 @@ public:
         LogicalNodeSourceWriter* writer,
         StreamingHtmlNodeSourceConfig config,
         StreamingHtmlNodeSourceStats* stats,
+        std::pmr::memory_resource* memory,
         std::string* error)
-        : writer_(writer), config_(config), stats_(stats), error_(error) {
-        open_elements_.reserve(
-            static_cast<std::size_t>(config_.maximum_open_element_depth) + 1U);
-    }
+        : writer_(writer),
+          config_(config),
+          stats_(stats),
+          memory_(memory),
+          error_(error),
+          open_elements_(memory),
+          token_(memory) {}
 
     bool begin_document() {
         if (!writer_->append_node(
@@ -428,7 +470,7 @@ public:
                 error_)) {
             return false;
         }
-        open_elements_.push_back(OpenElement{"#document", 0U});
+        open_elements_.emplace_back("#document", 0U, memory_);
         stats_->nodes_emitted = 1U;
         stats_->maximum_observed_open_depth = 0U;
         return true;
@@ -462,7 +504,8 @@ public:
         if (open_elements_.size() != 1U) {
             return fail_html(
                 error_,
-                "HTML input ended with unclosed element: " + open_elements_.back().tag);
+                "HTML input ended with unclosed element: " +
+                    owned(open_elements_.back().tag));
         }
         return true;
     }
@@ -553,14 +596,16 @@ private:
 
     bool complete_markup_token() {
         if (token_.size() >= 2U && token_[1] == '!') {
-            if (!parse_doctype(token_, error_)) {
+            if (!parse_doctype(view(token_), error_)) {
                 return false;
             }
             ++stats_->doctypes_skipped;
             return true;
         }
         if (token_.size() >= 2U && token_[1] == '?') {
-            return fail_html(error_, "processing instructions are unsupported in strict HTML profile");
+            return fail_html(
+                error_,
+                "processing instructions are unsupported in strict HTML profile");
         }
         if (token_.size() >= 2U && token_[1] == '/') {
             return complete_end_tag();
@@ -569,22 +614,25 @@ private:
     }
 
     bool complete_end_tag() {
-        std::string tag;
-        if (!parse_end_tag(token_, &tag, error_)) {
+        PmrString tag(memory_);
+        if (!parse_end_tag(view(token_), &tag, error_)) {
             return false;
         }
         if (open_elements_.size() <= 1U || open_elements_.back().tag != tag) {
-            return fail_html(error_, "mismatched HTML end tag in strict parser profile: " + tag);
+            return fail_html(
+                error_,
+                "mismatched HTML end tag in strict parser profile: " + owned(tag));
         }
         open_elements_.pop_back();
         return true;
     }
 
     bool complete_start_tag() {
-        ParsedStartTag parsed;
+        ParsedStartTag parsed(memory_);
         if (!parse_start_tag(
-                token_,
+                view(token_),
                 config_.maximum_attributes_per_element,
+                memory_,
                 &parsed,
                 error_)) {
             return false;
@@ -601,12 +649,12 @@ private:
             ? 0U
             : static_cast<std::uint64_t>(token_.size());
 
-        std::vector<LogicalNodeAttributeInput> attributes;
+        std::pmr::vector<LogicalNodeAttributeInput> attributes(memory_);
         attributes.reserve(parsed.attributes.size());
         for (const ParsedAttribute& attribute : parsed.attributes) {
             attributes.push_back(LogicalNodeAttributeInput{
-                attribute.name,
-                attribute.value,
+                view(attribute.name),
+                view(attribute.value),
                 0U});
         }
         if (!writer_->append_node(
@@ -616,11 +664,12 @@ private:
                     token_start_offset_,
                     source_length,
                     open_elements_.back().ordinal,
-                    parsed.tag,
-                    parsed.role,
-                    parsed.style,
+                    view(parsed.tag),
+                    view(parsed.role),
+                    view(parsed.style),
                     0U},
-                attributes,
+                std::span<const LogicalNodeAttributeInput>(
+                    attributes.data(), attributes.size()),
                 error_)) {
             return false;
         }
@@ -632,13 +681,14 @@ private:
             ++stats_->cross_record_token_anchors;
         }
 
-        if (!parsed.self_closing && !void_element(parsed.tag)) {
+        if (!parsed.self_closing && !void_element(view(parsed.tag))) {
             const std::uint64_t current_depth = open_elements_.size();
             if (current_depth > config_.maximum_open_element_depth) {
                 return fail_html(error_, "HTML open-element depth exceeds bounded limit");
             }
-            open_elements_.push_back(OpenElement{parsed.tag, ordinal});
-            const auto observed = static_cast<std::uint32_t>(open_elements_.size() - 1U);
+            open_elements_.emplace_back(view(parsed.tag), ordinal, memory_);
+            const auto observed = static_cast<std::uint32_t>(
+                open_elements_.size() - 1U);
             stats_->maximum_observed_open_depth =
                 std::max(stats_->maximum_observed_open_depth, observed);
         }
@@ -648,9 +698,10 @@ private:
     LogicalNodeSourceWriter* writer_{nullptr};
     StreamingHtmlNodeSourceConfig config_{};
     StreamingHtmlNodeSourceStats* stats_{nullptr};
+    std::pmr::memory_resource* memory_{nullptr};
     std::string* error_{nullptr};
-    std::vector<OpenElement> open_elements_;
-    std::string token_;
+    std::pmr::vector<OpenElement> open_elements_;
+    PmrString token_;
     std::uint64_t token_start_record_{0U};
     std::uint64_t token_start_offset_{0U};
     char quote_{'\0'};
@@ -678,26 +729,36 @@ bool validate_config(
         config.maximum_open_element_depth > kMaximumConfiguredDepth) {
         return fail_html(error, "HTML producer depth bound is outside supported range");
     }
+    if (config.working_set_limit_bytes == 0U ||
+        config.working_set_limit_bytes > kMaximumConfiguredWorkingSetBytes) {
+        return fail_html(
+            error,
+            "HTML producer working-set bound is outside supported range");
+    }
     return true;
 }
 
-} // namespace
+void copy_working_set_stats(
+    const zevryon::core::ResourceLedger& ledger,
+    StreamingHtmlNodeSourceStats* stats) {
+    const zevryon::core::ResourceSnapshot snapshot =
+        ledger.snapshot(zevryon::core::ResourceClass::DomProjection);
+    stats->working_set_hard_limit_bytes = snapshot.hard_limit_bytes;
+    stats->working_set_current_bytes = snapshot.current_bytes;
+    stats->working_set_peak_bytes = snapshot.peak_bytes;
+    stats->working_set_reservations = snapshot.reservations;
+    stats->working_set_releases = snapshot.releases;
+    stats->working_set_rejected_reservations = snapshot.rejected_reservations;
+    stats->working_set_accounting_errors = snapshot.accounting_errors;
+}
 
-bool produce_streaming_html_node_source(
+bool produce_with_memory(
     const std::filesystem::path& store_root,
     const std::filesystem::path& output_source_path,
     StreamingHtmlNodeSourceConfig config,
     StreamingHtmlNodeSourceStats* stats,
+    std::pmr::memory_resource* memory,
     std::string* error) {
-    if (error == nullptr) {
-        return false;
-    }
-    error->clear();
-    if (!validate_config(config, error)) {
-        return false;
-    }
-
-    StreamingHtmlNodeSourceStats local_stats{};
     LogicalNodeSourceStoreBinding binding;
     if (!inspect_logical_node_source_store_binding(store_root, &binding, error)) {
         return false;
@@ -712,55 +773,116 @@ bool produce_streaming_html_node_source(
     if (!store.open(error)) {
         return false;
     }
-    local_stats.source_records = store.stats().corpus.logical_records;
+    stats->source_records = store.stats().corpus.logical_records;
 
     LogicalNodeSourceWriter writer(output_source_path);
     if (!writer.begin(error)) {
         return false;
     }
-    StreamingHtmlProducer producer(&writer, config, &local_stats, error);
-    if (!producer.begin_document()) {
-        return false;
-    }
 
-    for (std::uint64_t record_index = 0U;
-         record_index < store.stats().corpus.logical_records;
-         ++record_index) {
-        bool parse_ok = true;
-        std::uint64_t record_offset = 0U;
-        if (!store.read_record(
-                record_index,
-                [&](std::span<const std::byte> chunk) {
-                    if (!parse_ok) {
-                        return false;
-                    }
-                    parse_ok = producer.feed(record_index, record_offset, chunk);
-                    record_offset += static_cast<std::uint64_t>(chunk.size());
-                    return parse_ok;
-                },
-                error)) {
+    {
+        StreamingHtmlProducer producer(&writer, config, stats, memory, error);
+        if (!producer.begin_document()) {
             return false;
         }
-        if (!parse_ok) {
+
+        for (std::uint64_t record_index = 0U;
+             record_index < store.stats().corpus.logical_records;
+             ++record_index) {
+            bool parse_ok = true;
+            std::uint64_t record_offset = 0U;
+            if (!store.read_record(
+                    record_index,
+                    [&](std::span<const std::byte> chunk) {
+                        if (!parse_ok) {
+                            return false;
+                        }
+                        parse_ok = producer.feed(record_index, record_offset, chunk);
+                        record_offset += static_cast<std::uint64_t>(chunk.size());
+                        return parse_ok;
+                    },
+                    error)) {
+                return false;
+            }
+            if (!parse_ok) {
+                return false;
+            }
+        }
+
+        if (!producer.finish()) {
             return false;
         }
     }
 
-    if (!producer.finish()) {
-        return false;
-    }
     if (writer.node_count() != store.stats().corpus.logical_nodes) {
         return fail_html(
             error,
             "HTML parser node count disagrees with native store logical_nodes metadata");
     }
-    if (!writer.finish(binding, error)) {
+    return writer.finish(binding, error);
+}
+
+} // namespace
+
+bool produce_streaming_html_node_source(
+    const std::filesystem::path& store_root,
+    const std::filesystem::path& output_source_path,
+    StreamingHtmlNodeSourceConfig config,
+    StreamingHtmlNodeSourceStats* stats,
+    std::string* error) {
+    if (error == nullptr) {
         return false;
+    }
+    error->clear();
+
+    StreamingHtmlNodeSourceStats local_stats{};
+    local_stats.working_set_hard_limit_bytes = config.working_set_limit_bytes;
+    if (stats != nullptr) {
+        *stats = local_stats;
+    }
+    if (!validate_config(config, error)) {
+        return false;
+    }
+
+    zevryon::core::ResourceLedger ledger;
+    ledger.set_hard_limit(
+        zevryon::core::ResourceClass::DomProjection,
+        config.working_set_limit_bytes);
+
+    bool success = false;
+    try {
+        zevryon::core::LedgerMemoryResource memory(
+            ledger,
+            zevryon::core::ResourceClass::DomProjection,
+            std::pmr::get_default_resource());
+        success = produce_with_memory(
+            store_root,
+            output_source_path,
+            config,
+            &local_stats,
+            &memory,
+            error);
+    } catch (const std::bad_alloc&) {
+        const zevryon::core::ResourceSnapshot snapshot =
+            ledger.snapshot(zevryon::core::ResourceClass::DomProjection);
+        if (snapshot.rejected_reservations != 0U) {
+            fail_html(error, "HTML parser working-set hard limit exhausted");
+        } else {
+            fail_html(error, "HTML parser allocation failed");
+        }
+        success = false;
+    }
+
+    copy_working_set_stats(ledger, &local_stats);
+    if (local_stats.working_set_current_bytes != 0U ||
+        local_stats.working_set_accounting_errors != 0U) {
+        fail_html(error, "HTML parser working-set accounting did not release cleanly");
+        success = false;
     }
     if (stats != nullptr) {
         *stats = local_stats;
     }
-    return true;
+    return success;
 }
 
 } // namespace zevryon::massivedoc

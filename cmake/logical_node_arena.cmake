@@ -39,4 +39,15 @@ if(BUILD_TESTING)
   add_test(
     NAME streaming-html-node-source-tests
     COMMAND zevryon-streaming-html-node-source-tests)
+
+  add_executable(
+    zevryon-streaming-html-resource-accounting-tests
+    tests/streaming_html_resource_accounting_tests.cpp)
+  target_link_libraries(
+    zevryon-streaming-html-resource-accounting-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-streaming-html-resource-accounting-tests)
+  add_test(
+    NAME streaming-html-resource-accounting-tests
+    COMMAND zevryon-streaming-html-resource-accounting-tests)
 endif()
