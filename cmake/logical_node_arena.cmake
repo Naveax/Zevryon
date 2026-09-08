@@ -3,6 +3,7 @@ target_sources(
   PRIVATE
     src/logical_node_arena.cpp
     src/logical_node_arena_v2.cpp
+    src/logical_node_arena_v2_store_bound.cpp
     src/logical_node_source.cpp
     src/logical_node_source_binding.cpp
     src/logical_node_source_v2.cpp
