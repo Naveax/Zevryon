@@ -1,7 +1,7 @@
 // Extend the admitted record-index translation unit without reopening the
 // store-bound logical-node arena. The included implementation owns the exact
-// arena instance used to validate posting overlap; the methods below expose
-// bounded semantic primitives from that same instance.
+// arena instance and table handles used to validate posting overlap; the
+// methods below expose bounded authority primitives from those same instances.
 #include "logical_node_record_index_admitted.cpp"
 
 namespace zevryon::massivedoc {
@@ -15,6 +15,40 @@ bool fail_same_arena(std::string* error, const char* message) {
 }
 
 } // namespace
+
+bool LogicalNodeRecordIndexReader::read_head_snapshot(
+    std::uint64_t source_record_index,
+    LogicalNodeRecordIndexHeadSnapshot* head,
+    std::string* error) const {
+    if (head == nullptr || error == nullptr) {
+        return false;
+    }
+    *head = LogicalNodeRecordIndexHeadSnapshot{};
+    error->clear();
+    if (!impl_->opened || impl_->heads == nullptr) {
+        return fail_same_arena(
+            error,
+            "logical-node record-index same-handle head reader is not open");
+    }
+    if (source_record_index >= impl_->manifest.source_record_count) {
+        return fail_same_arena(
+            error,
+            "logical-node record-index head snapshot source record is out of range");
+    }
+
+    HeadEntry stored;
+    if (!read_head_entry_at(
+            *impl_->heads,
+            source_record_index,
+            &stored,
+            error)) {
+        return false;
+    }
+    head->first_posting = stored.first_posting;
+    head->last_posting = stored.last_posting;
+    head->posting_count = stored.posting_count;
+    return true;
+}
 
 bool LogicalNodeRecordIndexReader::node_by_ordinal(
     std::uint64_t ordinal,
