@@ -8,7 +8,9 @@ target_sources(
     src/logical_node_source_binding.cpp
     src/logical_node_source_v2.cpp
     src/logical_node_v2_import.cpp
-    src/streaming_html_node_source.cpp)
+    src/streaming_html_node_source.cpp
+    src/zenith_semantic_node_window.cpp
+    src/zenith_semantic_runtime_consumer.cpp)
 
 if(BUILD_TESTING)
   add_executable(
@@ -87,4 +89,26 @@ if(BUILD_TESTING)
   add_test(
     NAME streaming-html-resource-accounting-tests
     COMMAND zevryon-streaming-html-resource-accounting-tests)
+
+  add_executable(
+    zevryon-zenith-semantic-node-window-tests
+    tests/zenith_semantic_node_window_tests.cpp)
+  target_link_libraries(
+    zevryon-zenith-semantic-node-window-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-zenith-semantic-node-window-tests)
+  add_test(
+    NAME zenith-semantic-node-window-tests
+    COMMAND zevryon-zenith-semantic-node-window-tests)
+
+  add_executable(
+    zevryon-zenith-semantic-runtime-consumer-tests
+    tests/zenith_semantic_runtime_consumer_tests.cpp)
+  target_link_libraries(
+    zevryon-zenith-semantic-runtime-consumer-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-zenith-semantic-runtime-consumer-tests)
+  add_test(
+    NAME zenith-semantic-runtime-consumer-tests
+    COMMAND zevryon-zenith-semantic-runtime-consumer-tests)
 endif()
