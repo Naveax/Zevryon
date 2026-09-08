@@ -4,6 +4,7 @@
 #include "frame_budget_scheduler.hpp"
 #include "layout_window.hpp"
 #include "zenith_hot_scroll.hpp"
+#include "zenith_record_semantic_query.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -21,6 +22,7 @@ struct ZenithTabRuntimeConfig {
     FrameBudgetPolicy frame_budget{16'667U, 2'000U, 500U, 250U};
     std::uint32_t prefetch_reserve_us{200U};
     std::size_t prefetch_bytes{64U * 1024U};
+    ZenithSemanticNodeWindowConfig semantic_window{};
 
     // Non-owning process-shared metadata authority. The authority, when set,
     // must outlive this runtime. Cache-only lookups never perform disk I/O.
@@ -63,6 +65,11 @@ struct ZenithTabRuntimeStats {
     std::uint64_t record_length_eof_suppressions{0U};
     std::uint64_t record_length_learns{0U};
     std::uint64_t record_length_learn_failures{0U};
+    std::uint64_t semantic_record_requests{0U};
+    std::uint64_t semantic_record_successes{0U};
+    std::uint64_t semantic_record_failures{0U};
+    std::uint64_t ui_semantic_record_rejections{0U};
+    std::uint64_t semantic_nodes_materialized{0U};
     std::uint64_t last_visible_layout_us{0U};
     std::uint64_t peak_visible_layout_us{0U};
 };
@@ -119,6 +126,29 @@ public:
         std::size_t max_fragments,
         LayoutWindowResult* result,
         bool* used_checkpoint_path,
+        std::string* error);
+
+    // Resolves one physical source record through the authoritative
+    // source-record -> logical-node index and then materializes bounded browser
+    // semantics for those exact node ordinals. This compatibility form is
+    // worker-lane authority.
+    bool semantic_nodes_for_source_record(
+        std::uint64_t source_record_index,
+        std::uint64_t continuation_posting_ordinal,
+        std::size_t max_nodes,
+        ZenithRecordSemanticWindowResult* result,
+        std::string* error);
+
+    // Lane-aware semantic bridge. UI-lane calls fail before opening the
+    // record-index or arena, so blocking semantic I/O cannot run on the UI
+    // execution lane. LayoutFragment::logical_id is never reinterpreted as a
+    // logical-node id; callers supply immutable source_record_index identity.
+    bool semantic_nodes_for_source_record_on_lane(
+        FrameExecutionLane lane,
+        std::uint64_t source_record_index,
+        std::uint64_t continuation_posting_ordinal,
+        std::size_t max_nodes,
+        ZenithRecordSemanticWindowResult* result,
         std::string* error);
 
     // UI-safe request/poll boundary. Request publication and ready polling do
