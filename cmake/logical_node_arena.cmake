@@ -4,7 +4,8 @@ target_sources(
     src/logical_node_arena.cpp
     src/logical_node_source.cpp
     src/logical_node_source_binding.cpp
-    src/streaming_html_node_source.cpp)
+    src/streaming_html_node_source.cpp
+    src/zenith_semantic_node_window.cpp)
 
 if(BUILD_TESTING)
   add_executable(
@@ -39,4 +40,15 @@ if(BUILD_TESTING)
   add_test(
     NAME streaming-html-node-source-tests
     COMMAND zevryon-streaming-html-node-source-tests)
+
+  add_executable(
+    zevryon-zenith-semantic-node-window-tests
+    tests/zenith_semantic_node_window_tests.cpp)
+  target_link_libraries(
+    zevryon-zenith-semantic-node-window-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-zenith-semantic-node-window-tests)
+  add_test(
+    NAME zenith-semantic-node-window-tests
+    COMMAND zevryon-zenith-semantic-node-window-tests)
 endif()
