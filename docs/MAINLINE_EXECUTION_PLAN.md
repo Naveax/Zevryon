@@ -63,47 +63,96 @@ M2's promoted persistent mutation contract is move/reorder plus height persisten
 
 ## M3 — Crash-safe segmented generations and mobile I/O
 
-The initial segmented source store is implemented in M1. M3 hardens it for production-like recovery and low-end devices:
+- [x] Add configurable immutable content blocks and bounded `pread`/`ReadFile` / windowed-I/O backends.
+- [x] Maintain 32-bit-process-safe windows while preserving 64-bit source/file positions.
+- [x] Implement bounded hot/warm/cold admission, promotion, demotion and eviction.
+- [x] Add checksummed crash-safe generation manifests and PREPARE/COMMIT append-journal publication.
+- [x] Add bounded background compaction, serialized publication boundaries and corruption quarantine.
+- [x] Preserve giant records as segmented ranges instead of whole-record materialization.
 
-- Add configurable immutable content blocks and `pread`/windowed-I/O backends.
-- Maintain 32-bit-process-safe windows.
-- Implement hot/warm/cold admission and eviction.
-- Add crash-safe generation manifests and append journal.
-- Add background compaction and corruption quarantine.
-- Preserve giant records as segmented ranges rather than materializing them.
+Validated M3 evidence:
+
+- Frozen source authority `d8d9f11d1bcc1dea12b82d0fa9b2b3f69aa1d9c0` passed exact-head CI `31814283673` SUCCESS.
+- Evidence-only promotion head `c64dbf07cefed9d3028b6b6d273412d15db0f1aa` passed required push-triggered CI `31815073323` and PR CI `31816948381`, both SUCCESS.
+- PR #99 merged as canonical `4101680d1cb07af67fe280de04187a275e68124a`.
+- Exact post-merge main CI `31817594515` completed SUCCESS.
 
 Exit gates:
 
-- 4 GiB corpus opens on the legacy profile without OOM.
-- First viewport becomes usable before background import/index completion.
-- Resident cold-store pages count against the measured PSS.
+- [x] Exact 4 GiB corpus opens on the legacy profile without OOM and within the admitted PSS bounds.
+- [x] First viewport becomes usable from an immutable progressive prefix before primary import/index completion.
+- [x] Resident bounded cold-store file-backed pages are included in measured process PSS.
+
+M3 is canonically complete. It does not manufacture durable arbitrary compact-arena insert/erase; that capability remains outside the admitted persistent mutation contract.
 
 ## M4 — Bounded search and full-document operations
 
-- Block Bloom summaries.
-- Compressed trigram postings stored on disk.
-- SIMD candidate verification where available, scalar fallback everywhere.
-- Bounded Unicode normalization and case-fold pipeline.
-- O(1) full-document selection descriptor.
-- Streaming text/HTML export with fixed memory.
-- Cancellation at every block boundary.
+- [x] Add bounded block Bloom summaries.
+- [x] Store compressed trigram postings on disk with canonical source-identity binding.
+- [x] Use scalar-authoritative exact verification with optional x86-64 SSE2 runtime acceleration and scalar fallback everywhere.
+- [x] Add bounded Unicode 17 normalization and default full case-fold search with source-byte span preservation.
+- [x] Add an O(1) immutable full-document selection descriptor.
+- [x] Stream logical-order text and escaped HTML export with fixed memory and transactional target preservation.
+- [x] Check cancellation at bounded search/export work boundaries and never promote partial accelerated results to authority.
+
+Validated M4 evidence:
+
+- Frozen source authority `6b3124c28af9b4da84badd88a1be628971df6a0e` passed Windows/Linux CI `31881129599` and dedicated Unicode 17 authority `31881129602`, both SUCCESS.
+- Evidence-only promotion head `afb29736ffc283b638e32030374afd09880058ee` passed required push CI `31881601896`, dedicated Unicode authority `31881601910` with no drift, and PR CI `31882003576`, all SUCCESS.
+- PR #101 merged as canonical `6b4ed79cbed8a299b94deab5067327258f9e9124`.
+- Required post-merge main CI `31883789266` completed SUCCESS and post-merge Unicode authority `31883848777` completed SUCCESS/no drift.
+- A later same-SHA run `31884410454` was cancelled and is not admission authority.
+
+M4 is canonically complete. ARM64 NEON source exists but is explicitly not runtime-certified by the current authority matrix.
 
 ## M5 — Frame-budget scheduler
 
-- Device-profile-specific frame budget.
-- Velocity-aware prefetch and cancellation.
-- Visible layout first; background work receives leftover budget only.
-- No blocking disk, compression, full traversal or image decode on the UI thread.
-- Pressure controller shrinks cache before the operating system kills the process.
+Code-side implementation/admission:
+
+- [x] Use deterministic device-profile-specific frame budgets and hard optional-work accounting.
+- [x] Use velocity-aware speculative prefetch epochs and stale-work cancellation.
+- [x] Schedule visible layout first; optional/background work receives only bounded leftover budget.
+- [x] Reject blocking disk/cache/checkpoint/source/height-persistence work on the UI lane rather than silently performing it.
+- [x] Use bounded worker-side source prefetch and production hot-scroll consumption.
+- [x] Use shared foreground layout handoff/worker execution and process-level asynchronous runtime ownership.
+- [x] Shrink/retire cache and runtime state under memory pressure before unbounded growth.
+- [x] Provide physical frame certification tooling, exact candidate binding and offline receipt verification.
+
+Canonical implementation evidence:
+
+- PR #113 consolidated the code-side M5 stack at exact head `61db7ae7090302e2135a73811e356dc4d32d2d88` after exact-head CI `32752618029` completed 5/5 SUCCESS.
+- PR #113 merged as `3ab7fd5aaf95fa7fa603de0abed88f3d0c3cb924`.
+- The natural post-merge main run `32753909790` is retained as FAILURE rather than being rewritten as green: Windows build/headless, both Unicode authorities and Apple guard passed, while the Linux suite failed only `runtime-generation-retirement-tests` with `public session identity could not be reused beside retired generation`.
+- The exposed generation snapshot race was repaired on the subsequent canonical line by PR #118, exact-head CI `32851123817` SUCCESS, followed by published-main run `32858032499` SUCCESS.
+
+Remaining physical evidence gate under issue #102:
+
+- [ ] Run the admitted physical candidate wrapper on an eligible physical device/host with exact candidate HEAD and a clean tracked worktree.
+- [ ] Perform a fresh candidate-head rebuild and collect native frame-latency samples under the admitted environment/profile contract.
+- [ ] Collect and retain physical-device identity and thermal evidence for the same exact run.
+- [ ] Verify manifest/evidence equality and SHA-256 binding through the admitted offline receipt verifier.
+- [ ] Preserve a certified source-bound physical receipt/evidence bundle.
+
+M5 code-side implementation is complete, but M5 physical frame-latency/thermal credit is **not** complete. Hosted CI, VMs, containers, synthetic receipts and hand-authored PASS files cannot close #102.
 
 ## M6 — Cross-platform low-memory backend
 
-- Windows: preserve host-memory fallback; capture `LowMemoryResourceNotification` and immediate-job accounting/limit telemetry; use the OS low-memory signal only as a conservative pressure floor. Do not infer an effective nested-job memory domain from the immediate job alone.
-- Linux: use cgroup v2 effective memory-domain data and PSI where available with procfs fallback. Existing adaptive bounded sampling provides polling at 1000 ms Normal / 250 ms Elevated / 100 ms Critical, so no duplicate polling thread is required.
-- Android: provide a native trim-memory / low-RAM policy contract. Java/Kotlin/JNI callback wiring remains an integration boundary until an Android application shell exists in this repository.
-- Apple platforms: intentionally unsupported under the current target policy. The Apple backend removal guard is authoritative; do not reintroduce a macOS/iOS memory-pressure backend through M6.
-- 32-bit: preserve 64-bit file positions while enforcing bounded positional-I/O, mapped-window and record-materialization limits appropriate to the process address space.
-- Portability: keep scalar exact matching as the correctness authority and use SIMD only as an optional runtime-selected acceleration backend.
+- [x] Windows: preserve host-memory fallback, capture `LowMemoryResourceNotification` and immediate-job accounting/limit telemetry, and use the OS low-memory signal only as a conservative pressure floor. Do not infer an effective nested-job memory domain from the immediate job alone.
+- [x] Linux: use cgroup v2 effective memory-domain data and PSI where available with procfs fallback and bounded adaptive sampling at 1000 ms Normal / 250 ms Elevated / 100 ms Critical.
+- [x] Android: provide the native trim-memory / low-RAM policy/controller contract. Java/Kotlin/JNI callback wiring remains an application-shell integration boundary until such a shell exists in this repository.
+- [x] Apple platforms: remain intentionally unsupported under the current target policy; the Apple backend removal guard is authoritative.
+- [x] 32-bit: preserve 64-bit file positions while enforcing bounded positional-I/O, mapped-window and record-materialization limits appropriate to the process address space.
+- [x] Portability: keep scalar exact matching as correctness authority and use SIMD only as optional runtime-selected acceleration.
+
+Validated final M6 scope evidence:
+
+- Canonical Android parent main `dbed266d98651a833a16df85aa5a877d20793404` passed published-main CI `32960351510` 7/7 SUCCESS.
+- Final scope reconciliation PR #125 used exact head `a1b5e810be9d0a6468948a968b0dd43f6297bb5b` and natural PR CI `32961337126` 7/7 SUCCESS.
+- PR #125 merged as `8953c711d8ef4de15e46ee3c153702e6c3e165f9`.
+- Exact post-merge main CI `32962622941` completed SUCCESS.
+- Issue #115 is closed as completed.
+
+M6 is canonically complete. It does not resurrect an Apple backend, does not claim Java/Kotlin/JNI shell integration that is absent from this repository, and does not pretend the immediate Windows job limit proves the effective nested-job memory domain. M7 is the next code-side canonical milestone; M5 physical certification remains a separate evidence boundary.
 
 ## M7 — Competitor laboratory
 
