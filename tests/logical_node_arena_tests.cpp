@@ -29,6 +29,19 @@ bool require(bool condition, std::string_view message) {
     return true;
 }
 
+void cleanup_root(const std::filesystem::path& root) noexcept {
+    std::error_code ignored;
+    std::filesystem::remove_all(root, ignored);
+}
+
+struct RootGuard {
+    std::filesystem::path root;
+
+    ~RootGuard() {
+        cleanup_root(root);
+    }
+};
+
 std::filesystem::path unique_root(std::string_view name) {
     const auto tick = std::chrono::steady_clock::now().time_since_epoch().count();
     return std::filesystem::temp_directory_path() /
@@ -93,6 +106,7 @@ bool build_fixture(const std::filesystem::path& root, std::string* error) {
 
 bool test_round_trip_and_interning() {
     const std::filesystem::path root = unique_root("node-arena-roundtrip");
+    const RootGuard guard{root};
     std::string error;
     LogicalNodeArenaWriter writer(root, config());
     if (!require(writer.begin(&error), error) ||
@@ -101,13 +115,11 @@ bool test_round_trip_and_interning() {
         !require(writer.attribute_count() == 5U, "writer attribute count") ||
         !require(writer.semantic_bucket_head_bytes() == 5U * 64U * 8U, "bounded bucket-head bytes") ||
         !require(writer.finish(&error), error)) {
-        std::filesystem::remove_all(root);
         return false;
     }
 
     LogicalNodeArenaWriter overwrite(root, config());
     if (!require(!overwrite.begin(&error), "create-only arena publication")) {
-        std::filesystem::remove_all(root);
         return false;
     }
 
@@ -117,7 +129,6 @@ bool test_round_trip_and_interning() {
         !require(reader.manifest().attribute_count == 5U, "manifest attribute count") ||
         !require(reader.manifest().candidate_commit == config().candidate_commit, "candidate commit binding") ||
         !require(reader.manifest().candidate_tree == config().candidate_tree, "candidate tree binding")) {
-        std::filesystem::remove_all(root);
         return false;
     }
 
@@ -139,7 +150,6 @@ bool test_round_trip_and_interning() {
         !require(first_child.role_id == sibling.role_id, "repeated role intern id reuse") ||
         !require(first_child.style_id == root_node.style_id, "repeated style intern id reuse") ||
         !require(first_child.style_id == sibling.style_id, "style reuse across siblings")) {
-        std::filesystem::remove_all(root);
         return false;
     }
 
@@ -148,7 +158,6 @@ bool test_round_trip_and_interning() {
         !require(semantic == "div", "tag round trip") ||
         !require(reader.resolve_semantic(LogicalSemanticKind::style, first_child.style_id, &semantic, &error), error) ||
         !require(semantic == "display:block", "style round trip")) {
-        std::filesystem::remove_all(root);
         return false;
     }
 
@@ -166,16 +175,14 @@ bool test_round_trip_and_interning() {
         !require(semantic.empty(), "empty attribute value round trip") ||
         !require(!reader.attribute_by_ordinal(reader.manifest().attribute_count, &empty_attribute, &error),
                  "attribute upper bound fails closed")) {
-        std::filesystem::remove_all(root);
         return false;
     }
-
-    std::filesystem::remove_all(root);
     return true;
 }
 
 bool test_multiple_roots_rejected() {
     const std::filesystem::path root = unique_root("node-arena-multiple-root");
+    const RootGuard guard{root};
     std::string error;
     {
         LogicalNodeArenaWriter writer(root, config());
@@ -189,13 +196,11 @@ bool test_multiple_roots_rejected() {
                 {},
                 &error),
                 "second root rejected")) {
-            std::filesystem::remove_all(root);
             return false;
         }
     }
-    const bool unpublished = !std::filesystem::exists(root / "node-arena");
-    std::filesystem::remove_all(root);
-    return require(unpublished, "failed writer cannot publish authoritative arena");
+    return require(!std::filesystem::exists(root / "node-arena"),
+                   "failed writer cannot publish authoritative arena");
 }
 
 bool flip_byte(const std::filesystem::path& path, std::uint64_t offset) {
@@ -233,27 +238,25 @@ bool copy_arena(const std::filesystem::path& source, const std::filesystem::path
 
 bool test_corruption_fails_closed() {
     const std::filesystem::path original = unique_root("node-arena-corrupt-source");
+    const RootGuard original_guard{original};
     std::string error;
     if (!require(build_fixture(original, &error), error)) {
-        std::filesystem::remove_all(original);
         return false;
     }
 
     const std::filesystem::path manifest_root = unique_root("node-arena-manifest-tamper");
+    const RootGuard manifest_guard{manifest_root};
     if (!require(copy_arena(original, manifest_root), "copy manifest fixture") ||
-        !require(flip_byte(manifest_root / "node-arena" / "manifest.bin", 24U), "tamper manifest") ) {
-        std::filesystem::remove_all(original);
-        std::filesystem::remove_all(manifest_root);
+        !require(flip_byte(manifest_root / "node-arena" / "manifest.bin", 24U), "tamper manifest")) {
         return false;
     }
     LogicalNodeArenaReader manifest_reader(manifest_root);
     if (!require(!manifest_reader.open(&error), "manifest CRC tamper rejected")) {
-        std::filesystem::remove_all(original);
-        std::filesystem::remove_all(manifest_root);
         return false;
     }
 
     const std::filesystem::path index_root = unique_root("node-arena-index-truncate");
+    const RootGuard index_guard{index_root};
     if (!require(copy_arena(original, index_root), "copy index fixture")) {
         return false;
     }
@@ -268,6 +271,7 @@ bool test_corruption_fails_closed() {
     }
 
     const std::filesystem::path dictionary_root = unique_root("node-arena-dictionary-tamper");
+    const RootGuard dictionary_guard{dictionary_root};
     if (!require(copy_arena(original, dictionary_root), "copy dictionary fixture") ||
         !require(flip_byte(dictionary_root / "node-arena" / "tag.entries", 32U), "tamper tag payload")) {
         return false;
@@ -281,16 +285,12 @@ bool test_corruption_fails_closed() {
                  "dictionary CRC tamper rejected")) {
         return false;
     }
-
-    std::filesystem::remove_all(original);
-    std::filesystem::remove_all(manifest_root);
-    std::filesystem::remove_all(index_root);
-    std::filesystem::remove_all(dictionary_root);
     return true;
 }
 
 bool test_large_shallow_stream_is_bounded() {
     const std::filesystem::path root = unique_root("node-arena-large");
+    const RootGuard guard{root};
     std::string error;
     LogicalNodeArenaWriter writer(root, config(64U, 128U));
     if (!require(writer.begin(&error), error) ||
@@ -315,14 +315,12 @@ bool test_large_shallow_stream_is_bounded() {
                     0U},
                 {},
                 &error), error)) {
-            std::filesystem::remove_all(root);
             return false;
         }
     }
     if (!require(writer.semantic_bucket_head_bytes() == 5U * 128U * 8U,
                  "semantic RAM index stays fixed across 20k nodes") ||
         !require(writer.finish(&error), error)) {
-        std::filesystem::remove_all(root);
         return false;
     }
     LogicalNodeArenaReader reader(root);
@@ -331,10 +329,8 @@ bool test_large_shallow_stream_is_bounded() {
         !require(reader.node_by_id(kChildren + 1U, &tail, &error), error) ||
         !require(tail.parent_ordinal == 0U, "large shallow tail parent") ||
         !require(tail.logical_id == kChildren + 1U, "large shallow tail identity")) {
-        std::filesystem::remove_all(root);
         return false;
     }
-    std::filesystem::remove_all(root);
     return true;
 }
 
