@@ -3,6 +3,7 @@
 #include "logical_node_arena_v2.hpp"
 
 #include <limits>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -45,7 +46,6 @@ bool import_logical_node_source_v2_to_arena_v2(
     if (!valid_candidate_hex(config.candidate_commit) ||
         !valid_candidate_hex(config.candidate_tree) ||
         config.semantic_bucket_count == 0U ||
-        config.semantic_hash_bits == 0U ||
         config.semantic_hash_bits > 64U) {
         return fail_import(error, "logical node v2 import configuration is invalid");
     }
