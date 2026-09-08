@@ -103,13 +103,19 @@ bool void_element(std::string_view tag) noexcept {
 }
 
 bool supported_raw_text_element(std::string_view tag) noexcept {
-    return tag == "style";
+    constexpr std::string_view values[] = {
+        "style", "xmp", "iframe", "noembed", "noframes"};
+    for (const std::string_view value : values) {
+        if (tag == value) {
+            return true;
+        }
+    }
+    return false;
 }
 
-bool unsupported_raw_text_element(std::string_view tag) noexcept {
+bool unsupported_special_text_element(std::string_view tag) noexcept {
     constexpr std::string_view values[] = {
-        "script", "title", "textarea", "xmp", "iframe",
-        "noembed", "noframes", "plaintext"};
+        "script", "title", "textarea", "plaintext", "noscript"};
     for (const std::string_view value : values) {
         if (tag == value) {
             return true;
@@ -327,10 +333,10 @@ bool parse_start_tag(
     if (!parse_name(token, &cursor, false, &parsed->tag, error)) {
         return false;
     }
-    if (unsupported_raw_text_element(view(parsed->tag))) {
+    if (unsupported_special_text_element(view(parsed->tag))) {
         return fail_html_v2(
             error,
-            "raw-text HTML element is not implemented in strict v2 parser profile: " +
+            "special HTML tokenizer state is not implemented in strict v2 parser profile: " +
                 owned(parsed->tag));
     }
     if (unsupported_foreign_root(view(parsed->tag))) {
@@ -567,7 +573,7 @@ private:
             return true;
         }
         if (length > token_.size()) {
-            return fail_html_v2(error_, "HTML raw-text candidate prefix exceeds token size");
+            return fail_html_v2(error_, "HTML RAWTEXT candidate prefix exceeds token size");
         }
         if (!text_active_) {
             text_active_ = true;
@@ -651,7 +657,7 @@ private:
         return true;
     }
 
-    bool recover_false_style_raw_text_candidate(
+    bool recover_false_raw_text_candidate(
         char character,
         std::uint64_t record_index,
         std::uint64_t record_offset,
@@ -671,10 +677,16 @@ private:
         return true;
     }
 
-    bool consume_style_raw_text_byte(
+    bool consume_raw_text_byte(
         char character,
         std::uint64_t record_index,
         std::uint64_t record_offset) {
+        if (open_elements_.size() <= 1U ||
+            !supported_raw_text_element(view(open_elements_.back().tag))) {
+            return fail_html_v2(error_, "HTML v2 producer lost active RAWTEXT element state");
+        }
+        const std::string_view active_tag = view(open_elements_.back().tag);
+
         if (!in_token_) {
             if (character == '<') {
                 return start_token(record_index, record_offset);
@@ -687,32 +699,35 @@ private:
             return false;
         }
 
-        constexpr std::string_view closing = "</style";
-        const std::size_t prefix_length = std::min(token_.size(), closing.size());
+        const std::size_t closing_size = active_tag.size() + 2U;
+        const std::size_t prefix_length = std::min(token_.size(), closing_size);
         for (std::size_t index = 0U; index < prefix_length; ++index) {
-            if (ascii_lower(token_[index]) != closing[index]) {
-                return recover_false_style_raw_text_candidate(
+            const char expected = index == 0U
+                ? '<'
+                : (index == 1U ? '/' : active_tag[index - 2U]);
+            if (ascii_lower(token_[index]) != expected) {
+                return recover_false_raw_text_candidate(
                     character,
                     record_index,
                     record_offset,
                     crossed_before_append);
             }
         }
-        if (token_.size() <= closing.size()) {
+        if (token_.size() <= closing_size) {
             return true;
         }
 
-        const char first_trailing = token_[closing.size()];
+        const char first_trailing = token_[closing_size];
         if (first_trailing == '>') {
-            if (token_.size() != closing.size() + 1U) {
-                return fail_html_v2(error_, "style RAWTEXT end tag has bytes after terminator");
+            if (token_.size() != closing_size + 1U) {
+                return fail_html_v2(error_, "RAWTEXT end tag has bytes after terminator");
             }
             if (!flush_text()) {
                 return false;
             }
             const bool result = complete_end_tag();
             if (result) {
-                style_raw_text_ = false;
+                raw_text_ = false;
             }
             reset_token();
             return result;
@@ -721,29 +736,29 @@ private:
             if (first_trailing == '/') {
                 return fail_html_v2(
                     error_,
-                    "style RAWTEXT end tag self-closing syntax is unsupported");
+                    "RAWTEXT end tag self-closing syntax is unsupported");
             }
-            return recover_false_style_raw_text_candidate(
+            return recover_false_raw_text_candidate(
                 character,
                 record_index,
                 record_offset,
                 crossed_before_append);
         }
 
-        for (std::size_t index = closing.size() + 1U; index < token_.size(); ++index) {
+        for (std::size_t index = closing_size + 1U; index < token_.size(); ++index) {
             const char trailing = token_[index];
             if (trailing == '>') {
                 if (index + 1U != token_.size()) {
                     return fail_html_v2(
                         error_,
-                        "style RAWTEXT end tag has bytes after terminator");
+                        "RAWTEXT end tag has bytes after terminator");
                 }
                 if (!flush_text()) {
                     return false;
                 }
                 const bool result = complete_end_tag();
                 if (result) {
-                    style_raw_text_ = false;
+                    raw_text_ = false;
                 }
                 reset_token();
                 return result;
@@ -751,7 +766,7 @@ private:
             if (!ascii_space(trailing)) {
                 return fail_html_v2(
                     error_,
-                    "style RAWTEXT end tag contains unsupported trailing syntax");
+                    "RAWTEXT end tag contains unsupported trailing syntax");
             }
         }
         return true;
@@ -761,8 +776,8 @@ private:
         char character,
         std::uint64_t record_index,
         std::uint64_t record_offset) {
-        if (style_raw_text_) {
-            return consume_style_raw_text_byte(character, record_index, record_offset);
+        if (raw_text_) {
+            return consume_raw_text_byte(character, record_index, record_offset);
         }
         if (!in_token_) {
             if (character == '<') {
@@ -919,7 +934,7 @@ private:
             }
             open_elements_.emplace_back(view(parsed.tag), ordinal, memory_);
             if (supported_raw_text_element(view(parsed.tag))) {
-                style_raw_text_ = true;
+                raw_text_ = true;
             }
             const auto observed = static_cast<std::uint32_t>(
                 open_elements_.size() - 1U);
@@ -943,7 +958,7 @@ private:
     bool in_token_{false};
     bool comment_token_{false};
     bool token_crossed_record_{false};
-    bool style_raw_text_{false};
+    bool raw_text_{false};
 
     std::uint64_t text_start_record_{0U};
     std::uint64_t text_start_offset_{0U};

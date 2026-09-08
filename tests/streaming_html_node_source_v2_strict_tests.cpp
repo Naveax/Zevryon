@@ -3,6 +3,7 @@
 #include "streaming_html_node_source_v2.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -187,13 +188,16 @@ bool test_void_self_closing_syntax_remains_supported() {
                 "validator streams exact void-element source span");
 }
 
-bool test_style_rawtext_preserves_markup_like_bytes_as_one_text_span() {
-    const std::filesystem::path root = unique_root("html-v2-style-rawtext");
+bool test_rawtext_element(std::string_view tag) {
+    const std::filesystem::path root = unique_root(
+        std::string("html-v2-rawtext-") + std::string(tag));
     RootCleanup cleanup(root);
     const std::filesystem::path store_root = root / "store";
     const std::filesystem::path source_path = root / "nodes.zvnsrc";
     constexpr std::string_view raw_text = "a<b{color:red}";
-    const std::string html = "<style>" + std::string(raw_text) + "</style>";
+    const std::string start_tag = "<" + std::string(tag) + ">";
+    const std::string html = start_tag + std::string(raw_text) +
+        "</" + std::string(tag) + ">";
     std::string error;
     StreamingHtmlNodeSourceV2Stats stats;
     if (!require(build_store(store_root, html, 3U, &error), error) ||
@@ -203,24 +207,24 @@ bool test_style_rawtext_preserves_markup_like_bytes_as_one_text_span() {
     }
 
     LogicalNodeSourceNode document;
-    LogicalNodeSourceNode style;
+    LogicalNodeSourceNode element;
     LogicalNodeSourceNode text;
-    if (!read_three_nodes(source_path, &document, &style, &text, &error) ||
-        !require(document.tag == "#document", "style document semantic survives") ||
-        !require(style.tag == "style" && style.parent_ordinal == 0U,
-                 "style element semantic survives") ||
-        !require(style.source_record_index == 0U &&
-                     style.source_byte_offset == 0U &&
-                     style.source_byte_length == 7U,
-                 "style element keeps exact start-tag source span") ||
+    if (!read_three_nodes(source_path, &document, &element, &text, &error) ||
+        !require(document.tag == "#document", "RAWTEXT document semantic survives") ||
+        !require(element.tag == tag && element.parent_ordinal == 0U,
+                 "RAWTEXT element semantic survives") ||
+        !require(element.source_record_index == 0U &&
+                     element.source_byte_offset == 0U &&
+                     element.source_byte_length == start_tag.size(),
+                 "RAWTEXT element keeps exact start-tag source span") ||
         !require(text.tag == "#text" && text.parent_ordinal == 1U,
-                 "style RAWTEXT is emitted under the style element") ||
+                 "RAWTEXT text is emitted under its element") ||
         !require(text.source_record_index == 0U &&
-                     text.source_byte_offset == 7U &&
+                     text.source_byte_offset == start_tag.size() &&
                      text.source_byte_length == raw_text.size(),
-                 "markup-like style bytes remain one exact text span") ||
+                 "markup-like RAWTEXT bytes remain one exact text span") ||
         !require(stats.element_nodes_emitted == 1U && stats.text_nodes_emitted == 1U,
-                 "style RAWTEXT emits one element and one text node")) {
+                 "RAWTEXT emits one element and one text node")) {
         return false;
     }
 
@@ -228,18 +232,30 @@ bool test_style_rawtext_preserves_markup_like_bytes_as_one_text_span() {
     return require(validate_logical_node_source_v2_against_store(
                        source_path, store_root, &validation, &error), error) &&
         require(validation.nodes_validated == 3U,
-                "validator accepts document + style + RAWTEXT") &&
-        require(validation.source_span_bytes_streamed == 7U + raw_text.size(),
-                "validator streams exact style start-tag and RAWTEXT spans");
+                "validator accepts document + RAWTEXT element + text") &&
+        require(validation.source_span_bytes_streamed ==
+                    start_tag.size() + raw_text.size(),
+                "validator streams exact RAWTEXT start-tag and text spans");
 }
 
-bool test_style_rawtext_false_end_tag_candidate_stays_text() {
-    const std::filesystem::path root = unique_root("html-v2-style-false-close");
+bool test_rawtext_family_preserves_markup_like_bytes() {
+    constexpr std::array<std::string_view, 5> tags{{
+        "style", "xmp", "iframe", "noembed", "noframes"}};
+    for (const std::string_view tag : tags) {
+        if (!test_rawtext_element(tag)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool test_rawtext_false_end_tag_candidate_stays_text() {
+    const std::filesystem::path root = unique_root("html-v2-iframe-false-close");
     RootCleanup cleanup(root);
     const std::filesystem::path store_root = root / "store";
     const std::filesystem::path source_path = root / "nodes.zvnsrc";
-    constexpr std::string_view raw_text = "a</stylex><b{c:d}";
-    const std::string html = "<style>" + std::string(raw_text) + "</style>";
+    constexpr std::string_view raw_text = "a</iframex><b{c:d}";
+    const std::string html = "<iframe>" + std::string(raw_text) + "</iframe>";
     std::string error;
     if (!require(build_store(store_root, html, 3U, &error), error) ||
         !require(produce_streaming_html_node_source_v2(
@@ -248,26 +264,27 @@ bool test_style_rawtext_false_end_tag_candidate_stays_text() {
     }
 
     LogicalNodeSourceNode document;
-    LogicalNodeSourceNode style;
+    LogicalNodeSourceNode iframe;
     LogicalNodeSourceNode text;
-    return read_three_nodes(source_path, &document, &style, &text, &error) &&
+    return read_three_nodes(source_path, &document, &iframe, &text, &error) &&
+        require(iframe.tag == "iframe", "iframe RAWTEXT element survives") &&
         require(text.tag == "#text" && text.parent_ordinal == 1U,
-                "false style close candidate remains style text") &&
+                "false iframe close candidate remains text") &&
         require(text.source_record_index == 0U &&
-                    text.source_byte_offset == 7U &&
+                    text.source_byte_offset == 8U &&
                     text.source_byte_length == raw_text.size(),
                 "false close and following markup-like bytes stay in one span");
 }
 
-bool test_style_rawtext_close_can_cross_records_and_one_byte_windows() {
-    const std::filesystem::path root = unique_root("html-v2-style-cross-record-close");
+bool test_rawtext_close_can_cross_records_and_one_byte_windows() {
+    const std::filesystem::path root = unique_root("html-v2-noframes-cross-record-close");
     RootCleanup cleanup(root);
     const std::filesystem::path store_root = root / "store";
     const std::filesystem::path source_path = root / "nodes.zvnsrc";
     const std::vector<std::string_view> records = {
-        "<style>a",
-        "{b:c}</ST",
-        "YLE \t>"};
+        "<noframes>a",
+        "{b:c}</NOF",
+        "RAMES \t>"};
     std::string error;
     if (!require(build_store_records(store_root, records, 3U, &error), error)) {
         return false;
@@ -282,13 +299,14 @@ bool test_style_rawtext_close_can_cross_records_and_one_byte_windows() {
     }
 
     LogicalNodeSourceNode document;
-    LogicalNodeSourceNode style;
+    LogicalNodeSourceNode noframes;
     LogicalNodeSourceNode text;
-    if (!read_three_nodes(source_path, &document, &style, &text, &error) ||
+    if (!read_three_nodes(source_path, &document, &noframes, &text, &error) ||
+        !require(noframes.tag == "noframes", "cross-record RAWTEXT tag survives") ||
         !require(text.tag == "#text" && text.parent_ordinal == 1U,
-                 "cross-record style text keeps style parent") ||
+                 "cross-record RAWTEXT keeps element parent") ||
         !require(text.source_record_index == 0U &&
-                     text.source_byte_offset == 7U &&
+                     text.source_byte_offset == 10U &&
                      text.source_byte_length == 6U,
                  "cross-record RAWTEXT source span is exact") ||
         !require(stats.cross_record_text_spans == 1U,
@@ -300,29 +318,39 @@ bool test_style_rawtext_close_can_cross_records_and_one_byte_windows() {
     return require(validate_logical_node_source_v2_against_store(
                        source_path, store_root, &validation, &error), error) &&
         require(validation.nodes_validated == 3U,
-                "validator accepts cross-record style RAWTEXT");
+                "validator accepts cross-record RAWTEXT family state");
 }
 
-bool test_script_remains_fail_closed() {
-    const std::filesystem::path root = unique_root("html-v2-script-still-unsupported");
-    RootCleanup cleanup(root);
-    const std::filesystem::path store_root = root / "store";
-    const std::filesystem::path source_path = root / "nodes.zvnsrc";
-    std::string error;
-    if (!require(build_store(store_root, "<script>x</script>", 3U, &error), error)) {
-        return false;
+bool test_unimplemented_special_tokenizer_states_remain_fail_closed() {
+    constexpr std::array<std::string_view, 5> tags{{
+        "script", "title", "textarea", "plaintext", "noscript"}};
+    for (const std::string_view tag : tags) {
+        const std::filesystem::path root = unique_root(
+            std::string("html-v2-special-") + std::string(tag));
+        RootCleanup cleanup(root);
+        const std::filesystem::path store_root = root / "store";
+        const std::filesystem::path source_path = root / "nodes.zvnsrc";
+        const std::string html = "<" + std::string(tag) + ">x</" +
+            std::string(tag) + ">";
+        std::string error;
+        if (!require(build_store(store_root, html, 3U, &error), error)) {
+            return false;
+        }
+        if (!require(!produce_streaming_html_node_source_v2(
+                         store_root, source_path, {}, nullptr, &error),
+                     "unimplemented special tokenizer state is rejected") ||
+            !require(error.find("special HTML tokenizer state is not implemented") !=
+                         std::string::npos,
+                     "special tokenizer rejection remains explicit") ||
+            !require(!std::filesystem::exists(source_path),
+                     "rejected special tokenizer input cannot publish source") ||
+            !require(!std::filesystem::exists(
+                         std::filesystem::path(source_path.string() + ".building")),
+                     "rejected special tokenizer input leaves no building source")) {
+            return false;
+        }
     }
-
-    return require(!produce_streaming_html_node_source_v2(
-                       store_root, source_path, {}, nullptr, &error),
-                   "script tokenizer state remains rejected") &&
-        require(error.find("raw-text HTML element is not implemented") != std::string::npos,
-                "script rejection remains explicit") &&
-        require(!std::filesystem::exists(source_path),
-                "rejected script input cannot publish source") &&
-        require(!std::filesystem::exists(
-                    std::filesystem::path(source_path.string() + ".building")),
-                "rejected script input leaves no building source");
+    return true;
 }
 
 } // namespace
@@ -330,10 +358,10 @@ bool test_script_remains_fail_closed() {
 int main() {
     if (!test_non_void_self_closing_syntax_fails_closed() ||
         !test_void_self_closing_syntax_remains_supported() ||
-        !test_style_rawtext_preserves_markup_like_bytes_as_one_text_span() ||
-        !test_style_rawtext_false_end_tag_candidate_stays_text() ||
-        !test_style_rawtext_close_can_cross_records_and_one_byte_windows() ||
-        !test_script_remains_fail_closed()) {
+        !test_rawtext_family_preserves_markup_like_bytes() ||
+        !test_rawtext_false_end_tag_candidate_stays_text() ||
+        !test_rawtext_close_can_cross_records_and_one_byte_windows() ||
+        !test_unimplemented_special_tokenizer_states_remain_fail_closed()) {
         return 1;
     }
     return 0;

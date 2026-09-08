@@ -2,7 +2,9 @@
 
 ## Scope
 
-This slice extends the strict streaming HTML producer onto `ZVNSRC01` v2 so ordinary HTML data-state text becomes real `#text` logical nodes. The current follow-on slice additionally admits the bounded `<style>` RAWTEXT state. It does not claim full WHATWG tokenizer/tree-builder conformance.
+This slice extends the strict streaming HTML producer onto `ZVNSRC01` v2 so ordinary HTML data-state text becomes real `#text` logical nodes. The admitted bounded RAWTEXT family now covers `style`, `xmp`, `iframe`, `noembed` and `noframes`. It does not claim full WHATWG tokenizer/tree-builder conformance.
+
+The family boundary follows the current WHATWG parsing model: those five elements switch the tokenizer to RAWTEXT, while `title`/`textarea` use RCDATA, `script` uses script-data states, `plaintext` uses PLAINTEXT, and `noscript` depends on scripting mode. The latter states remain separate work rather than being approximated through RAWTEXT.
 
 ## Source semantics
 
@@ -22,7 +24,9 @@ Text payload bytes are never accumulated into a parser-owned string. The produce
 
 A pending text span is emitted immediately before an admitted markup transition and at end of input. Resident parser memory therefore does not scale with the length of a text node.
 
-For `<style>`, arbitrary `<` bytes remain part of the same logical RAWTEXT span unless they begin an ASCII-case-insensitive appropriate `</style>` candidate. False candidates are folded back into the contiguous text span without materializing the style payload. The close candidate itself remains bounded by the configured markup-token limit and may cross StoreReader windows or physical native-store records.
+For an admitted RAWTEXT element, arbitrary `<` bytes remain part of the same logical text span unless they begin an ASCII-case-insensitive appropriate end-tag candidate for the active element. False candidates are folded back into the contiguous text span without materializing the payload. The candidate itself remains bounded by the configured markup-token limit and may cross StoreReader windows or physical native-store records.
+
+The active appropriate-end-tag name is not copied into a second parser-owned string. The ledger-backed `open_elements_.back().tag` entry is the authoritative state used by the RAWTEXT matcher.
 
 ## Working-set authority
 
@@ -32,9 +36,9 @@ Hard-limit exhaustion is converted into a fail-closed parser error. Failed produ
 
 ## Strict-profile boundary
 
-The producer deliberately supports only the narrowly admitted `<style>` RAWTEXT state. `script` data, RCDATA elements such as `title` and `textarea`, `plaintext`, the remaining RAWTEXT-family elements, foreign SVG/MathML roots, processing instructions, malformed nesting and unsupported declarations remain fail-closed. Those states are later Z7 work rather than approximated semantics.
+The producer admits the bounded RAWTEXT tokenizer family for `style`, `xmp`, `iframe`, `noembed` and `noframes` only. `script`, `title`, `textarea`, `plaintext`, scripting-mode-dependent `noscript`, foreign SVG/MathML roots, processing instructions, malformed nesting and unsupported declarations remain fail-closed. Those states are later Z7 work rather than approximated semantics.
 
-Within the admitted `style` state, an appropriate end-tag name is matched ASCII-case-insensitively and may be followed by ASCII whitespace before `>`. Unsupported end-tag trailing syntax still fails closed instead of being silently recovered.
+Within admitted RAWTEXT, an appropriate end-tag name is matched ASCII-case-insensitively and may be followed by ASCII whitespace before `>`. Attributes, self-closing syntax and other parse-error recovery on RAWTEXT end tags remain strict-profile rejection rather than silently inventing broader WHATWG recovery behavior.
 
 HTML's self-closing flag is not XML element closure. The strict profile therefore rejects explicit `/>` syntax on non-void HTML elements such as `<div/>` rather than silently treating them as closed. Explicit `/>` remains accepted for genuine HTML void elements such as `<br/>`, `<img/>` and `<input/>`. Broader WHATWG parse-error recovery is still outside this slice.
 
@@ -49,13 +53,13 @@ Focused authority covers:
 - authoritative `ZVNSRC01` v2 validation against the native store;
 - output equivalence across 1-, 2- and 7-byte StoreReader input windows;
 - working-set hard-cap rejection and staging cleanup;
-- `<style>` RAWTEXT containing markup-like `<` bytes as one exact text span;
-- false `</style...>` candidates remaining part of the same style text span;
-- ASCII-case-insensitive `</style>` recognition across physical records with a 1-byte StoreReader window;
-- continued fail-closed rejection of `script` and other unimplemented special tokenizer states;
+- markup-like `<` bytes inside each admitted RAWTEXT-family element as one exact text span;
+- false `</iframe...>` candidates remaining part of the same text span;
+- ASCII-case-insensitive `</noframes>` recognition across physical records with a 1-byte StoreReader window;
+- continued fail-closed rejection of `script`, `title`, `textarea`, `plaintext` and `noscript` special tokenizer states;
 - fail-closed rejection of non-void `<div/>` syntax with no published/staging sidecar;
 - continued acceptance and authoritative validation of void `<br/>` syntax.
 
 ## Admission boundary
 
-This slice emits a versioned source stream only. The isolated `node-arena-v2` representation and v2 source-to-arena importer are separate admission slices. Full script-data/RCDATA/plaintext handling, the remaining RAWTEXT families, WHATWG recovery and broader parser fuzz/conformance remain outstanding, so Z7 is not marked implemented by this change alone.
+This slice emits a versioned source stream only. The isolated `node-arena-v2` representation and v2 source-to-arena importer are separate admission slices. Script-data, RCDATA, PLAINTEXT, scripting-mode handling, broader WHATWG recovery and parser fuzz/conformance breadth remain outstanding, so Z7 is not marked implemented by this change alone.
