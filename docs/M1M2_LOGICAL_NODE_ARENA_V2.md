@@ -94,4 +94,4 @@ The next coherent integration is:
 4. continue raw-text/RCDATA and WHATWG parser work;
 5. connect a bounded production consumer of the arena.
 
-Z7 remains planned and issue #145 remains open.
+Z7 remains planned. GitHub issue #145 is already closed/completed on canonical history; this wrapper is follow-on versioned arena work and does not claim the later 67,108,864-node certification envelope.
