@@ -6,19 +6,27 @@
 
 The importer never synthesizes nodes from envelope counts. It replays exact source nodes, topology, flags, tag/role/style semantics and complete attribute slices from the versioned source stream.
 
-## Two independent authority passes
+## Single-pass source authority
 
-Before any arena staging directory is created, the importer runs `validate_logical_node_source_v2_against_store()` to completion. This verifies the v2 source binding and every cross-record source span against the authoritative native store using bounded `StoreReader::read_record_span()` delivery.
+The importer keeps one `LogicalNodeSourceV2Reader` open from the first untrusted frame through the final node. It does not validate `source_path` and later reopen the path for a second replay pass.
 
-Only after that pass succeeds does the importer open `LogicalNodeArenaV2StoreBoundWriter`.
+Before node replay it requires:
 
-The destination writer independently re-inspects the native store and freezes payload SHA-256, physical record-sequence SHA-256 and physical record count into the arena's store-bound identity. Therefore validation of the input source and binding of the output arena are separate checks rather than one trusted handoff.
+- source payload SHA-256, physical record-sequence SHA-256 and record count to match the authoritative native store;
+- source node count to match native-store `logical_nodes` metadata;
+- the store-bound arena writer's independently re-inspected binding to remain exactly equal to the source binding.
+
+For each decoded node, the importer validates that exact node's source span through bounded `StoreReader::read_record_span()` delivery before copying the node or any of its semantics into arena staging. Frame CRC, topology and semantic bounds remain enforced by `LogicalNodeSourceV2Reader` on the same open stream.
+
+This removes the previous validate-by-path/reopen-by-path TOCTOU boundary: the bytes decoded and validated are the bytes immediately replayed into the arena.
 
 ## Failure behavior
 
-Malformed candidate identity, invalid semantic interning configuration, source/store binding mismatch, escaping cross-record span or corrupt source data fails before `node-arena-v2.building/` exists.
+Invalid candidate identity, source/store binding mismatch or source/store count mismatch fails before arena staging begins.
 
-Failures after staging begins are cleaned by the create-only arena writer and cannot publish a partial authoritative arena.
+A malformed or escaping later node may be discovered after earlier valid nodes have entered `node-arena-v2.building/`. That staging tree is never authoritative: any failure before `finish()` destroys the incomplete writer state, removes staging, and cannot publish `node-arena-v2/`.
+
+The invariant is therefore stronger and simpler: no node is appended before its own source span validates, and no partially validated source can publish an authoritative arena.
 
 ## Boundedness
 
@@ -30,10 +38,10 @@ Semantic interning remains the disk-backed/spillable arena implementation's resp
 
 Focused authority covers:
 
-- cross-record text span source validation and import;
+- cross-record text span validation and import in the same replay pass;
 - topology, node flags, attributes, tag, role and style round trip;
 - exact payload SHA, physical record-sequence SHA and record-count binding after arena reopen;
-- escaping source span rejected before staging;
+- a late escaping source span after an earlier valid node, proving no final arena and no staging tree remain after failure;
 - source/store binding mismatch rejected before staging;
 - invalid configuration rejected before staging;
 - forced semantic-hash collision configuration remains exact.
