@@ -39,19 +39,41 @@ Each posting stores:
 - exact record-local overlap byte offset;
 - exact record-local overlap byte length.
 
-At query time the reader first requires the posting's stored source-record owner to equal the requested record. It then loads the authoritative arena node and independently recomputes the expected source overlap from the record-prefix table. A posting is rejected if its node does not actually overlap the queried record, if its stored overlap differs from the recomputed intersection, or if a continuation cursor belongs to another record chain.
+At query time the storage reader first requires the posting's stored source-record owner to equal the requested record. It then loads the authoritative arena node and independently recomputes the expected source overlap from the record-prefix table. A posting is rejected if its node does not actually overlap the queried record, if its stored overlap differs from the recomputed intersection, or if a continuation cursor belongs to another record chain.
 
 Zero-length source anchors such as `#document` are deliberately not posted to a physical record.
+
+## Authoritative query boundary
+
+`LogicalNodeRecordIndexReader` is the low-level storage/test reader. Production callers use `LogicalNodeRecordIndexAuthoritativeReader`.
+
+The authoritative layer re-reads the queried CRC-protected `heads.bin` entry and treats all of its fields as integrity authority:
+
+- an empty head must have `posting_count == 0` and both first/last sentinels;
+- a non-empty head must have both first and last posting ordinals;
+- first must not exceed last;
+- last must be inside the manifest posting table;
+- posting count must fit inside the first..last ordinal range;
+- a continuation cursor must remain inside that record head's range;
+- every returned posting ordinal must remain inside the same range;
+- a truncated page may continue only to a strictly higher ordinal that does not exceed the frozen last posting;
+- a chain that reaches its sentinel must terminate at exactly the head's frozen `last_posting`.
+
+This catches CRC-valid but semantically forged head metadata. In particular, changing a head's `last_posting` to an unrelated in-range posting cannot be hidden behind a still-readable underlying linked chain.
 
 ## Boundedness
 
 The builder streams native record descriptors and logical nodes. Per-record posting heads are updated in the staging file rather than retained in an in-memory vector proportional to record count. Posting storage grows on disk with actual node/record overlap count.
 
-The reader uses bounded positional I/O and returns at most the caller-specified node count. `max_nodes` has a hard ceiling. A truncated result returns an opaque posting ordinal that can be supplied as the continuation cursor without rescanning earlier postings.
+Readers use bounded positional I/O and return at most the caller-specified node count. `max_nodes` has a hard ceiling. A truncated result returns an opaque posting ordinal that can be supplied as the continuation cursor without rescanning earlier postings.
 
 Linked postings always point to a strictly higher posting ordinal. The reader enforces that invariant, so cycles/back-links fail closed without retaining a visited set proportional to the chain. Posting ordinals are also range-checked against the manifest before positional reads.
 
 The builder uses checked 64-bit positional offsets. Staging random-access handles are closed before the final directory rename so Windows publication is not dependent on unlinking/renaming open files.
+
+## Corruption authority
+
+Focused tests cover exact store/arena binding, same-payload/different-record-partition transplant rejection, record/head/posting CRC tamper, truncation of every fixed-width table, foreign-record continuation, forged overlap, cycles/back-links and CRC-valid forged head endpoints/tails.
 
 ## Production boundary
 
