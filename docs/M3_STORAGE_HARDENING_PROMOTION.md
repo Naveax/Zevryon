@@ -2,6 +2,20 @@
 
 This receipt promotes the M3 storage-hardening authority only after the implementation source head and the evidence-only publication head are independently exact-head green.
 
+## Current canonical status
+
+M3 is canonically complete. The `Evidence-head admission rule` at the end of this document is the historical rule that applied when this receipt was authored; its future-tense language is retained as evidence history, not as current queue state.
+
+The subsequent admission chain completed as follows:
+
+- evidence-only promotion head `c64dbf07cefed9d3028b6b6d273412d15db0f1aa` passed required push-triggered CI `31815073323` SUCCESS;
+- the same promotion head passed PR CI `31816948381` SUCCESS;
+- PR #99 merged as canonical `4101680d1cb07af67fe280de04187a275e68124a`;
+- the exact merged main head passed post-merge push CI `31817594515` SUCCESS;
+- issue #98 is closed as completed.
+
+Current cross-milestone reconciliation is recorded in `docs/M3M6_CANONICAL_STATUS_RECONCILIATION.md` and `certification/m3m6_status_reconciliation.json`. The original promotion JSON is intentionally not rewritten retroactively.
+
 ## Frozen source authority
 
 - repository: `Naveax/Zevryon`
