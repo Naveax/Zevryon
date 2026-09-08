@@ -49,8 +49,16 @@ bool build_logical_node_record_index(
     const std::filesystem::path& store_root,
     std::string* error);
 
+class LogicalNodeRecordIndexAuthoritativeReader;
+
+// Low-level storage reader. It validates store/arena identity, posting CRCs,
+// forward links and exact node/source overlap. Construction and queries are
+// intentionally private so production callers cannot bypass the additional
+// head-chain authority enforced by LogicalNodeRecordIndexAuthoritativeReader.
 class LogicalNodeRecordIndexReader final {
-public:
+private:
+    friend class LogicalNodeRecordIndexAuthoritativeReader;
+
     explicit LogicalNodeRecordIndexReader(std::filesystem::path store_root);
     ~LogicalNodeRecordIndexReader();
 
@@ -59,16 +67,42 @@ public:
     LogicalNodeRecordIndexReader(LogicalNodeRecordIndexReader&&) noexcept;
     LogicalNodeRecordIndexReader& operator=(LogicalNodeRecordIndexReader&&) noexcept;
 
-    // Reopens the sidecar only after revalidating the exact native-store binding
-    // and the authoritative arena-v2 identity frozen by the builder.
+    bool open(std::string* error);
+    const LogicalNodeRecordIndexManifest& manifest() const noexcept;
+    bool read_record(
+        std::uint64_t source_record_index,
+        std::uint64_t continuation_posting_ordinal,
+        std::size_t max_nodes,
+        LogicalNodeRecordIndexWindow* result,
+        std::string* error) const;
+
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
+// Public production reader. In addition to the low-level reader's exact
+// store/arena/overlap checks, this layer treats every CRC-valid head field as
+// authoritative: non-empty first/last/count state must be coherent,
+// continuations must stay inside that record's head range and a chain that
+// reaches its sentinel must terminate at the frozen last_posting ordinal.
+class LogicalNodeRecordIndexAuthoritativeReader final {
+public:
+    explicit LogicalNodeRecordIndexAuthoritativeReader(
+        std::filesystem::path store_root);
+    ~LogicalNodeRecordIndexAuthoritativeReader();
+
+    LogicalNodeRecordIndexAuthoritativeReader(
+        const LogicalNodeRecordIndexAuthoritativeReader&) = delete;
+    LogicalNodeRecordIndexAuthoritativeReader& operator=(
+        const LogicalNodeRecordIndexAuthoritativeReader&) = delete;
+    LogicalNodeRecordIndexAuthoritativeReader(
+        LogicalNodeRecordIndexAuthoritativeReader&&) noexcept;
+    LogicalNodeRecordIndexAuthoritativeReader& operator=(
+        LogicalNodeRecordIndexAuthoritativeReader&&) noexcept;
+
     bool open(std::string* error);
     const LogicalNodeRecordIndexManifest& manifest() const noexcept;
 
-    // Reads at most max_nodes postings for one physical source record. Pass
-    // kNoLogicalNodeRecordPosting for continuation_posting_ordinal on the first
-    // call. If truncated is true, pass next_posting_ordinal to continue. Every
-    // returned posting is checked against the authoritative arena node's actual
-    // source-span overlap before it is exposed.
     bool read_record(
         std::uint64_t source_record_index,
         std::uint64_t continuation_posting_ordinal,
