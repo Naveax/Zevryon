@@ -11,6 +11,10 @@
 namespace zevryon::massivedoc {
 
 inline constexpr std::uint64_t kNoLogicalNodeOrdinal = ~std::uint64_t{0};
+inline constexpr std::uint32_t kLogicalNodeArenaFormatV1 = 1U;
+inline constexpr std::uint32_t kLogicalNodeArenaFormatV2 = 2U;
+inline constexpr std::uint32_t kLogicalNodeArenaCurrentFormat =
+    kLogicalNodeArenaFormatV2;
 
 enum class LogicalSemanticKind : std::uint8_t {
     tag = 0,
@@ -26,6 +30,7 @@ struct LogicalNodeArenaBuildConfig {
     std::array<std::uint8_t, 32> source_sha256{};
     std::uint32_t semantic_bucket_count{4096U};
     std::uint32_t semantic_hash_bits{64U};
+    std::uint32_t format_version{kLogicalNodeArenaCurrentFormat};
 };
 
 struct LogicalNodeAttributeInput {
@@ -38,6 +43,8 @@ struct LogicalNodeInput {
     std::uint64_t logical_id{0U};
     std::uint64_t source_record_index{0U};
     std::uint64_t source_byte_offset{0U};
+    // Arena V1 interprets this as a same-record byte length. Arena V2 uses a
+    // contiguous logical span length that may continue into following records.
     std::uint64_t source_byte_length{0U};
     std::uint64_t parent_ordinal{kNoLogicalNodeOrdinal};
     std::string_view tag;
