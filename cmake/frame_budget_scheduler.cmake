@@ -13,7 +13,7 @@ target_sources(
     src/store_record_length_probe.cpp
     src/velocity_prefetch_planner.cpp
     src/zenith_process_tab_controller.cpp
-    src/zenith_tab_runtime.cpp
+    src/zenith_tab_runtime_semantic_adopted.cpp
     src/zenith_tab_runtime_profile.cpp)
 
 add_executable(
@@ -189,6 +189,17 @@ if(BUILD_TESTING)
   add_test(
     NAME zenith-tab-runtime-tests
     COMMAND zevryon-tab-runtime-tests)
+
+  add_executable(
+    zevryon-tab-runtime-semantic-record-tests
+    tests/zenith_tab_runtime_semantic_record_tests.cpp)
+  target_link_libraries(
+    zevryon-tab-runtime-semantic-record-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-tab-runtime-semantic-record-tests)
+  add_test(
+    NAME zenith-tab-runtime-semantic-record-tests
+    COMMAND zevryon-tab-runtime-semantic-record-tests)
 
   find_package(Python3 QUIET COMPONENTS Interpreter)
   if(Python3_Interpreter_FOUND)
