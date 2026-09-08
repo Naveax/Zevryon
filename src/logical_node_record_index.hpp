@@ -40,6 +40,12 @@ struct LogicalNodeRecordIndexWindow {
     bool truncated{false};
 };
 
+struct LogicalNodeRecordIndexHeadSnapshot {
+    std::uint64_t first_posting{kNoLogicalNodeRecordPosting};
+    std::uint64_t last_posting{kNoLogicalNodeRecordPosting};
+    std::uint64_t posting_count{0U};
+};
+
 // Builds a create-only, disk-backed source-record -> logical-node index beside
 // the authoritative native store and store-bound node-arena-v2. Non-empty node
 // source spans are indexed into every physical record they actually overlap.
@@ -71,6 +77,14 @@ public:
         std::uint64_t continuation_posting_ordinal,
         std::size_t max_nodes,
         LogicalNodeRecordIndexWindow* result,
+        std::string* error) const;
+
+    // Reads the CRC-validated head from the exact heads.bin handle already held
+    // by this reader. Production authority uses this instead of reopening the
+    // path after the storage reader has established its identity.
+    bool read_head_snapshot(
+        std::uint64_t source_record_index,
+        LogicalNodeRecordIndexHeadSnapshot* head,
         std::string* error) const;
 
     // Same-open-arena primitives. These use the exact store-bound arena instance
