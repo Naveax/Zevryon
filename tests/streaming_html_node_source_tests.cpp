@@ -3,6 +3,7 @@
 #include "massivedoc_store.hpp"
 #include "streaming_html_node_source.hpp"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstddef>
@@ -13,13 +14,13 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
 
 using zevryon::massivedoc::CorpusMetadata;
 using zevryon::massivedoc::LogicalNodeArenaReader;
-using zevryon::massivedoc::LogicalNodeAttributeRecord;
 using zevryon::massivedoc::LogicalNodeRecord;
 using zevryon::massivedoc::LogicalNodeSourceImportConfig;
 using zevryon::massivedoc::LogicalNodeSourceNode;
@@ -109,10 +110,7 @@ std::vector<std::byte> read_file(const std::filesystem::path& path) {
             reinterpret_cast<char*>(output.data()),
             static_cast<std::streamsize>(output.size()));
     }
-    if (!stream) {
-        return {};
-    }
-    return output;
+    return stream ? output : std::vector<std::byte>{};
 }
 
 LogicalNodeSourceImportConfig import_config() {
@@ -137,8 +135,8 @@ bool next_node(
 bool test_real_semantics_cross_record_and_arena_import() {
     const std::filesystem::path root = unique_root("html-producer-roundtrip");
     RootCleanup cleanup(root);
-    const std::filesystem::path store_root = root / "store";
-    const std::filesystem::path source_path = root / "nodes.zvnsrc";
+    const auto store_root = root / "store";
+    const auto source_path = root / "nodes.zvnsrc";
     const std::vector<std::string_view> records{
         "<!doctype html><!--comment > still comment--><section role=\"ma&#105;n\" ",
         "style='display:&quot;block&quot;' id=x><div class=a disabled></div><br/></section>"};
@@ -152,11 +150,7 @@ bool test_real_semantics_cross_record_and_arena_import() {
     StreamingHtmlNodeSourceStats stats;
     if (!require(
             produce_streaming_html_node_source(
-                store_root,
-                source_path,
-                config,
-                &stats,
-                &error),
+                store_root, source_path, config, &stats, &error),
             error) ||
         !require(stats.source_records == 2U, "two physical source records scanned") ||
         !require(stats.nodes_emitted == 4U, "document plus three elements emitted") ||
@@ -195,10 +189,7 @@ bool test_real_semantics_cross_record_and_arena_import() {
 
     if (!require(
             import_logical_node_source_to_arena(
-                source_path,
-                store_root,
-                import_config(),
-                &error),
+                source_path, store_root, import_config(), &error),
             error)) {
         return false;
     }
@@ -227,13 +218,13 @@ bool test_real_semantics_cross_record_and_arena_import() {
 bool test_input_chunk_size_equivalence() {
     const std::filesystem::path root = unique_root("html-producer-chunk-equivalence");
     RootCleanup cleanup(root);
-    const std::filesystem::path store_root = root / "store";
-    const std::filesystem::path first_path = root / "one-byte.zvnsrc";
-    const std::filesystem::path second_path = root / "wide.zvnsrc";
+    const auto store_root = root / "store";
+    const auto first_path = root / "one-byte.zvnsrc";
+    const auto second_path = root / "wide.zvnsrc";
     const std::vector<std::string_view> records{
         "<!doctype html><main id=alpha><p class='x'>ignored text</p><img alt=photo></main>"};
     std::string error;
-    if (!require(build_html_store(store_root, records, 5U, &error), error)) {
+    if (!require(build_html_store(store_root, records, 4U, &error), error)) {
         return false;
     }
 
@@ -243,42 +234,29 @@ bool test_input_chunk_size_equivalence() {
     wide.input_window_bytes = 257U;
     if (!require(
             produce_streaming_html_node_source(
-                store_root,
-                first_path,
-                tiny,
-                nullptr,
-                &error),
+                store_root, first_path, tiny, nullptr, &error),
             error) ||
         !require(
             produce_streaming_html_node_source(
-                store_root,
-                second_path,
-                wide,
-                nullptr,
-                &error),
+                store_root, second_path, wide, nullptr, &error),
             error)) {
         return false;
     }
-    const std::vector<std::byte> first = read_file(first_path);
-    const std::vector<std::byte> second = read_file(second_path);
+    const auto first = read_file(first_path);
+    const auto second = read_file(second_path);
     return require(!first.empty() && first == second, "source bytes are chunk-size invariant");
 }
 
 bool test_mismatched_end_tag_fails_closed() {
     const std::filesystem::path root = unique_root("html-producer-mismatch");
     RootCleanup cleanup(root);
-    const std::filesystem::path store_root = root / "store";
-    const std::filesystem::path source_path = root / "nodes.zvnsrc";
-    const std::vector<std::string_view> records{"<main><div></main></div>"};
+    const auto store_root = root / "store";
+    const auto source_path = root / "nodes.zvnsrc";
     std::string error;
-    if (!require(build_html_store(store_root, records, 3U, &error), error) ||
+    if (!require(build_html_store(store_root, {"<main><div></main></div>"}, 3U, &error), error) ||
         !require(
             !produce_streaming_html_node_source(
-                store_root,
-                source_path,
-                {},
-                nullptr,
-                &error),
+                store_root, source_path, {}, nullptr, &error),
             "mismatched end tag rejected") ||
         !require(!std::filesystem::exists(source_path), "malformed HTML cannot publish source")) {
         return false;
@@ -291,42 +269,38 @@ bool test_mismatched_end_tag_fails_closed() {
 bool test_raw_text_element_fails_closed() {
     const std::filesystem::path root = unique_root("html-producer-rawtext");
     RootCleanup cleanup(root);
-    const std::filesystem::path store_root = root / "store";
-    const std::filesystem::path source_path = root / "nodes.zvnsrc";
-    const std::vector<std::string_view> records{"<main><script>if (a < b) x();</script></main>"};
+    const auto store_root = root / "store";
+    const auto source_path = root / "nodes.zvnsrc";
     std::string error;
-    if (!require(build_html_store(store_root, records, 3U, &error), error)) {
+    if (!require(
+            build_html_store(
+                store_root,
+                {"<main><script>if (a < b) x();</script></main>"},
+                3U,
+                &error),
+            error)) {
         return false;
     }
     return require(
         !produce_streaming_html_node_source(
-            store_root,
-            source_path,
-            {},
-            nullptr,
-            &error),
+            store_root, source_path, {}, nullptr, &error),
         "unimplemented raw-text tokenizer state rejects instead of misparsing");
 }
 
 bool test_depth_bound_fails_closed() {
     const std::filesystem::path root = unique_root("html-producer-depth");
     RootCleanup cleanup(root);
-    const std::filesystem::path store_root = root / "store";
-    const std::filesystem::path source_path = root / "nodes.zvnsrc";
-    const std::vector<std::string_view> records{"<a><b></b></a>"};
+    const auto store_root = root / "store";
+    const auto source_path = root / "nodes.zvnsrc";
     std::string error;
-    if (!require(build_html_store(store_root, records, 3U, &error), error)) {
+    if (!require(build_html_store(store_root, {"<a><b></b></a>"}, 3U, &error), error)) {
         return false;
     }
     StreamingHtmlNodeSourceConfig config;
     config.maximum_open_element_depth = 1U;
     return require(
         !produce_streaming_html_node_source(
-            store_root,
-            source_path,
-            config,
-            nullptr,
-            &error),
+            store_root, source_path, config, nullptr, &error),
         "open-element depth cap enforced");
 }
 
@@ -335,65 +309,47 @@ bool test_token_bound_and_duplicate_attribute_fail_closed() {
     RootCleanup cleanup(root);
     std::string error;
 
-    const std::filesystem::path token_store = root / "token-store";
-    const std::filesystem::path token_source = root / "token.zvnsrc";
-    if (!require(
-            build_html_store(token_store, {"<abcdefgh></abcdefgh>"}, 2U, &error),
-            error)) {
+    const auto token_store = root / "token-store";
+    const auto token_source = root / "token.zvnsrc";
+    if (!require(build_html_store(token_store, {"<abcdefgh></abcdefgh>"}, 2U, &error), error)) {
         return false;
     }
     StreamingHtmlNodeSourceConfig token_config;
     token_config.maximum_token_bytes = 8U;
     if (!require(
             !produce_streaming_html_node_source(
-                token_store,
-                token_source,
-                token_config,
-                nullptr,
-                &error),
+                token_store, token_source, token_config, nullptr, &error),
             "oversized markup token rejected")) {
         return false;
     }
 
-    const std::filesystem::path duplicate_store = root / "duplicate-store";
-    const std::filesystem::path duplicate_source = root / "duplicate.zvnsrc";
-    if (!require(
-            build_html_store(duplicate_store, {"<main ID=a id=b></main>"}, 2U, &error),
-            error) ||
-        !require(
+    const auto duplicate_store = root / "duplicate-store";
+    const auto duplicate_source = root / "duplicate.zvnsrc";
+    return require(
+               build_html_store(
+                   duplicate_store,
+                   {"<main ID=a id=b></main>"},
+                   2U,
+                   &error),
+               error) &&
+        require(
             !produce_streaming_html_node_source(
-                duplicate_store,
-                duplicate_source,
-                {},
-                nullptr,
-                &error),
-            "case-folded duplicate attribute rejected")) {
-        return false;
-    }
-    return true;
+                duplicate_store, duplicate_source, {}, nullptr, &error),
+            "case-folded duplicate attribute rejected");
 }
 
 bool test_envelope_node_count_mismatch_rejected() {
     const std::filesystem::path root = unique_root("html-producer-envelope");
     RootCleanup cleanup(root);
-    const std::filesystem::path store_root = root / "store";
-    const std::filesystem::path source_path = root / "nodes.zvnsrc";
+    const auto store_root = root / "store";
+    const auto source_path = root / "nodes.zvnsrc";
     std::string error;
-    if (!require(
-            build_html_store(store_root, {"<main></main>"}, 99U, &error),
-            error) ||
-        !require(
+    return require(build_html_store(store_root, {"<main></main>"}, 99U, &error), error) &&
+        require(
             !produce_streaming_html_node_source(
-                store_root,
-                source_path,
-                {},
-                nullptr,
-                &error),
-            "logical_nodes envelope cannot certify invented nodes") ||
-        !require(!std::filesystem::exists(source_path), "count mismatch cannot publish source")) {
-        return false;
-    }
-    return true;
+                store_root, source_path, {}, nullptr, &error),
+            "logical_nodes envelope cannot certify invented nodes") &&
+        require(!std::filesystem::exists(source_path), "count mismatch cannot publish source");
 }
 
 } // namespace
