@@ -1,5 +1,6 @@
 #include "zenith_semantic_node_window.hpp"
 
+#include <algorithm>
 #include <limits>
 #include <utility>
 
@@ -70,10 +71,7 @@ bool ZenithSemanticNodeWindow::open(std::string* error) {
     if (impl_->opened) {
         return fail(error, "zenith semantic node window is already open");
     }
-    if (impl_->config.maximum_nodes == 0U ||
-        impl_->config.maximum_attributes_per_node == 0U ||
-        impl_->config.maximum_total_attributes == 0U ||
-        impl_->config.maximum_semantic_bytes == 0U) {
+    if (!impl_->config.valid()) {
         return fail(error, "zenith semantic node window configuration is invalid");
     }
     if (!impl_->reader.open(error)) {
@@ -112,11 +110,12 @@ bool ZenithSemanticNodeWindow::read(
         return true;
     }
 
-    result->nodes.reserve(std::min<std::size_t>(
-        impl_->config.maximum_nodes,
-        static_cast<std::size_t>(std::min<std::uint64_t>(
-            node_count - start_ordinal,
-            static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())))));
+    const std::uint64_t remaining_nodes = node_count - start_ordinal;
+    const std::size_t reserve_nodes = static_cast<std::size_t>(
+        std::min<std::uint64_t>(
+            remaining_nodes,
+            static_cast<std::uint64_t>(impl_->config.maximum_nodes)));
+    result->nodes.reserve(reserve_nodes);
 
     std::uint64_t ordinal = start_ordinal;
     while (ordinal < node_count && result->nodes.size() < impl_->config.maximum_nodes) {
