@@ -98,11 +98,22 @@ struct LogicalNodeSourceImportConfig {
     std::uint32_t semantic_hash_bits{64U};
 };
 
+// Computes the exact immutable store binding used by ZVNSRC01. The payload
+// digest binds logical bytes while record_sequence_sha256 binds stable physical
+// record order/boundaries through ordinal + record logical id + length + CRC32.
+// Chunk placement is deliberately excluded so storage compaction does not
+// invalidate semantic source identity.
 bool inspect_logical_node_source_store_binding(
     const std::filesystem::path& store_root,
     LogicalNodeSourceStoreBinding* binding,
     std::string* error);
 
+// Imports an explicit parser/import-produced semantic node stream into the
+// disk-backed arena. The node source must bind both the exact StoreReader
+// payload SHA-256 and the exact stable physical-record sequence. Every source
+// range is independently checked against its record. The store manifest's
+// logical_nodes field is used only as a count consistency check; it is never
+// used to synthesize semantic nodes.
 bool import_logical_node_source_to_arena(
     const std::filesystem::path& source_path,
     const std::filesystem::path& store_root,
