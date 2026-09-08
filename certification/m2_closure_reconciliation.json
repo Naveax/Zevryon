@@ -1,0 +1,64 @@
+{
+  "schema": "zevryon.m2.closure-reconciliation.v1",
+  "repository": "Naveax/Zevryon",
+  "reconciliation_base_main": "add6d43b925dc94e85111b4a57007673f142ca79",
+  "historical_promotion": {
+    "source_authority_head": "d17628a3d51922d50fd295f84b436e13e935846a",
+    "source_authority_ci_run": 31795891050,
+    "source_authority_ci_conclusion": "success",
+    "evidence_head": "959e3b00c7b64b7fa96524905b9f81fe06a70d75",
+    "required_push_ci_run": 31796822424,
+    "required_push_ci_conclusion": "success",
+    "pr_ci_run": 31797517189,
+    "pr_ci_conclusion": "success",
+    "promotion_pr": 97,
+    "canonical_merge_commit": "e132538834b55bb2b40157997b20693201bf6f78"
+  },
+  "post_promotion_identity_context": {
+    "source_record_index_bridge_pr": 158,
+    "source_record_index_bridge_head": "4bee237c2263b139b10a29c03dd87956b90e2d5a",
+    "source_record_index_bridge_ci_run": 34237003555,
+    "source_record_index_bridge_merge": "04990b0ff89c59063e761e147afa7069d06d4d9d",
+    "zenith_semantic_adoption_pr": 159,
+    "zenith_semantic_adoption_head": "31ed41801fca2a6b092e57274ee1f14d2deb10ee",
+    "zenith_semantic_adoption_ci_run": 34240329146,
+    "zenith_semantic_adoption_merge": "add6d43b925dc94e85111b4a57007673f142ca79"
+  },
+  "residual_physical_source_audit": {
+    "result": "pass",
+    "rule": "mutable logical record_index must never be reinterpreted as immutable physical source identity",
+    "audited_surfaces": [
+      "LayoutWindow StoreReader payload dereference",
+      "layout checkpoint path/open/scan identity",
+      "ZenithHotScroll checkpoint cache and raw source-window cache",
+      "ZenithTabRuntime source-window prefetch publication",
+      "full-document export source dereference",
+      "record-heights.idx physical slot addressing",
+      "height-blocks.idx physical block addressing",
+      "source-record to logical-node semantic bridge"
+    ],
+    "production_logical_to_physical_dereference_found": false,
+    "store_level_physical_iteration_note": "Store-level loops that directly iterate records.idx may use record_index as a physical store ordinal; those are not logical-order consumers."
+  },
+  "admitted_m2_capabilities": [
+    "bounded chunked order-statistics sequence",
+    "subtree record/text/layout/search aggregates",
+    "bounded logarithmic in-memory lookup and mutation",
+    "O(1) immutable snapshots",
+    "O(1) shared-root transaction forks",
+    "immutable source_record_index independent from logical ordinal",
+    "durable logical move/reorder generation publication",
+    "torn temporary generation recovery",
+    "fail-closed committed-generation validation",
+    "reopen recovery through CompactArenaReader",
+    "reopen recovery through LayoutWindowEngine",
+    "reopen recovery through ZenithHotScrollSession"
+  ],
+  "explicit_non_capabilities": [
+    "durable arbitrary compact-arena insert",
+    "durable arbitrary compact-arena erase",
+    "arbitrary persistent structural editing beyond the admitted move/reorder contract"
+  ],
+  "reconciliation_scope": "documentation and evidence status only; no runtime, build, workflow or storage-format capability is expanded",
+  "historical_receipt_policy": "certification/m2_order_statistics_sequence_promotion.json remains unchanged as a historical pre-evidence-head snapshot"
+}
