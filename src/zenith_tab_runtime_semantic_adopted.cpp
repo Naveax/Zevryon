@@ -5,8 +5,8 @@
 #include "zenith_tab_runtime.cpp"
 
 #include "logical_node_record_index.hpp"
-#include "zenith_semantic_runtime_consumer.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <utility>
@@ -20,6 +20,101 @@ std::uint64_t semantic_saturating_add(
     return left > std::numeric_limits<std::uint64_t>::max() - right
                ? std::numeric_limits<std::uint64_t>::max()
                : left + right;
+}
+
+bool add_semantic_size(std::size_t* total, std::size_t amount) noexcept {
+    if (total == nullptr ||
+        *total > std::numeric_limits<std::size_t>::max() - amount) {
+        return false;
+    }
+    *total += amount;
+    return true;
+}
+
+bool materialize_same_arena_node(
+    const LogicalNodeRecordIndexAuthoritativeReader& index,
+    std::uint64_t node_ordinal,
+    const ZenithSemanticNodeWindowConfig& config,
+    ZenithSemanticNode* node,
+    std::size_t* attribute_count,
+    std::size_t* semantic_bytes,
+    std::string* error) {
+    if (node == nullptr || attribute_count == nullptr ||
+        semantic_bytes == nullptr || error == nullptr) {
+        return false;
+    }
+    *node = ZenithSemanticNode{};
+    *attribute_count = 0U;
+    *semantic_bytes = 0U;
+
+    LogicalNodeRecord record;
+    if (!index.node_by_ordinal(node_ordinal, &record, error)) {
+        return false;
+    }
+    if (record.attribute_count > config.maximum_attributes_per_node) {
+        *error =
+            "zenith source-record semantic node exceeds per-node attribute budget";
+        return false;
+    }
+
+    node->record = record;
+    if (!index.resolve_semantic(
+            LogicalSemanticKind::tag, record.tag_id, &node->tag, error) ||
+        !index.resolve_semantic(
+            LogicalSemanticKind::role, record.role_id, &node->role, error) ||
+        !index.resolve_semantic(
+            LogicalSemanticKind::style, record.style_id, &node->style, error)) {
+        return false;
+    }
+    if (!add_semantic_size(semantic_bytes, node->tag.size()) ||
+        !add_semantic_size(semantic_bytes, node->role.size()) ||
+        !add_semantic_size(semantic_bytes, node->style.size())) {
+        *error = "zenith source-record semantic byte accounting overflows";
+        return false;
+    }
+
+    const std::size_t count = static_cast<std::size_t>(record.attribute_count);
+    node->attributes.reserve(count);
+    for (std::uint32_t relative = 0U;
+         relative < record.attribute_count;
+         ++relative) {
+        if (record.attribute_offset >
+            std::numeric_limits<std::uint64_t>::max() - relative) {
+            *error = "zenith source-record semantic attribute ordinal overflows";
+            return false;
+        }
+        LogicalNodeAttributeRecord stored;
+        if (!index.attribute_by_ordinal(
+                record.attribute_offset + relative,
+                &stored,
+                error)) {
+            return false;
+        }
+
+        ZenithSemanticAttribute attribute;
+        attribute.flags = stored.flags;
+        if (!index.resolve_semantic(
+                LogicalSemanticKind::attribute_name,
+                stored.name_id,
+                &attribute.name,
+                error) ||
+            !index.resolve_semantic(
+                LogicalSemanticKind::attribute_value,
+                stored.value_id,
+                &attribute.value,
+                error)) {
+            return false;
+        }
+        if (!add_semantic_size(semantic_bytes, attribute.name.size()) ||
+            !add_semantic_size(semantic_bytes, attribute.value.size())) {
+            *error = "zenith source-record semantic byte accounting overflows";
+            return false;
+        }
+        node->attributes.push_back(std::move(attribute));
+    }
+
+    *attribute_count = count;
+    return true;
 }
 
 } // namespace
@@ -61,13 +156,16 @@ bool ZenithTabRuntime::semantic_nodes_for_source_record_on_lane(
             stats.semantic_record_requests,
             1U);
     });
-
-    if (!impl_->opened) {
+    const auto mark_failure = [this]() {
         impl_->update_statistics([](ZenithTabRuntimeStats& stats) {
             stats.semantic_record_failures = semantic_saturating_add(
                 stats.semantic_record_failures,
                 1U);
         });
+    };
+
+    if (!impl_->opened) {
+        mark_failure();
         *error = "zenith tab runtime is not open for semantic queries";
         return false;
     }
@@ -88,37 +186,28 @@ bool ZenithTabRuntime::semantic_nodes_for_source_record_on_lane(
     if (max_nodes == 0U ||
         max_nodes > kMaximumLogicalNodeRecordWindowNodes ||
         !impl_->config.semantic_window.valid()) {
-        impl_->update_statistics([](ZenithTabRuntimeStats& stats) {
-            stats.semantic_record_failures = semantic_saturating_add(
-                stats.semantic_record_failures,
-                1U);
-        });
+        mark_failure();
         *error = "invalid zenith source-record semantic query bounds";
         return false;
     }
 
     LogicalNodeRecordIndexAuthoritativeReader index(impl_->root);
     if (!index.open(error)) {
-        impl_->update_statistics([](ZenithTabRuntimeStats& stats) {
-            stats.semantic_record_failures = semantic_saturating_add(
-                stats.semantic_record_failures,
-                1U);
-        });
+        mark_failure();
         return false;
     }
 
+    const std::size_t effective_max_nodes = std::min(
+        max_nodes,
+        impl_->config.semantic_window.maximum_nodes);
     LogicalNodeRecordIndexWindow posting_window;
     if (!index.read_record(
             source_record_index,
             continuation_posting_ordinal,
-            max_nodes,
+            effective_max_nodes,
             &posting_window,
             error)) {
-        impl_->update_statistics([](ZenithTabRuntimeStats& stats) {
-            stats.semantic_record_failures = semantic_saturating_add(
-                stats.semantic_record_failures,
-                1U);
-        });
+        mark_failure();
         return false;
     }
 
@@ -128,38 +217,63 @@ bool ZenithTabRuntime::semantic_nodes_for_source_record_on_lane(
     decoded.truncated = posting_window.truncated;
     decoded.nodes.reserve(posting_window.postings.size());
 
-    if (!posting_window.postings.empty()) {
-        ZenithSemanticNodeWindowConfig semantic_config =
-            impl_->config.semantic_window;
-        semantic_config.maximum_nodes = 1U;
-        ZenithSemanticRuntimeConsumer semantics(impl_->root, semantic_config);
+    for (const LogicalNodeRecordPosting& posting : posting_window.postings) {
+        ZenithSemanticNode semantic;
+        std::size_t candidate_attributes = 0U;
+        std::size_t candidate_bytes = 0U;
+        if (!materialize_same_arena_node(
+                index,
+                posting.node_ordinal,
+                impl_->config.semantic_window,
+                &semantic,
+                &candidate_attributes,
+                &candidate_bytes,
+                error)) {
+            mark_failure();
+            return false;
+        }
 
-        for (const LogicalNodeRecordPosting& posting : posting_window.postings) {
-            ZenithSemanticNodeWindowResult node_window;
-            if (!semantics.read_on_lane(
-                    FrameExecutionLane::Worker,
-                    posting.node_ordinal,
-                    &node_window,
-                    error) ||
-                node_window.start_ordinal != posting.node_ordinal ||
-                node_window.nodes.size() != 1U) {
-                if (error->empty()) {
-                    *error =
-                        "zenith source-record semantic materialization did not return the indexed node";
-                }
-                impl_->update_statistics([](ZenithTabRuntimeStats& stats) {
-                    stats.semantic_record_failures = semantic_saturating_add(
-                        stats.semantic_record_failures,
-                        1U);
-                });
+        if (candidate_attributes >
+            impl_->config.semantic_window.maximum_total_attributes) {
+            mark_failure();
+            *error =
+                "zenith source-record semantic node exceeds total attribute budget by itself";
+            return false;
+        }
+        if (decoded.attribute_count >
+            impl_->config.semantic_window.maximum_total_attributes -
+                candidate_attributes) {
+            decoded.truncated = true;
+            decoded.next_posting_ordinal = posting.posting_ordinal;
+            break;
+        }
+
+        if (candidate_bytes >
+            impl_->config.semantic_window.maximum_semantic_bytes) {
+            if (decoded.nodes.empty()) {
+                mark_failure();
+                *error =
+                    "zenith source-record semantic node exceeds semantic-byte budget by itself";
                 return false;
             }
-
-            ZenithRecordSemanticNode resolved;
-            resolved.source_overlap = posting;
-            resolved.semantic = std::move(node_window.nodes.front());
-            decoded.nodes.push_back(std::move(resolved));
+            decoded.truncated = true;
+            decoded.next_posting_ordinal = posting.posting_ordinal;
+            break;
         }
+        if (decoded.semantic_bytes >
+            impl_->config.semantic_window.maximum_semantic_bytes -
+                candidate_bytes) {
+            decoded.truncated = true;
+            decoded.next_posting_ordinal = posting.posting_ordinal;
+            break;
+        }
+
+        ZenithRecordSemanticNode resolved;
+        resolved.source_overlap = posting;
+        resolved.semantic = std::move(semantic);
+        decoded.attribute_count += candidate_attributes;
+        decoded.semantic_bytes += candidate_bytes;
+        decoded.nodes.push_back(std::move(resolved));
     }
 
     impl_->update_statistics([&](ZenithTabRuntimeStats& stats) {
