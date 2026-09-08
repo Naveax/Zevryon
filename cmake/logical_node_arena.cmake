@@ -126,6 +126,17 @@ if(BUILD_TESTING)
     COMMAND zevryon-logical-node-record-index-tests)
 
   add_executable(
+    zevryon-logical-node-record-index-corruption-tests
+    tests/logical_node_record_index_corruption_tests.cpp)
+  target_link_libraries(
+    zevryon-logical-node-record-index-corruption-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-logical-node-record-index-corruption-tests)
+  add_test(
+    NAME logical-node-record-index-corruption-tests
+    COMMAND zevryon-logical-node-record-index-corruption-tests)
+
+  add_executable(
     zevryon-zenith-semantic-node-window-tests
     tests/zenith_semantic_node_window_tests.cpp)
   target_link_libraries(
