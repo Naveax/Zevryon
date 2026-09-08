@@ -29,6 +29,12 @@ bool require(bool condition, std::string_view message) {
     return true;
 }
 
+std::string_view error_or(
+    const std::string& error,
+    std::string_view fallback) noexcept {
+    return error.empty() ? fallback : std::string_view(error);
+}
+
 std::filesystem::path unique_root(std::string_view name) {
     const auto tick = std::chrono::steady_clock::now().time_since_epoch().count();
     return std::filesystem::temp_directory_path() /
@@ -99,6 +105,9 @@ bool build_semantic_arena(
     config.semantic_bucket_count = 64U;
     config.semantic_hash_bits = 64U;
 
+    constexpr std::array<LogicalNodeAttributeInput, 1> div_attributes{{
+        LogicalNodeAttributeInput{"class", "hero", 7U}}};
+
     LogicalNodeArenaV2StoreBoundWriter writer(root, config);
     return writer.begin(error) &&
         writer.append_node(
@@ -111,7 +120,7 @@ bool build_semantic_arena(
             LogicalNodeInput{
                 2U, 0U, 0U, 1U, 0U,
                 "div", "main", "display:block", 0U},
-            {},
+            div_attributes,
             error) &&
         writer.append_node(
             LogicalNodeInput{
@@ -141,23 +150,26 @@ bool test_worker_lane_resolves_record_postings_to_semantics() {
     const std::filesystem::path root = unique_root("tab-record-semantics-worker");
     RootCleanup cleanup(root);
     std::string error;
-    if (!require(build_fixture(root, true, &error), error)) {
+    const bool fixture_ok = build_fixture(root, true, &error);
+    if (!require(fixture_ok, error_or(error, "worker fixture build failed"))) {
         return false;
     }
 
     ZenithTabRuntime runtime(root, nullptr, 4101U);
-    if (!require(runtime.open(&error), error)) {
+    const bool opened = runtime.open(&error);
+    if (!require(opened, error_or(error, "worker runtime open failed"))) {
         return false;
     }
 
     ZenithRecordSemanticWindowResult first;
-    if (!require(runtime.semantic_nodes_for_source_record_on_lane(
-            FrameExecutionLane::Worker,
-            0U,
-            kNoLogicalNodeRecordPosting,
-            1U,
-            &first,
-            &error), error) ||
+    const bool first_ok = runtime.semantic_nodes_for_source_record_on_lane(
+        FrameExecutionLane::Worker,
+        0U,
+        kNoLogicalNodeRecordPosting,
+        1U,
+        &first,
+        &error);
+    if (!require(first_ok, error_or(error, "first semantic page failed")) ||
         !require(first.source_record_index == 0U, "physical record identity") ||
         !require(first.nodes.size() == 1U, "first page node count") ||
         !require(first.nodes[0].source_overlap.node_ordinal == 1U,
@@ -167,6 +179,18 @@ bool test_worker_lane_resolves_record_postings_to_semantics() {
                  "first posting overlap") ||
         !require(first.nodes[0].semantic.tag == "div", "first semantic tag") ||
         !require(first.nodes[0].semantic.role == "main", "first semantic role") ||
+        !require(first.nodes[0].semantic.style == "display:block",
+                 "first semantic style") ||
+        !require(first.nodes[0].semantic.attributes.size() == 1U,
+                 "first semantic attribute count") ||
+        !require(first.nodes[0].semantic.attributes[0].name == "class" &&
+                     first.nodes[0].semantic.attributes[0].value == "hero" &&
+                     first.nodes[0].semantic.attributes[0].flags == 7U,
+                 "first semantic attribute payload") ||
+        !require(first.attribute_count == 1U,
+                 "first page attribute accounting") ||
+        !require(first.semantic_bytes == 29U,
+                 "first page semantic-byte accounting") ||
         !require(first.truncated, "first page truncation") ||
         !require(first.next_posting_ordinal != kNoLogicalNodeRecordPosting,
                  "first page continuation")) {
@@ -174,12 +198,13 @@ bool test_worker_lane_resolves_record_postings_to_semantics() {
     }
 
     ZenithRecordSemanticWindowResult second;
-    if (!require(runtime.semantic_nodes_for_source_record(
-            0U,
-            first.next_posting_ordinal,
-            8U,
-            &second,
-            &error), error) ||
+    const bool second_ok = runtime.semantic_nodes_for_source_record(
+        0U,
+        first.next_posting_ordinal,
+        8U,
+        &second,
+        &error);
+    if (!require(second_ok, error_or(error, "semantic continuation failed")) ||
         !require(second.nodes.size() == 1U, "continuation node count") ||
         !require(second.nodes[0].source_overlap.node_ordinal == 2U,
                  "continuation node ordinal") ||
@@ -188,6 +213,10 @@ bool test_worker_lane_resolves_record_postings_to_semantics() {
                  "cross-record text overlap") ||
         !require(second.nodes[0].semantic.tag == "#text",
                  "continuation semantic text tag") ||
+        !require(second.attribute_count == 0U,
+                 "continuation attribute accounting") ||
+        !require(second.semantic_bytes == 5U,
+                 "continuation semantic-byte accounting") ||
         !require(!second.truncated, "continuation reaches head tail")) {
         return false;
     }
@@ -201,36 +230,98 @@ bool test_worker_lane_resolves_record_postings_to_semantics() {
                 "semantic materialization telemetry");
 }
 
+bool test_semantic_byte_budget_returns_exact_record_cursor() {
+    const std::filesystem::path root = unique_root("tab-record-semantics-budget");
+    RootCleanup cleanup(root);
+    std::string error;
+    const bool fixture_ok = build_fixture(root, true, &error);
+    if (!require(fixture_ok, error_or(error, "budget fixture build failed"))) {
+        return false;
+    }
+
+    ZenithTabRuntimeConfig config;
+    config.semantic_window.maximum_semantic_bytes = 29U;
+    ZenithTabRuntime runtime(root, nullptr, 4103U, config);
+    const bool opened = runtime.open(&error);
+    if (!require(opened, error_or(error, "budget runtime open failed"))) {
+        return false;
+    }
+
+    ZenithRecordSemanticWindowResult limited;
+    const bool limited_ok = runtime.semantic_nodes_for_source_record(
+        0U,
+        kNoLogicalNodeRecordPosting,
+        8U,
+        &limited,
+        &error);
+    if (!require(limited_ok, error_or(error, "budgeted semantic query failed")) ||
+        !require(limited.nodes.size() == 1U,
+                 "semantic byte budget keeps first complete node") ||
+        !require(limited.nodes[0].source_overlap.node_ordinal == 1U,
+                 "budgeted first node ordinal") ||
+        !require(limited.semantic_bytes == 29U,
+                 "budgeted semantic bytes reach exact ceiling") ||
+        !require(limited.attribute_count == 1U,
+                 "budgeted attribute count") ||
+        !require(limited.truncated,
+                 "semantic byte budget reports truncation") ||
+        !require(limited.next_posting_ordinal != kNoLogicalNodeRecordPosting,
+                 "semantic byte budget returns record-index cursor")) {
+        return false;
+    }
+
+    ZenithRecordSemanticWindowResult resumed;
+    const bool resumed_ok = runtime.semantic_nodes_for_source_record(
+        0U,
+        limited.next_posting_ordinal,
+        8U,
+        &resumed,
+        &error);
+    return require(resumed_ok, error_or(error, "budget continuation failed")) &&
+        require(resumed.nodes.size() == 1U,
+                "budget continuation returns deferred node") &&
+        require(resumed.nodes[0].source_overlap.node_ordinal == 2U,
+                "budget continuation preserves posting identity") &&
+        require(resumed.nodes[0].semantic.tag == "#text",
+                "budget continuation resolves deferred semantics") &&
+        require(resumed.semantic_bytes == 5U,
+                "budget continuation restarts window byte accounting") &&
+        require(!resumed.truncated,
+                "budget continuation reaches authoritative tail");
+}
+
 bool test_ui_lane_rejects_before_semantic_sidecar_open() {
     const std::filesystem::path root = unique_root("tab-record-semantics-ui");
     RootCleanup cleanup(root);
     std::string error;
-    if (!require(build_fixture(root, false, &error), error)) {
+    const bool fixture_ok = build_fixture(root, false, &error);
+    if (!require(fixture_ok, error_or(error, "UI fixture build failed"))) {
         return false;
     }
 
     ZenithTabRuntime runtime(root, nullptr, 4102U);
-    if (!require(runtime.open(&error), error) ||
+    const bool opened = runtime.open(&error);
+    if (!require(opened, error_or(error, "UI runtime open failed")) ||
         !require(!std::filesystem::exists(root / "node-record-index-v1"),
                  "fixture intentionally has no record index")) {
         return false;
     }
 
     ZenithRecordSemanticWindowResult blocked;
-    if (!require(!runtime.semantic_nodes_for_source_record_on_lane(
-            FrameExecutionLane::Ui,
-            0U,
-            kNoLogicalNodeRecordPosting,
-            1U,
-            &blocked,
-            &error),
-            "UI semantic query rejected") ||
+    const bool blocked_ok = runtime.semantic_nodes_for_source_record_on_lane(
+        FrameExecutionLane::Ui,
+        0U,
+        kNoLogicalNodeRecordPosting,
+        1U,
+        &blocked,
+        &error);
+    if (!require(!blocked_ok, "UI semantic query rejected") ||
         !require(error.find("forbidden on the UI execution lane") !=
                      std::string::npos,
                  "UI rejection exposes lane fence") ||
         !require(blocked.nodes.empty(), "UI rejection returns no semantics") ||
         !require(!std::filesystem::exists(root / "node-record-index-v1"),
-                 "UI rejection did not create/open a replacement index") ||
+                 "UI rejection did not create a replacement index") ||
         !require(runtime.stats().ui_semantic_record_rejections == 1U,
                  "UI semantic rejection telemetry")) {
         return false;
@@ -238,14 +329,15 @@ bool test_ui_lane_rejects_before_semantic_sidecar_open() {
 
     error.clear();
     ZenithRecordSemanticWindowResult worker;
-    return require(!runtime.semantic_nodes_for_source_record_on_lane(
-               FrameExecutionLane::Worker,
-               0U,
-               kNoLogicalNodeRecordPosting,
-               1U,
-               &worker,
-               &error),
-            "worker query fails when authoritative index is absent") &&
+    const bool worker_ok = runtime.semantic_nodes_for_source_record_on_lane(
+        FrameExecutionLane::Worker,
+        0U,
+        kNoLogicalNodeRecordPosting,
+        1U,
+        &worker,
+        &error);
+    return require(!worker_ok,
+                   "worker query fails when authoritative index is absent") &&
         require(!error.empty(), "worker absence failure is explicit") &&
         require(runtime.stats().semantic_record_failures == 1U,
                 "worker semantic failure telemetry");
@@ -255,6 +347,7 @@ bool test_ui_lane_rejects_before_semantic_sidecar_open() {
 
 int main() {
     if (!test_worker_lane_resolves_record_postings_to_semantics() ||
+        !test_semantic_byte_budget_returns_exact_record_cursor() ||
         !test_ui_lane_rejects_before_semantic_sidecar_open()) {
         return 1;
     }
