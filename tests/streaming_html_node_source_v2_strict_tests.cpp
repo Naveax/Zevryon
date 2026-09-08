@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
@@ -109,9 +110,11 @@ bool read_three_nodes(
     LogicalNodeSourceV2Reader reader(source_path);
     LogicalNodeSourceNode extra;
     bool has_node = false;
-    return require(reader.open(error), *error) &&
-        require(reader.next(document, &has_node, error) && has_node,
-                "document node is present") &&
+    if (!reader.open(error)) {
+        return require(false, error == nullptr ? "reader open failed" : *error);
+    }
+    return require(reader.next(document, &has_node, error) && has_node,
+                   "document node is present") &&
         require(reader.next(element, &has_node, error) && has_node,
                 "element node is present") &&
         require(reader.next(text, &has_node, error) && has_node,
