@@ -11,6 +11,8 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace zevryon::massivedoc {
@@ -74,7 +76,9 @@ bool update_sha(
     std::span<const std::byte> bytes,
     std::string* error) {
     if (!sha->update(bytes)) {
-        return fail_binding(error, "record-sequence SHA-256 input exceeds supported length");
+        return fail_binding(
+            error,
+            "record-sequence SHA-256 input exceeds supported length");
     }
     return true;
 }
@@ -88,8 +92,11 @@ bool compute_record_sequence_sha256(
         return false;
     }
     if (record_count >
-        std::numeric_limits<std::uint64_t>::max() / kStoreRecordDescriptorBytes) {
-        return fail_binding(error, "record-sequence index size overflows 64-bit range");
+        std::numeric_limits<std::uint64_t>::max() /
+            kStoreRecordDescriptorBytes) {
+        return fail_binding(
+            error,
+            "record-sequence index size overflows 64-bit range");
     }
 
     BoundedPositionalReader records(
@@ -102,7 +109,9 @@ bool compute_record_sequence_sha256(
     const std::uint64_t expected_size =
         record_count * static_cast<std::uint64_t>(kStoreRecordDescriptorBytes);
     if (records.file_size() != expected_size) {
-        return fail_binding(error, "records.idx size changed after authoritative store open");
+        return fail_binding(
+            error,
+            "records.idx size changed after authoritative store open");
     }
 
     zevryon::text::Sha256 sha;
@@ -135,10 +144,12 @@ bool compute_record_sequence_sha256(
         const std::size_t raw_bytes = count * kStoreRecordDescriptorBytes;
         raw.resize(raw_bytes);
         if (!records.read_exact_at(
-                first_record * static_cast<std::uint64_t>(kStoreRecordDescriptorBytes),
+                first_record *
+                    static_cast<std::uint64_t>(kStoreRecordDescriptorBytes),
                 raw,
                 error)) {
-            *error = "cannot read records.idx for record-sequence binding: " + *error;
+            *error =
+                "cannot read records.idx for record-sequence binding: " + *error;
             return false;
         }
 
@@ -150,16 +161,22 @@ bool compute_record_sequence_sha256(
                 first_record + static_cast<std::uint64_t>(relative));
             canonical.insert(
                 canonical.end(),
-                raw.begin() + static_cast<std::ptrdiff_t>(base + kRecordLogicalIdOffset),
-                raw.begin() + static_cast<std::ptrdiff_t>(base + kRecordLogicalIdOffset + 8U));
+                raw.begin() + static_cast<std::ptrdiff_t>(
+                    base + kRecordLogicalIdOffset),
+                raw.begin() + static_cast<std::ptrdiff_t>(
+                    base + kRecordLogicalIdOffset + 8U));
             canonical.insert(
                 canonical.end(),
-                raw.begin() + static_cast<std::ptrdiff_t>(base + kRecordLengthOffset),
-                raw.begin() + static_cast<std::ptrdiff_t>(base + kRecordLengthOffset + 8U));
+                raw.begin() + static_cast<std::ptrdiff_t>(
+                    base + kRecordLengthOffset),
+                raw.begin() + static_cast<std::ptrdiff_t>(
+                    base + kRecordLengthOffset + 8U));
             canonical.insert(
                 canonical.end(),
-                raw.begin() + static_cast<std::ptrdiff_t>(base + kRecordCrcOffset),
-                raw.begin() + static_cast<std::ptrdiff_t>(base + kRecordCrcOffset + 4U));
+                raw.begin() + static_cast<std::ptrdiff_t>(
+                    base + kRecordCrcOffset),
+                raw.begin() + static_cast<std::ptrdiff_t>(
+                    base + kRecordCrcOffset + 4U));
         }
         if (!update_sha(&sha, canonical, error)) {
             return false;
@@ -195,7 +212,10 @@ bool inspect_logical_node_source_store_binding(
 
     LogicalNodeSourceStoreBinding result;
     result.source_record_count = store.stats().corpus.logical_records;
-    if (!parse_sha256_hex(store.stats().payload_sha256, &result.payload_sha256, error) ||
+    if (!parse_sha256_hex(
+            store.stats().payload_sha256,
+            &result.payload_sha256,
+            error) ||
         !compute_record_sequence_sha256(
             store_root,
             result.source_record_count,
