@@ -2,7 +2,8 @@ target_sources(
   zevryon-massivedoc-core
   PRIVATE
     src/logical_node_arena.cpp
-    src/logical_node_source.cpp)
+    src/logical_node_source.cpp
+    src/logical_node_source_binding.cpp)
 
 if(BUILD_TESTING)
   add_executable(
