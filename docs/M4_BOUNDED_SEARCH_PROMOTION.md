@@ -2,6 +2,23 @@
 
 This receipt promotes the M4 bounded-search and full-document-operations authority only after the implementation source head and the evidence-only publication head are independently exact-head green.
 
+## Current canonical status
+
+M4 is canonically complete. The `Evidence-head admission rule` at the end of this document is retained as the historical rule that applied when this receipt was authored; it is not the current queue state.
+
+The subsequent admission chain completed as follows:
+
+- evidence-only promotion head `afb29736ffc283b638e32030374afd09880058ee` passed required push-triggered Windows/Linux CI `31881601896` SUCCESS;
+- the same head passed dedicated Unicode authority `31881601910` SUCCESS/no drift and PR CI `31882003576` SUCCESS;
+- PR #101 merged as canonical `6b4ed79cbed8a299b94deab5067327258f9e9124`;
+- exact merged main passed required post-merge Windows/Linux CI `31883789266` SUCCESS;
+- post-merge dedicated Unicode authority `31883848777` completed SUCCESS/no drift;
+- issue #100 is closed as completed.
+
+A later same-SHA Windows/Linux run `31884410454` was cancelled and is not used as M4 admission authority. Closure is bound to the earlier successful required post-merge run, not to cherry-picking among equivalent later executions.
+
+Current cross-milestone reconciliation is recorded in `docs/M3M6_CANONICAL_STATUS_RECONCILIATION.md` and `certification/m3m6_status_reconciliation.json`. The original promotion JSON is intentionally not rewritten retroactively.
+
 ## Frozen source authority
 
 - repository: `Naveax/Zevryon`
