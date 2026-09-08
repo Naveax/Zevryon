@@ -128,6 +128,11 @@ bool ZenithSemanticNodeWindow::read(
         }
         const std::size_t node_attribute_count = static_cast<std::size_t>(record.attribute_count);
         if (node_attribute_count > impl_->config.maximum_total_attributes) {
+            if (!result->nodes.empty()) {
+                result->truncated = true;
+                result->next_ordinal = ordinal;
+                return true;
+            }
             return fail(error, "zenith semantic node exceeds total attribute budget by itself");
         }
         if (result->attribute_count >
@@ -186,6 +191,11 @@ bool ZenithSemanticNodeWindow::read(
         }
 
         if (candidate_semantic_bytes > impl_->config.maximum_semantic_bytes) {
+            if (!result->nodes.empty()) {
+                result->truncated = true;
+                result->next_ordinal = ordinal;
+                return true;
+            }
             return fail(error, "zenith semantic node exceeds semantic-byte budget by itself");
         }
         if (result->semantic_bytes >
