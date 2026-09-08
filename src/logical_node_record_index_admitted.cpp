@@ -1,5 +1,6 @@
 #include "massivedoc_positional_io.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <span>
