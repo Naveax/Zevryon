@@ -105,11 +105,34 @@ The compact-document test authority covers:
 
 Cross-platform exact-head Windows/Linux CI is the admission authority.
 
-## Remaining M2 boundary
+## Closure reconciliation
 
-The durable move primitive and its main runtime consumers are implemented. Remaining closure work is repository-level:
+The M2 sequence authority is already admitted. PR #97 promoted exact head
+`959e3b00c7b64b7fa96524905b9f81fe06a70d75` after the required push-triggered
+Windows/Linux CI run `31796822424` completed SUCCESS; the PR itself also passed
+run `31797517189` and merged as `e132538834b55bb2b40157997b20693201bf6f78`.
 
-1. complete the residual audit for logical-ordinal physical-source dereferences;
-2. keep compact-arena insert/erase closed until they receive their own durable storage protocol;
-3. verify the final branch diff against fresh `main` and exact-head CI;
-4. produce M2 promotion/evidence receipts only after those closure gates pass.
+A fresh repository-level physical-source audit after the Zenith semantic
+adoption verified the known source-derived consumers:
+
+- ordinary `LayoutWindow` payload reads use `source_record_index`;
+- checkpoint path/open/scan identity uses `source_record_index`;
+- `ZenithHotScrollSession` checkpoint and raw-window caches are physical-source keyed;
+- `ZenithTabRuntime` prefetch requests are populated from
+  `LayoutFragment::source_record_index`;
+- full-document export dereferences `position.record.source_record_index`;
+- persisted height slots/blocks are addressed through the physical source
+  resolved from the current logical sequence root.
+
+No residual production path was found that reinterprets mutable logical
+`record_index` as an immutable MassiveDoc source locator.
+
+Durable arbitrary compact-arena `insert/erase` remain explicit non-capabilities
+of this promotion. The in-memory order-statistics sequence supports bounded
+insert/erase, but `CompactArenaReader` intentionally exposes only admitted
+persistent move/reorder and height-update mutation surfaces. A future durable
+structural-editing protocol must receive its own storage/publication contract and
+must not be retroactively claimed by M2.
+
+This reconciliation changes documentation/evidence status only; it does not
+expand the promoted runtime capability set.

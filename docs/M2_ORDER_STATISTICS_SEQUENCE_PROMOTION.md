@@ -59,11 +59,23 @@ The moved record therefore changes position without changing which physical payl
 
 ## Evidence-head admission rule
 
-This commit adds only:
+The evidence-only promotion child adds only:
 
 - `certification/m2_order_statistics_sequence_promotion.json`
 - `docs/M2_ORDER_STATISTICS_SEQUENCE_PROMOTION.md`
 
-Because these files are evidence-only, the source authority remains `d17628a3d51922d50fd295f84b436e13e935846a`. However, the branch is not considered fully promoted merely because this receipt exists. The exact evidence-only child head must itself receive a successful push-triggered `Windows and Linux CI` run.
+Because these files are evidence-only, the source authority remains `d17628a3d51922d50fd295f84b436e13e935846a`. The evidence-only child had to receive its own successful push-triggered `Windows and Linux CI` run before promotion.
 
-Only after that exact-head run is 5/5 green is the M2 promotion chain closed and ready for repository review/PR handling. No PR or merge is authorized by this receipt.
+## Canonical promotion result
+
+That admission rule was satisfied.
+
+- evidence-only child head: `959e3b00c7b64b7fa96524905b9f81fe06a70d75`;
+- required push-triggered exact-head CI: run `31796822424`, SUCCESS;
+- PR exact-head CI: run `31797517189`, SUCCESS;
+- promotion PR: #97, `M2: promote durable order-statistics sequence authority`;
+- canonical merge commit: `e132538834b55bb2b40157997b20693201bf6f78`.
+
+The historical JSON receipt was authored before the evidence-head run and therefore retains the pre-admission string `source-authority-green-awaiting-evidence-head-exact-ci`. That string is a snapshot of the state at receipt creation, not the current canonical status. The immutable run/PR/merge evidence above supersedes it for admission status without rewriting the historical receipt.
+
+A later fresh-main residual physical-source audit found no production logical-ordinal-to-physical-source dereference regression. Durable arbitrary compact-arena insert/erase remain explicit non-capabilities and are not silently added by this reconciliation.
