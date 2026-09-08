@@ -12,11 +12,6 @@
 
 namespace zevryon::massivedoc {
 
-inline constexpr std::uint32_t kLogicalNodeSourceFormatV1 = 1U;
-inline constexpr std::uint32_t kLogicalNodeSourceFormatV2 = 2U;
-inline constexpr std::uint32_t kLogicalNodeSourceCurrentFormat =
-    kLogicalNodeSourceFormatV2;
-
 struct LogicalNodeSourceStoreBinding {
     std::uint64_t source_record_count{0U};
     std::array<std::uint8_t, 32> payload_sha256{};
@@ -40,9 +35,6 @@ struct LogicalNodeSourceNode {
     std::uint64_t logical_id{0U};
     std::uint64_t source_record_index{0U};
     std::uint64_t source_byte_offset{0U};
-    // V1: length must remain inside source_record_index.
-    // V2: total contiguous logical byte length starting at the record-local
-    // position; the span may continue through following physical records.
     std::uint64_t source_byte_length{0U};
     std::uint64_t parent_ordinal{kNoLogicalNodeOrdinal};
     std::string tag;
@@ -54,9 +46,7 @@ struct LogicalNodeSourceNode {
 
 class LogicalNodeSourceWriter {
 public:
-    explicit LogicalNodeSourceWriter(
-        std::filesystem::path output_path,
-        std::uint32_t format_version = kLogicalNodeSourceCurrentFormat);
+    explicit LogicalNodeSourceWriter(std::filesystem::path output_path);
     ~LogicalNodeSourceWriter();
 
     LogicalNodeSourceWriter(const LogicalNodeSourceWriter&) = delete;
@@ -108,23 +98,11 @@ struct LogicalNodeSourceImportConfig {
     std::uint32_t semantic_hash_bits{64U};
 };
 
-// Computes the exact immutable store binding used by ZVNSRC01. The payload
-// digest binds logical bytes while record_sequence_sha256 binds stable physical
-// record order/boundaries through ordinal + record logical id + length + CRC32.
-// Chunk placement is deliberately excluded so storage compaction does not
-// invalidate semantic source identity.
 bool inspect_logical_node_source_store_binding(
     const std::filesystem::path& store_root,
     LogicalNodeSourceStoreBinding* binding,
     std::string* error);
 
-// Imports an explicit parser/import-produced semantic node stream into the
-// disk-backed arena. The node source must bind both the exact StoreReader
-// payload SHA-256 and the exact stable physical-record sequence. V1 source
-// ranges are validated inside one physical record. V2 source spans are
-// validated as one contiguous logical byte span that may cross record
-// boundaries. The store manifest's logical_nodes field is only a count
-// consistency check and is never used to synthesize semantic nodes.
 bool import_logical_node_source_to_arena(
     const std::filesystem::path& source_path,
     const std::filesystem::path& store_root,
