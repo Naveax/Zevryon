@@ -49,16 +49,12 @@ bool build_logical_node_record_index(
     const std::filesystem::path& store_root,
     std::string* error);
 
-class LogicalNodeRecordIndexAuthoritativeReader;
-
-// Low-level storage reader. It validates store/arena identity, posting CRCs,
-// forward links and exact node/source overlap. Construction and queries are
-// intentionally private so production callers cannot bypass the additional
-// head-chain authority enforced by LogicalNodeRecordIndexAuthoritativeReader.
+// Low-level storage/test reader. It validates exact store/arena identity,
+// posting CRCs, forward links and authoritative node/source overlap. Production
+// runtime callers must use LogicalNodeRecordIndexAuthoritativeReader below so
+// CRC-valid first/last/count head metadata is also enforced end-to-end.
 class LogicalNodeRecordIndexReader final {
-private:
-    friend class LogicalNodeRecordIndexAuthoritativeReader;
-
+public:
     explicit LogicalNodeRecordIndexReader(std::filesystem::path store_root);
     ~LogicalNodeRecordIndexReader();
 
@@ -76,11 +72,12 @@ private:
         LogicalNodeRecordIndexWindow* result,
         std::string* error) const;
 
+private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
 
-// Public production reader. In addition to the low-level reader's exact
+// Production-authoritative reader. In addition to the low-level reader's exact
 // store/arena/overlap checks, this layer treats every CRC-valid head field as
 // authoritative: non-empty first/last/count state must be coherent,
 // continuations must stay inside that record's head range and a chain that
