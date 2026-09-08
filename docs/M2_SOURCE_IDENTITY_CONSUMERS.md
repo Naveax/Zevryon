@@ -55,6 +55,20 @@ These caches intentionally omit logical ordinal because they do not store fragme
 
 The moved hot-scroll oracle uses two distinct physical records and proves independent checkpoint/raw-window cache identity, correct moved logical fragments, and physical payload behavior.
 
+## Runtime prefetch and semantic adoption
+
+`ZenithTabRuntime` preserves the same identity rule outside the layout engine:
+
+- source-window prefetch requests copy `LayoutFragment::source_record_index` into the physical request locator before the worker-side `StoreReader::read_record_slice()` call;
+- source-record semantic queries accept immutable `source_record_index` directly and resolve through the authoritative record-index sidecar;
+- `LayoutFragment.logical_id` and current logical ordinal are never reinterpreted as logical-node or physical-source locators;
+- UI-lane semantic queries fail before record-index/arena disk I/O.
+
+The source-record semantic path was admitted by PR #159, exact head
+`31ed41801fca2a6b092e57274ee1f14d2deb10ee`, exact-head CI run
+`34240329146` SUCCESS, merged as
+`add6d43b925dc94e85111b4a57007673f142ca79`.
+
 ## Durable reopen
 
 Logical moves publish committed order generations through `CompactArenaReader`. Newly constructed `LayoutWindowEngine` and `ZenithHotScrollSession` instances therefore recover the same committed logical permutation when they reopen the arena.
@@ -73,14 +87,26 @@ This closes the gap between in-session forwarding and durable consumer authority
 
 A moved record's height is persisted by physical source slot/block, not by current logical ordinal. Reopen reconstructs logical order from the committed permutation and combines it with the physical height state, so a moved source retains both its durable logical location and corrected physical height.
 
-## Admission status
+## Final audit status
 
-The known layout/checkpoint/hot-scroll source-derived paths are now physical-source keyed and the divergent moved-record/reopen oracles are present. Arena move is admitted as a durable operation.
+The final repository-level audit found no residual production source-derived path that uses mutable logical `record_index` as an immutable physical source locator.
 
-Remaining closure work is limited to:
+The audited classes include:
 
-1. a final repository audit for any residual logical-ordinal physical-source dereference;
-2. fresh-main branch diff verification and exact-head CI;
-3. final M2 evidence/promotion receipts.
+- ordinary `LayoutWindow` payload reads;
+- checkpoint path/open/scan and checkpoint byte accounting;
+- `ZenithHotScrollSession` checkpoint/raw-window caches and source reads;
+- `ZenithTabRuntime` source-window prefetch publication;
+- full-document export source dereference;
+- compact-arena persisted height slot/block addressing;
+- the admitted source-record -> logical-node semantic bridge.
 
-Compact-arena insert/erase remain outside this admission until they receive an explicit durable storage protocol.
+Store-level loops that use a variable named `record_index` while iterating `records.idx` directly remain physical-store operations, not logical-order consumers; they do not violate the M2 identity split.
+
+The original M2 promotion is already canonical: PR #97 exact head
+`959e3b00c7b64b7fa96524905b9f81fe06a70d75`, required push run
+`31796822424` SUCCESS, PR run `31797517189` SUCCESS, merge commit
+`e132538834b55bb2b40157997b20693201bf6f78`.
+
+Durable compact-arena insert/erase remain explicit non-capabilities outside this
+promotion until a separate durable structural-editing protocol is admitted.
