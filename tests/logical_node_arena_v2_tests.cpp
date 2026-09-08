@@ -3,6 +3,7 @@
 #include "logical_node_source.hpp"
 #include "massivedoc_store.hpp"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
