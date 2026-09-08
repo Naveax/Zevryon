@@ -167,6 +167,21 @@ public:
         std::uint64_t record_index,
         const std::function<bool(std::span<const std::byte>)>& consumer,
         std::string* error) const;
+
+    // Streams one contiguous logical source span beginning at a record-local
+    // position and continuing across subsequent physical records when needed.
+    // The span is never materialized as one allocation: delivery remains
+    // bounded by StoreReadConfig::io_window_bytes. Returning false from the
+    // consumer is a successful early stop, matching read_record(). A zero-byte
+    // span still validates that start_record_index/start_byte_offset is a valid
+    // position in the authoritative record sequence.
+    bool read_record_span(
+        std::uint64_t start_record_index,
+        std::uint64_t start_byte_offset,
+        std::uint64_t byte_length,
+        const std::function<bool(std::span<const std::byte>)>& consumer,
+        std::string* error) const;
+
     bool read_record_slice(
         std::uint64_t record_index,
         std::uint64_t byte_offset,
