@@ -12,8 +12,8 @@ The format contains four files:
 
 - `manifest.bin`: format/version, exact native-store binding, exact arena identity, source-record count, node count, posting count and total source bytes;
 - `records.bin`: fixed-width absolute source prefix + physical record length entries;
-- `heads.bin`: fixed-width per-record posting head + posting-count entries;
-- `postings.bin`: append-only linked postings containing node ordinal and the exact overlap slice inside that physical record.
+- `heads.bin`: fixed-width per-record first/last posting + posting-count entries;
+- `postings.bin`: append-only linked postings containing node ordinal, queried physical source-record identity and the exact overlap slice inside that record.
 
 All fixed-width entries carry CRC32. Reader open verifies exact file sizes from the manifest before serving queries.
 
@@ -34,11 +34,12 @@ A non-empty node source span is indexed into every physical record it overlaps. 
 Each posting stores:
 
 - logical-node ordinal;
-- link to the previous posting for that record;
+- link to the next posting for that physical source record;
+- the posting's explicit `source_record_index` owner;
 - exact record-local overlap byte offset;
 - exact record-local overlap byte length.
 
-At query time the reader loads the authoritative arena node and independently recomputes the expected source overlap from the record-prefix table. A posting is rejected if its node does not actually overlap the queried record or if its stored overlap differs from the recomputed intersection.
+At query time the reader first requires the posting's stored source-record owner to equal the requested record. It then loads the authoritative arena node and independently recomputes the expected source overlap from the record-prefix table. A posting is rejected if its node does not actually overlap the queried record, if its stored overlap differs from the recomputed intersection, or if a continuation cursor belongs to another record chain.
 
 Zero-length source anchors such as `#document` are deliberately not posted to a physical record.
 
@@ -48,7 +49,9 @@ The builder streams native record descriptors and logical nodes. Per-record post
 
 The reader uses bounded positional I/O and returns at most the caller-specified node count. `max_nodes` has a hard ceiling. A truncated result returns an opaque posting ordinal that can be supplied as the continuation cursor without rescanning earlier postings.
 
-Linked postings always point to a lower posting ordinal. The reader enforces that invariant, making cycles/back-links fail closed without retaining a visited set proportional to the chain.
+Linked postings always point to a strictly higher posting ordinal. The reader enforces that invariant, so cycles/back-links fail closed without retaining a visited set proportional to the chain. Posting ordinals are also range-checked against the manifest before positional reads.
+
+The builder uses checked 64-bit positional offsets. Staging random-access handles are closed before the final directory rename so Windows publication is not dependent on unlinking/renaming open files.
 
 ## Production boundary
 
