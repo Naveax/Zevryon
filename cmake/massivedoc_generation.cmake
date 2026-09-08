@@ -9,7 +9,8 @@ target_sources(
     src/massivedoc_generation_background.cpp
     src/massivedoc_generation_sync.cpp
     src/massivedoc_large_file_abi_guard.cpp
-    src/massivedoc_positional_io.cpp)
+    src/massivedoc_positional_io.cpp
+    src/massivedoc_record_span.cpp)
 
 # A 32-bit Linux process still needs 64-bit file positions for multi-GiB stores.
 # Apply the large-file ABI consistently to every MassiveDoc core translation
@@ -123,6 +124,17 @@ if(BUILD_TESTING)
   add_test(
     NAME massivedoc-positional-store-tests
     COMMAND zevryon-massivedoc-positional-store-tests)
+
+  add_executable(
+    zevryon-massivedoc-record-span-tests
+    tests/massivedoc_record_span_tests.cpp)
+  target_link_libraries(
+    zevryon-massivedoc-record-span-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-massivedoc-record-span-tests)
+  add_test(
+    NAME massivedoc-record-span-tests
+    COMMAND zevryon-massivedoc-record-span-tests)
 
   add_executable(
     zevryon-massivedoc-positional-search-tests
