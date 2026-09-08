@@ -90,7 +90,7 @@ bool build_cross_record_store(
     return writer.finalize(metadata, nullptr, error);
 }
 
-bool build_raw_text_store(
+bool build_special_text_store(
     const std::filesystem::path& root,
     std::string* error) {
     constexpr std::string_view html = "<script>x</script>";
@@ -259,20 +259,21 @@ bool test_working_set_rejection_cleans_sidecar() {
                 "failed parser removes building source");
 }
 
-bool test_raw_text_remains_fail_closed() {
-    const std::filesystem::path root = unique_root("html-v2-raw-text");
+bool test_special_text_state_remains_fail_closed() {
+    const std::filesystem::path root = unique_root("html-v2-special-text");
     RootCleanup cleanup(root);
     const std::filesystem::path store_root = root / "store";
     const std::filesystem::path source_path = root / "nodes.zvnsrc";
     std::string error;
-    if (!require(build_raw_text_store(store_root, &error), error)) {
+    if (!require(build_special_text_store(store_root, &error), error)) {
         return false;
     }
     return require(!produce_streaming_html_node_source_v2(
                store_root, source_path, {}, nullptr, &error),
-               "raw-text element remains unsupported") &&
-        require(error.find("raw-text") != std::string::npos,
-                "raw-text failure is explicit") &&
+               "script special tokenizer state remains unsupported") &&
+        require(error.find("special HTML tokenizer state is not implemented") !=
+                    std::string::npos,
+                "special tokenizer failure is explicit") &&
         require(!std::filesystem::exists(source_path),
                 "unsupported input cannot publish source");
 }
@@ -283,7 +284,7 @@ int main() {
     if (!test_cross_record_markup_and_text_round_trip() ||
         !test_input_window_equivalence() ||
         !test_working_set_rejection_cleans_sidecar() ||
-        !test_raw_text_remains_fail_closed()) {
+        !test_special_text_state_remains_fail_closed()) {
         return 1;
     }
     return 0;
