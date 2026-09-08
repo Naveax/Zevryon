@@ -2,15 +2,18 @@
 #include "massivedoc_store.hpp"
 #include "streaming_html_node_source_v2.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -19,6 +22,8 @@ using zevryon::massivedoc::LogicalNodeSourceNode;
 using zevryon::massivedoc::LogicalNodeSourceV2Reader;
 using zevryon::massivedoc::LogicalNodeSourceV2ValidationStats;
 using zevryon::massivedoc::StoreWriter;
+using zevryon::massivedoc::StreamingHtmlNodeSourceConfig;
+using zevryon::massivedoc::StreamingHtmlNodeSourceV2Stats;
 using zevryon::massivedoc::produce_streaming_html_node_source_v2;
 using zevryon::massivedoc::validate_logical_node_source_v2_against_store;
 
@@ -52,21 +57,70 @@ std::span<const std::byte> bytes(std::string_view text) {
         reinterpret_cast<const std::byte*>(text.data()), text.size());
 }
 
+bool build_store_records(
+    const std::filesystem::path& root,
+    const std::vector<std::string_view>& records,
+    std::uint64_t logical_nodes,
+    std::string* error) {
+    StoreWriter writer(root);
+    std::uint64_t logical_utf8_bytes = 0U;
+    std::uint64_t largest_record_bytes = 0U;
+    for (std::size_t index = 0U; index < records.size(); ++index) {
+        const std::string_view record = records[index];
+        if (!writer.append(
+                8301U + static_cast<std::uint64_t>(index),
+                bytes(record),
+                error)) {
+            return false;
+        }
+        const auto record_bytes = static_cast<std::uint64_t>(record.size());
+        if (logical_utf8_bytes >
+            std::numeric_limits<std::uint64_t>::max() - record_bytes) {
+            if (error != nullptr) {
+                *error = "test corpus byte count overflows";
+            }
+            return false;
+        }
+        logical_utf8_bytes += record_bytes;
+        largest_record_bytes = std::max(largest_record_bytes, record_bytes);
+    }
+
+    CorpusMetadata metadata;
+    metadata.logical_utf8_bytes = logical_utf8_bytes;
+    metadata.logical_records = static_cast<std::uint64_t>(records.size());
+    metadata.logical_nodes = logical_nodes;
+    metadata.largest_record_bytes = largest_record_bytes;
+    return writer.finalize(metadata, nullptr, error);
+}
+
 bool build_store(
     const std::filesystem::path& root,
     std::string_view html,
     std::uint64_t logical_nodes,
     std::string* error) {
-    StoreWriter writer(root);
-    if (!writer.append(8301U, bytes(html), error)) {
-        return false;
+    return build_store_records(root, {html}, logical_nodes, error);
+}
+
+bool read_three_nodes(
+    const std::filesystem::path& source_path,
+    LogicalNodeSourceNode* document,
+    LogicalNodeSourceNode* element,
+    LogicalNodeSourceNode* text,
+    std::string* error) {
+    LogicalNodeSourceV2Reader reader(source_path);
+    LogicalNodeSourceNode extra;
+    bool has_node = false;
+    if (!reader.open(error)) {
+        return require(false, error == nullptr ? "reader open failed" : *error);
     }
-    CorpusMetadata metadata;
-    metadata.logical_utf8_bytes = static_cast<std::uint64_t>(html.size());
-    metadata.logical_records = 1U;
-    metadata.logical_nodes = logical_nodes;
-    metadata.largest_record_bytes = static_cast<std::uint64_t>(html.size());
-    return writer.finalize(metadata, nullptr, error);
+    return require(reader.next(document, &has_node, error) && has_node,
+                   "document node is present") &&
+        require(reader.next(element, &has_node, error) && has_node,
+                "element node is present") &&
+        require(reader.next(text, &has_node, error) && has_node,
+                "text node is present") &&
+        require(reader.next(&extra, &has_node, error) && !has_node,
+                "source contains exactly three nodes");
 }
 
 bool test_non_void_self_closing_syntax_fails_closed() {
@@ -133,11 +187,153 @@ bool test_void_self_closing_syntax_remains_supported() {
                 "validator streams exact void-element source span");
 }
 
+bool test_style_rawtext_preserves_markup_like_bytes_as_one_text_span() {
+    const std::filesystem::path root = unique_root("html-v2-style-rawtext");
+    RootCleanup cleanup(root);
+    const std::filesystem::path store_root = root / "store";
+    const std::filesystem::path source_path = root / "nodes.zvnsrc";
+    constexpr std::string_view raw_text = "a<b{color:red}";
+    const std::string html = "<style>" + std::string(raw_text) + "</style>";
+    std::string error;
+    StreamingHtmlNodeSourceV2Stats stats;
+    if (!require(build_store(store_root, html, 3U, &error), error) ||
+        !require(produce_streaming_html_node_source_v2(
+                     store_root, source_path, {}, &stats, &error), error)) {
+        return false;
+    }
+
+    LogicalNodeSourceNode document;
+    LogicalNodeSourceNode style;
+    LogicalNodeSourceNode text;
+    if (!read_three_nodes(source_path, &document, &style, &text, &error) ||
+        !require(document.tag == "#document", "style document semantic survives") ||
+        !require(style.tag == "style" && style.parent_ordinal == 0U,
+                 "style element semantic survives") ||
+        !require(style.source_record_index == 0U &&
+                     style.source_byte_offset == 0U &&
+                     style.source_byte_length == 7U,
+                 "style element keeps exact start-tag source span") ||
+        !require(text.tag == "#text" && text.parent_ordinal == 1U,
+                 "style RAWTEXT is emitted under the style element") ||
+        !require(text.source_record_index == 0U &&
+                     text.source_byte_offset == 7U &&
+                     text.source_byte_length == raw_text.size(),
+                 "markup-like style bytes remain one exact text span") ||
+        !require(stats.element_nodes_emitted == 1U && stats.text_nodes_emitted == 1U,
+                 "style RAWTEXT emits one element and one text node")) {
+        return false;
+    }
+
+    LogicalNodeSourceV2ValidationStats validation;
+    return require(validate_logical_node_source_v2_against_store(
+                       source_path, store_root, &validation, &error), error) &&
+        require(validation.nodes_validated == 3U,
+                "validator accepts document + style + RAWTEXT") &&
+        require(validation.source_span_bytes_streamed == 7U + raw_text.size(),
+                "validator streams exact style start-tag and RAWTEXT spans");
+}
+
+bool test_style_rawtext_false_end_tag_candidate_stays_text() {
+    const std::filesystem::path root = unique_root("html-v2-style-false-close");
+    RootCleanup cleanup(root);
+    const std::filesystem::path store_root = root / "store";
+    const std::filesystem::path source_path = root / "nodes.zvnsrc";
+    constexpr std::string_view raw_text = "a</stylex><b{c:d}";
+    const std::string html = "<style>" + std::string(raw_text) + "</style>";
+    std::string error;
+    if (!require(build_store(store_root, html, 3U, &error), error) ||
+        !require(produce_streaming_html_node_source_v2(
+                     store_root, source_path, {}, nullptr, &error), error)) {
+        return false;
+    }
+
+    LogicalNodeSourceNode document;
+    LogicalNodeSourceNode style;
+    LogicalNodeSourceNode text;
+    return read_three_nodes(source_path, &document, &style, &text, &error) &&
+        require(text.tag == "#text" && text.parent_ordinal == 1U,
+                "false style close candidate remains style text") &&
+        require(text.source_record_index == 0U &&
+                    text.source_byte_offset == 7U &&
+                    text.source_byte_length == raw_text.size(),
+                "false close and following markup-like bytes stay in one span");
+}
+
+bool test_style_rawtext_close_can_cross_records_and_one_byte_windows() {
+    const std::filesystem::path root = unique_root("html-v2-style-cross-record-close");
+    RootCleanup cleanup(root);
+    const std::filesystem::path store_root = root / "store";
+    const std::filesystem::path source_path = root / "nodes.zvnsrc";
+    const std::vector<std::string_view> records = {
+        "<style>a",
+        "{b:c}</ST",
+        "YLE \t>"};
+    std::string error;
+    if (!require(build_store_records(store_root, records, 3U, &error), error)) {
+        return false;
+    }
+
+    StreamingHtmlNodeSourceConfig config;
+    config.input_window_bytes = 1U;
+    StreamingHtmlNodeSourceV2Stats stats;
+    if (!require(produce_streaming_html_node_source_v2(
+                     store_root, source_path, config, &stats, &error), error)) {
+        return false;
+    }
+
+    LogicalNodeSourceNode document;
+    LogicalNodeSourceNode style;
+    LogicalNodeSourceNode text;
+    if (!read_three_nodes(source_path, &document, &style, &text, &error) ||
+        !require(text.tag == "#text" && text.parent_ordinal == 1U,
+                 "cross-record style text keeps style parent") ||
+        !require(text.source_record_index == 0U &&
+                     text.source_byte_offset == 7U &&
+                     text.source_byte_length == 6U,
+                 "cross-record RAWTEXT source span is exact") ||
+        !require(stats.cross_record_text_spans == 1U,
+                 "cross-record RAWTEXT is accounted exactly once")) {
+        return false;
+    }
+
+    LogicalNodeSourceV2ValidationStats validation;
+    return require(validate_logical_node_source_v2_against_store(
+                       source_path, store_root, &validation, &error), error) &&
+        require(validation.nodes_validated == 3U,
+                "validator accepts cross-record style RAWTEXT");
+}
+
+bool test_script_remains_fail_closed() {
+    const std::filesystem::path root = unique_root("html-v2-script-still-unsupported");
+    RootCleanup cleanup(root);
+    const std::filesystem::path store_root = root / "store";
+    const std::filesystem::path source_path = root / "nodes.zvnsrc";
+    std::string error;
+    if (!require(build_store(store_root, "<script>x</script>", 3U, &error), error)) {
+        return false;
+    }
+
+    return require(!produce_streaming_html_node_source_v2(
+                       store_root, source_path, {}, nullptr, &error),
+                   "script tokenizer state remains rejected") &&
+        require(error.find("raw-text HTML element is not implemented") != std::string::npos,
+                "script rejection remains explicit") &&
+        require(!std::filesystem::exists(source_path),
+                "rejected script input cannot publish source") &&
+        require(!std::filesystem::exists(
+                    std::filesystem::path(source_path.string() + ".building")),
+                "rejected script input leaves no building source");
+}
+
 } // namespace
 
 int main() {
     if (!test_non_void_self_closing_syntax_fails_closed() ||
-        !test_void_self_closing_syntax_remains_supported()) {
+        !test_void_self_closing_syntax_remains_supported() ||
+        !test_style_rawtext_preserves_markup_like_bytes_as_one_text_span() ||
+        !test_style_rawtext_false_end_tag_candidate_stays_text() ||
+        !test_style_rawtext_close_can_cross_records_and_one_byte_windows() ||
+        !test_script_remains_fail_closed()) {
         return 1;
     }
     return 0;
