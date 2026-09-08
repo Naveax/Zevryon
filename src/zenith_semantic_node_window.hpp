@@ -12,14 +12,24 @@
 namespace zevryon::massivedoc {
 
 struct ZenithSemanticNodeWindowConfig {
+    static constexpr std::size_t kMaximumNodesLimit = 65'536U;
+    static constexpr std::uint32_t kMaximumAttributesPerNodeLimit = 65'536U;
+    static constexpr std::size_t kMaximumTotalAttributesLimit = 1'048'576U;
+    static constexpr std::size_t kMaximumSemanticBytesLimit = 256U * 1024U * 1024U;
+
     std::size_t maximum_nodes{256U};
     std::uint32_t maximum_attributes_per_node{64U};
     std::size_t maximum_total_attributes{4096U};
     std::size_t maximum_semantic_bytes{4U * 1024U * 1024U};
 
     bool valid() const noexcept {
-        return maximum_nodes > 0U && maximum_attributes_per_node > 0U &&
-            maximum_total_attributes > 0U && maximum_semantic_bytes > 0U;
+        return maximum_nodes > 0U && maximum_nodes <= kMaximumNodesLimit &&
+            maximum_attributes_per_node > 0U &&
+            maximum_attributes_per_node <= kMaximumAttributesPerNodeLimit &&
+            maximum_total_attributes >= maximum_attributes_per_node &&
+            maximum_total_attributes <= kMaximumTotalAttributesLimit &&
+            maximum_semantic_bytes > 0U &&
+            maximum_semantic_bytes <= kMaximumSemanticBytesLimit;
     }
 };
 
