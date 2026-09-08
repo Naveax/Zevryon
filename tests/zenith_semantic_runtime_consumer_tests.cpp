@@ -1,24 +1,32 @@
-#include "logical_node_arena.hpp"
+#include "logical_node_arena_v2_store_bound.hpp"
+#include "logical_node_source.hpp"
+#include "massivedoc_store.hpp"
 #include "zenith_semantic_runtime_consumer.hpp"
 
 #include <array>
 #include <chrono>
+#include <cstddef>
 #include <filesystem>
 #include <iostream>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
 
 namespace {
 
+using zevryon::massivedoc::CorpusMetadata;
 using zevryon::massivedoc::FrameExecutionLane;
 using zevryon::massivedoc::LogicalNodeArenaBuildConfig;
-using zevryon::massivedoc::LogicalNodeArenaWriter;
+using zevryon::massivedoc::LogicalNodeArenaV2StoreBoundWriter;
 using zevryon::massivedoc::LogicalNodeAttributeInput;
 using zevryon::massivedoc::LogicalNodeInput;
+using zevryon::massivedoc::LogicalNodeSourceStoreBinding;
+using zevryon::massivedoc::StoreWriter;
 using zevryon::massivedoc::ZenithSemanticNodeWindowConfig;
 using zevryon::massivedoc::ZenithSemanticNodeWindowResult;
 using zevryon::massivedoc::ZenithSemanticRuntimeConsumer;
+using zevryon::massivedoc::inspect_logical_node_source_store_binding;
 using zevryon::massivedoc::kNoLogicalNodeOrdinal;
 
 bool require(bool condition, std::string_view message) {
@@ -46,17 +54,43 @@ struct RootCleanup {
     std::filesystem::path root;
 };
 
-LogicalNodeArenaBuildConfig arena_config() {
+std::span<const std::byte> bytes(std::string_view text) {
+    return std::span<const std::byte>(
+        reinterpret_cast<const std::byte*>(text.data()), text.size());
+}
+
+LogicalNodeArenaBuildConfig arena_config(
+    const LogicalNodeSourceStoreBinding& binding) {
     LogicalNodeArenaBuildConfig config;
     config.candidate_commit = "0123456789abcdef0123456789abcdef01234567";
     config.candidate_tree = "89abcdef0123456789abcdef0123456789abcdef";
+    config.source_sha256 = binding.payload_sha256;
     config.semantic_bucket_count = 64U;
     config.semantic_hash_bits = 64U;
     return config;
 }
 
 bool build_fixture(const std::filesystem::path& root, std::string* error) {
-    LogicalNodeArenaWriter writer(root, arena_config());
+    constexpr std::string_view payload = "abcdefghijklmno";
+    StoreWriter store(root);
+    if (!store.append(6101U, bytes(payload), error)) {
+        return false;
+    }
+    CorpusMetadata metadata;
+    metadata.logical_utf8_bytes = payload.size();
+    metadata.logical_records = 1U;
+    metadata.logical_nodes = 2U;
+    metadata.largest_record_bytes = payload.size();
+    if (!store.finalize(metadata, nullptr, error)) {
+        return false;
+    }
+
+    LogicalNodeSourceStoreBinding binding;
+    if (!inspect_logical_node_source_store_binding(root, &binding, error)) {
+        return false;
+    }
+
+    LogicalNodeArenaV2StoreBoundWriter writer(root, arena_config(binding));
     if (!writer.begin(error)) {
         return false;
     }
@@ -122,7 +156,7 @@ bool test_missing_arena_and_invalid_config_fail_closed() {
     ZenithSemanticNodeWindowResult result;
 
     ZenithSemanticRuntimeConsumer missing(root);
-    if (!require(!missing.read(0U, &result, &error), "missing arena fails closed") ||
+    if (!require(!missing.read(0U, &result, &error), "missing bound arena fails closed") ||
         !require(missing.stats().failed_windows == 1U, "missing arena failure telemetry")) {
         return false;
     }

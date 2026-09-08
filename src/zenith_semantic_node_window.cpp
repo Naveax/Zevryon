@@ -1,5 +1,7 @@
 #include "zenith_semantic_node_window.hpp"
 
+#include "logical_node_arena_v2_store_bound.hpp"
+
 #include <algorithm>
 #include <limits>
 #include <utility>
@@ -23,7 +25,7 @@ bool add_size(std::size_t* total, std::size_t amount) noexcept {
 }
 
 bool resolve_node_semantics(
-    const LogicalNodeArenaReader& reader,
+    const LogicalNodeArenaV2StoreBoundReader& reader,
     const LogicalNodeRecord& record,
     ZenithSemanticNode* node,
     std::size_t* semantic_bytes,
@@ -48,7 +50,7 @@ struct ZenithSemanticNodeWindow::Impl {
     Impl(std::filesystem::path root, ZenithSemanticNodeWindowConfig window_config)
         : reader(std::move(root)), config(window_config) {}
 
-    LogicalNodeArenaReader reader;
+    LogicalNodeArenaV2StoreBoundReader reader;
     ZenithSemanticNodeWindowConfig config;
     bool opened{false};
 };
@@ -82,7 +84,7 @@ bool ZenithSemanticNodeWindow::open(std::string* error) {
 }
 
 const LogicalNodeArenaManifest& ZenithSemanticNodeWindow::manifest() const noexcept {
-    return impl_->reader.manifest();
+    return impl_->reader.manifest().storage_manifest;
 }
 
 bool ZenithSemanticNodeWindow::read(
@@ -98,7 +100,7 @@ bool ZenithSemanticNodeWindow::read(
     }
     error->clear();
 
-    const std::uint64_t node_count = impl_->reader.manifest().node_count;
+    const std::uint64_t node_count = impl_->reader.manifest().storage_manifest.node_count;
     if (start_ordinal > node_count) {
         return fail(error, "zenith semantic node window start ordinal is out of range");
     }
