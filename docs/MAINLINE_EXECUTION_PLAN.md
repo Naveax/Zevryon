@@ -26,8 +26,8 @@ No optimization is accepted if it reduces document correctness. Full selection, 
 - [x] Add a disk-backed bigram block index with no false negatives.
 - [x] Add Linux process-group PSS sampling and device-profile pressure states.
 - [x] Integrate `MASSIVE_OPEN`, `MASSIVE_FIND`, `MASSIVE_RECORD`, and `MASSIVE_STATS` into the document protocol.
-- [ ] Replace the remaining browser logical-node objects with a compact struct-of-arrays arena.
-- [ ] Intern repeated tags, attributes, roles and styles.
+- [x] Replace remaining browser logical-node heap objects with compact disk-backed logical-node arena authority.
+- [x] Intern repeated tags, attributes, roles and styles out-of-line.
 
 Validated M1 evidence:
 
@@ -35,16 +35,31 @@ Validated M1 evidence:
 - Tail marker search completed in 19.74 ms engine time.
 - Peak measured native-store PSS stayed below 3.1 MB in that smoke run.
 - Exact payload SHA-256 and record CRC invariants passed.
+- Browser logical-node arena/source/index infrastructure admitted through PR #158, exact head `4bee237c2263b139b10a29c03dd87956b90e2d5a`, exact-head CI `34237003555` SUCCESS, merged as `04990b0ff89c59063e761e147afa7069d06d4d9d`.
+- Real `ZenithTabRuntime` source-record semantic adoption admitted through PR #159, exact head `31ed41801fca2a6b092e57274ee1f14d2deb10ee`, exact-head CI `34240329146` SUCCESS, merged as `add6d43b925dc94e85111b4a57007673f142ca79`.
 
-M1 is complete for the native source store. Compact browser-node integration continues as M2.
+M1 source-store and browser logical-node storage/interning adoption are complete. The 67,108,864-node certification envelope remains an M8 raw/physical evidence boundary and is not fabricated by this code-side admission.
 
 ## M2 — Compact logical arena and chunked order-statistics sequence
 
-- Replace the document-order vector and O(n) position map.
-- Store subtree record counts, text bytes, layout height and search summaries.
-- Support O(log n) access, offset lookup, insert, delete, move and height update.
-- Add copy-on-write roots for snapshots and concurrent readers.
-- Eliminate full-tree rebuilds from normal operation.
+- [x] Replace the document-order vector and O(n) position map with a bounded chunked order-statistics sequence.
+- [x] Store subtree record count, text-byte, layout-height and search-summary aggregates.
+- [x] Support bounded logarithmic in-memory record/rank/offset lookup, insert, erase, move, height update and search-summary update.
+- [x] Add copy-on-write roots with O(1) immutable snapshots and O(1) shared-root transaction forks.
+- [x] Eliminate full-tree rebuilds from normal in-memory mutation and lookup paths.
+- [x] Preserve immutable physical `source_record_index` independently from mutable logical ordinal across reorder and reopen.
+- [x] Persist logical move/reorder through generation publication with torn-temp recovery and fail-closed committed-generation validation.
+- [x] Reopen committed logical order through `CompactArenaReader`, `LayoutWindowEngine`, and `ZenithHotScrollSession`.
+- [x] Complete the repository-level residual audit for logical-ordinal physical-source dereferences.
+
+Validated M2 evidence:
+
+- Source authority head `d17628a3d51922d50fd295f84b436e13e935846a` passed exact-head CI `31795891050`.
+- Evidence-only promotion head `959e3b00c7b64b7fa96524905b9f81fe06a70d75` passed required push-triggered exact-head CI `31796822424` and PR CI `31797517189`.
+- PR #97 merged the promoted authority as `e132538834b55bb2b40157997b20693201bf6f78`.
+- Fresh post-#159 residual audit found no production path that reinterprets mutable logical `record_index` as a physical MassiveDoc source locator. Ordinary layout, checkpoint, hot-scroll, prefetch, export, persisted-height and source-record semantic consumers remain keyed by `source_record_index` where physical identity is required.
+
+M2's promoted persistent mutation contract is move/reorder plus height persistence. Durable arbitrary compact-arena insert/erase are explicit non-capabilities, not incomplete M2 checklist items. If structural editing is required later, it must receive its own durable storage/publication protocol rather than being retroactively claimed by this promotion.
 
 ## M3 — Crash-safe segmented generations and mobile I/O
 
