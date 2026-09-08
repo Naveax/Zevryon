@@ -4,6 +4,7 @@ target_sources(
     src/logical_node_arena.cpp
     src/logical_node_arena_v2.cpp
     src/logical_node_arena_v2_store_bound.cpp
+    src/logical_node_record_index.cpp
     src/logical_node_source.cpp
     src/logical_node_source_binding.cpp
     src/logical_node_source_v2.cpp
@@ -112,6 +113,17 @@ if(BUILD_TESTING)
   add_test(
     NAME streaming-html-resource-accounting-tests
     COMMAND zevryon-streaming-html-resource-accounting-tests)
+
+  add_executable(
+    zevryon-logical-node-record-index-tests
+    tests/logical_node_record_index_tests.cpp)
+  target_link_libraries(
+    zevryon-logical-node-record-index-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-logical-node-record-index-tests)
+  add_test(
+    NAME logical-node-record-index-tests
+    COMMAND zevryon-logical-node-record-index-tests)
 
   add_executable(
     zevryon-zenith-semantic-node-window-tests
