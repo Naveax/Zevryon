@@ -102,9 +102,13 @@ bool void_element(std::string_view tag) noexcept {
     return false;
 }
 
+bool supported_raw_text_element(std::string_view tag) noexcept {
+    return tag == "style";
+}
+
 bool unsupported_raw_text_element(std::string_view tag) noexcept {
     constexpr std::string_view values[] = {
-        "script", "style", "title", "textarea", "xmp", "iframe",
+        "script", "title", "textarea", "xmp", "iframe",
         "noembed", "noframes", "plaintext"};
     for (const std::string_view value : values) {
         if (tag == value) {
@@ -556,6 +560,35 @@ private:
         return true;
     }
 
+    bool append_token_text_prefix(
+        std::size_t length,
+        bool prefix_crossed_record) {
+        if (length == 0U) {
+            return true;
+        }
+        if (length > token_.size()) {
+            return fail_html_v2(error_, "HTML raw-text candidate prefix exceeds token size");
+        }
+        if (!text_active_) {
+            text_active_ = true;
+            text_crossed_record_ = false;
+            text_start_record_ = token_start_record_;
+            text_start_offset_ = token_start_offset_;
+            text_length_ = 0U;
+        } else if (token_start_record_ != text_start_record_) {
+            text_crossed_record_ = true;
+        }
+        if (prefix_crossed_record) {
+            text_crossed_record_ = true;
+        }
+        const auto length_u64 = static_cast<std::uint64_t>(length);
+        if (text_length_ > std::numeric_limits<std::uint64_t>::max() - length_u64) {
+            return fail_html_v2(error_, "HTML text source span length overflows");
+        }
+        text_length_ += length_u64;
+        return true;
+    }
+
     bool flush_text() {
         if (!text_active_) {
             return true;
@@ -618,10 +651,119 @@ private:
         return true;
     }
 
+    bool recover_false_style_raw_text_candidate(
+        char character,
+        std::uint64_t record_index,
+        std::uint64_t record_offset,
+        bool crossed_before_append) {
+        if (character == '<') {
+            if (!append_token_text_prefix(token_.size() - 1U, crossed_before_append)) {
+                return false;
+            }
+            return start_token(record_index, record_offset);
+        }
+        const bool candidate_crossed_record = token_crossed_record_;
+        const std::size_t candidate_size = token_.size();
+        if (!append_token_text_prefix(candidate_size, candidate_crossed_record)) {
+            return false;
+        }
+        reset_token();
+        return true;
+    }
+
+    bool consume_style_raw_text_byte(
+        char character,
+        std::uint64_t record_index,
+        std::uint64_t record_offset) {
+        if (!in_token_) {
+            if (character == '<') {
+                return start_token(record_index, record_offset);
+            }
+            return extend_text(record_index, record_offset);
+        }
+
+        const bool crossed_before_append = token_crossed_record_;
+        if (!append_token_byte(character, record_index)) {
+            return false;
+        }
+
+        constexpr std::string_view closing = "</style";
+        const std::size_t prefix_length = std::min(token_.size(), closing.size());
+        for (std::size_t index = 0U; index < prefix_length; ++index) {
+            if (ascii_lower(token_[index]) != closing[index]) {
+                return recover_false_style_raw_text_candidate(
+                    character,
+                    record_index,
+                    record_offset,
+                    crossed_before_append);
+            }
+        }
+        if (token_.size() <= closing.size()) {
+            return true;
+        }
+
+        const char first_trailing = token_[closing.size()];
+        if (first_trailing == '>') {
+            if (token_.size() != closing.size() + 1U) {
+                return fail_html_v2(error_, "style RAWTEXT end tag has bytes after terminator");
+            }
+            if (!flush_text()) {
+                return false;
+            }
+            const bool result = complete_end_tag();
+            if (result) {
+                style_raw_text_ = false;
+            }
+            reset_token();
+            return result;
+        }
+        if (!ascii_space(first_trailing)) {
+            if (first_trailing == '/') {
+                return fail_html_v2(
+                    error_,
+                    "style RAWTEXT end tag self-closing syntax is unsupported");
+            }
+            return recover_false_style_raw_text_candidate(
+                character,
+                record_index,
+                record_offset,
+                crossed_before_append);
+        }
+
+        for (std::size_t index = closing.size() + 1U; index < token_.size(); ++index) {
+            const char trailing = token_[index];
+            if (trailing == '>') {
+                if (index + 1U != token_.size()) {
+                    return fail_html_v2(
+                        error_,
+                        "style RAWTEXT end tag has bytes after terminator");
+                }
+                if (!flush_text()) {
+                    return false;
+                }
+                const bool result = complete_end_tag();
+                if (result) {
+                    style_raw_text_ = false;
+                }
+                reset_token();
+                return result;
+            }
+            if (!ascii_space(trailing)) {
+                return fail_html_v2(
+                    error_,
+                    "style RAWTEXT end tag contains unsupported trailing syntax");
+            }
+        }
+        return true;
+    }
+
     bool consume_byte(
         char character,
         std::uint64_t record_index,
         std::uint64_t record_offset) {
+        if (style_raw_text_) {
+            return consume_style_raw_text_byte(character, record_index, record_offset);
+        }
         if (!in_token_) {
             if (character == '<') {
                 if (!flush_text()) {
@@ -776,6 +918,9 @@ private:
                 return fail_html_v2(error_, "HTML open-element depth exceeds bounded limit");
             }
             open_elements_.emplace_back(view(parsed.tag), ordinal, memory_);
+            if (supported_raw_text_element(view(parsed.tag))) {
+                style_raw_text_ = true;
+            }
             const auto observed = static_cast<std::uint32_t>(
                 open_elements_.size() - 1U);
             stats_->maximum_observed_open_depth =
@@ -798,6 +943,7 @@ private:
     bool in_token_{false};
     bool comment_token_{false};
     bool token_crossed_record_{false};
+    bool style_raw_text_{false};
 
     std::uint64_t text_start_record_{0U};
     std::uint64_t text_start_offset_{0U};
