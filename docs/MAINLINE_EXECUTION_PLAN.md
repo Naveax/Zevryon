@@ -174,7 +174,10 @@ Implementation/admission state:
 - [x] Add the separate machine-readable five-metric leadership evaluator; collection alone remains unable to claim leadership.
 - [x] Admit exact-runtime preflight, stable preflight-to-measurement runtime identity binding, collection admission and single-bundle/no-cherry-pick discipline through exact-head run `33122221313` on commit `6ea7a74123069dbdb035bd59cf93a3f870f85a9d`.
 - [x] Admit the physical-host/system-fingerprint/physical-Zevryon/publication-manifest milestone through exact-head run `33125276373` on commit `fcd211776675993a8ce7ad0954f2134b24389143`.
-- [x] Admit the follow-on v2 raw-artifact admission-replay and artifact-root-containment candidate through its own exact-head admission PR; merge is conditioned on that PR's single natural Windows/Linux CI run succeeding.
+- [x] Admit v2 raw-artifact admission replay and artifact-root containment through PR #131, exact head `e340f2cbe224493091d6feb40c45a41c7dee28ec`, natural exact-head CI `34094408179` SUCCESS, merged as `f998a6ae8df8aa4db41a15a9cd59b574f85c2480`, with exact post-merge main CI `34095489185` SUCCESS.
+
+Remaining real evidence:
+
 - [ ] Run the real six-runtime readiness preflight on the final physical benchmark host and preserve its M0 machine/thermal evidence artifact.
 - [ ] Collect one complete canonical 6x2 browser evidence bundle on that same physical system with no runtime substitution and observed thermal evidence.
 - [ ] Collect Zevryon `virtualized` and `native-dom` evidence through `m7_zevryon_physical_case.py`, preserving certified M0 machine/thermal receipts immediately before and after each normalized case.
@@ -183,7 +186,7 @@ Implementation/admission state:
 - [ ] Create the canonical v2 publication manifest only after constraining the admission/raw artifacts to `artifact_root`, re-hashing and re-reading all four raw artifacts, replaying `admit_collection()`, verifying exact clean Git commit/tree, and binding physical-host receipts, runtime identities and evaluator result.
 - [ ] Publish the complete admitted evidence and failure modes without cherry-picking metrics across repeat bundles.
 
-One leadership decision consumes one complete evidence bundle. Repeats may be collected as independent reproducibility evidence, but best-of-N reruns and cross-bundle metric mixing are not admissible. Any repeated-run aggregation policy must be frozen before collecting the evidence it would aggregate.
+M7 implementation/admission machinery is canonical. Issue #126 remains open only for the real physical six-runtime bundle, evaluation and publication. One leadership decision consumes one complete evidence bundle. Repeats may be collected as independent reproducibility evidence, but best-of-N reruns and cross-bundle metric mixing are not admissible. Any repeated-run aggregation policy must be frozen before collecting the evidence it would aggregate.
 
 ## M8 — 100/100 gate
 
@@ -196,15 +199,31 @@ Implementation state:
 - [x] Expose a resumable compaction cut after the first durable stale-manifest quarantine while preserving historical compaction cut numeric values.
 - [x] Wire `m8-storage-crash-cut-tests` into the normal CTest path to verify pre-COMMIT non-promotion, same-generation retry, post-COMMIT recovery and resumable partial quarantine.
 - [x] Add the destructive child-process crash runner over every frozen publication/compaction cut and emit machine-readable fresh-process restart evidence; admitted by PR #134 exact-head run `34107984010`.
-- [x] Bind Titan giant-record, unbroken-token and pathological-grapheme dimensions into the `score_100` evaluator authority so none can be omitted or compensated.
-- [ ] Collect and admit raw full-Titan evidence proving every content-envelope dimension, including the three adversarial size axes.
-- [x] Implement the strict raw four-profile no-compensation evaluator authority with exact profile-set enforcement and recomputed `score_100` results.
-- [ ] Collect and admit real raw observations for every device profile against its hard memory cap and frozen latency/throughput limits.
-- [x] Implement the continuous dual-mode soak authority with monotonic checkpoint continuity, process-memory receipts and a short CI smoke using the same code path.
-- [ ] Execute and admit one continuous certification-mode soak lasting at least 86,400 measured seconds after setup/warmup.
-- [x] Implement the deterministic mixed-mutation integrity authority with terminal raw receipts, five-class coverage, snapshot verification and a 50,000-operation CI smoke path.
-- [ ] Execute and admit a certification-mode mixed-mutation run with at least 10,000,000 completed operations and deterministic integrity receipts.
-- [x] Implement the deterministic Unicode, serializer, index and sequence property-fuzz authority with per-domain receipts and same-seed replay smoke coverage.
-- [ ] Execute and admit certification-mode property fuzzing with at least 10,000 completed cases in each of the four domains.
-- [x] Build and admit the final M8 evidence binder v2 that recomputes every gate and rejects compensation, hand-authored profile observations and mixed-run cherry-picking; admitted by PR #143 exact-head run `34141947892` on `183eb00a45e92a3a3a4dcd5d7fc6b8eeca60495a`, squash-merged as canonical `ba02e59f47cdbf5314d5eca4c51282aac9a78e68`.
-- [ ] Publish final certification only with zero crash/OOM, data corruption, invalid UTF-8 output or logical-order mismatch.
+- [x] Bind Titan giant-record, unbroken-token and pathological-grapheme dimensions into the `score_100` evaluator authority so none can be omitted or compensated; admitted by PR #135 exact-head run `34112399277`.
+- [x] Implement the strict raw four-profile no-compensation evaluator authority with exact profile-set enforcement and recomputed `score_100` results; admitted by PR #136 exact-head run `34114213421`.
+- [x] Implement the deterministic mixed-mutation integrity authority with terminal raw receipts, five-class coverage, snapshot verification and a >=10,000,000-operation-capable certification path; admitted by PR #137 exact-head run `34115270075`.
+- [x] Implement the continuous dual-mode soak authority with monotonic checkpoint continuity, process-memory receipts and a >=86,400-second-capable certification path; admitted by PR #138 exact-head run `34117234548`.
+- [x] Implement deterministic Unicode, serializer, index and sequence property-fuzz authority with per-domain receipts and same-seed replay coverage; admitted by PR #139 exact-head run `34118464587`.
+- [x] Add the canonical full-envelope Titan fixture authority; PR #140 exact head `a6746c64347252248ed8ea248224e57806469232`, exact-head run `34123284064`, merged as `d2ef419ff9c193499517539052a704e1affc60b1`.
+- [x] Add production profile runtime policy and the exact four-case no-cherry-pick collection binder; PR #141 exact head `b0992d7743c42a5e5716a2feeb18da2f8d50593e`, exact-head run `34127063247`, merged as `36e29b4c82a3049bc138fb3dda51531561967ed0`.
+- [x] Add the physical profile case collector and independent provenance verifier; PR #142 fixed exact head `c5028fe5ffb9c8c03b5bb9df24323979bb929fe1`, exact-head run `34132583637` SUCCESS, merged as `e8383ca1b2aaafd43d9367997c95792dd507eb5f`.
+- [x] Build and admit the provenance-bound final M8 evidence binder v2, create-only frozen-bundle importer and raw no-compensation recomputation stack; PR #143 exact head `183eb00a45e92a3a3a4dcd5d7fc6b8eeca60495a`, exact-head run `34141947892` 7/7 SUCCESS, squash-merged as canonical `ba02e59f47cdbf5314d5eca4c51282aac9a78e68`, with exact post-merge main CI `34158512860` SUCCESS.
+
+Retained failure evidence:
+
+- PR #142 first exact-head run `34131139757` exposed an ordinary-record UTF-8 boundary defect. That failed SHA was not rerun; the UTF-8-safe descendant above was admitted instead.
+- Final-binder predecessor `3aa2e4bb604211064820baf7943baab850486bd0` / run `34140503331` remains retained failed evidence and was never rerun unchanged.
+
+Remaining certification evidence:
+
+- [ ] Generate and preserve the certification-mode canonical Titan corpus/report proving the complete 4 GiB logical UTF-8 envelope, 8,388,608 records, 67,108,864 logical nodes, 33,554,432 style runs, 1,048,576 resource references, 64 MiB largest record, 16 MiB unbroken token and 64 KiB pathological grapheme.
+- [ ] Collect exactly one independently verified physical attempt for each `legacy-phone`, `mid-phone`, `modern-phone` and `desktop`, all bound to the same candidate/Titan/probe identity.
+- [ ] Freeze one fresh external evidence bundle and import those four physical attempts through binder v2; a prepared `profile-observations.json` is not admissible.
+- [ ] Execute the full fresh-process storage crash matrix into its create-only frozen-bundle slot.
+- [ ] Execute a certification-mode mixed-mutation run with at least 10,000,000 completed operations and deterministic integrity receipts.
+- [ ] Execute certification-mode property fuzzing with at least 10,000 completed cases in each exact domain: Unicode, serializer, index and sequence.
+- [ ] Execute one continuous certification-mode dual-mode soak lasting at least 86,400 measured seconds after setup/warmup.
+- [ ] Run the final no-compensation binder exactly once on that complete frozen bundle.
+- [ ] Publish/archive the complete PASS or FAIL bundle with zero cross-bundle substitution and zero unreported crash/OOM, data corruption, invalid UTF-8 output or logical-order mismatch.
+
+M8 implementation is no longer the blocker. Only exit status `0` from the final binder is M8 PASS; exit `2` is valid evidence that fails at least one gate and exit `1` is invalid/inadmissible evidence. M7 physical competitor/leadership evidence remains a separate boundary and cannot be manufactured by M8 certification.
