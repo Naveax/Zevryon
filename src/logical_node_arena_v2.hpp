@@ -17,22 +17,27 @@ struct LogicalNodeArenaV2Manifest {
     LogicalNodeArenaManifest storage_manifest{};
 };
 
-// V2 is published under <store_root>/node-arena-v2/ and intentionally keeps
-// the admitted v1 arena storage inside node-arena-v2/node-arena/. A wrapper
-// manifest binds that storage to the v2 cross-record source-span contract.
-// This layout prevents an old LogicalNodeArenaReader(store_root) from silently
-// opening v2 data with v1 source-range semantics.
-class LogicalNodeArenaV2Writer {
+class LogicalNodeArenaV2StoreBoundWriter;
+class LogicalNodeArenaV2StoreBoundReader;
+
+// Low-level v2 storage engine. Construction and I/O are intentionally private:
+// authoritative production code must use the store-bound wrapper so cross-record
+// source triples cannot be reopened against a different physical record sequence.
+class LogicalNodeArenaV2Writer final {
 public:
-    LogicalNodeArenaV2Writer(
-        std::filesystem::path store_root,
-        LogicalNodeArenaBuildConfig config);
     ~LogicalNodeArenaV2Writer();
 
     LogicalNodeArenaV2Writer(const LogicalNodeArenaV2Writer&) = delete;
     LogicalNodeArenaV2Writer& operator=(const LogicalNodeArenaV2Writer&) = delete;
     LogicalNodeArenaV2Writer(LogicalNodeArenaV2Writer&&) noexcept;
     LogicalNodeArenaV2Writer& operator=(LogicalNodeArenaV2Writer&&) noexcept;
+
+private:
+    friend class LogicalNodeArenaV2StoreBoundWriter;
+
+    LogicalNodeArenaV2Writer(
+        std::filesystem::path store_root,
+        LogicalNodeArenaBuildConfig config);
 
     bool begin(std::string* error);
     bool append_node(
@@ -45,20 +50,25 @@ public:
     std::uint64_t attribute_count() const noexcept;
     std::uint64_t semantic_bucket_head_bytes() const noexcept;
 
-private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
 
-class LogicalNodeArenaV2Reader {
+// Low-level v2 storage reader. The public store-bound reader validates the exact
+// native-store payload + physical record sequence before delegating here.
+class LogicalNodeArenaV2Reader final {
 public:
-    explicit LogicalNodeArenaV2Reader(std::filesystem::path store_root);
     ~LogicalNodeArenaV2Reader();
 
     LogicalNodeArenaV2Reader(const LogicalNodeArenaV2Reader&) = delete;
     LogicalNodeArenaV2Reader& operator=(const LogicalNodeArenaV2Reader&) = delete;
     LogicalNodeArenaV2Reader(LogicalNodeArenaV2Reader&&) noexcept;
     LogicalNodeArenaV2Reader& operator=(LogicalNodeArenaV2Reader&&) noexcept;
+
+private:
+    friend class LogicalNodeArenaV2StoreBoundReader;
+
+    explicit LogicalNodeArenaV2Reader(std::filesystem::path store_root);
 
     bool open(std::string* error);
     const LogicalNodeArenaV2Manifest& manifest() const noexcept;
@@ -81,7 +91,6 @@ public:
         std::string* value,
         std::string* error) const;
 
-private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
