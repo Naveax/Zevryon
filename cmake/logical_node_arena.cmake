@@ -3,7 +3,8 @@ target_sources(
   PRIVATE
     src/logical_node_arena.cpp
     src/logical_node_source.cpp
-    src/logical_node_source_binding.cpp)
+    src/logical_node_source_binding.cpp
+    src/streaming_html_node_source.cpp)
 
 if(BUILD_TESTING)
   add_executable(
@@ -27,4 +28,15 @@ if(BUILD_TESTING)
   add_test(
     NAME logical-node-source-tests
     COMMAND zevryon-logical-node-source-tests)
+
+  add_executable(
+    zevryon-streaming-html-node-source-tests
+    tests/streaming_html_node_source_tests.cpp)
+  target_link_libraries(
+    zevryon-streaming-html-node-source-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-streaming-html-node-source-tests)
+  add_test(
+    NAME streaming-html-node-source-tests
+    COMMAND zevryon-streaming-html-node-source-tests)
 endif()
