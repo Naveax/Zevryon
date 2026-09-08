@@ -1,0 +1,80 @@
+{
+  "schema": "zevryon.m3-m6.status-reconciliation.v1",
+  "repository": "Naveax/Zevryon",
+  "base_main": "983bc6d973b2e8d8ef70b64624c94e0ef6d885ec",
+  "scope": "documentation-and-evidence-only",
+  "runtime_capability_change": false,
+  "historical_receipts_rewritten": false,
+  "milestones": {
+    "m3": {
+      "status": "canonical-complete",
+      "source_head": "d8d9f11d1bcc1dea12b82d0fa9b2b3f69aa1d9c0",
+      "source_ci": 31814283673,
+      "promotion_head": "c64dbf07cefed9d3028b6b6d273412d15db0f1aa",
+      "promotion_push_ci": 31815073323,
+      "promotion_pr_ci": 31816948381,
+      "promotion_pr": 99,
+      "merge_commit": "4101680d1cb07af67fe280de04187a275e68124a",
+      "post_merge_main_ci": 31817594515,
+      "post_merge_main_conclusion": "success"
+    },
+    "m4": {
+      "status": "canonical-complete",
+      "source_head": "6b3124c28af9b4da84badd88a1be628971df6a0e",
+      "source_ci": 31881129599,
+      "source_unicode17_ci": 31881129602,
+      "promotion_head": "afb29736ffc283b638e32030374afd09880058ee",
+      "promotion_push_ci": 31881601896,
+      "promotion_unicode17_ci": 31881601910,
+      "promotion_pr_ci": 31882003576,
+      "promotion_pr": 101,
+      "merge_commit": "6b4ed79cbed8a299b94deab5067327258f9e9124",
+      "post_merge_main_ci": 31883789266,
+      "post_merge_main_conclusion": "success",
+      "post_merge_unicode17_ci": 31883848777,
+      "later_same_sha_cancelled_ci": 31884410454,
+      "later_same_sha_cancelled_ci_is_authority": false,
+      "arm64_neon_runtime_certified": false
+    },
+    "m5": {
+      "status": "code-side-complete-physical-evidence-open",
+      "tracking_issue": 102,
+      "consolidation_pr": 113,
+      "consolidation_head": "61db7ae7090302e2135a73811e356dc4d32d2d88",
+      "consolidation_ci": 32752618029,
+      "consolidation_ci_conclusion": "success",
+      "merge_commit": "3ab7fd5aaf95fa7fa603de0abed88f3d0c3cb924",
+      "historical_post_merge_main_ci": 32753909790,
+      "historical_post_merge_main_conclusion": "failure",
+      "historical_failed_job": "Linux build and headless tests",
+      "historical_failed_test": "runtime-generation-retirement-tests",
+      "historical_failure_message": "public session identity could not be reused beside retired generation",
+      "repair_pr": 118,
+      "repair_pr_ci": 32851123817,
+      "repair_post_merge_main_ci": 32858032499,
+      "physical_frame_thermal_certified": false,
+      "physical_gate_can_be_satisfied_by_hosted_ci": false
+    },
+    "m6": {
+      "status": "canonical-complete",
+      "tracking_issue": 115,
+      "tracking_issue_state": "closed-completed",
+      "android_parent_main": "dbed266d98651a833a16df85aa5a877d20793404",
+      "android_parent_post_merge_ci": 32960351510,
+      "scope_reconciliation_pr": 125,
+      "scope_reconciliation_head": "a1b5e810be9d0a6468948a968b0dd43f6297bb5b",
+      "scope_reconciliation_pr_ci": 32961337126,
+      "scope_reconciliation_merge": "8953c711d8ef4de15e46ee3c153702e6c3e165f9",
+      "scope_reconciliation_post_merge_ci": 32962622941,
+      "scope_reconciliation_post_merge_conclusion": "success",
+      "apple_backend_supported": false,
+      "android_java_kotlin_jni_shell_wiring_claimed": false,
+      "windows_immediate_job_limit_claimed_as_effective_nested_job_limit": false
+    }
+  },
+  "remaining_external_evidence": {
+    "m5": "physical frame-latency and thermal receipt on an eligible exact-candidate host",
+    "m7": "complete real physical six-runtime bundle plus leadership evaluation/publication",
+    "m8": "full Titan and frozen no-compensation physical/long-running certification bundle"
+  }
+}
