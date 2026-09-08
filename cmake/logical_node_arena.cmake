@@ -7,7 +7,8 @@ target_sources(
     src/logical_node_source.cpp
     src/logical_node_source_binding.cpp
     src/logical_node_source_v2.cpp
-    src/streaming_html_node_source.cpp)
+    src/streaming_html_node_source.cpp
+    src/streaming_html_node_source_v2.cpp)
 
 if(BUILD_TESTING)
   add_executable(
@@ -64,6 +65,17 @@ if(BUILD_TESTING)
   add_test(
     NAME streaming-html-node-source-tests
     COMMAND zevryon-streaming-html-node-source-tests)
+
+  add_executable(
+    zevryon-streaming-html-node-source-v2-tests
+    tests/streaming_html_node_source_v2_tests.cpp)
+  target_link_libraries(
+    zevryon-streaming-html-node-source-v2-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-streaming-html-node-source-v2-tests)
+  add_test(
+    NAME streaming-html-node-source-v2-tests
+    COMMAND zevryon-streaming-html-node-source-v2-tests)
 
   add_executable(
     zevryon-streaming-html-resource-accounting-tests
