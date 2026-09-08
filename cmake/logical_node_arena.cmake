@@ -4,7 +4,7 @@ target_sources(
     src/logical_node_arena.cpp
     src/logical_node_arena_v2.cpp
     src/logical_node_arena_v2_store_bound.cpp
-    src/logical_node_record_index.cpp
+    src/logical_node_record_index_admitted.cpp
     src/logical_node_record_index_authoritative.cpp
     src/logical_node_source.cpp
     src/logical_node_source_binding.cpp
