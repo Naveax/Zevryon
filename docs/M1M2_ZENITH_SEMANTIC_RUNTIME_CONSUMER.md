@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The record-level hot-scroll/layout path cannot be reinterpreted as browser-node semantics: its `logical_id` identifies logical records, not logical browser nodes. Forcing those identifiers into `LogicalNodeArenaReader::node_by_id()` would merge two different identity domains and corrupt source/layout semantics.
+The record-level hot-scroll/layout path cannot be reinterpreted as browser-node semantics: its `logical_id` identifies logical records, not logical browser nodes. Forcing those identifiers into logical-node arena lookup would merge two different identity domains and corrupt source/layout semantics.
 
 This slice therefore adds a separate production browser-runtime consumer for the disk-backed logical-node arena:
 
@@ -24,7 +24,7 @@ Configuration values themselves have hard ceilings. This prevents a caller from 
 
 A result is returned only at complete-node boundaries. If adding the next node would exceed a cumulative window budget, the reader returns the nodes already completed, sets `truncated=true`, and leaves `next_ordinal` pointing at the first node not returned.
 
-If one node by itself exceeds a per-node attribute limit or semantic-byte limit, the operation fails closed rather than returning partial browser semantics.
+The same complete-node rule applies when the next node exceeds the configured total-attribute or semantic-byte budget by itself: if the current window already contains one or more complete nodes, those nodes are returned and continuation stops before the oversized node. A read that starts at that oversized node fails closed. Per-node attribute-limit violations always fail closed.
 
 The window exposes the frozen arena record unchanged alongside resolved semantic values, preserving:
 
@@ -78,7 +78,7 @@ Focused tests cover:
 - node-count continuation windows;
 - cumulative attribute-budget truncation at a complete-node boundary;
 - semantic-byte truncation at a complete-node boundary;
-- single-node over-budget failure;
+- continuation then single-node over-budget failure;
 - hard configuration-ceiling rejection;
 - UI-lane rejection followed by successful worker-lane lazy open;
 - missing-arena and invalid-config failure telemetry.
