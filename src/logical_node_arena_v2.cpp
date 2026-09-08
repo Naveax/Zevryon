@@ -345,20 +345,22 @@ bool LogicalNodeArenaV2Writer::finish(std::string* error) {
         return false;
     }
 
-    LogicalNodeArenaReader storage_reader(impl_->staging);
-    if (!storage_reader.open(error)) {
-        return false;
-    }
-    if (storage_reader.manifest().format_version !=
-        kExpectedStorageFormatVersion) {
-        return fail_v2(
-            error,
-            "logical node arena v2 staging storage version is unsupported");
+    LogicalNodeArenaManifest storage_manifest;
+    {
+        LogicalNodeArenaReader storage_reader(impl_->staging);
+        if (!storage_reader.open(error)) {
+            return false;
+        }
+        if (storage_reader.manifest().format_version !=
+            kExpectedStorageFormatVersion) {
+            return fail_v2(
+                error,
+                "logical node arena v2 staging storage version is unsupported");
+        }
+        storage_manifest = storage_reader.manifest();
     }
     if (!write_marker_file(
-            marker_path(impl_->staging),
-            storage_reader.manifest(),
-            error)) {
+            marker_path(impl_->staging), storage_manifest, error)) {
         return false;
     }
 
