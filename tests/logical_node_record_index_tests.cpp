@@ -33,7 +33,7 @@ using zevryon::massivedoc::inspect_logical_node_source_store_binding;
 using zevryon::massivedoc::kNoLogicalNodeOrdinal;
 using zevryon::massivedoc::kNoLogicalNodeRecordPosting;
 
-constexpr std::size_t kPostingBytes = 40U;
+constexpr std::size_t kPostingBytes = 48U;
 
 bool require(bool condition, std::string_view message) {
     if (!condition) {
@@ -168,7 +168,8 @@ bool rewrite_posting(
     const std::filesystem::path& path,
     std::uint64_t posting_ordinal,
     std::uint64_t node_ordinal,
-    std::uint64_t next_posting) {
+    std::uint64_t next_posting,
+    std::uint64_t source_record_index) {
     std::fstream stream(path, std::ios::binary | std::ios::in | std::ios::out);
     if (!stream) {
         return false;
@@ -190,10 +191,12 @@ bool rewrite_posting(
     }
     put_u64(&raw, 0U, node_ordinal);
     put_u64(&raw, 8U, next_posting);
+    put_u64(&raw, 16U, source_record_index);
+    put_u32(&raw, 40U, 0U);
     put_u32(
         &raw,
-        36U,
-        crc32(std::span<const std::uint8_t>(raw.data(), 36U)));
+        44U,
+        crc32(std::span<const std::uint8_t>(raw.data(), 44U)));
     stream.clear();
     stream.seekp(static_cast<std::streamoff>(offset), std::ios::beg);
     stream.write(
@@ -272,6 +275,41 @@ bool test_cross_record_round_trip_and_continuation() {
                 "cross-record tail overlap");
 }
 
+bool test_foreign_record_continuation_rejected() {
+    const std::filesystem::path root = unique_root("record-node-index-foreign-continuation");
+    RootCleanup cleanup(root);
+    std::string error;
+    if (!require(build_store(root, &error), error) ||
+        !require(build_arena(
+            root,
+            "89abcdef0123456789abcdef0123456789abcdef",
+            &error), error) ||
+        !require(build_logical_node_record_index(root, &error), error)) {
+        return false;
+    }
+
+    LogicalNodeRecordIndexReader reader(root);
+    LogicalNodeRecordIndexWindow record_one;
+    if (!require(reader.open(&error), error) ||
+        !require(reader.read_record(
+            1U, kNoLogicalNodeRecordPosting, 1U, &record_one, &error), error) ||
+        !require(record_one.postings.size() == 1U,
+                 "record one exposes one posting for forged continuation")) {
+        return false;
+    }
+
+    LogicalNodeRecordIndexWindow forged;
+    return require(!reader.read_record(
+               0U,
+               record_one.postings[0].posting_ordinal,
+               8U,
+               &forged,
+               &error),
+            "foreign-record continuation is rejected") &&
+        require(error.find("different source record") != std::string::npos,
+                "foreign-record continuation failure is explicit");
+}
+
 bool test_forged_overlap_and_cycle_fail_closed() {
     const std::filesystem::path root = unique_root("record-node-index-corruption");
     RootCleanup cleanup(root);
@@ -308,7 +346,8 @@ bool test_forged_overlap_and_cycle_fail_closed() {
             postings,
             record_two_posting,
             3U,
-            kNoLogicalNodeRecordPosting),
+            kNoLogicalNodeRecordPosting,
+            2U),
             "rewrite posting with valid CRC")) {
         return false;
     }
@@ -345,7 +384,8 @@ bool test_forged_overlap_and_cycle_fail_closed() {
             postings,
             record_zero_first,
             1U,
-            record_zero_first),
+            record_zero_first,
+            0U),
             "rewrite posting into self-cycle with valid CRC")) {
         return false;
     }
@@ -419,6 +459,7 @@ bool test_truncated_posting_table_rejected_on_open() {
 
 int main() {
     if (!test_cross_record_round_trip_and_continuation() ||
+        !test_foreign_record_continuation_rejected() ||
         !test_forged_overlap_and_cycle_fail_closed() ||
         !test_arena_identity_change_rejected() ||
         !test_truncated_posting_table_rejected_on_open()) {
