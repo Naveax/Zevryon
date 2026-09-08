@@ -113,9 +113,13 @@ bool supported_raw_text_element(std::string_view tag) noexcept {
     return false;
 }
 
+bool supported_rcdata_element(std::string_view tag) noexcept {
+    return tag == "title" || tag == "textarea";
+}
+
 bool unsupported_special_text_element(std::string_view tag) noexcept {
     constexpr std::string_view values[] = {
-        "script", "title", "textarea", "plaintext", "noscript"};
+        "script", "plaintext", "noscript"};
     for (const std::string_view value : values) {
         if (tag == value) {
             return true;
@@ -573,7 +577,7 @@ private:
             return true;
         }
         if (length > token_.size()) {
-            return fail_html_v2(error_, "HTML RAWTEXT candidate prefix exceeds token size");
+            return fail_html_v2(error_, "HTML text-state candidate prefix exceeds token size");
         }
         if (!text_active_) {
             text_active_ = true;
@@ -657,7 +661,7 @@ private:
         return true;
     }
 
-    bool recover_false_raw_text_candidate(
+    bool recover_false_text_state_candidate(
         char character,
         std::uint64_t record_index,
         std::uint64_t record_offset,
@@ -677,15 +681,36 @@ private:
         return true;
     }
 
-    bool consume_raw_text_byte(
+    bool consume_text_state_byte(
         char character,
         std::uint64_t record_index,
         std::uint64_t record_offset) {
-        if (open_elements_.size() <= 1U ||
-            !supported_raw_text_element(view(open_elements_.back().tag))) {
-            return fail_html_v2(error_, "HTML v2 producer lost active RAWTEXT element state");
+        if (open_elements_.size() <= 1U) {
+            return fail_html_v2(error_, "HTML v2 producer lost active text-state element");
         }
         const std::string_view active_tag = view(open_elements_.back().tag);
+        const bool active_raw_text = supported_raw_text_element(active_tag);
+        const bool active_rcdata = supported_rcdata_element(active_tag);
+        if ((raw_text_ == rcdata_) ||
+            (raw_text_ && !active_raw_text) ||
+            (rcdata_ && !active_rcdata)) {
+            return fail_html_v2(error_, "HTML v2 producer text-state invariant failed");
+        }
+
+        if (textarea_initial_lf_pending_) {
+            textarea_initial_lf_pending_ = false;
+            if (!rcdata_ || active_tag != "textarea") {
+                return fail_html_v2(error_, "HTML v2 producer textarea LF state invariant failed");
+            }
+            if (character == '\n') {
+                return true;
+            }
+            if (character == '\r') {
+                return fail_html_v2(
+                    error_,
+                    "textarea CR/CRLF preprocessing is not implemented in strict v2 parser profile");
+            }
+        }
 
         if (!in_token_) {
             if (character == '<') {
@@ -706,7 +731,7 @@ private:
                 ? '<'
                 : (index == 1U ? '/' : active_tag[index - 2U]);
             if (ascii_lower(token_[index]) != expected) {
-                return recover_false_raw_text_candidate(
+                return recover_false_text_state_candidate(
                     character,
                     record_index,
                     record_offset,
@@ -720,7 +745,7 @@ private:
         const char first_trailing = token_[closing_size];
         if (first_trailing == '>') {
             if (token_.size() != closing_size + 1U) {
-                return fail_html_v2(error_, "RAWTEXT end tag has bytes after terminator");
+                return fail_html_v2(error_, "text-state end tag has bytes after terminator");
             }
             if (!flush_text()) {
                 return false;
@@ -728,6 +753,8 @@ private:
             const bool result = complete_end_tag();
             if (result) {
                 raw_text_ = false;
+                rcdata_ = false;
+                textarea_initial_lf_pending_ = false;
             }
             reset_token();
             return result;
@@ -736,9 +763,9 @@ private:
             if (first_trailing == '/') {
                 return fail_html_v2(
                     error_,
-                    "RAWTEXT end tag self-closing syntax is unsupported");
+                    "text-state end tag self-closing syntax is unsupported");
             }
-            return recover_false_raw_text_candidate(
+            return recover_false_text_state_candidate(
                 character,
                 record_index,
                 record_offset,
@@ -751,7 +778,7 @@ private:
                 if (index + 1U != token_.size()) {
                     return fail_html_v2(
                         error_,
-                        "RAWTEXT end tag has bytes after terminator");
+                        "text-state end tag has bytes after terminator");
                 }
                 if (!flush_text()) {
                     return false;
@@ -759,6 +786,8 @@ private:
                 const bool result = complete_end_tag();
                 if (result) {
                     raw_text_ = false;
+                    rcdata_ = false;
+                    textarea_initial_lf_pending_ = false;
                 }
                 reset_token();
                 return result;
@@ -766,7 +795,7 @@ private:
             if (!ascii_space(trailing)) {
                 return fail_html_v2(
                     error_,
-                    "RAWTEXT end tag contains unsupported trailing syntax");
+                    "text-state end tag contains unsupported trailing syntax");
             }
         }
         return true;
@@ -776,8 +805,8 @@ private:
         char character,
         std::uint64_t record_index,
         std::uint64_t record_offset) {
-        if (raw_text_) {
-            return consume_raw_text_byte(character, record_index, record_offset);
+        if (raw_text_ || rcdata_) {
+            return consume_text_state_byte(character, record_index, record_offset);
         }
         if (!in_token_) {
             if (character == '<') {
@@ -935,6 +964,9 @@ private:
             open_elements_.emplace_back(view(parsed.tag), ordinal, memory_);
             if (supported_raw_text_element(view(parsed.tag))) {
                 raw_text_ = true;
+            } else if (supported_rcdata_element(view(parsed.tag))) {
+                rcdata_ = true;
+                textarea_initial_lf_pending_ = parsed.tag == "textarea";
             }
             const auto observed = static_cast<std::uint32_t>(
                 open_elements_.size() - 1U);
@@ -959,6 +991,8 @@ private:
     bool comment_token_{false};
     bool token_crossed_record_{false};
     bool raw_text_{false};
+    bool rcdata_{false};
+    bool textarea_initial_lf_pending_{false};
 
     std::uint64_t text_start_record_{0U};
     std::uint64_t text_start_offset_{0U};

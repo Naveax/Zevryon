@@ -31,15 +31,21 @@ struct StreamingHtmlNodeSourceV2Stats {
 };
 
 // Strict streaming HTML producer for ZVNSRC01 v2. It preserves the admitted
-// element/attribute subset while emitting normal data-state text nodes and the
-// bounded RAWTEXT family currently admitted for <style>, <xmp>, <iframe>,
-// <noembed> and <noframes>. Text payload bytes are not retained in parser
-// memory: each text node stores only its authoritative cross-record source span.
+// element/attribute subset while emitting normal data-state text nodes, the
+// bounded RAWTEXT family (<style>, <xmp>, <iframe>, <noembed>, <noframes>) and
+// structural RCDATA node/source-span handling for <title> and <textarea>.
+// Text payload bytes are not retained in parser memory: each text node stores
+// only its authoritative cross-record raw source span.
+//
+// RCDATA character-reference decoding is not stored in this source format yet;
+// this slice establishes browser text-node boundaries and authoritative source
+// identity. A literal LF immediately after <textarea> is omitted from the text
+// node as required by HTML parsing. CR/CRLF preprocessing remains fail-closed.
 //
 // This is still intentionally not a complete WHATWG tokenizer/tree builder.
-// Script data, RCDATA, plaintext, scripting-mode-dependent noscript behavior,
-// foreign-content roots and broader parse-error recovery remain fail-closed
-// until their states are implemented explicitly.
+// Script data, PLAINTEXT, scripting-mode-dependent noscript behavior, complete
+// preprocessing/decoded text semantics, foreign-content roots and broader
+// parse-error recovery remain fail-closed until implemented explicitly.
 bool produce_streaming_html_node_source_v2(
     const std::filesystem::path& store_root,
     const std::filesystem::path& output_source_path,

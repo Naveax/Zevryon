@@ -321,9 +321,159 @@ bool test_rawtext_close_can_cross_records_and_one_byte_windows() {
                 "validator accepts cross-record RAWTEXT family state");
 }
 
+bool test_title_rcdata_preserves_raw_source_span() {
+    const std::filesystem::path root = unique_root("html-v2-title-rcdata");
+    RootCleanup cleanup(root);
+    const std::filesystem::path store_root = root / "store";
+    const std::filesystem::path source_path = root / "nodes.zvnsrc";
+    constexpr std::string_view raw_text = "a&amp;<b{c:d}";
+    const std::string html = "<title>" + std::string(raw_text) + "</title>";
+    std::string error;
+    if (!require(build_store(store_root, html, 3U, &error), error) ||
+        !require(produce_streaming_html_node_source_v2(
+                     store_root, source_path, {}, nullptr, &error), error)) {
+        return false;
+    }
+
+    LogicalNodeSourceNode document;
+    LogicalNodeSourceNode title;
+    LogicalNodeSourceNode text;
+    if (!read_three_nodes(source_path, &document, &title, &text, &error) ||
+        !require(title.tag == "title" && title.parent_ordinal == 0U,
+                 "title RCDATA element survives") ||
+        !require(text.tag == "#text" && text.parent_ordinal == 1U,
+                 "title RCDATA emits one text node") ||
+        !require(text.source_record_index == 0U &&
+                     text.source_byte_offset == 7U &&
+                     text.source_byte_length == raw_text.size(),
+                 "title RCDATA keeps raw character-reference and markup-like bytes in one source span")) {
+        return false;
+    }
+
+    LogicalNodeSourceV2ValidationStats validation;
+    return require(validate_logical_node_source_v2_against_store(
+                       source_path, store_root, &validation, &error), error) &&
+        require(validation.nodes_validated == 3U,
+                "validator accepts title RCDATA structural source");
+}
+
+bool test_rcdata_false_end_tag_candidate_stays_text() {
+    const std::filesystem::path root = unique_root("html-v2-title-false-close");
+    RootCleanup cleanup(root);
+    const std::filesystem::path store_root = root / "store";
+    const std::filesystem::path source_path = root / "nodes.zvnsrc";
+    constexpr std::string_view raw_text = "a</titlex><b";
+    const std::string html = "<title>" + std::string(raw_text) + "</title>";
+    std::string error;
+    if (!require(build_store(store_root, html, 3U, &error), error) ||
+        !require(produce_streaming_html_node_source_v2(
+                     store_root, source_path, {}, nullptr, &error), error)) {
+        return false;
+    }
+
+    LogicalNodeSourceNode document;
+    LogicalNodeSourceNode title;
+    LogicalNodeSourceNode text;
+    return read_three_nodes(source_path, &document, &title, &text, &error) &&
+        require(text.source_record_index == 0U &&
+                    text.source_byte_offset == 7U &&
+                    text.source_byte_length == raw_text.size(),
+                "false title close candidate remains one RCDATA source span");
+}
+
+bool test_rcdata_close_can_cross_records_and_one_byte_windows() {
+    const std::filesystem::path root = unique_root("html-v2-title-cross-record-close");
+    RootCleanup cleanup(root);
+    const std::filesystem::path store_root = root / "store";
+    const std::filesystem::path source_path = root / "nodes.zvnsrc";
+    const std::vector<std::string_view> records = {
+        "<title>a",
+        "&amp;</TI",
+        "TLE \t>"};
+    std::string error;
+    if (!require(build_store_records(store_root, records, 3U, &error), error)) {
+        return false;
+    }
+
+    StreamingHtmlNodeSourceConfig config;
+    config.input_window_bytes = 1U;
+    StreamingHtmlNodeSourceV2Stats stats;
+    if (!require(produce_streaming_html_node_source_v2(
+                     store_root, source_path, config, &stats, &error), error)) {
+        return false;
+    }
+
+    LogicalNodeSourceNode document;
+    LogicalNodeSourceNode title;
+    LogicalNodeSourceNode text;
+    if (!read_three_nodes(source_path, &document, &title, &text, &error) ||
+        !require(text.source_record_index == 0U &&
+                     text.source_byte_offset == 7U &&
+                     text.source_byte_length == 6U,
+                 "cross-record RCDATA source span is exact") ||
+        !require(stats.cross_record_text_spans == 1U,
+                 "cross-record RCDATA is accounted exactly once")) {
+        return false;
+    }
+
+    LogicalNodeSourceV2ValidationStats validation;
+    return require(validate_logical_node_source_v2_against_store(
+                       source_path, store_root, &validation, &error), error) &&
+        require(validation.nodes_validated == 3U,
+                "validator accepts cross-record RCDATA state");
+}
+
+bool test_textarea_initial_literal_lf_is_ignored() {
+    const std::filesystem::path root = unique_root("html-v2-textarea-leading-lf");
+    RootCleanup cleanup(root);
+    const std::filesystem::path store_root = root / "store";
+    const std::filesystem::path source_path = root / "nodes.zvnsrc";
+    constexpr std::string_view html = "<textarea>\nhello</textarea>";
+    std::string error;
+    if (!require(build_store(store_root, html, 3U, &error), error) ||
+        !require(produce_streaming_html_node_source_v2(
+                     store_root, source_path, {}, nullptr, &error), error)) {
+        return false;
+    }
+
+    LogicalNodeSourceNode document;
+    LogicalNodeSourceNode textarea;
+    LogicalNodeSourceNode text;
+    return read_three_nodes(source_path, &document, &textarea, &text, &error) &&
+        require(textarea.tag == "textarea", "textarea RCDATA element survives") &&
+        require(text.source_record_index == 0U &&
+                    text.source_byte_offset == 11U &&
+                    text.source_byte_length == 5U,
+                "textarea leading LF is excluded from the browser text-node source span");
+}
+
+bool test_textarea_initial_cr_remains_fail_closed() {
+    const std::filesystem::path root = unique_root("html-v2-textarea-leading-cr");
+    RootCleanup cleanup(root);
+    const std::filesystem::path store_root = root / "store";
+    const std::filesystem::path source_path = root / "nodes.zvnsrc";
+    constexpr std::string_view html = "<textarea>\rhello</textarea>";
+    std::string error;
+    if (!require(build_store(store_root, html, 3U, &error), error)) {
+        return false;
+    }
+
+    return require(!produce_streaming_html_node_source_v2(
+                       store_root, source_path, {}, nullptr, &error),
+                   "textarea initial CR is rejected until preprocessing is implemented") &&
+        require(error.find("textarea CR/CRLF preprocessing is not implemented") !=
+                    std::string::npos,
+                "textarea CR rejection is explicit") &&
+        require(!std::filesystem::exists(source_path),
+                "rejected textarea CR input cannot publish source") &&
+        require(!std::filesystem::exists(
+                    std::filesystem::path(source_path.string() + ".building")),
+                "rejected textarea CR input leaves no building source");
+}
+
 bool test_unimplemented_special_tokenizer_states_remain_fail_closed() {
-    constexpr std::array<std::string_view, 5> tags{{
-        "script", "title", "textarea", "plaintext", "noscript"}};
+    constexpr std::array<std::string_view, 3> tags{{
+        "script", "plaintext", "noscript"}};
     for (const std::string_view tag : tags) {
         const std::filesystem::path root = unique_root(
             std::string("html-v2-special-") + std::string(tag));
@@ -361,6 +511,11 @@ int main() {
         !test_rawtext_family_preserves_markup_like_bytes() ||
         !test_rawtext_false_end_tag_candidate_stays_text() ||
         !test_rawtext_close_can_cross_records_and_one_byte_windows() ||
+        !test_title_rcdata_preserves_raw_source_span() ||
+        !test_rcdata_false_end_tag_candidate_stays_text() ||
+        !test_rcdata_close_can_cross_records_and_one_byte_windows() ||
+        !test_textarea_initial_literal_lf_is_ignored() ||
+        !test_textarea_initial_cr_remains_fail_closed() ||
         !test_unimplemented_special_tokenizer_states_remain_fail_closed()) {
         return 1;
     }
