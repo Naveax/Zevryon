@@ -721,6 +721,12 @@ private:
                 error_)) {
             return false;
         }
+        if (parsed.self_closing && !void_element(view(parsed.tag))) {
+            return fail_html_v2(
+                error_,
+                "self-closing syntax on non-void HTML element is unsupported in strict v2 parser profile: " +
+                    owned(parsed.tag));
+        }
         if (open_elements_.empty()) {
             return fail_html_v2(error_, "HTML v2 producer lost document root state");
         }

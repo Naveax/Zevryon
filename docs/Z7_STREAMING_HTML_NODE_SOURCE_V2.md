@@ -32,6 +32,8 @@ Hard-limit exhaustion is converted into a fail-closed parser error. Failed produ
 
 The producer still deliberately rejects unsupported semantics including raw-text/RCDATA families such as `script`, `style`, `title` and `textarea`, foreign SVG/MathML roots, processing instructions, malformed nesting and unsupported declarations. Those states remain later Z7 work rather than being approximated.
 
+HTML's self-closing flag is not XML element closure. The strict profile therefore rejects explicit `/>` syntax on non-void HTML elements such as `<div/>` rather than silently treating them as closed. Explicit `/>` remains accepted for genuine HTML void elements such as `<br/>`, `<img/>` and `<input/>`. Broader WHATWG parse-error recovery is still outside this slice.
+
 ## Tests
 
 Focused authority covers:
@@ -43,7 +45,9 @@ Focused authority covers:
 - authoritative `ZVNSRC01` v2 validation against the native store;
 - output equivalence across 1-, 2- and 7-byte StoreReader input windows;
 - working-set hard-cap rejection and staging cleanup;
-- continued fail-closed rejection of unsupported raw-text input.
+- continued fail-closed rejection of unsupported raw-text input;
+- fail-closed rejection of non-void `<div/>` syntax with no published/staging sidecar;
+- continued acceptance and authoritative validation of void `<br/>` syntax.
 
 ## Admission boundary
 
