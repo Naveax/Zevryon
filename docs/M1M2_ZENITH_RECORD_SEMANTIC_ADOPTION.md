@@ -108,12 +108,20 @@ They cover:
 The existing record-index authority/corruption tests continue to run against the
 adopted single-handle implementation.
 
-## Admission boundary
+## Canonical admission
 
-This document describes candidate behavior until the exact adoption head passes
-the full repository Windows/Linux CI and is merged.
+The production path is admitted on canonical `main`.
 
-Issue #157 and the remaining M1 browser logical-node checklist items must not be
-closed merely because this file exists. They become eligible only after the
-record-index infrastructure and this real `ZenithTabRuntime` production path are
-both admitted on `main`.
+- record-index infrastructure: PR #158, exact head
+  `4bee237c2263b139b10a29c03dd87956b90e2d5a`, exact-head CI run
+  `34237003555` SUCCESS, merged as
+  `04990b0ff89c59063e761e147afa7069d06d4d9d`;
+- real `ZenithTabRuntime` semantic adoption: PR #159, exact head
+  `31ed41801fca2a6b092e57274ee1f14d2deb10ee`, natural exact-head CI run
+  `34240329146` SUCCESS with Windows/Linux full suites, Win32/i386 gates,
+  both Unicode authority jobs and the Apple removal guard green, merged as
+  `add6d43b925dc94e85111b4a57007673f142ca79`.
+
+Issue #157 was closed only after the merge was verified on canonical `main`.
+The 67,108,864-node certification envelope remains a separate M8 physical/raw
+evidence boundary and is not fabricated by this admission.
