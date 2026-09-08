@@ -16,6 +16,11 @@ struct ZenithSemanticNodeWindowConfig {
     std::uint32_t maximum_attributes_per_node{64U};
     std::size_t maximum_total_attributes{4096U};
     std::size_t maximum_semantic_bytes{4U * 1024U * 1024U};
+
+    bool valid() const noexcept {
+        return maximum_nodes > 0U && maximum_attributes_per_node > 0U &&
+            maximum_total_attributes > 0U && maximum_semantic_bytes > 0U;
+    }
 };
 
 struct ZenithSemanticAttribute {
