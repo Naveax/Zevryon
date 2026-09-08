@@ -40,10 +40,20 @@ struct LogicalNodeRecordIndexWindow {
     bool truncated{false};
 };
 
+// Builds a create-only, disk-backed source-record -> logical-node index beside
+// the authoritative native store and store-bound node-arena-v2. Non-empty node
+// source spans are indexed into every physical record they actually overlap.
+// The builder keeps only bounded descriptor/node state resident; record heads
+// are updated in the staging sidecar instead of retaining an O(record_count)
+// RAM table. Failure never publishes the final sidecar.
 bool build_logical_node_record_index(
     const std::filesystem::path& store_root,
     std::string* error);
 
+// Low-level storage/test reader. It validates exact store/arena identity,
+// posting CRCs, forward links and authoritative node/source overlap. Production
+// runtime callers must use LogicalNodeRecordIndexAuthoritativeReader below so
+// CRC-valid first/last/count head metadata is also enforced end-to-end.
 class LogicalNodeRecordIndexReader final {
 public:
     explicit LogicalNodeRecordIndexReader(std::filesystem::path store_root);
@@ -85,6 +95,11 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
+// Production-authoritative reader. In addition to the low-level reader's exact
+// store/arena/overlap checks, this layer treats every CRC-valid head field as
+// authoritative: non-empty first/last/count state must be coherent,
+// continuations must stay inside that record's head range and a chain that
+// reaches its sentinel must terminate at the frozen last_posting ordinal.
 class LogicalNodeRecordIndexAuthoritativeReader final {
 public:
     explicit LogicalNodeRecordIndexAuthoritativeReader(
