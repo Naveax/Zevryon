@@ -33,6 +33,14 @@ struct HtmlTokenizerV1Token {
     std::vector<HtmlTokenizerV1Attribute> attributes;
     std::string data;
     bool self_closing{false};
+
+    // DOCTYPE-only fields. Presence is explicit because the external tokenizer
+    // authority distinguishes a missing identifier (null) from an empty one.
+    std::string public_identifier;
+    std::string system_identifier;
+    bool has_public_identifier{false};
+    bool has_system_identifier{false};
+    bool force_quirks{false};
 };
 
 struct HtmlTokenizerV1ParseError {
@@ -73,8 +81,9 @@ public:
 // boundaries and is bounded by maximum_token_bytes.
 //
 // This is intentionally not full WHATWG tokenization. Script-data, CDATA,
-// general Data-state start tags/comments/DOCTYPEs, complete named-character
-// references and input-stream preprocessing remain fail-closed.
+// complete named/numeric character references and input-stream preprocessing
+// remain fail-closed. Data-state tags and markup-declaration admission live in
+// their separately bounded production slices while sharing this event schema.
 bool tokenize_html_token_stream_v1(
     std::string_view input,
     HtmlTokenizerV1InitialState initial_state,
