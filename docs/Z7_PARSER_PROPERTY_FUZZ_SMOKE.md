@@ -59,14 +59,14 @@ This makes chunking an implementation detail rather than a source of success/fai
 
 ## Admission boundary
 
-The smoke materially strengthens Z7 `chunk_size_equivalence` and parser-fuzz preparation, but does not close either milestone gate by itself. It does not yet provide:
+The smoke materially strengthens Z7 `chunk_size_equivalence` and parser-fuzz preparation, but does not close either milestone gate by itself. The parser now separately admits non-NUL PLAINTEXT through EOF, but this original 64-case smoke does not yet generate PLAINTEXT cases. It also does not yet provide:
 
 - a certification-scale case count or external evidence bundle;
-- malformed-byte/NUL/input-preprocessing coverage;
-- script-data or PLAINTEXT states;
+- broad malformed-byte/NUL/input-preprocessing coverage;
+- script-data or scripting-mode-dependent `noscript` semantics;
 - full named-character-reference semantics;
 - WHATWG tree-builder recovery and foreign-content behavior;
 - coverage-guided fuzzing or sanitizer-backed long-running fuzz evidence;
-- bounded large-document parser certification.
+- final bounded large-document parser certification.
 
 Z7 therefore remains `planned` after this slice.

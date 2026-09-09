@@ -471,9 +471,129 @@ bool test_textarea_initial_cr_remains_fail_closed() {
                 "rejected textarea CR input leaves no building source");
 }
 
+bool test_plaintext_consumes_remaining_markup_as_text() {
+    const std::filesystem::path root = unique_root("html-v2-plaintext-eof");
+    RootCleanup cleanup(root);
+    const std::filesystem::path store_root = root / "store";
+    const std::filesystem::path source_path = root / "nodes.zvnsrc";
+    constexpr std::string_view start_tag = "<plaintext>";
+    constexpr std::string_view raw_text = "a<b>&amp;</plaintext>tail";
+    const std::string html = std::string(start_tag) + std::string(raw_text);
+    std::string error;
+    if (!require(build_store(store_root, html, 3U, &error), error) ||
+        !require(produce_streaming_html_node_source_v2(
+                     store_root, source_path, {}, nullptr, &error), error)) {
+        return false;
+    }
+
+    LogicalNodeSourceNode document;
+    LogicalNodeSourceNode plaintext;
+    LogicalNodeSourceNode text;
+    if (!read_three_nodes(source_path, &document, &plaintext, &text, &error) ||
+        !require(plaintext.tag == "plaintext" && plaintext.parent_ordinal == 0U,
+                 "PLAINTEXT element semantic survives") ||
+        !require(plaintext.source_record_index == 0U &&
+                     plaintext.source_byte_offset == 0U &&
+                     plaintext.source_byte_length == start_tag.size(),
+                 "PLAINTEXT element keeps exact start-tag source span") ||
+        !require(text.tag == "#text" && text.parent_ordinal == 1U,
+                 "PLAINTEXT content remains one text node under plaintext") ||
+        !require(text.source_record_index == 0U &&
+                     text.source_byte_offset == start_tag.size() &&
+                     text.source_byte_length == raw_text.size(),
+                 "PLAINTEXT keeps markup-looking bytes and character-reference spelling in raw span")) {
+        return false;
+    }
+
+    LogicalNodeSourceV2ValidationStats validation;
+    return require(validate_logical_node_source_v2_against_store(
+                       source_path, store_root, &validation, &error), error) &&
+        require(validation.nodes_validated == 3U,
+                "validator accepts document + plaintext + text") &&
+        require(validation.source_span_bytes_streamed ==
+                    static_cast<std::uint64_t>(start_tag.size() + raw_text.size()),
+                "validator streams exact PLAINTEXT start-tag and remaining text bytes");
+}
+
+bool test_plaintext_crosses_records_and_one_byte_windows() {
+    const std::filesystem::path root = unique_root("html-v2-plaintext-cross-record");
+    RootCleanup cleanup(root);
+    const std::filesystem::path store_root = root / "store";
+    const std::filesystem::path source_path = root / "nodes.zvnsrc";
+    constexpr std::string_view first = "<plaintext>a";
+    constexpr std::string_view second = "</plaintext><b>";
+    constexpr std::string_view third = "&amp;tail";
+    const std::vector<std::string_view> records = {first, second, third};
+    const std::uint64_t expected_text_bytes =
+        1U + static_cast<std::uint64_t>(second.size()) +
+        static_cast<std::uint64_t>(third.size());
+    std::string error;
+    if (!require(build_store_records(store_root, records, 3U, &error), error)) {
+        return false;
+    }
+
+    StreamingHtmlNodeSourceConfig config;
+    config.input_window_bytes = 1U;
+    StreamingHtmlNodeSourceV2Stats stats;
+    if (!require(produce_streaming_html_node_source_v2(
+                     store_root, source_path, config, &stats, &error), error)) {
+        return false;
+    }
+
+    LogicalNodeSourceNode document;
+    LogicalNodeSourceNode plaintext;
+    LogicalNodeSourceNode text;
+    if (!read_three_nodes(source_path, &document, &plaintext, &text, &error) ||
+        !require(text.source_record_index == 0U &&
+                     text.source_byte_offset == 11U &&
+                     text.source_byte_length == expected_text_bytes,
+                 "cross-record PLAINTEXT source span is exact") ||
+        !require(stats.cross_record_text_spans == 1U,
+                 "cross-record PLAINTEXT is accounted exactly once")) {
+        return false;
+    }
+
+    LogicalNodeSourceV2ValidationStats validation;
+    return require(validate_logical_node_source_v2_against_store(
+                       source_path, store_root, &validation, &error), error) &&
+        require(validation.nodes_validated == 3U,
+                "validator accepts cross-record PLAINTEXT state");
+}
+
+bool test_plaintext_nul_remains_fail_closed() {
+    const std::filesystem::path root = unique_root("html-v2-plaintext-nul");
+    RootCleanup cleanup(root);
+    const std::filesystem::path store_root = root / "store";
+    const std::filesystem::path source_path = root / "nodes.zvnsrc";
+    std::string html = "<plaintext>a";
+    html.push_back('\0');
+    html.push_back('b');
+    std::string error;
+    if (!require(build_store(
+                     store_root,
+                     std::string_view(html.data(), html.size()),
+                     3U,
+                     &error),
+                 error)) {
+        return false;
+    }
+
+    return require(!produce_streaming_html_node_source_v2(
+                       store_root, source_path, {}, nullptr, &error),
+                   "PLAINTEXT NUL is rejected until replacement payload semantics exist") &&
+        require(error.find("PLAINTEXT NUL replacement is not implemented") !=
+                    std::string::npos,
+                "PLAINTEXT NUL rejection is explicit") &&
+        require(!std::filesystem::exists(source_path),
+                "rejected PLAINTEXT NUL input cannot publish source") &&
+        require(!std::filesystem::exists(
+                    std::filesystem::path(source_path.string() + ".building")),
+                "rejected PLAINTEXT NUL input leaves no building source");
+}
+
 bool test_unimplemented_special_tokenizer_states_remain_fail_closed() {
-    constexpr std::array<std::string_view, 3> tags{{
-        "script", "plaintext", "noscript"}};
+    constexpr std::array<std::string_view, 2> tags{{
+        "script", "noscript"}};
     for (const std::string_view tag : tags) {
         const std::filesystem::path root = unique_root(
             std::string("html-v2-special-") + std::string(tag));
@@ -516,6 +636,9 @@ int main() {
         !test_rcdata_close_can_cross_records_and_one_byte_windows() ||
         !test_textarea_initial_literal_lf_is_ignored() ||
         !test_textarea_initial_cr_remains_fail_closed() ||
+        !test_plaintext_consumes_remaining_markup_as_text() ||
+        !test_plaintext_crosses_records_and_one_byte_windows() ||
+        !test_plaintext_nul_remains_fail_closed() ||
         !test_unimplemented_special_tokenizer_states_remain_fail_closed()) {
         return 1;
     }

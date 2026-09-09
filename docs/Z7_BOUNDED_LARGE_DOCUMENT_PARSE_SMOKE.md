@@ -44,4 +44,4 @@ The smoke requires:
 
 This smoke materially strengthens the implementation side of `bounded_large_document_parse`, but it is not the final configured Z7 gate. Remaining certification work includes a frozen certification envelope, candidate/source provenance, larger and more varied documents, malformed/failure cases, timing/resource receipts and admitted evidence produced by the final certification procedure.
 
-Tokenizer/tree-builder conformance, parser fuzzing, script-data, PLAINTEXT, full HTML input preprocessing and other outstanding Z7 work remain separate. Z7 therefore stays `planned`.
+The parser separately admits non-NUL PLAINTEXT through EOF, but this large-document smoke intentionally remains a RAWTEXT fixture and therefore does not certify large PLAINTEXT behavior. Tokenizer/tree-builder conformance, final parser fuzzing, script-data, PLAINTEXT NUL replacement payload semantics, full HTML input preprocessing and other outstanding Z7 work remain separate. Z7 therefore stays `planned`.

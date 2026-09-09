@@ -119,7 +119,7 @@ bool supported_rcdata_element(std::string_view tag) noexcept {
 
 bool unsupported_special_text_element(std::string_view tag) noexcept {
     constexpr std::string_view values[] = {
-        "script", "plaintext", "noscript"};
+        "script", "noscript"};
     for (const std::string_view value : values) {
         if (tag == value) {
             return true;
@@ -535,6 +535,15 @@ public:
     }
 
     bool finish() {
+        if (plain_text_) {
+            if (in_token_ || open_elements_.size() <= 1U ||
+                open_elements_.back().tag != "plaintext") {
+                return fail_html_v2(
+                    error_,
+                    "HTML v2 producer PLAINTEXT state invariant failed at EOF");
+            }
+            return flush_text();
+        }
         if (in_token_) {
             return fail_html_v2(error_, "HTML input ended inside markup token");
         }
@@ -801,10 +810,31 @@ private:
         return true;
     }
 
+    bool consume_plain_text_byte(
+        char character,
+        std::uint64_t record_index,
+        std::uint64_t record_offset) {
+        if (open_elements_.size() <= 1U ||
+            open_elements_.back().tag != "plaintext") {
+            return fail_html_v2(
+                error_,
+                "HTML v2 producer PLAINTEXT state invariant failed");
+        }
+        if (character == '\0') {
+            return fail_html_v2(
+                error_,
+                "PLAINTEXT NUL replacement is not implemented in strict v2 parser profile");
+        }
+        return extend_text(record_index, record_offset);
+    }
+
     bool consume_byte(
         char character,
         std::uint64_t record_index,
         std::uint64_t record_offset) {
+        if (plain_text_) {
+            return consume_plain_text_byte(character, record_index, record_offset);
+        }
         if (raw_text_ || rcdata_) {
             return consume_text_state_byte(character, record_index, record_offset);
         }
@@ -967,6 +997,8 @@ private:
             } else if (supported_rcdata_element(view(parsed.tag))) {
                 rcdata_ = true;
                 textarea_initial_lf_pending_ = parsed.tag == "textarea";
+            } else if (parsed.tag == "plaintext") {
+                plain_text_ = true;
             }
             const auto observed = static_cast<std::uint32_t>(
                 open_elements_.size() - 1U);
@@ -992,6 +1024,7 @@ private:
     bool token_crossed_record_{false};
     bool raw_text_{false};
     bool rcdata_{false};
+    bool plain_text_{false};
     bool textarea_initial_lf_pending_{false};
 
     std::uint64_t text_start_record_{0U};

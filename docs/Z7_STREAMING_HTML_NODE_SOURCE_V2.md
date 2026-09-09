@@ -2,9 +2,9 @@
 
 ## Scope
 
-This slice extends the strict streaming HTML producer onto `ZVNSRC01` v2 so ordinary HTML data-state text becomes real `#text` logical nodes. The admitted bounded RAWTEXT family covers `style`, `xmp`, `iframe`, `noembed` and `noframes`. Structural RCDATA node/source-span handling additionally covers `title` and `textarea`. It does not claim full WHATWG tokenizer/tree-builder conformance.
+This slice extends the strict streaming HTML producer onto `ZVNSRC01` v2 so ordinary HTML data-state text becomes real `#text` logical nodes. The admitted bounded RAWTEXT family covers `style`, `xmp`, `iframe`, `noembed` and `noframes`. Structural RCDATA node/source-span handling additionally covers `title` and `textarea`. PLAINTEXT source-span handling covers `<plaintext>` through end of input for non-NUL bytes. It does not claim full WHATWG tokenizer/tree-builder conformance.
 
-The tokenizer-state boundary follows the current WHATWG parsing model: the five RAWTEXT elements use RAWTEXT, `title`/`textarea` use RCDATA, `script` uses script-data states, `plaintext` uses PLAINTEXT, and `noscript` depends on scripting mode. Unsupported states remain separate work rather than being approximated through a neighboring state.
+The tokenizer-state boundary follows the current WHATWG parsing model: the five RAWTEXT elements use RAWTEXT, `title`/`textarea` use RCDATA, `script` uses script-data states, `plaintext` switches permanently to PLAINTEXT until EOF, and `noscript` depends on scripting mode. Unsupported states remain separate work rather than being approximated through a neighboring state.
 
 ## Source semantics
 
@@ -30,6 +30,14 @@ For admitted RAWTEXT or RCDATA elements, arbitrary markup-like `<` bytes remain 
 
 The active appropriate-end-tag name is not copied into a second parser-owned string. The ledger-backed `open_elements_.back().tag` entry remains authoritative for both RAWTEXT and RCDATA matching.
 
+## PLAINTEXT through EOF
+
+After an admitted `<plaintext>` start tag, every remaining non-NUL input byte is incorporated into the same ordinary text-span machinery until EOF. There is no appropriate-end-tag transition out of the state. Bytes such as `<`, `&`, `<b>` and the apparent `</plaintext>` spelling are therefore raw text-source bytes rather than markup or character-reference entry points.
+
+EOF while PLAINTEXT is active is a normal admitted termination. The strict profile does not require a synthetic closing tag before publication because the tokenizer cannot emit one after entering PLAINTEXT.
+
+WHATWG PLAINTEXT processing replaces U+0000 with U+FFFD. `ZVNSRC01` v2 currently carries authoritative raw source spans rather than a decoded replacement-character payload, so an input NUL in PLAINTEXT fails closed with an explicit error. This avoids claiming replacement semantics that the representation cannot yet encode.
+
 ## Textarea leading newline
 
 HTML parsing ignores one LF token immediately after a `textarea` start tag. The v2 source producer therefore excludes an immediately following literal `\n` byte from the textarea browser text-node source span.
@@ -49,9 +57,10 @@ The producer admits:
 - normal data-state text-node source spans;
 - RAWTEXT structure for `style`, `xmp`, `iframe`, `noembed`, `noframes`;
 - structural RCDATA source spans for `title` and `textarea`;
-- the literal-LF textarea start rule.
+- the literal-LF textarea start rule;
+- PLAINTEXT for all remaining non-NUL input bytes through EOF.
 
-`script`, `plaintext`, scripting-mode-dependent `noscript`, CR/CRLF preprocessing, decoded RCDATA text payload semantics, foreign SVG/MathML roots, processing instructions, malformed nesting and unsupported declarations remain fail-closed or outside this representation. Those states are later Z7 work rather than approximated semantics.
+`script`, scripting-mode-dependent `noscript`, PLAINTEXT NUL replacement, CR/CRLF preprocessing, decoded RCDATA text payload semantics, foreign SVG/MathML roots, processing instructions, malformed nesting and unsupported declarations remain fail-closed or outside this representation. Those states are later Z7 work rather than approximated semantics.
 
 Within admitted RAWTEXT/RCDATA structure, an appropriate end-tag name is matched ASCII-case-insensitively and may be followed by ASCII whitespace before `>`. Attributes, self-closing syntax and other parse-error recovery on those end tags remain strict-profile rejection rather than silently inventing broader WHATWG recovery behavior.
 
@@ -76,10 +85,13 @@ Focused authority covers:
 - mixed-case `</title>` recognition across physical records with a 1-byte input window;
 - omission of one literal LF immediately after `<textarea>` from the text-node source span;
 - fail-closed initial textarea CR behavior until preprocessing is implemented;
-- continued fail-closed rejection of `script`, `plaintext` and `noscript` special tokenizer states;
+- PLAINTEXT consuming apparent markup, `&amp;` spelling and apparent `</plaintext>` through EOF as one raw text span;
+- PLAINTEXT source identity across physical records with a 1-byte StoreReader window;
+- explicit fail-closed PLAINTEXT NUL behavior with no published or staging sidecar;
+- continued fail-closed rejection of `script` and `noscript` special tokenizer states;
 - fail-closed rejection of non-void `<div/>` syntax with no published/staging sidecar;
 - continued acceptance and authoritative validation of void `<br/>` syntax.
 
 ## Admission boundary
 
-This slice emits a versioned source stream only. The isolated `node-arena-v2` representation and v2 source-to-arena importer are separate admission slices. Script-data, PLAINTEXT, decoded RCDATA payload semantics, HTML input preprocessing, scripting-mode handling, broader WHATWG recovery and parser fuzz/conformance breadth remain outstanding, so Z7 is not marked implemented by this change alone.
+This remains a strict incremental source-stream slice. Script-data, decoded RCDATA/PLAINTEXT replacement payload semantics, complete HTML input preprocessing, scripting-mode handling, broader WHATWG recovery/tree building, foreign content and final parser fuzz/conformance/large-document certification remain outstanding. Z7 therefore remains `planned`.
