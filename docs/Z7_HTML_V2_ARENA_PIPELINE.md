@@ -64,6 +64,6 @@ Additional tests cover:
 
 ## Admission boundary
 
-This slice closes an orchestration gap, not the full Z7 milestone. The HTML v2 parser remains a strict incremental profile. Script-data, PLAINTEXT, complete input preprocessing, decoded RCDATA text payload semantics, full WHATWG tree building/recovery, foreign content, parser fuzzing and the configured Z7 conformance/large-document gates remain outstanding.
+This orchestration slice does not complete Z7. The current HTML v2 parser remains a strict incremental profile that now includes RAWTEXT, structural RCDATA and non-NUL PLAINTEXT-through-EOF source semantics. Script-data, scripting-mode-dependent `noscript`, PLAINTEXT NUL replacement payload semantics, complete input preprocessing, decoded RCDATA text payload semantics, full WHATWG tree building/recovery, foreign content and final parser fuzz/conformance/large-document certification remain outstanding.
 
 Hosted CI for this path is implementation authority only and is not M7/M8 physical certification evidence.
