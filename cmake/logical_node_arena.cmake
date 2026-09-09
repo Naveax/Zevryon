@@ -217,5 +217,16 @@ if(BUILD_TESTING)
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/z7_html5lib_tokenizer_corpus_verify.py"
         --self-test)
+    add_test(
+      NAME z7-wpt-tree-corpus-provenance
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/z7_wpt_tree_corpus_verify.py")
+    add_test(
+      NAME z7-wpt-tree-corpus-verifier-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/z7_wpt_tree_corpus_verify.py"
+        --self-test)
   endif()
 endif()

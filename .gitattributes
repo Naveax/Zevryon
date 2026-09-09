@@ -1,3 +1,5 @@
 # Preserve byte-identical third-party conformance corpus authorities across platforms.
 third_party/html5lib-tests/LICENSE text eol=lf
 tests/fixtures/html5lib-tokenizer/*.test text eol=lf
+third_party/wpt/LICENSE.md text eol=lf
+tests/fixtures/wpt-tree-construction/*.dat text eol=lf
