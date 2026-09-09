@@ -1,0 +1,25 @@
+{
+  "schema": "zevryon.z7.html5lib-tokenizer-corpus.v1",
+  "authority": "z7-html5lib-tokenizer-corpus-provenance-v1",
+  "conformance_claim": false,
+  "upstream": {
+    "repository": "html5lib/html5lib-tests",
+    "commit": "224991ec10db04f056a89eed8b0bd8695fd2950e",
+    "license": "MIT",
+    "license_git_blob": "8812371b41cfc6d2de3eac8c0b2a7a90f9b03428",
+    "license_vendored_path": "third_party/html5lib-tests/LICENSE",
+    "license_size_bytes": 1103,
+    "license_sha256": "ff512aac9ef231d504be5afaf4429005024e4b2aaf257be39524f37b8402aaf2"
+  },
+  "files": [
+    {
+      "upstream_path": "tokenizer/contentModelFlags.test",
+      "vendored_path": "tests/fixtures/html5lib-tokenizer/contentModelFlags.test",
+      "git_blob": "9cf7c8bd9e70dfbd0037726d6a840e67d3aa5e12",
+      "size_bytes": 3055,
+      "sha256": "77784a505a528950761cfb3c76617afade28b27c3be2a8c37dce3c3d8988391d",
+      "test_count": 14,
+      "execution_count": 24
+    }
+  ]
+}
