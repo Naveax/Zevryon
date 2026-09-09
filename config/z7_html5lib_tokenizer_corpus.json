@@ -20,6 +20,15 @@
       "sha256": "77784a505a528950761cfb3c76617afade28b27c3be2a8c37dce3c3d8988391d",
       "test_count": 14,
       "execution_count": 24
+    },
+    {
+      "upstream_path": "tokenizer/test1.test",
+      "vendored_path": "tests/fixtures/html5lib-tokenizer/test1.test",
+      "git_blob": "5323fbbeae2c6116aab14a716c8df1174e7870fb",
+      "size_bytes": 10006,
+      "sha256": "524fcfa4d561a14f0c4e72e0573549abe6341fd4dfb8e16bc2dcf59a608a7219",
+      "test_count": 69,
+      "execution_count": 69
     }
   ]
 }
