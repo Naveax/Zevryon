@@ -291,6 +291,18 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/z7_html5lib_tokenizer_runner_v1.py"
         --probe "$<TARGET_FILE:zevryon-html-tokenizer-token-stream-v1-probe>")
     add_test(
+      NAME z7-html5lib-tokenizer-test1-admitted-runner-v1
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/z7_html5lib_tokenizer_test1_admitted_runner_v1.py"
+        --probe "$<TARGET_FILE:zevryon-html-tokenizer-token-stream-v1-probe>")
+    add_test(
+      NAME z7-html5lib-tokenizer-test1-admitted-runner-v1-self-test
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/z7_html5lib_tokenizer_test1_admitted_runner_v1.py"
+        --self-test)
+    add_test(
       NAME z7-wpt-tree-corpus-provenance
       COMMAND
         "${Python3_EXECUTABLE}"
