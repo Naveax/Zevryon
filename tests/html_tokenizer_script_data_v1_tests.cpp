@@ -397,7 +397,7 @@ bool test_fail_closed_boundaries() {
         if (!require(
                 !consume_html_script_data_v1(
                     "abcd",
-                    "script",
+                    "",
                     config,
                     &sink,
                     &stats,
