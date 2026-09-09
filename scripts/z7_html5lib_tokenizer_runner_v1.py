@@ -14,6 +14,15 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = ROOT / "config/z7_html5lib_tokenizer_corpus.json"
 DEFAULT_FIXTURE = ROOT / "tests/fixtures/html5lib-tokenizer/contentModelFlags.test"
 REPORT_SCHEMA = "zevryon.z7.html5lib-tokenizer-runner.v1"
+
+RUNNER_UPSTREAM_PATH = "tokenizer/contentModelFlags.test"
+RUNNER_VENDORED_PATH = "tests/fixtures/html5lib-tokenizer/contentModelFlags.test"
+RUNNER_GIT_BLOB = "9cf7c8bd9e70dfbd0037726d6a840e67d3aa5e12"
+RUNNER_SIZE_BYTES = 3055
+RUNNER_SHA256 = "77784a505a528950761cfb3c76617afade28b27c3be2a8c37dce3c3d8988391d"
+RUNNER_TEST_COUNT = 14
+RUNNER_EXECUTION_COUNT = 24
+
 STATE_MAP = {
     "PLAINTEXT state": "PLAINTEXT",
     "RCDATA state": "RCDATA",
@@ -59,6 +68,38 @@ def require_canonical_authority_paths(manifest: Path, fixture: Path) -> tuple[Pa
     return resolved_manifest, resolved_fixture
 
 
+def require_runner_fixture_provenance(manifest: Path) -> None:
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RunnerError(f"cannot read tokenizer provenance manifest: {exc}") from exc
+
+    require(isinstance(payload, dict), "tokenizer provenance manifest root must be an object")
+    files = payload.get("files")
+    require(isinstance(files, list), "tokenizer provenance manifest files must be an array")
+
+    matches = [
+        entry
+        for entry in files
+        if isinstance(entry, dict)
+        and entry.get("upstream_path") == RUNNER_UPSTREAM_PATH
+        and entry.get("vendored_path") == RUNNER_VENDORED_PATH
+    ]
+    require(
+        len(matches) == 1,
+        "v1 runner requires exactly one pinned contentModelFlags provenance entry",
+    )
+    entry = matches[0]
+    require(entry.get("git_blob") == RUNNER_GIT_BLOB, "runner fixture Git blob pin mismatch")
+    require(entry.get("size_bytes") == RUNNER_SIZE_BYTES, "runner fixture byte-size pin mismatch")
+    require(entry.get("sha256") == RUNNER_SHA256, "runner fixture SHA-256 pin mismatch")
+    require(entry.get("test_count") == RUNNER_TEST_COUNT, "runner fixture test-count pin mismatch")
+    require(
+        entry.get("execution_count") == RUNNER_EXECUTION_COUNT,
+        "runner fixture execution-count pin mismatch",
+    )
+
+
 def load_fixture(path: Path) -> list[dict[str, Any]]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -67,7 +108,10 @@ def load_fixture(path: Path) -> list[dict[str, Any]]:
     require(isinstance(payload, dict), "tokenizer fixture root must be an object")
     tests = payload.get("tests")
     require(isinstance(tests, list), "tokenizer fixture tests must be an array")
-    require(len(tests) == 14, "v1 runner authority requires exactly 14 test objects")
+    require(
+        len(tests) == RUNNER_TEST_COUNT,
+        f"v1 runner authority requires exactly {RUNNER_TEST_COUNT} test objects",
+    )
     for index, test in enumerate(tests):
         require(isinstance(test, dict), f"test[{index}] must be an object")
     return tests
@@ -144,7 +188,10 @@ def parse_probe_output(stdout: str) -> tuple[
                 column_value = int(fields[3], 10)
             except ValueError as exc:
                 raise RunnerError(f"probe ERROR line {line_number} invalid") from exc
-            require(line_value >= 1 and column_value >= 1, f"probe ERROR line {line_number} position invalid")
+            require(
+                line_value >= 1 and column_value >= 1,
+                f"probe ERROR line {line_number} position invalid",
+            )
             errors.append((fields[1].lower(), line_value, column_value))
         elif fields[0] == "STATS":
             require(len(fields) == 7, f"probe STATS line {line_number} malformed")
@@ -153,8 +200,10 @@ def parse_probe_output(stdout: str) -> tuple[
                 values = tuple(int(value, 10) for value in fields[1:])
             except ValueError as exc:
                 raise RunnerError(f"probe STATS line {line_number} invalid") from exc
-            require(len(values) == 6 and all(value >= 0 for value in values),
-                    f"probe STATS line {line_number} contains invalid counters")
+            require(
+                len(values) == 6 and all(value >= 0 for value in values),
+                f"probe STATS line {line_number} contains invalid counters",
+            )
             stats = values  # type: ignore[assignment]
         elif fields[0] == "FAIL":
             require(len(fields) == 2, f"probe FAIL line {line_number} malformed")
@@ -175,12 +224,7 @@ def run_execution(
     label: str,
 ) -> None:
     input_bytes = input_text.encode("utf-8")
-    command = [
-        str(probe),
-        state,
-        utf8_hex(last_start_tag),
-        input_bytes.hex(),
-    ]
+    command = [str(probe), state, utf8_hex(last_start_tag), input_bytes.hex()]
     try:
         completed = subprocess.run(
             command,
@@ -235,7 +279,10 @@ def execute_fixture(probe: Path, fixture: Path) -> dict[str, Any]:
 
     for test_index, test in enumerate(tests):
         description = test.get("description")
-        require(isinstance(description, str) and description, f"test[{test_index}] description invalid")
+        require(
+            isinstance(description, str) and description,
+            f"test[{test_index}] description invalid",
+        )
         label = f"test[{test_index}] {description}"
         states = test.get("initialStates")
         require(isinstance(states, list) and states, f"{label} initialStates invalid")
@@ -260,7 +307,9 @@ def execute_fixture(probe: Path, fixture: Path) -> dict[str, Any]:
                 continue
             if not input_text.isascii() or not last_start_tag.isascii():
                 unsupported += 1
-                failures.append(f"UNSUPPORTED: {execution_label} requires non-ASCII input authority")
+                failures.append(
+                    f"UNSUPPORTED: {execution_label} requires non-ASCII input authority"
+                )
                 continue
             try:
                 run_execution(
@@ -278,10 +327,14 @@ def execute_fixture(probe: Path, fixture: Path) -> dict[str, Any]:
             else:
                 passed += 1
 
-    require(execution_index == 24, "v1 runner authority requires exactly 24 executions")
+    require(
+        execution_index == RUNNER_EXECUTION_COUNT,
+        f"v1 runner authority requires exactly {RUNNER_EXECUTION_COUNT} executions",
+    )
     report = {
         "schema": REPORT_SCHEMA,
         "fixture": DEFAULT_FIXTURE.relative_to(ROOT).as_posix(),
+        "fixture_git_blob": RUNNER_GIT_BLOB,
         "tests": len(tests),
         "executions": execution_index,
         "passed": passed,
@@ -307,8 +360,15 @@ def main() -> int:
     try:
         manifest, fixture = require_canonical_authority_paths(args.manifest, args.fixture)
         provenance = verify_manifest(manifest, ROOT)
-        require(provenance.get("tests_verified") == 14, "provenance test count mismatch")
-        require(provenance.get("executions_verified") == 24, "provenance execution count mismatch")
+        require(
+            provenance.get("provenance_gate_passed") is True,
+            "aggregate tokenizer provenance gate did not pass",
+        )
+        require(
+            provenance.get("conformance_claim") is False,
+            "provenance verifier unexpectedly claims tokenizer conformance",
+        )
+        require_runner_fixture_provenance(manifest)
         report = execute_fixture(args.probe.resolve(), fixture)
     except (RunnerError, VerificationError) as exc:
         print(f"Z7 html5lib tokenizer runner failed: {exc}", file=sys.stderr)
