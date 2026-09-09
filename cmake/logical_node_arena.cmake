@@ -118,6 +118,14 @@ if(BUILD_TESTING)
     COMMAND zevryon-html-tokenizer-token-stream-v1-tests)
 
   add_executable(
+    zevryon-html-tokenizer-token-stream-v1-probe
+    tests/html_tokenizer_token_stream_v1_probe.cpp)
+  target_link_libraries(
+    zevryon-html-tokenizer-token-stream-v1-probe
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-html-tokenizer-token-stream-v1-probe)
+
+  add_executable(
     zevryon-streaming-html-node-source-v2-property-fuzz-tests
     tests/streaming_html_node_source_v2_property_fuzz_tests.cpp)
   target_link_libraries(
@@ -229,6 +237,12 @@ if(BUILD_TESTING)
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/z7_html5lib_tokenizer_corpus_verify.py"
         --self-test)
+    add_test(
+      NAME z7-html5lib-tokenizer-runner-v1
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/z7_html5lib_tokenizer_runner_v1.py"
+        --probe "$<TARGET_FILE:zevryon-html-tokenizer-token-stream-v1-probe>")
     add_test(
       NAME z7-wpt-tree-corpus-provenance
       COMMAND
