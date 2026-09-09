@@ -64,6 +64,8 @@ const char* state_name(HtmlTokenizerV1InitialState state) {
         return "RCDATA";
     case HtmlTokenizerV1InitialState::Rawtext:
         return "RAWTEXT";
+    case HtmlTokenizerV1InitialState::ScriptData:
+        return "SCRIPT_DATA";
     }
     return "unknown";
 }
