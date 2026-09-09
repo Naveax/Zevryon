@@ -1,5 +1,8 @@
 #include "html_tokenizer_token_stream_v1.hpp"
 
+#include "html_tokenizer_data_stream_v1.hpp"
+#include "html_tokenizer_script_data_v1.hpp"
+
 #include <algorithm>
 #include <limits>
 #include <new>
@@ -107,6 +110,18 @@ bool increment_counter(
     return true;
 }
 
+bool add_counter(
+    std::uint64_t* value,
+    std::uint64_t increment,
+    std::string* error,
+    std::string_view label) {
+    if (*value > std::numeric_limits<std::uint64_t>::max() - increment) {
+        return fail_tokenizer(error, std::string(label) + " counter overflow");
+    }
+    *value += increment;
+    return true;
+}
+
 bool validate_config(const HtmlTokenizerV1Config& config, std::string* error) {
     if (config.maximum_input_bytes == 0U ||
         config.maximum_input_bytes > kMaximumConfiguredInputBytes) {
@@ -144,6 +159,156 @@ bool validate_last_start_tag(
         normalized->push_back(ascii_lower(character));
     }
     return true;
+}
+
+class OffsetSink final : public HtmlTokenizerV1Sink {
+public:
+    OffsetSink(
+        HtmlTokenizerV1Sink* downstream,
+        std::uint64_t base_line,
+        std::uint64_t base_column)
+        : downstream_(downstream),
+          base_line_(base_line),
+          base_column_(base_column) {}
+
+    bool on_token(const HtmlTokenizerV1Token& token, std::string* error) override {
+        return downstream_->on_token(token, error);
+    }
+
+    bool on_parse_error(
+        const HtmlTokenizerV1ParseError& parse_error,
+        std::string* error) override {
+        HtmlTokenizerV1ParseError translated = parse_error;
+        if (parse_error.line == 1U) {
+            translated.line = base_line_;
+            translated.column = base_column_ + parse_error.column - 1U;
+        } else {
+            translated.line = base_line_ + parse_error.line - 1U;
+            translated.column = parse_error.column;
+        }
+        return downstream_->on_parse_error(translated, error);
+    }
+
+private:
+    HtmlTokenizerV1Sink* downstream_{nullptr};
+    std::uint64_t base_line_{1U};
+    std::uint64_t base_column_{1U};
+};
+
+bool account_script_stats(
+    const HtmlTokenizerScriptDataV1Stats& source,
+    HtmlTokenizerV1Stats* destination,
+    std::string* error) {
+    return add_counter(
+               &destination->tokens_emitted,
+               source.tokens_emitted,
+               error,
+               "HTML tokenizer Script-data token") &&
+        add_counter(
+               &destination->character_tokens_emitted,
+               source.character_tokens_emitted,
+               error,
+               "HTML tokenizer Script-data character-token") &&
+        add_counter(
+               &destination->character_bytes_emitted,
+               source.character_bytes_emitted,
+               error,
+               "HTML tokenizer Script-data character-byte") &&
+        add_counter(
+               &destination->end_tags_emitted,
+               source.end_tags_emitted,
+               error,
+               "HTML tokenizer Script-data end-tag") &&
+        add_counter(
+               &destination->parse_errors_emitted,
+               source.parse_errors_emitted,
+               error,
+               "HTML tokenizer Script-data parse-error");
+}
+
+bool account_data_stats(
+    const HtmlTokenizerDataStreamV1Stats& source,
+    HtmlTokenizerV1Stats* destination,
+    std::string* error) {
+    return add_counter(
+               &destination->tokens_emitted,
+               source.tokens_emitted,
+               error,
+               "HTML tokenizer Data-stream token") &&
+        add_counter(
+               &destination->character_tokens_emitted,
+               source.character_tokens_emitted,
+               error,
+               "HTML tokenizer Data-stream character-token") &&
+        add_counter(
+               &destination->character_bytes_emitted,
+               source.character_bytes_emitted,
+               error,
+               "HTML tokenizer Data-stream character-byte") &&
+        add_counter(
+               &destination->end_tags_emitted,
+               source.end_tags_emitted,
+               error,
+               "HTML tokenizer Data-stream end-tag") &&
+        add_counter(
+               &destination->parse_errors_emitted,
+               source.parse_errors_emitted,
+               error,
+               "HTML tokenizer Data-stream parse-error");
+}
+
+bool run_script_data_canonical(
+    std::string_view input,
+    std::string_view last_start_tag,
+    HtmlTokenizerV1Config config,
+    HtmlTokenizerV1Sink* sink,
+    HtmlTokenizerV1Stats* stats,
+    std::string* error) {
+    HtmlTokenizerScriptDataV1Stats script_stats{};
+    HtmlTokenizerScriptDataV1Result script_result{};
+    const bool script_success = consume_html_script_data_v1(
+        input,
+        last_start_tag,
+        config,
+        sink,
+        &script_stats,
+        &script_result,
+        error);
+    if (!account_script_stats(script_stats, stats, error)) {
+        return false;
+    }
+    if (!script_success) {
+        return false;
+    }
+    if (!script_result.transitioned_to_data) {
+        return true;
+    }
+    if (script_result.next_offset > input.size()) {
+        return fail_tokenizer(
+            error,
+            "HTML tokenizer Script-data transition offset exceeds input");
+    }
+
+    const HtmlTokenizerV1ParseError base =
+        position_error(input, script_result.next_offset, "");
+    OffsetSink translated_sink(sink, base.line, base.column);
+
+    HtmlTokenizerDataStreamV1Config data_config{};
+    data_config.maximum_input_bytes = config.maximum_input_bytes;
+    data_config.maximum_token_bytes = config.maximum_token_bytes;
+    data_config.maximum_attributes = 256U;
+
+    HtmlTokenizerDataStreamV1Stats data_stats{};
+    const bool data_success = tokenize_html_data_stream_v1(
+        input.substr(script_result.next_offset),
+        data_config,
+        &translated_sink,
+        &data_stats,
+        error);
+    if (!account_data_stats(data_stats, stats, error)) {
+        return false;
+    }
+    return data_success;
 }
 
 class Tokenizer {
@@ -530,6 +695,20 @@ bool tokenize_html_token_stream_v1(
             "HTML tokenizer input exceeds bounded byte limit");
     }
 
+    if (initial_state == HtmlTokenizerV1InitialState::ScriptData) {
+        const bool success = run_script_data_canonical(
+            input,
+            last_start_tag,
+            config,
+            sink,
+            &local_stats,
+            error);
+        if (stats != nullptr) {
+            *stats = local_stats;
+        }
+        return success;
+    }
+
     ActiveState active_state = ActiveState::Plaintext;
     switch (initial_state) {
     case HtmlTokenizerV1InitialState::Plaintext:
@@ -541,6 +720,10 @@ bool tokenize_html_token_stream_v1(
     case HtmlTokenizerV1InitialState::Rawtext:
         active_state = ActiveState::Rawtext;
         break;
+    case HtmlTokenizerV1InitialState::ScriptData:
+        return fail_tokenizer(
+            error,
+            "HTML tokenizer Script-data dispatch invariant failed");
     default:
         return fail_tokenizer(
             error,

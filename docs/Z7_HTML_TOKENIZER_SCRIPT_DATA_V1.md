@@ -2,20 +2,23 @@
 
 ## Scope
 
-`consume_html_script_data_v1()` is a bounded production tokenizer component for
-the Script data state family. It emits through the existing
-`HtmlTokenizerV1Sink` token-event boundary and does not introduce a parallel
-fixture-only tokenizer.
+`consume_html_script_data_v1()` is the bounded production component for the
+Script-data state family. It emits through the shared `HtmlTokenizerV1Sink`
+event boundary and either reaches ordinary EOF or stops immediately after a
+successfully emitted appropriate end tag with an exact `next_offset`.
 
-The component starts in Script data at `input[0]`. It either consumes through
-ordinary EOF or stops immediately after an appropriate end tag, returning the
-exact `next_offset` and `transitioned_to_data=true` so a later composition
-layer can hand the remaining suffix to Data-state authority explicitly.
+`tokenize_html_token_stream_v1()` now also exposes
+`HtmlTokenizerV1InitialState::ScriptData`. The canonical entrypoint delegates the
+Script-data prefix to the component and, when it reports
+`transitioned_to_data=true`, continues tokenization of the unconsumed suffix
+through the admitted bounded Data-stream composition.
 
-## Admitted state family
+The standalone component remains useful as the state-family authority; the
+canonical entrypoint is the composition authority.
 
-The implementation models the ASCII behavior of the WHATWG Script-data state
-family needed by the current external tokenizer expansion:
+## Admitted Script-data state family
+
+The implementation models the admitted ASCII behavior of:
 
 - Script data less-than sign;
 - Script data end tag open/name;
@@ -28,86 +31,101 @@ family needed by the current external tokenizer expansion:
 - Script data double escaped less-than sign;
 - Script data double escape end.
 
-This matters because Script data cannot be honestly represented as a single
-"emit every byte as Character" loop. In particular, an appropriate end tag can
-leave Script data, while a `</script>` spelling inside the double-escaped path
-must remain character data until the double-escape state exits.
+An appropriate end tag can leave Script data. A `</script>` spelling inside the
+double-escaped path remains Character data until the double-escape state exits.
+Appropriate end-tag comparison is ASCII case-insensitive and uses
+`last_start_tag`.
+
+## Canonical composition contract
+
+For `HtmlTokenizerV1InitialState::ScriptData`:
+
+1. the canonical entrypoint invokes `consume_html_script_data_v1()` on the full
+   input;
+2. accepted Script-data tokens/errors are published directly to the caller's
+   shared sink;
+3. Script-data counters are merged into `HtmlTokenizerV1Stats` with overflow
+   checks;
+4. if Script data reaches ordinary EOF, tokenization finishes there;
+5. if an appropriate end tag transitions to Data, the returned `next_offset`
+   is validated and only the remaining suffix is passed to
+   `tokenize_html_data_stream_v1()`;
+6. Data-stream parse-error locations are translated back to coordinates in the
+   original full input;
+7. Data-stream common token/error counters are merged into the same canonical
+   stats object.
+
+`HtmlTokenizerV1Stats::input_bytes` remains the size of the original complete
+input. The canonical common counters include accepted events from both the
+Script-data prefix and Data suffix; the suffix is not counted as a second input.
+
+The Data suffix inherits the canonical `maximum_input_bytes` and
+`maximum_token_bytes` bounds and uses the admitted Data-stream attribute bound
+of 256.
 
 ## Regression authority
 
-The component tests mirror the Script-data examples in the pinned
+The standalone Script-data tests mirror the Script-data examples in pinned
 `html5lib/html5lib-tests` commit
 `224991ec10db04f056a89eed8b0bd8695fd2950e`, `tokenizer/test1.test` Git blob
 `5323fbbeae2c6116aab14a716c8df1174e7870fb`.
 
-Those examples cover ordinary `<`, `<!`, `<!-`, escaped comment-like spellings,
-script-looking content inside escaped/double-escaped text, and the dash-state
-variants around the double-escaped `script` sentinel.
+They cover ordinary `<`, `<!`, `<!-`, escaped comment-like spellings,
+script-looking content inside escaped/double-escaped text, dash-state variants,
+appropriate closes, EOF behavior and fail-closed boundaries.
 
-Additional focused regressions cover:
+Canonical focused regressions additionally prove:
 
-- case-insensitive appropriate `</script>` recognition;
-- optional ASCII whitespace before the closing `>`;
-- exact stop position before the following Data suffix;
-- appropriate end-tag whitespace followed by EOF, which reports `eof-in-tag`
-  without emitting the incomplete end-tag token;
-- nonappropriate incomplete end-tag candidates remaining literal text;
-- an appropriate end tag while in escaped Script data;
-- a double-escaped `</script>` spelling remaining character data;
-- `eof-in-script-html-comment-like-text` in escaped/comment-like EOF;
-- NUL/preprocessing and token hard-cap fail-closed behavior.
+- `ScriptData` is a real public initial state, including the pinned-style
+  double-escaped Character path;
+- case-insensitive appropriate `</script>` emits the EndTag and continues into
+  Data-state start/character/end-tag tokenization of the suffix;
+- common token, Character-byte, EndTag and parse-error stats combine across the
+  state transition;
+- a delegated Data parse error after a multiline Script-data prefix is reported
+  at its global original-input line/column;
+- NUL/preprocessing debt remains fail-closed through the canonical entrypoint
+  without publishing a partial Character token.
 
-## Result and accounting contract
-
-On ordinary EOF:
-
-- `next_offset == input.size()`;
-- `transitioned_to_data == false`.
-
-On a successfully emitted appropriate end tag:
-
-- the component flushes preceding Character data;
-- emits the normalized EndTag token through the shared sink;
-- sets `next_offset` to the first byte after the closing tag;
-- sets `transitioned_to_data == true`;
-- does not consume the following Data-state suffix.
-
-`bytes_consumed` reports the physical prefix consumed by this component.
-Accepted sink events remain published if a later byte reaches a fail-closed
-condition; this component is streaming rather than transactional.
+The tokenizer probe accepts `SCRIPT_DATA` as an initial-state selector. Its
+current wire protocol still exposes only Character and EndTag tokens because
+that is the token surface needed by the currently admitted initial-state runner;
+full Data-token probe serialization is intentionally a separate runner-expansion
+change rather than an implicit protocol mutation.
 
 ## Deliberate fail-closed surfaces
 
-This v1 component does not approximate:
+Neither the standalone component nor canonical composition approximates:
 
 - U+0000 replacement or complete input-stream preprocessing;
 - general non-ASCII preprocessing/location authority;
 - attributes on appropriate Script-data end tags;
-- self-closing/trailing-solidus recovery on appropriate end tags;
-- the following Data-state suffix after an appropriate close;
+- self-closing/trailing-solidus recovery on appropriate Script-data end tags;
 - tree-builder-controlled selection of Script data from a `<script>` start tag;
-- CDATA or character-reference behavior outside Script data.
+- CDATA;
+- Data-state character references, PUBLIC/SYSTEM doctype identifiers or broader
+  recovery not already admitted by the Data-stream component.
 
-The end-tag attribute/self-closing paths are left explicit rather than silently
-reusing a partially admitted generic tag parser, because doing so would create
-a broader recovery claim than this slice has evidence for.
+The standalone component itself still stops at the Data transition boundary;
+only the canonical entrypoint owns the subsequent Data suffix composition.
 
-## Composition status
+## External execution boundary
 
-This slice is intentionally standalone. It does not yet add `ScriptData` to the
-public initial-state enum used by the frozen `contentModelFlags.test` runner,
-and it does not alter that runner's canonical 24-execution authority.
+Adding `ScriptData` to the production enum/probe does not silently expand the
+frozen `z7-html5lib-tokenizer-runner-v1` denominator. That runner remains the
+admitted `contentModelFlags.test` authority of 14 objects / 24 executions until
+a separate runner-expansion slice explicitly changes its corpus and reports the
+new pass/fail/unsupported denominator.
 
-A following composition slice can wire Script data into the canonical tokenizer
-entrypoint/probe while preserving the existing frozen authority and adding a
-separately pinned broader external fixture denominator.
+The separately pinned `test1.test` corpus therefore remains provenance only
+until such an execution slice is admitted.
 
 ## Conformance status
 
-This component is implementation and regression authority for the bounded
-Script-data state family only. It does **not** satisfy the canonical
-`html_tokenizer_conformance` gate.
+This is implementation/regression authority for bounded Script-data plus its
+canonical transition into the admitted Data stream. It does **not** satisfy the
+canonical `html_tokenizer_conformance` gate.
 
-Complete character references, preprocessing, CDATA, broader Data recovery,
-full `test1.test` execution, and `tree_builder_conformance` remain outstanding.
-Z7 therefore remains `planned`.
+Complete character references, preprocessing, CDATA, broader recovery, full
+`test1.test` execution, tree-builder-driven tokenizer transitions and
+`tree_builder_conformance` remain outstanding. Z7 remains `planned`.

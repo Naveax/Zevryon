@@ -12,6 +12,7 @@ enum class HtmlTokenizerV1InitialState : std::uint8_t {
     Plaintext,
     Rcdata,
     Rawtext,
+    ScriptData,
 };
 
 enum class HtmlTokenizerV1TokenKind : std::uint8_t {
@@ -74,16 +75,17 @@ public:
 };
 
 // Bounded production token-event boundary for the currently admitted external
-// tokenizer-conformance surface. V1 accepts PLAINTEXT, RCDATA and RAWTEXT as
-// explicit initial states. RCDATA/RAWTEXT use last_start_tag for appropriate
-// end-tag matching and transition to the admitted Data-state end-tag subset
-// after an appropriate close. Character output is coalesced before token
-// boundaries and is bounded by maximum_token_bytes.
+// tokenizer-conformance surface. V1 accepts PLAINTEXT, RCDATA, RAWTEXT and
+// Script data as explicit initial states. RCDATA/RAWTEXT use last_start_tag for
+// appropriate end-tag matching. Script data delegates to the admitted bounded
+// Script-data state machine and, after an appropriate close, continues through
+// the admitted bounded Data-stream composition on the unconsumed suffix.
+// Character output is bounded by maximum_token_bytes.
 //
-// This is intentionally not full WHATWG tokenization. Script-data, CDATA,
-// complete named/numeric character references and input-stream preprocessing
-// remain fail-closed. Data-state tags and markup-declaration admission live in
-// their separately bounded production slices while sharing this event schema.
+// This remains intentionally narrower than complete WHATWG tokenization.
+// CDATA, complete named/numeric character references, full input-stream
+// preprocessing and broader recovery remain fail-closed where the admitted
+// component surfaces do not yet implement them.
 bool tokenize_html_token_stream_v1(
     std::string_view input,
     HtmlTokenizerV1InitialState initial_state,
