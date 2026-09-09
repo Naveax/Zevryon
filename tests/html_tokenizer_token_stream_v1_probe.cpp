@@ -63,6 +63,10 @@ std::string encode_hex(std::string_view input) {
 }
 
 bool parse_state(std::string_view value, HtmlTokenizerV1InitialState* state) {
+    if (value == "DATA") {
+        *state = HtmlTokenizerV1InitialState::Data;
+        return true;
+    }
     if (value == "PLAINTEXT") {
         *state = HtmlTokenizerV1InitialState::Plaintext;
         return true;
@@ -84,14 +88,7 @@ bool parse_state(std::string_view value, HtmlTokenizerV1InitialState* state) {
 
 class CollectingSink final : public HtmlTokenizerV1Sink {
 public:
-    bool on_token(const HtmlTokenizerV1Token& token, std::string* error) override {
-        if (token.kind != HtmlTokenizerV1TokenKind::Character &&
-            token.kind != HtmlTokenizerV1TokenKind::EndTag) {
-            if (error != nullptr) {
-                *error = "probe received token kind outside v1 runner protocol";
-            }
-            return false;
-        }
+    bool on_token(const HtmlTokenizerV1Token& token, std::string*) override {
         tokens.push_back(token);
         return true;
     }
@@ -107,15 +104,49 @@ public:
     std::vector<HtmlTokenizerV1ParseError> errors;
 };
 
+void emit_token(const HtmlTokenizerV1Token& token) {
+    switch (token.kind) {
+    case HtmlTokenizerV1TokenKind::Character:
+        // Legacy v1 runner wire record. Keep this byte-for-byte stable.
+        std::cout << "TOKEN\tC\t" << encode_hex(token.data) << '\n';
+        return;
+    case HtmlTokenizerV1TokenKind::EndTag:
+        // Legacy v1 runner wire record. Keep this byte-for-byte stable.
+        std::cout << "TOKEN\tE\t" << encode_hex(token.name) << '\n';
+        return;
+    case HtmlTokenizerV1TokenKind::StartTag:
+        std::cout << "TOKEN\tS\t" << encode_hex(token.name) << '\t'
+                  << (token.self_closing ? 1 : 0) << '\t'
+                  << token.attributes.size();
+        for (const auto& attribute : token.attributes) {
+            std::cout << '\t' << encode_hex(attribute.name)
+                      << '\t' << encode_hex(attribute.value);
+        }
+        std::cout << '\n';
+        return;
+    case HtmlTokenizerV1TokenKind::Comment:
+        std::cout << "TOKEN\tM\t" << encode_hex(token.data) << '\n';
+        return;
+    case HtmlTokenizerV1TokenKind::Doctype:
+        std::cout << "TOKEN\tD\t" << encode_hex(token.name) << '\t'
+                  << (token.has_public_identifier ? 1 : 0) << '\t'
+                  << encode_hex(token.public_identifier) << '\t'
+                  << (token.has_system_identifier ? 1 : 0) << '\t'
+                  << encode_hex(token.system_identifier) << '\t'
+                  << (token.force_quirks ? 1 : 0) << '\n';
+        return;
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     if (argc != 4) {
-        std::cerr << "usage: probe <PLAINTEXT|RCDATA|RAWTEXT|SCRIPT_DATA> <last-tag-hex> <input-hex>\n";
+        std::cerr << "usage: probe <DATA|PLAINTEXT|RCDATA|RAWTEXT|SCRIPT_DATA> <last-tag-hex> <input-hex>\n";
         return 64;
     }
 
-    HtmlTokenizerV1InitialState state{HtmlTokenizerV1InitialState::Plaintext};
+    HtmlTokenizerV1InitialState state{HtmlTokenizerV1InitialState::Data};
     if (!parse_state(argv[1], &state)) {
         std::cerr << "invalid state\n";
         return 64;
@@ -145,11 +176,7 @@ int main(int argc, char** argv) {
     }
 
     for (const HtmlTokenizerV1Token& token : sink.tokens) {
-        if (token.kind == HtmlTokenizerV1TokenKind::Character) {
-            std::cout << "TOKEN\tC\t" << encode_hex(token.data) << '\n';
-        } else {
-            std::cout << "TOKEN\tE\t" << encode_hex(token.name) << '\n';
-        }
+        emit_token(token);
     }
     for (const HtmlTokenizerV1ParseError& parse_error : sink.errors) {
         std::cout << "ERROR\t" << encode_hex(parse_error.code) << '\t'

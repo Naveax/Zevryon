@@ -257,6 +257,30 @@ bool account_data_stats(
                "HTML tokenizer Data-stream parse-error");
 }
 
+bool run_data_canonical(
+    std::string_view input,
+    HtmlTokenizerV1Config config,
+    HtmlTokenizerV1Sink* sink,
+    HtmlTokenizerV1Stats* stats,
+    std::string* error) {
+    HtmlTokenizerDataStreamV1Config data_config{};
+    data_config.maximum_input_bytes = config.maximum_input_bytes;
+    data_config.maximum_token_bytes = config.maximum_token_bytes;
+    data_config.maximum_attributes = 256U;
+
+    HtmlTokenizerDataStreamV1Stats data_stats{};
+    const bool data_success = tokenize_html_data_stream_v1(
+        input,
+        data_config,
+        sink,
+        &data_stats,
+        error);
+    if (!account_data_stats(data_stats, stats, error)) {
+        return false;
+    }
+    return data_success;
+}
+
 bool run_script_data_canonical(
     std::string_view input,
     std::string_view last_start_tag,
@@ -709,6 +733,19 @@ bool tokenize_html_token_stream_v1(
         return success;
     }
 
+    if (initial_state == HtmlTokenizerV1InitialState::Data) {
+        const bool success = run_data_canonical(
+            input,
+            config,
+            sink,
+            &local_stats,
+            error);
+        if (stats != nullptr) {
+            *stats = local_stats;
+        }
+        return success;
+    }
+
     ActiveState active_state = ActiveState::Plaintext;
     switch (initial_state) {
     case HtmlTokenizerV1InitialState::Plaintext:
@@ -724,6 +761,10 @@ bool tokenize_html_token_stream_v1(
         return fail_tokenizer(
             error,
             "HTML tokenizer Script-data dispatch invariant failed");
+    case HtmlTokenizerV1InitialState::Data:
+        return fail_tokenizer(
+            error,
+            "HTML tokenizer Data dispatch invariant failed");
     default:
         return fail_tokenizer(
             error,
