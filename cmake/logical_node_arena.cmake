@@ -2,6 +2,7 @@ target_sources(
   zevryon-massivedoc-core
   PRIVATE
     src/html_tokenizer_data_tags_v1.cpp
+    src/html_tokenizer_markup_declarations_v1.cpp
     src/html_tokenizer_token_stream_v1.cpp
     src/logical_node_arena.cpp
     src/logical_node_arena_v2.cpp
@@ -128,6 +129,17 @@ if(BUILD_TESTING)
   add_test(
     NAME html-tokenizer-data-tags-v1-tests
     COMMAND zevryon-html-tokenizer-data-tags-v1-tests)
+
+  add_executable(
+    zevryon-html-tokenizer-markup-declarations-v1-tests
+    tests/html_tokenizer_markup_declarations_v1_tests.cpp)
+  target_link_libraries(
+    zevryon-html-tokenizer-markup-declarations-v1-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-html-tokenizer-markup-declarations-v1-tests)
+  add_test(
+    NAME html-tokenizer-markup-declarations-v1-tests
+    COMMAND zevryon-html-tokenizer-markup-declarations-v1-tests)
 
   add_executable(
     zevryon-html-tokenizer-token-stream-v1-probe
