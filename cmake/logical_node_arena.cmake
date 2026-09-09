@@ -117,6 +117,17 @@ if(BUILD_TESTING)
     COMMAND zevryon-streaming-html-node-source-v2-property-fuzz-tests)
 
   add_executable(
+    zevryon-streaming-html-node-source-v2-large-document-tests
+    tests/streaming_html_node_source_v2_large_document_tests.cpp)
+  target_link_libraries(
+    zevryon-streaming-html-node-source-v2-large-document-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-streaming-html-node-source-v2-large-document-tests)
+  add_test(
+    NAME streaming-html-node-source-v2-large-document-tests
+    COMMAND zevryon-streaming-html-node-source-v2-large-document-tests)
+
+  add_executable(
     zevryon-streaming-html-node-arena-v2-tests
     tests/streaming_html_node_arena_v2_tests.cpp)
   target_link_libraries(
