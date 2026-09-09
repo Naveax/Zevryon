@@ -203,4 +203,19 @@ if(BUILD_TESTING)
   add_test(
     NAME zenith-semantic-runtime-consumer-tests
     COMMAND zevryon-zenith-semantic-runtime-consumer-tests)
+
+  find_package(Python3 QUIET COMPONENTS Interpreter)
+  if(Python3_Interpreter_FOUND)
+    add_test(
+      NAME z7-html5lib-tokenizer-corpus-provenance
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/z7_html5lib_tokenizer_corpus_verify.py")
+    add_test(
+      NAME z7-html5lib-tokenizer-corpus-verifier-tests
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/z7_html5lib_tokenizer_corpus_verify.py"
+        --self-test)
+  endif()
 endif()
