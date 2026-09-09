@@ -75,6 +75,10 @@ bool parse_state(std::string_view value, HtmlTokenizerV1InitialState* state) {
         *state = HtmlTokenizerV1InitialState::Rawtext;
         return true;
     }
+    if (value == "SCRIPT_DATA") {
+        *state = HtmlTokenizerV1InitialState::ScriptData;
+        return true;
+    }
     return false;
 }
 
@@ -107,7 +111,7 @@ public:
 
 int main(int argc, char** argv) {
     if (argc != 4) {
-        std::cerr << "usage: probe <PLAINTEXT|RCDATA|RAWTEXT> <last-tag-hex> <input-hex>\n";
+        std::cerr << "usage: probe <PLAINTEXT|RCDATA|RAWTEXT|SCRIPT_DATA> <last-tag-hex> <input-hex>\n";
         return 64;
     }
 

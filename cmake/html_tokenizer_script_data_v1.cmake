@@ -14,4 +14,15 @@ if(BUILD_TESTING)
   add_test(
     NAME html-tokenizer-script-data-v1-tests
     COMMAND zevryon-html-tokenizer-script-data-v1-tests)
+
+  add_executable(
+    zevryon-html-tokenizer-script-data-canonical-v1-tests
+    tests/html_tokenizer_script_data_canonical_v1_tests.cpp)
+  target_link_libraries(
+    zevryon-html-tokenizer-script-data-canonical-v1-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-html-tokenizer-script-data-canonical-v1-tests)
+  add_test(
+    NAME html-tokenizer-script-data-canonical-v1-tests
+    COMMAND zevryon-html-tokenizer-script-data-canonical-v1-tests)
 endif()
