@@ -58,6 +58,8 @@ public:
 
 const char* state_name(HtmlTokenizerV1InitialState state) {
     switch (state) {
+    case HtmlTokenizerV1InitialState::Data:
+        return "DATA";
     case HtmlTokenizerV1InitialState::Plaintext:
         return "PLAINTEXT";
     case HtmlTokenizerV1InitialState::Rcdata:

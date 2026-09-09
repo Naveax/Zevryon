@@ -9,6 +9,7 @@
 namespace zevryon::massivedoc {
 
 enum class HtmlTokenizerV1InitialState : std::uint8_t {
+    Data,
     Plaintext,
     Rcdata,
     Rawtext,
@@ -75,11 +76,12 @@ public:
 };
 
 // Bounded production token-event boundary for the currently admitted external
-// tokenizer-conformance surface. V1 accepts PLAINTEXT, RCDATA, RAWTEXT and
-// Script data as explicit initial states. RCDATA/RAWTEXT use last_start_tag for
+// tokenizer-conformance surface. V1 accepts Data, PLAINTEXT, RCDATA, RAWTEXT
+// and Script data as explicit initial states. Data delegates to the admitted
+// bounded Data-stream coordinator. RCDATA/RAWTEXT use last_start_tag for
 // appropriate end-tag matching. Script data delegates to the admitted bounded
 // Script-data state machine and, after an appropriate close, continues through
-// the admitted bounded Data-stream composition on the unconsumed suffix.
+// the same admitted Data-stream composition on the unconsumed suffix.
 // Character output is bounded by maximum_token_bytes.
 //
 // This remains intentionally narrower than complete WHATWG tokenization.
