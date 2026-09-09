@@ -301,7 +301,7 @@ bool test_character_token_bound_fails_closed() {
                !tokenize_html_token_stream_v1(
                    "abcd",
                    HtmlTokenizerV1InitialState::Plaintext,
-                   "plaintext",
+                   "",
                    config,
                    &sink,
                    &stats,
