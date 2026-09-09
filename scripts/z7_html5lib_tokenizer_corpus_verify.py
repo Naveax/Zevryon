@@ -32,6 +32,14 @@ PINNED_FIXTURES = {
         "test_count": 14,
         "execution_count": 24,
     },
+    "tokenizer/test1.test": {
+        "vendored_path": "tests/fixtures/html5lib-tokenizer/test1.test",
+        "git_blob": "5323fbbeae2c6116aab14a716c8df1174e7870fb",
+        "size_bytes": 10006,
+        "sha256": "524fcfa4d561a14f0c4e72e0573549abe6341fd4dfb8e16bc2dcf59a608a7219",
+        "test_count": 69,
+        "execution_count": 69,
+    },
 }
 
 ALLOWED_INITIAL_STATES = {
@@ -144,6 +152,7 @@ def verify_output_token(token: Any, case_label: str, token_index: int) -> None:
     label = f"{case_label} output[{token_index}]"
     require(isinstance(token, list) and token, f"{label} must be a non-empty array")
     kind = token[0]
+    require(isinstance(kind, str), f"{label} token type must be a string")
     require(kind in ALLOWED_TOKEN_TYPES, f"{label} has unsupported token type: {kind!r}")
 
     if kind in {"EndTag", "Comment", "Character"}:
@@ -400,6 +409,13 @@ def run_self_test(root: Path, manifest_path: Path) -> dict[str, Any]:
     baseline = verify_manifest(manifest_path, root)
     manifest_value = load_json(manifest_path, "self-test manifest")
 
+    try:
+        verify_output_token([{}], "self-test malformed token kind", 0)
+    except VerificationError:
+        pass
+    else:
+        raise VerificationError("self-test accepted non-string tokenizer token kind")
+
     with tempfile.TemporaryDirectory(prefix="zevryon-z7-html5lib-") as directory:
         temp_root = Path(directory)
         temp_manifest = copy_manifest_payload(root, temp_root, manifest_value)
@@ -428,6 +444,7 @@ def run_self_test(root: Path, manifest_path: Path) -> dict[str, Any]:
         "tamper_rejection_checked": True,
         "commit_drift_rejection_checked": True,
         "git_blob_drift_rejection_checked": True,
+        "malformed_token_kind_rejection_checked": True,
     }
 
 
@@ -450,7 +467,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--self-test",
         action="store_true",
-        help="also prove fixture-tamper, commit-drift and Git-blob-drift rejection",
+        help="also prove fixture-tamper, commit-drift, Git-blob-drift and malformed-token rejection",
     )
     return parser.parse_args()
 
