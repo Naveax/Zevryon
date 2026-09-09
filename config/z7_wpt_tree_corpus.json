@@ -1,0 +1,26 @@
+{
+  "schema": "zevryon.z7.wpt-tree-corpus.v1",
+  "authority": "z7-wpt-tree-corpus-provenance-v1",
+  "conformance_claim": false,
+  "upstream": {
+    "repository": "web-platform-tests/wpt",
+    "commit": "fadb01bc53cd4a9fac9352c977df1787425b856e",
+    "license": "BSD-3-Clause",
+    "license_git_blob": "39c46d03ac2988226f949ee7ab3c7347d5481bd8",
+    "license_vendored_path": "third_party/wpt/LICENSE.md",
+    "license_size_bytes": 1500,
+    "license_sha256": "5fac07febb0e2a97fb0d7b0def149ec08b642e1ba4b9c345283ab1cbd2af6570"
+  },
+  "files": [
+    {
+      "upstream_path": "html/syntax/parsing/resources/adoption02.dat",
+      "vendored_path": "tests/fixtures/wpt-tree-construction/adoption02.dat",
+      "git_blob": "880cb505a660efdcacd287d50702d6b68a1c94d7",
+      "size_bytes": 1343,
+      "sha256": "e091e6976f861ae616fe56c527a78e7247ee7562bcafec996d4e4bda657bd9b7",
+      "test_count": 4,
+      "execution_count": 8,
+      "parse_error_count": 17
+    }
+  ]
+}
