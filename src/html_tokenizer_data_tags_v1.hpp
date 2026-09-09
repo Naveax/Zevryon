@@ -29,13 +29,16 @@ struct HtmlTokenizerDataTagsV1Stats {
 // Bounded production Data-state tag-tokenization slice. The function emits
 // HtmlTokenizerV1Token events directly through the shared tokenizer sink.
 // It admits ordinary start/end tags, quoted/unquoted/empty attributes,
-// duplicate-attribute handling, missing-whitespace diagnostics and the
-// self-closing start-tag flag. Character data outside tags is coalesced.
+// duplicate-attribute handling, missing-whitespace diagnostics, the
+// self-closing start-tag flag, tag-open invalid-ASCII reconsume, empty-end-tag
+// recovery and the five parse-error special bytes in unquoted attribute
+// values. Character data outside tags is coalesced.
 //
 // This slice intentionally does not approximate markup declarations,
-// comments, DOCTYPE, character references, NUL/input preprocessing or broad
-// malformed-tag recovery. Those surfaces fail closed until admitted by later
-// conformance slices.
+// comments, DOCTYPE, character references, NUL/input preprocessing,
+// non-ASCII location authority or the remaining broader malformed-tag and
+// bogus-comment recovery states. Those surfaces fail closed until separately
+// admitted by later conformance slices.
 bool tokenize_html_data_tags_v1(
     std::string_view input,
     HtmlTokenizerDataTagsV1Config config,

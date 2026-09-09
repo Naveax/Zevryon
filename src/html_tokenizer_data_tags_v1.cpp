@@ -343,9 +343,11 @@ private:
             }
             if (character == '"' || character == '\'' || character == '<' ||
                 character == '=' || character == '`') {
-                return fail_data_tokenizer(
-                    error_,
-                    "HTML Data-tag tokenizer malformed unquoted attribute recovery is outside admitted v1 subset");
+                if (!emit_parse_error(
+                        *cursor,
+                        "unexpected-character-in-unquoted-attribute-value")) {
+                    return false;
+                }
             }
             if (!append_value_character(value, character)) {
                 return false;
@@ -509,12 +511,41 @@ private:
                     error_,
                     "HTML Data-tag tokenizer EOF after end-tag open is outside admitted recovery");
             }
+            if (input_[probe] == '>') {
+                if (!emit_parse_error(probe, "missing-end-tag-name")) {
+                    return false;
+                }
+                *cursor = probe + 1U;
+                return true;
+            }
         }
 
         if (!ascii_alpha(input_[probe])) {
-            return fail_data_tokenizer(
-                error_,
-                "HTML Data-tag tokenizer invalid first tag-name byte recovery is outside admitted v1 subset");
+            if (input_[probe] == '\0') {
+                return fail_data_tokenizer(
+                    error_,
+                    "HTML Data-tag tokenizer input preprocessing/NUL replacement is not implemented");
+            }
+            if (!ascii_byte(input_[probe])) {
+                return fail_data_tokenizer(
+                    error_,
+                    "HTML Data-tag tokenizer non-ASCII preprocessing/location authority is not implemented");
+            }
+            if (end_tag) {
+                return fail_data_tokenizer(
+                    error_,
+                    "HTML Data-tag tokenizer bogus-comment end-tag recovery is outside admitted v1 subset");
+            }
+            if (!emit_parse_error(
+                    probe,
+                    "invalid-first-character-of-tag-name") ||
+                !append_character('<')) {
+                return false;
+            }
+            // WHATWG tag-open "anything else" emits '<' then reconsumes the
+            // current byte in Data state. Leave probe unconsumed for run().
+            *cursor = probe;
+            return true;
         }
 
         std::string name;
