@@ -5,7 +5,6 @@ import argparse
 import hashlib
 import json
 import pprint
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -31,6 +30,13 @@ EXPECTED_FIXTURES: dict[str, tuple[str, int]] = {
     "tokenizer/unicodeChars.test": ("49a8098528ea9771f42c619cb6a63d7bb4b6be86", 43771),
     "tokenizer/unicodeCharsProblematic.test": ("3ddb96c011b77706b80ff98f54bc4b1288bc8cf2", 1107),
     "tokenizer/xmlViolation.test": ("da6159e2ea7418684db258cd9fd7aad48f24af25", 442),
+}
+
+TEST_ARRAY_KEYS = {
+    upstream_path: (
+        "xmlViolationTests" if upstream_path == "tokenizer/xmlViolation.test" else "tests"
+    )
+    for upstream_path in EXPECTED_FIXTURES
 }
 
 LICENSE_PIN = {
@@ -60,14 +66,25 @@ def load_fixture_metadata(upstream: Path, upstream_path: str) -> dict[str, objec
         value = json.loads(data.decode("utf-8"))
     except Exception as exc:
         raise SystemExit(f"{upstream_path}: invalid UTF-8/JSON: {exc}") from exc
-    tests = value.get("tests") if isinstance(value, dict) else None
-    require(isinstance(tests, list), f"{upstream_path}: missing tests array")
+
+    require(isinstance(value, dict), f"{upstream_path}: top-level value must be object")
+    test_array_key = TEST_ARRAY_KEYS[upstream_path]
+    tests = value.get(test_array_key)
+    require(
+        isinstance(tests, list),
+        f"{upstream_path}: missing pinned top-level {test_array_key} array",
+    )
+
     execution_count = 0
     for index, test in enumerate(tests):
         require(isinstance(test, dict), f"{upstream_path} test[{index}]: not an object")
         states = test.get("initialStates", ["Data state"])
-        require(isinstance(states, list) and states, f"{upstream_path} test[{index}]: invalid initialStates")
+        require(
+            isinstance(states, list) and states,
+            f"{upstream_path} test[{index}]: invalid initialStates",
+        )
         execution_count += len(states)
+
     vendored = f"tests/fixtures/html5lib-tokenizer/{Path(upstream_path).name}"
     destination = ROOT / vendored
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -77,6 +94,7 @@ def load_fixture_metadata(upstream: Path, upstream_path: str) -> dict[str, objec
         "git_blob": expected_blob,
         "size_bytes": expected_size,
         "sha256": hashlib.sha256(data).hexdigest(),
+        "test_array_key": test_array_key,
         "test_count": len(tests),
         "execution_count": execution_count,
     }
@@ -86,10 +104,26 @@ def rewrite_verifier(fixtures: dict[str, dict[str, object]]) -> None:
     path = ROOT / "scripts/z7_html5lib_tokenizer_corpus_verify.py"
     text = path.read_text(encoding="utf-8")
     for old, new, label in (
-        ('SCHEMA = "zevryon.z7.html5lib-tokenizer-corpus.v1"', f'SCHEMA = "{SCHEMA}"', "schema"),
-        ('AUTHORITY = "z7-html5lib-tokenizer-corpus-provenance-v1"', f'AUTHORITY = "{AUTHORITY}"', "authority"),
-        ('REPORT_SCHEMA = "zevryon.z7.html5lib-tokenizer-corpus-verification.v1"', f'REPORT_SCHEMA = "{REPORT_SCHEMA}"', "report schema"),
-        ("upstream_path is not admitted by v1 authority", "upstream_path is not admitted by v2 authority", "authority diagnostic"),
+        (
+            'SCHEMA = "zevryon.z7.html5lib-tokenizer-corpus.v1"',
+            f'SCHEMA = "{SCHEMA}"',
+            "schema",
+        ),
+        (
+            'AUTHORITY = "z7-html5lib-tokenizer-corpus-provenance-v1"',
+            f'AUTHORITY = "{AUTHORITY}"',
+            "authority",
+        ),
+        (
+            'REPORT_SCHEMA = "zevryon.z7.html5lib-tokenizer-corpus-verification.v1"',
+            f'REPORT_SCHEMA = "{REPORT_SCHEMA}"',
+            "report schema",
+        ),
+        (
+            "upstream_path is not admitted by v1 authority",
+            "upstream_path is not admitted by v2 authority",
+            "authority diagnostic",
+        ),
     ):
         require(text.count(old) == 1, f"verifier {label}: expected one old marker")
         text = text.replace(old, new, 1)
@@ -99,6 +133,27 @@ def rewrite_verifier(fixtures: dict[str, dict[str, object]]) -> None:
     end = text.index(end_marker, start)
     literal = pprint.pformat(fixtures, width=110, sort_dicts=False)
     text = text[:start] + "PINNED_FIXTURES = " + literal + text[end:]
+
+    old_array_logic = '''    tests = value.get("tests")
+    require(isinstance(tests, list), f"{path} must contain top-level tests array")
+'''
+    new_array_logic = '''    manifest_test_array_key = entry.get("test_array_key")
+    pinned_test_array_key = pinned["test_array_key"]
+    require(
+        manifest_test_array_key == pinned_test_array_key,
+        f"{path} test-array-key pin drifted",
+    )
+    tests = value.get(pinned_test_array_key)
+    require(
+        isinstance(tests, list),
+        f"{path} must contain top-level {pinned_test_array_key} array",
+    )
+'''
+    require(
+        text.count(old_array_logic) == 1,
+        "verifier test-array parser marker drifted",
+    )
+    text = text.replace(old_array_logic, new_array_logic, 1)
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
@@ -122,14 +177,18 @@ def write_manifest(fixtures: dict[str, dict[str, object]]) -> None:
         ],
     }
     path = ROOT / "config/z7_html5lib_tokenizer_corpus.json"
-    path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
+    path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
 
 
 def write_doc(fixtures: dict[str, dict[str, object]]) -> None:
     total_tests = sum(int(item["test_count"]) for item in fixtures.values())
     total_exec = sum(int(item["execution_count"]) for item in fixtures.values())
     rows = "\n".join(
-        f"| `{path}` | {meta['size_bytes']} | `{meta['git_blob']}` | `{meta['sha256']}` | {meta['test_count']} | {meta['execution_count']} |"
+        f"| `{path}` | `{meta['test_array_key']}` | {meta['size_bytes']} | `{meta['git_blob']}` | `{meta['sha256']}` | {meta['test_count']} | {meta['execution_count']} |"
         for path, meta in fixtures.items()
     )
     document = f'''# Z7 frozen html5lib tokenizer corpus authority v2
@@ -151,21 +210,25 @@ Provenance success is **not** tokenizer conformance. The manifest therefore keep
 
 The one-shot builder requires the upstream checkout to be exactly the pinned commit and requires the complete `tokenizer/*.test` filename set, Git blob identities and byte sizes frozen in the builder before it copies anything.
 
+`tokenizer/xmlViolation.test` is intentionally not normalized into the ordinary fixture shape: its upstream-defined `xmlViolationTests` top-level array name is separately pinned and verified. All other files use `tests`.
+
 ## Complete pinned fixture set
 
-| Upstream fixture | Bytes | Git blob | SHA-256 | Tests | Executions |
-| --- | ---: | --- | --- | ---: | ---: |
+| Upstream fixture | Test array | Bytes | Git blob | SHA-256 | Tests | Executions |
+| --- | --- | ---: | --- | --- | ---: | ---: |
 {rows}
 
 ## Machine authority
 
-`config/z7_html5lib_tokenizer_corpus.json` uses schema `{SCHEMA}` and authority `{AUTHORITY}`. `scripts/z7_html5lib_tokenizer_corpus_verify.py` independently embeds the complete file mapping, Git blob, byte-size, SHA-256, test-count and execution-count pins. Editing only the manifest therefore cannot redefine the denominator.
+`config/z7_html5lib_tokenizer_corpus.json` uses schema `{SCHEMA}` and authority `{AUTHORITY}`. `scripts/z7_html5lib_tokenizer_corpus_verify.py` independently embeds the complete file mapping, test-array key, Git blob, byte-size, SHA-256, test-count and execution-count pins. Editing only the manifest therefore cannot redefine the denominator.
 
 The verifier additionally recomputes Git blob SHA-1 from vendored bytes, validates JSON/token structure and initial-state expansion, rejects path escape, and retains its tamper/commit/blob/type self-tests.
 
 ## Execution remains separate
 
 The existing `contentModelFlags.test` and `test1.test` runners keep their own execution claims. Adding the other twelve fixtures to provenance does not convert them into passes and does not close `html_tokenizer_conformance`.
+
+`xmlViolation.test` is provenance-visible but its expected output is defined by html5lib's historical XML-infoset coercion convention; pinning it is not a claim that the ordinary production tokenizer should blindly reproduce that convention.
 
 The next execution pass must run the newly pinned fixtures through production tokenizer entrypoints, report exact pass/fail/unsupported denominators, and leave unsupported states/preprocessing/recovery visible rather than filtering them out.
 
@@ -177,7 +240,11 @@ At the pinned June 26, 2026 html5lib-tests commit, tree-construction tests had m
 
 This authority does not claim full WHATWG tokenizer conformance, `html_tokenizer_conformance`, `tree_builder_conformance`, chunk-size equivalence, parser fuzzing, bounded-large-document completion, or Z7 completion. Z7 remains `planned` until its configured gates close with execution evidence.
 '''
-    (ROOT / "docs/Z7_HTML5LIB_TOKENIZER_CORPUS.md").write_text(document, encoding="utf-8", newline="\n")
+    (ROOT / "docs/Z7_HTML5LIB_TOKENIZER_CORPUS.md").write_text(
+        document,
+        encoding="utf-8",
+        newline="\n",
+    )
 
 
 def main() -> int:
@@ -185,17 +252,32 @@ def main() -> int:
     parser.add_argument("--upstream", type=Path, required=True)
     args = parser.parse_args()
     upstream = args.upstream.resolve()
-    head = subprocess.check_output(["git", "-C", str(upstream), "rev-parse", "HEAD"], text=True).strip()
+    head = subprocess.check_output(
+        ["git", "-C", str(upstream), "rev-parse", "HEAD"],
+        text=True,
+    ).strip()
     require(head == PINNED_COMMIT, f"upstream checkout is {head}, expected {PINNED_COMMIT}")
 
-    actual = {f"tokenizer/{path.name}" for path in (upstream / "tokenizer").glob("*.test")}
-    require(actual == set(EXPECTED_FIXTURES), f"tokenizer fixture set drift: actual={sorted(actual)!r}")
+    actual = {
+        f"tokenizer/{path.name}"
+        for path in (upstream / "tokenizer").glob("*.test")
+    }
+    require(
+        actual == set(EXPECTED_FIXTURES),
+        f"tokenizer fixture set drift: actual={sorted(actual)!r}",
+    )
 
     license_data = (upstream / "LICENSE").read_bytes()
     require(len(license_data) == LICENSE_PIN["size_bytes"], "license byte-size drift")
     require(git_blob_sha1(license_data) == LICENSE_PIN["git_blob"], "license Git-blob drift")
-    require(hashlib.sha256(license_data).hexdigest() == LICENSE_PIN["sha256"], "license SHA-256 drift")
-    require((ROOT / LICENSE_PIN["vendored_path"]).read_bytes() == license_data, "vendored license differs from pinned upstream")
+    require(
+        hashlib.sha256(license_data).hexdigest() == LICENSE_PIN["sha256"],
+        "license SHA-256 drift",
+    )
+    require(
+        (ROOT / LICENSE_PIN["vendored_path"]).read_bytes() == license_data,
+        "vendored license differs from pinned upstream",
+    )
 
     fixtures = {
         upstream_path: load_fixture_metadata(upstream, upstream_path)
@@ -207,7 +289,12 @@ def main() -> int:
 
     total_tests = sum(int(item["test_count"]) for item in fixtures.values())
     total_exec = sum(int(item["execution_count"]) for item in fixtures.values())
-    print(json.dumps({"files": len(fixtures), "tests": total_tests, "executions": total_exec}, sort_keys=True))
+    print(
+        json.dumps(
+            {"files": len(fixtures), "tests": total_tests, "executions": total_exec},
+            sort_keys=True,
+        )
+    )
     return 0
 
 
