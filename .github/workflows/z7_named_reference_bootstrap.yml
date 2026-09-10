@@ -1,0 +1,55 @@
+name: Z7 named-reference bootstrap
+
+on:
+  push:
+    branches:
+      - candidate/z7-named-reference-provenance-rebuild-v1
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: candidate/z7-named-reference-provenance-rebuild-v1
+          fetch-depth: 1
+      - name: Materialize exact WHATWG entity source and generated table
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream_commit='283a3531a61106d07d9a7d9fb3e6f3b9bfd33d70'
+          upstream_root="https://raw.githubusercontent.com/whatwg/html-build/${upstream_commit}"
+          mkdir -p third_party/whatwg-html-build
+          curl -fsSL "${upstream_root}/entities/out/entities.json" -o third_party/whatwg-html-build/entities.json
+          curl -fsSL "${upstream_root}/LICENSE" -o third_party/whatwg-html-build/LICENSE
+
+          test "$(wc -c < third_party/whatwg-html-build/entities.json | tr -d ' ')" = '145897'
+          test "$(sha256sum third_party/whatwg-html-build/entities.json | awk '{print $1}')" = 'd741d877ac77c4194c4ad526b5b4a19aef8dfe411ab840a466891cdbb9f362e6'
+          test "$(git hash-object third_party/whatwg-html-build/entities.json)" = '557170b41f47a13a46ec695561eb5fe76da73bdb'
+          test "$(git hash-object third_party/whatwg-html-build/LICENSE)" = 'f2dcda46deccefd245749202a88a7837e35c6daa'
+
+          python3 scripts/generate_html_named_character_references_v1.py \
+            --entities-json third_party/whatwg-html-build/entities.json \
+            --output-dir src
+
+          python3 - <<'PY'
+          from pathlib import Path
+          parts = sorted(Path('src').glob('html_named_character_references_v1.generated_part*.inc'))
+          if len(parts) != 8:
+              raise SystemExit(f'expected 8 generated parts, found {len(parts)}')
+          header = Path('src/html_named_character_references_v1.generated.hpp').read_text(encoding='utf-8')
+          for index in range(8):
+              name = f'html_named_character_references_v1.generated_part{index}.inc'
+              if name not in header:
+                  raise SystemExit(f'header missing {name}')
+          PY
+
+          git rm .github/workflows/z7_named_reference_bootstrap.yml
+          git add third_party/whatwg-html-build scripts/generate_html_named_character_references_v1.py src/html_named_character_references_v1.generated.hpp src/html_named_character_references_v1.generated_part*.inc
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Z7: materialize pinned WHATWG named-reference table'
+          git push origin HEAD:candidate/z7-named-reference-provenance-rebuild-v1
