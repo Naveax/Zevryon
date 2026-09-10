@@ -32,12 +32,15 @@ struct HtmlTokenizerCharacterReferenceV1Result {
 //   * literal '&' fallback when the next byte is neither ASCII alphanumeric
 //     nor '#', including EOF;
 //   * decimal and hexadecimal numeric character references;
-//   * absence-of-digits and missing-semicolon recovery;
+//   * the complete pinned WHATWG named-character-reference table with bounded
+//     maximum-length matching, one/two-scalar UTF-8 replacement, legacy
+//     semicolon recovery and attribute-context historical veto;
+//   * ambiguous-ampersand literal recovery and unknown-name diagnostics;
 //   * the WHATWG numeric-reference end-state scalar/control/noncharacter rules.
 //
-// Named-reference candidates remain fail-closed until a separately pinned
-// complete named-reference table is admitted. The context is already explicit
-// because named-reference behavior differs inside attributes.
+// The context is explicit because semicolonless legacy named-reference behavior
+// differs inside attributes. Raw non-ASCII input preprocessing remains outside
+// this v1 character-reference component's authority.
 //
 // Parse errors are emitted through sink with one-based line/column positions
 // relative to the supplied input view. No Character/attribute mutation is

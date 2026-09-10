@@ -14,4 +14,15 @@ if(BUILD_TESTING)
   add_test(
     NAME html-tokenizer-numeric-character-reference-v1-tests
     COMMAND zevryon-html-tokenizer-numeric-character-reference-v1-tests)
+
+  add_executable(
+    zevryon-html-tokenizer-named-character-reference-v1-tests
+    tests/html_tokenizer_named_character_reference_v1_tests.cpp)
+  target_link_libraries(
+    zevryon-html-tokenizer-named-character-reference-v1-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-html-tokenizer-named-character-reference-v1-tests)
+  add_test(
+    NAME html-tokenizer-named-character-reference-v1-tests
+    COMMAND zevryon-html-tokenizer-named-character-reference-v1-tests)
 endif()
