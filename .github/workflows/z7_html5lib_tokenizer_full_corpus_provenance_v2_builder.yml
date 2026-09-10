@@ -122,7 +122,10 @@ jobs:
             scripts/z7_html5lib_tokenizer_corpus_verify.py \
             docs/Z7_HTML5LIB_TOKENIZER_CORPUS.md \
             tests/fixtures/html5lib-tokenizer/*.test
-          git diff --cached --check
+          git diff --cached --check -- \
+            config/z7_html5lib_tokenizer_corpus.json \
+            scripts/z7_html5lib_tokenizer_corpus_verify.py \
+            docs/Z7_HTML5LIB_TOKENIZER_CORPUS.md
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'Z7: pin complete html5lib tokenizer corpus provenance v2'
