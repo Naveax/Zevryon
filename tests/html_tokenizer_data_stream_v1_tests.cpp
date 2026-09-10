@@ -230,18 +230,24 @@ bool test_many_declarations_preserve_global_positions() {
                 "declaration-heavy final start-tag accounting");
 }
 
-bool test_fail_closed_surfaces_and_bounds() {
+bool test_admitted_references_fail_closed_surfaces_and_bounds() {
     {
         CollectingSink sink;
         HtmlTokenizerDataStreamV1Stats stats;
         std::string error;
         if (!require(
-                !tokenize_html_data_stream_v1("a&amp;b", {}, &sink, &stats, &error),
-                "character references remain fail closed") ||
-            !require(error.find("character references") != std::string::npos,
-                     "character-reference failure explicit") ||
-            !require(stats.data_segments_consumed == 0U,
-                     "failed Data segment is not counted consumed")) {
+                tokenize_html_data_stream_v1("a&amp;b", {}, &sink, &stats, &error),
+                std::string("named character reference is admitted: ") + error) ||
+            !require(sink.tokens.size() == 1U, "named reference composed token count") ||
+            !require(token_is_character(sink.tokens[0], "a&b"),
+                     "named reference decodes through composed Data stream") ||
+            !require(sink.errors.empty(), "named reference composed stream has no errors") ||
+            !require(stats.data_segments_consumed == 1U,
+                     "successful named-reference Data segment is counted") ||
+            !require(stats.tokens_emitted == 1U &&
+                         stats.character_tokens_emitted == 1U &&
+                         stats.character_bytes_emitted == 3U,
+                     "composed named-reference output stats use decoded bytes")) {
             return false;
         }
     }
@@ -291,7 +297,7 @@ int main() {
         !test_markup_error_location_uses_original_input() ||
         !test_multiple_adjacent_declarations() ||
         !test_many_declarations_preserve_global_positions() ||
-        !test_fail_closed_surfaces_and_bounds()) {
+        !test_admitted_references_fail_closed_surfaces_and_bounds()) {
         return 1;
     }
     return 0;
