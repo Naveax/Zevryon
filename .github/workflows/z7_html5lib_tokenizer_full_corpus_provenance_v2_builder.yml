@@ -27,6 +27,22 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Admit upstream nullable DOCTYPE-name fixture shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("scripts/z7_html5lib_tokenizer_corpus_verify.py")
+          text = path.read_text(encoding="utf-8")
+          old = '    require(isinstance(token[1], str), f"{label} DOCTYPE name must be a string")\n'
+          new = '''    require(\n        token[1] is None or isinstance(token[1], str),\n        f"{label} DOCTYPE name must be string/null",\n    )\n'''
+          if text.count(old) != 1:
+              raise SystemExit("DOCTYPE-name verifier marker drifted")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
+          PY
+
       - name: Build complete 14-fixture provenance authority
         run: >-
           python3 scripts/build_z7_html5lib_tokenizer_full_corpus_v2.py
@@ -55,8 +71,8 @@ jobs:
           assert report["schema"] == "zevryon.z7.html5lib-tokenizer-corpus-verification.v2", report
           assert report["authority"] == "z7-html5lib-tokenizer-corpus-provenance-v2", report
           assert report["files_verified"] == 14, report
-          assert report["tests_verified"] == expected_tests, report
-          assert report["executions_verified"] == expected_executions, report
+          assert report["tests_verified"] == expected_tests == 6810, report
+          assert report["executions_verified"] == expected_executions == 7036, report
           assert report["provenance_gate_passed"] is True, report
           assert report["conformance_claim"] is False, report
           assert report["self_test_passed"] is True, report
@@ -81,17 +97,18 @@ jobs:
           ctest --test-dir build --output-on-failure \
             -R "z7-html5lib-tokenizer-(corpus-provenance|corpus-provenance-self-test|runner-v1|test1-admitted-runner-v1|test1-admitted-runner-v1-self-test)"
 
-      - name: Reject unintended checkout/build artifacts
+      - name: Reject unintended checkout or build artifacts
         shell: bash
         run: |
           set -euo pipefail
           rm -rf _upstream build
           git diff --check
-          test -z "$(git status --porcelain --untracked-files=all | grep -vE '^.. (_upstream|build)/' | grep -vE '^\?\? (_upstream|build)/' | grep -vE '^.. scripts/build_z7_html5lib_tokenizer_full_corpus_v2.py$' | grep -vE '^.. .github/workflows/z7_html5lib_tokenizer_full_corpus_provenance_v2_builder.yml$' || true)" || {
+          unexpected="$(git status --short | grep -vE '^(.. )?(config/z7_html5lib_tokenizer_corpus\.json|scripts/z7_html5lib_tokenizer_corpus_verify\.py|docs/Z7_HTML5LIB_TOKENIZER_CORPUS\.md|tests/fixtures/html5lib-tokenizer/[^/]+\.test|scripts/build_z7_html5lib_tokenizer_full_corpus_v2\.py|\.github/workflows/z7_html5lib_tokenizer_full_corpus_provenance_v2_builder\.yml)$' || true)"
+          if [[ -n "$unexpected" ]]; then
             echo 'Generated authority contains unexpected paths:' >&2
-            git status --short >&2
+            printf '%s\n' "$unexpected" >&2
             exit 1
-          }
+          fi
 
       - name: Commit tested provenance and remove one-shot builder
         shell: bash
