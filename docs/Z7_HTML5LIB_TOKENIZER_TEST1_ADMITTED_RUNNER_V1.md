@@ -20,26 +20,34 @@ The external corpus provenance remains pinned to:
 The runner freezes three separate counts:
 
 - full pinned fixture executions: **69**
-- admitted executions: **45**
-- explicitly unsupported executions: **24**
+- admitted executions: **48**
+- explicitly unsupported executions: **21**
 
 A green admitted-runner result requires exactly:
 
-- `passed = 45`
+- `passed = 48`
 - `failed = 0`
-- `unsupported = 24`
+- `unsupported = 21`
 
-The 24 unsupported executions are not silently discarded and are not counted as passing. Therefore a green CTest result means only that the admitted 45-case surface matches the pinned external token/error stream.
+The 21 unsupported executions are not silently discarded and are not counted as passing. Therefore a green CTest result means only that the admitted 48-case surface matches the pinned external token/error stream.
 
 ## Admitted surface
 
 The fixed allowlist is derived from behavior already covered by production component/canonical regressions:
 
 - 6 DOCTYPE / bogus-comment declaration cases;
-- 9 Data start-tag, end-tag and attribute cases;
+- 12 Data start-tag, end-tag, attribute and bounded recovery cases;
 - 16 comment-state-family cases;
 - 13 Script-data cases;
 - 1 `plaintext element` token-stream case.
+
+The recovery promotion adds exactly these three pinned `test1.test` cases after the bounded Data tag-recovery production slice was admitted:
+
+- `Empty end tag`;
+- `Empty start tag`;
+- `Open angled bracket in unquoted attribute value state`.
+
+This authority revision intentionally promotes only those recovery cases. Production behavior admitted by later independent slices does not silently alter this frozen 48/21 denominator; such cases require their own external-runner authority promotion.
 
 The `plaintext element` case is token-stream observation only. The tokenizer emits the `plaintext` start tag and following character data; it does not invent tree-builder feedback or claim that the standalone tokenizer switched itself because an element token was emitted.
 
@@ -67,21 +75,21 @@ Before executing the probe, the runner:
 2. runs the aggregate tokenizer corpus provenance verifier;
 3. requires the exact pinned `test1.test` Git blob, byte size, SHA-256, test count and execution count from the manifest;
 4. requires all 69 descriptions to remain unique;
-5. requires the fixed 45-description allowlist to match the pinned fixture exactly;
-6. requires the unsupported denominator to remain exactly 24;
+5. requires the fixed 48-description allowlist to match the pinned fixture exactly;
+6. requires the unsupported denominator to remain exactly 21;
 7. requires every admitted case to use an explicitly admitted initial state and ASCII input/`lastStartTag` surface.
 
-The self-test independently checks the 45/24 partition and the extended StartTag/Comment/DOCTYPE/Character/EndTag probe wire parser.
+The self-test independently checks the 48/21 partition and the extended StartTag/Comment/DOCTYPE/Character/EndTag probe wire parser.
 
 ## Explicit nonclaims
 
-This runner does **not** claim that `test1.test` passes 69/69. In particular, the unsupported set still includes character-reference and related recovery/preprocessing surfaces not admitted by the current production tokenizer boundary.
+This runner does **not** claim that `test1.test` passes 69/69. This authority revision does not promote the remaining character-reference/preprocessing cases merely because a separate production slice may implement some of them.
 
 It also does not claim:
 
-- full input-stream preprocessing or U+0000 replacement;
-- complete named or numeric character references;
-- full non-ASCII tokenizer authority;
+- full input-stream preprocessing or U+0000 raw-input replacement;
+- complete named character references;
+- full non-ASCII tokenizer/location authority;
 - CDATA authority;
 - tree-builder-driven tokenizer state selection;
 - full WHATWG tokenizer conformance;
