@@ -3,3 +3,7 @@ third_party/html5lib-tests/LICENSE text eol=lf
 tests/fixtures/html5lib-tokenizer/*.test text eol=lf
 third_party/wpt/LICENSE.md text eol=lf
 tests/fixtures/wpt-tree-construction/*.dat text eol=lf
+third_party/whatwg-html-build/LICENSE text eol=lf
+third_party/whatwg-html-build/entities.json text eol=lf
+src/html_named_character_references_v1.generated.hpp text eol=lf
+src/html_named_character_references_v1.generated_part*.inc text eol=lf
