@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This slice establishes an honest execution census across the complete tokenizer provenance v2 denominator. It is a diagnostic baseline, not a conformance gate closure.
+This slice establishes an honest execution census across the complete tokenizer provenance v2 denominator. It is a diagnostic baseline and regression authority, not a conformance-gate closure.
 
 The pinned authority is:
 
@@ -23,7 +23,36 @@ The exact v1 census result is:
 - **1247 unsupported** because the production boundary or probe deliberately fails closed for that surface;
 - total accounting: **5660 + 129 + 1247 = 7036**.
 
-`config/z7_html5lib_tokenizer_full_corpus_census_v1.json` freezes the totals, every per-file partition and every reason bucket. `scripts/z7_html5lib_tokenizer_full_corpus_census_v1_baseline.py` reruns the production census and requires an exact match to that baseline. Any intentional implementation improvement therefore requires a deliberate baseline update instead of silently changing the denominator or classification.
+`config/z7_html5lib_tokenizer_full_corpus_census_v1.json` is an immutable observed snapshot. It freezes the totals, every per-file partition and every reason bucket. Production improvements do not rewrite that snapshot in the same change merely to keep CI green.
+
+## Two verification policies
+
+`scripts/z7_html5lib_tokenizer_full_corpus_census_v1_baseline.py` deliberately exposes two policies.
+
+### `exact`
+
+`exact` is the authority-snapshot policy. It requires the live report to equal the admitted v1 snapshot exactly, including total counts, all 14 per-file partitions and every reason bucket. This is used when validating or deliberately promoting the census authority itself.
+
+### `no-regression`
+
+`no-regression` is the production-change gate. It keeps the denominator fixed at 14 files / 6810 tests / 7036 executions but permits genuine implementation improvements before a later baseline promotion.
+
+A production report is accepted only when all of the following hold:
+
+- global `passed` does not decrease;
+- global `failed` does not increase;
+- global `unsupported` does not increase;
+- for every individual fixture, `passed` does not decrease, `failed` does not increase and `unsupported` does not increase;
+- every existing failure/unsupported reason bucket can only stay equal or decrease;
+- a new failure/unsupported reason bucket cannot appear with a positive count;
+- `passed:exact-match` can only stay equal or increase;
+- total, per-file and reason accounting remain internally exact.
+
+The per-file and per-reason checks are intentional. Aggregate-only comparison would allow a regression in one fixture or recovery class to be hidden by an unrelated improvement elsewhere, which is precisely the sort of accounting trick this authority exists to prevent.
+
+A successful production improvement therefore lands independently. A later authority-only change may then update the frozen exact snapshot after the new distribution has been reviewed and reproduced.
+
+The dedicated pull-request workflow uses `--policy no-regression`. The verifier self-test exercises both policies, including positive improvement, passed-to-unsupported regression, failed-to-unsupported reclassification, aggregate-neutral cross-file regression and aggregate-neutral reason relabeling.
 
 ## Strong existing surfaces
 
@@ -86,7 +115,7 @@ Explicit pre-execution unsupported classes include CDATA initial state, raw NUL 
 
 ## Current priority
 
-The census points to DOCTYPE recovery as the highest-leverage production slice: the two largest fail-closed buckets account for **737 executions** before including the separate 16 missing-name cases. Recovery work should be admitted in bounded production slices with focused regressions before these executions are reclassified.
+The census points to DOCTYPE recovery as the highest-leverage production slice: the two largest fail-closed buckets account for **737 executions** before including the separate 16 missing-name cases. Recovery work should be admitted in bounded production slices with focused regressions and the full-corpus `no-regression` gate before any new exact census snapshot is promoted.
 
 The 129 actual mismatches are a separate correctness queue. In particular, the `unicodeChars.test` parse-error behavior should be investigated without conflating it with deliberately unsupported recovery.
 
