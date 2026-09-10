@@ -1,9 +1,17 @@
 name: Z7 html5lib tokenizer full corpus census v1
 
 on:
-  push:
-    branches:
-      - candidate/z7-html5lib-tokenizer-full-corpus-census-v1
+  pull_request:
+    paths:
+      - 'src/html_tokenizer_*'
+      - 'tests/html_tokenizer_*'
+      - 'scripts/z7_html5lib_tokenizer_*'
+      - 'config/z7_html5lib_tokenizer_corpus.json'
+      - 'config/z7_html5lib_tokenizer_full_corpus_census_v1.json'
+      - 'tests/fixtures/html5lib-tokenizer/**'
+      - 'docs/Z7_HTML5LIB_TOKENIZER_FULL_CORPUS_CENSUS_V1.md'
+      - '.github/workflows/z7_html5lib_tokenizer_full_corpus_census_v1.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,7 +22,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: candidate/z7-html5lib-tokenizer-full-corpus-census-v1
           fetch-depth: 1
 
       - name: Install focused build dependencies
@@ -33,16 +40,17 @@ jobs:
       - name: Build canonical tokenizer probe
         run: cmake --build build --parallel 2 --target zevryon-html-tokenizer-token-stream-v1-probe
 
-      - name: Verify corpus provenance and census harness
+      - name: Verify provenance and harness self-tests
         run: |
           python3 scripts/z7_html5lib_tokenizer_corpus_verify.py --self-test
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py --self-test
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1_baseline.py --self-test
 
-      - name: Execute exact 7036-execution census
+      - name: Require exact admitted census baseline
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py \
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1_baseline.py \
             --probe build/zevryon-html-tokenizer-token-stream-v1-probe \
             > census.json
           python3 - <<'PY'
@@ -53,8 +61,12 @@ jobs:
           assert report["files"] == 14, report
           assert report["tests"] == 6810, report
           assert report["executions"] == 7036, report
-          assert report["passed"] + report["failed"] + report["unsupported"] == 7036, report
+          assert report["passed"] == 5660, report
+          assert report["failed"] == 129, report
+          assert report["unsupported"] == 1247, report
+          assert report["baseline_match"] is True, report
           assert report["exact_execution_accounting"] is True, report
+          assert report["full_corpus_pass_claim"] is False, report
           assert report["html_tokenizer_conformance_claim"] is False, report
           assert report["z7_status_change"] is False, report
           print(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True))
