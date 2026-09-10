@@ -10,9 +10,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-SCHEMA = "zevryon.z7.html5lib-tokenizer-corpus.v1"
-AUTHORITY = "z7-html5lib-tokenizer-corpus-provenance-v1"
-REPORT_SCHEMA = "zevryon.z7.html5lib-tokenizer-corpus-verification.v1"
+SCHEMA = "zevryon.z7.html5lib-tokenizer-corpus.v2"
+AUTHORITY = "z7-html5lib-tokenizer-corpus-provenance-v2"
+REPORT_SCHEMA = "zevryon.z7.html5lib-tokenizer-corpus-verification.v2"
 UPSTREAM_REPOSITORY = "html5lib/html5lib-tests"
 PINNED_UPSTREAM_COMMIT = "224991ec10db04f056a89eed8b0bd8695fd2950e"
 DEFAULT_MANIFEST = Path("config/z7_html5lib_tokenizer_corpus.json")
@@ -23,24 +23,104 @@ PINNED_LICENSE = {
     "size_bytes": 1103,
     "sha256": "ff512aac9ef231d504be5afaf4429005024e4b2aaf257be39524f37b8402aaf2",
 }
-PINNED_FIXTURES = {
-    "tokenizer/contentModelFlags.test": {
-        "vendored_path": "tests/fixtures/html5lib-tokenizer/contentModelFlags.test",
-        "git_blob": "9cf7c8bd9e70dfbd0037726d6a840e67d3aa5e12",
-        "size_bytes": 3055,
-        "sha256": "77784a505a528950761cfb3c76617afade28b27c3be2a8c37dce3c3d8988391d",
-        "test_count": 14,
-        "execution_count": 24,
-    },
-    "tokenizer/test1.test": {
-        "vendored_path": "tests/fixtures/html5lib-tokenizer/test1.test",
-        "git_blob": "5323fbbeae2c6116aab14a716c8df1174e7870fb",
-        "size_bytes": 10006,
-        "sha256": "524fcfa4d561a14f0c4e72e0573549abe6341fd4dfb8e16bc2dcf59a608a7219",
-        "test_count": 69,
-        "execution_count": 69,
-    },
-}
+PINNED_FIXTURES = {'tokenizer/contentModelFlags.test': {'vendored_path': 'tests/fixtures/html5lib-tokenizer/contentModelFlags.test',
+                                      'git_blob': '9cf7c8bd9e70dfbd0037726d6a840e67d3aa5e12',
+                                      'size_bytes': 3055,
+                                      'sha256': '77784a505a528950761cfb3c76617afade28b27c3be2a8c37dce3c3d8988391d',
+                                      'test_array_key': 'tests',
+                                      'test_count': 14,
+                                      'execution_count': 24},
+ 'tokenizer/domjs.test': {'vendored_path': 'tests/fixtures/html5lib-tokenizer/domjs.test',
+                          'git_blob': '1a0824d789b767792286c98e92843d388eb6b5ce',
+                          'size_bytes': 13430,
+                          'sha256': '3273e7861bbdb094571e4b0813ffdd934fe2bfd65864600fef62e8e3b807131a',
+                          'test_array_key': 'tests',
+                          'test_count': 43,
+                          'execution_count': 59},
+ 'tokenizer/entities.test': {'vendored_path': 'tests/fixtures/html5lib-tokenizer/entities.test',
+                             'git_blob': 'a6469cd0dc533d0c3b60d0ec8e8b3726524a98d7',
+                             'size_bytes': 19147,
+                             'sha256': 'fe17483810a00247579f5f129ca9c007fbab6755ba839523e29aa9f8875f4085',
+                             'test_array_key': 'tests',
+                             'test_count': 80,
+                             'execution_count': 80},
+ 'tokenizer/escapeFlag.test': {'vendored_path': 'tests/fixtures/html5lib-tokenizer/escapeFlag.test',
+                               'git_blob': 'd7d2c490bfd161681df4a846a454d588b94e3d19',
+                               'size_bytes': 1378,
+                               'sha256': 'edbd2e070a14fc67f6bbc104e50207f0fe206a21891c260deea3d227b32c93c9',
+                               'test_array_key': 'tests',
+                               'test_count': 5,
+                               'execution_count': 9},
+ 'tokenizer/namedEntities.test': {'vendored_path': 'tests/fixtures/html5lib-tokenizer/namedEntities.test',
+                                  'git_blob': 'f74f5bff6d6513ca832da5dd12437d3f5d5861a5',
+                                  'size_bytes': 1128317,
+                                  'sha256': 'a7f0e59ff7653820330548776cb3031c18e45f5fd1481a9813d9c7acee89bd6e',
+                                  'test_array_key': 'tests',
+                                  'test_count': 4210,
+                                  'execution_count': 4210},
+ 'tokenizer/numericEntities.test': {'vendored_path': 'tests/fixtures/html5lib-tokenizer/numericEntities.test',
+                                    'git_blob': '085109b797acc6657dea2ccf7c29d31942cc7214',
+                                    'size_bytes': 49842,
+                                    'sha256': '679296c976252322ece27e2b113a5358a0aa3b0b8ecd2d6d9b365f9d1b0f9632',
+                                    'test_array_key': 'tests',
+                                    'test_count': 336,
+                                    'execution_count': 336},
+ 'tokenizer/pendingSpecChanges.test': {'vendored_path': 'tests/fixtures/html5lib-tokenizer/pendingSpecChanges.test',
+                                       'git_blob': '191434f1b13532b03c1bc8519d6c4a1247ac2582',
+                                       'size_bytes': 162,
+                                       'sha256': '6b56d81ca09afa47d8cb0f33e3fb7169010c3a64493e608ebec921ac098ff8e9',
+                                       'test_array_key': 'tests',
+                                       'test_count': 1,
+                                       'execution_count': 1},
+ 'tokenizer/test1.test': {'vendored_path': 'tests/fixtures/html5lib-tokenizer/test1.test',
+                          'git_blob': '5323fbbeae2c6116aab14a716c8df1174e7870fb',
+                          'size_bytes': 10006,
+                          'sha256': '524fcfa4d561a14f0c4e72e0573549abe6341fd4dfb8e16bc2dcf59a608a7219',
+                          'test_array_key': 'tests',
+                          'test_count': 69,
+                          'execution_count': 69},
+ 'tokenizer/test2.test': {'vendored_path': 'tests/fixtures/html5lib-tokenizer/test2.test',
+                          'git_blob': 'c29e4c315a66e9cb17f6629816331de4421af15a',
+                          'size_bytes': 8647,
+                          'sha256': 'f6450e77760cea823258de86f8e08894a1815671dbec0d74e7fbdab075596e37',
+                          'test_array_key': 'tests',
+                          'test_count': 45,
+                          'execution_count': 45},
+ 'tokenizer/test3.test': {'vendored_path': 'tests/fixtures/html5lib-tokenizer/test3.test',
+                          'git_blob': '901a581e35cd64fafec2db0b4d5b2390ec12534f',
+                          'size_bytes': 349970,
+                          'sha256': '9912fa27f03344243f1baa96d9690a5c2a4a9c9426c70da5cbf5c62391d62de4',
+                          'test_array_key': 'tests',
+                          'test_count': 1590,
+                          'execution_count': 1786},
+ 'tokenizer/test4.test': {'vendored_path': 'tests/fixtures/html5lib-tokenizer/test4.test',
+                          'git_blob': '8963c7471184e53446afaa31e9cc7a74624a3812',
+                          'size_bytes': 16339,
+                          'sha256': 'c4967118aecbf8eb2ca34d5c5306f536614acca03e58610f75fbd9efa89fbb42',
+                          'test_array_key': 'tests',
+                          'test_count': 85,
+                          'execution_count': 85},
+ 'tokenizer/unicodeChars.test': {'vendored_path': 'tests/fixtures/html5lib-tokenizer/unicodeChars.test',
+                                 'git_blob': '49a8098528ea9771f42c619cb6a63d7bb4b6be86',
+                                 'size_bytes': 43771,
+                                 'sha256': '22b7263a840da38179b13693bbfe72f0507dcd41951622456a0d3f5300ba42bd',
+                                 'test_array_key': 'tests',
+                                 'test_count': 323,
+                                 'execution_count': 323},
+ 'tokenizer/unicodeCharsProblematic.test': {'vendored_path': 'tests/fixtures/html5lib-tokenizer/unicodeCharsProblematic.test',
+                                            'git_blob': '3ddb96c011b77706b80ff98f54bc4b1288bc8cf2',
+                                            'size_bytes': 1107,
+                                            'sha256': '3c166d5cfa24ee60fd7310ff0f5057e4ae0c649842ec446b5949215759e19a68',
+                                            'test_array_key': 'tests',
+                                            'test_count': 5,
+                                            'execution_count': 5},
+ 'tokenizer/xmlViolation.test': {'vendored_path': 'tests/fixtures/html5lib-tokenizer/xmlViolation.test',
+                                 'git_blob': 'da6159e2ea7418684db258cd9fd7aad48f24af25',
+                                 'size_bytes': 442,
+                                 'sha256': '193a2f52d81adb4df4e056e3489f3bae79b3fc65253ccf31423a0e2f9c128d5c',
+                                 'test_array_key': 'xmlViolationTests',
+                                 'test_count': 4,
+                                 'execution_count': 4}}
 
 ALLOWED_INITIAL_STATES = {
     "Data state",
@@ -180,7 +260,10 @@ def verify_output_token(token: Any, case_label: str, token_index: int) -> None:
         return
 
     require(len(token) == 5, f"{label} has invalid DOCTYPE length")
-    require(isinstance(token[1], str), f"{label} DOCTYPE name must be a string")
+    require(
+        token[1] is None or isinstance(token[1], str),
+        f"{label} DOCTYPE name must be string/null",
+    )
     require(
         token[2] is None or isinstance(token[2], str),
         f"{label} DOCTYPE public id must be string/null",
@@ -264,8 +347,17 @@ def verify_fixture(path: Path, entry: dict[str, Any], pinned: dict[str, Any]) ->
         raise VerificationError(f"cannot parse tokenizer fixture {path}: {exc}") from exc
 
     require(isinstance(value, dict), f"{path} top-level value must be object")
-    tests = value.get("tests")
-    require(isinstance(tests, list), f"{path} must contain top-level tests array")
+    manifest_test_array_key = entry.get("test_array_key")
+    pinned_test_array_key = pinned["test_array_key"]
+    require(
+        manifest_test_array_key == pinned_test_array_key,
+        f"{path} test-array-key pin drifted",
+    )
+    tests = value.get(pinned_test_array_key)
+    require(
+        isinstance(tests, list),
+        f"{path} must contain top-level {pinned_test_array_key} array",
+    )
 
     manifest_test_count = require_nonnegative_int(entry.get("test_count"), f"{path} test_count")
     manifest_execution_count = require_nonnegative_int(
@@ -342,7 +434,7 @@ def verify_manifest(manifest_path: Path, root: Path) -> dict[str, Any]:
         upstream_path = entry.get("upstream_path")
         require(
             isinstance(upstream_path, str) and upstream_path in PINNED_FIXTURES,
-            f"{label} upstream_path is not admitted by v1 authority",
+            f"{label} upstream_path is not admitted by v2 authority",
         )
         require(upstream_path not in seen_upstream_paths, f"{label} duplicates upstream path")
         seen_upstream_paths.add(upstream_path)
