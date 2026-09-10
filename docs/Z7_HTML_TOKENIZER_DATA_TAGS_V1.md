@@ -8,7 +8,7 @@ This component is a bounded Data-state tag tokenizer that emits the shared `Html
 
 ## Admitted token surface
 
-`tokenize_html_data_tags_v1()` admits ASCII Data-state inputs containing:
+`tokenize_html_data_tags_v1()` admits ASCII raw Data-state inputs containing:
 
 - ordinary start tags;
 - ordinary end tags;
@@ -18,7 +18,11 @@ This component is a bounded Data-state tag tokenizer that emits the shared `Html
 - unquoted attribute values inside the admitted byte subset;
 - empty/boolean attributes;
 - the self-closing start-tag flag;
-- coalesced Character tokens outside tags.
+- coalesced Character tokens outside tags;
+- literal ampersand fallback;
+- decimal and hexadecimal numeric character references in Data and attribute values.
+
+Numeric references may decode to multi-byte UTF-8 output even though raw input remains ASCII-only for the current preprocessing/location authority. Decoded replacement bytes are appended under the existing token/attribute byte bound.
 
 The event boundary is shared with the canonical tokenizer stream. StartTag tokens carry ordered `HtmlTokenizerV1Attribute` records and the self-closing flag directly rather than being reconstructed from node output.
 
@@ -32,9 +36,12 @@ The component completes tokenization for the following bounded recovery families
 - `end-tag-with-trailing-solidus`, emitting an ordinary EndTag;
 - tag-open invalid ASCII `anything else`: `invalid-first-character-of-tag-name`, literal `<` Character output, then reconsume in Data;
 - empty end tag `</>`: `missing-end-tag-name`, no EndTag token;
-- the five special bytes `"`, `'`, `<`, `=`, and `` ` `` in an unquoted attribute value: `unexpected-character-in-unquoted-attribute-value`, with the offending byte retained in the attribute value.
+- the five special bytes `"`, `'`, `<`, `=`, and `` ` `` in an unquoted attribute value: `unexpected-character-in-unquoted-attribute-value`, with the offending byte retained in the attribute value;
+- digitless numeric references: `absence-of-digits-in-numeric-character-reference` plus literal temporary-buffer recovery;
+- numeric references without `;`: `missing-semicolon-after-character-reference` with the terminating byte reconsumed by the caller;
+- numeric end-state diagnostics for null, out-of-range, surrogate, noncharacter and control references, including the WHATWG C1 replacement table.
 
-Parse-error line/column positions are one-based. V1 location authority remains deliberately ASCII-only, so byte offsets and character columns are identical. Non-ASCII input remains fail-closed until preprocessing and Unicode location accounting are admitted.
+Parse-error line/column positions are one-based. V1 raw-input location authority remains deliberately ASCII-only, so source byte offsets and source character columns are identical. Non-ASCII raw input remains fail-closed until preprocessing and Unicode location accounting are admitted.
 
 ## Bounds
 
@@ -44,7 +51,7 @@ Default caller bounds are:
 - token payload: 64 KiB;
 - emitted attributes per tag: 256.
 
-Fixed implementation maxima are 16 MiB input, 1 MiB token payload and 4096 attributes. Character buffering, names, values and aggregate emitted tag payload are bounded before publication.
+Fixed implementation maxima are 16 MiB input, 1 MiB token payload and 4096 attributes. Character buffering, names, values, decoded reference replacements and aggregate emitted tag payload are bounded before publication.
 
 The sink is streaming. A later unsupported construct can fail after earlier complete events were delivered. Within one tag token, publication occurs only after that token passes the admitted validation and bounds.
 
@@ -55,9 +62,9 @@ The following remain outside this component:
 - `<!...` markup declarations, comments and DOCTYPE, which are owned by the separate Data-stream composition layer;
 - `<?...` bogus-comment recovery;
 - bogus-comment recovery for invalid end-tag-open bytes other than the admitted empty `</>` case;
-- named or numeric character references in Data or attribute values;
+- complete named character references and their longest-match/ambiguous-ampersand rules;
 - NUL replacement and complete input-stream preprocessing;
-- non-ASCII preprocessing/location authority;
+- non-ASCII raw-input preprocessing/location authority;
 - remaining malformed tag/attribute recovery not explicitly admitted above;
 - Script-data and CDATA states.
 
@@ -69,21 +76,23 @@ These cases return an explicit API failure instead of fabricating a token stream
 
 ## Focused regression authority
 
-The established Data-tag suite covers normalized tags, attributes, duplicate/missing-whitespace diagnostics, end-tag diagnostics, `<plaintext>` separation, fail-closed declaration/reference/NUL boundaries, and hard caps.
+The established Data-tag suite covers normalized tags, attributes, duplicate/missing-whitespace diagnostics, end-tag diagnostics, `<plaintext>` separation and hard caps.
 
 The dedicated `html-tokenizer-data-tag-recovery-v1-tests` adds authority for:
 
 - `<>` and a non-fixture `<1x` invalid-ASCII tag-open example;
 - `</>` empty-end-tag recovery;
 - all five unquoted attribute-value special bytes, including exact error position and retained payload;
-- explicit proof that the new generic tag-open recovery does not accidentally admit NUL or non-ASCII preprocessing debt.
+- explicit proof that generic tag-open recovery does not accidentally admit NUL or non-ASCII preprocessing debt.
 
-The pinned html5lib `test1.test` has three directly affected cases: `Empty end tag`, `Empty start tag`, and `Open angled bracket in unquoted attribute value state`. Their external-runner denominator must be promoted separately after this production slice is admitted. A production implementation becoming capable of a case is not itself permission to rewrite historical runner authority.
+The dedicated `html-tokenizer-numeric-character-reference-v1-tests` adds authority for literal ampersand fallback, decimal/hex numeric decoding, exact numeric recovery errors, C1/noncharacter/scalar validation, decoded UTF-8 output, Data coalescing, quoted/unquoted attribute integration, named-reference fail-closed behavior and replacement byte caps.
+
+The pinned html5lib `test1.test` runner denominator remains separate authority. Production capability becoming broader does not itself promote historical unsupported cases into passes.
 
 ## Claim boundary
 
 This slice does not satisfy `html_tokenizer_conformance`. It expands the production token surface required to run more of the pinned external corpus honestly.
 
-The admitted `test1.test` runner remains a separate authority surface, and unsupported cases continue to be counted explicitly rather than converted to passes. Character references, broader recovery, preprocessing, CDATA and tree-builder conformance remain open.
+The admitted `test1.test` runner remains a separate authority surface, and unsupported cases continue to be counted explicitly rather than converted to passes. Complete named character references, broader recovery, preprocessing, CDATA and tree-builder conformance remain open.
 
 `tree_builder_conformance` remains independently outstanding and Z7 remains `planned`.

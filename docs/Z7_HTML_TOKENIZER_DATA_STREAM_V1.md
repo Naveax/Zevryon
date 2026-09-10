@@ -17,6 +17,9 @@ The coordinator currently provides:
 - ordered Data-tag and `<!...>` markup-declaration delivery through one sink;
 - quoted attribute isolation so declaration-looking bytes inside a tag are not
   routed to the markup helper;
+- literal ampersand fallback and bounded decimal/hex numeric character
+  references inherited from the Data-tag component in Data and attribute
+  contexts;
 - delegated parse-error translation back to original-input line/column
   coordinates;
 - incremental source-position advancement across Data and markup units;
@@ -25,6 +28,10 @@ The coordinator currently provides:
   accounting;
 - fail-closed propagation when a delegated tokenizer reaches an unsupported or
   bounded surface.
+
+Numeric references may produce UTF-8 replacement bytes while raw-input
+preprocessing/location authority remains ASCII-only. Those decoded bytes remain
+subject to the existing token and attribute byte bounds.
 
 ## Source-position complexity hardening
 
@@ -59,10 +66,11 @@ reflect events that were actually accepted before a later failure.
 
 This composition does not admit or approximate:
 
-- complete named or numeric character references;
+- complete named character references and their longest-match / ambiguous-
+  ampersand rules;
 - NUL replacement and complete input-stream preprocessing;
-- general non-ASCII tokenizer/location authority;
-- Script data state;
+- general non-ASCII raw-input tokenizer/location authority;
+- Script data state, which is composed at the canonical token-stream layer;
 - CDATA section state;
 - DOCTYPE PUBLIC/SYSTEM identifiers;
 - broad malformed-tag or malformed-DOCTYPE recovery beyond the already
@@ -74,13 +82,13 @@ from element names merely to match an external fixture.
 
 ## Conformance status
 
-This slice composes already admitted production tokenizer pieces and adds
+This slice composes admitted production tokenizer pieces and adds
 composition-specific regression authority. It does **not** satisfy the
 canonical `html_tokenizer_conformance` gate.
 
-The frozen `contentModelFlags.test` execution authority remains separate.
-Broader html5lib tokenizer fixtures still require additional tokenizer states,
-character-reference handling, preprocessing and recovery behavior.
+The frozen `contentModelFlags.test` authority and admitted `test1.test` runner
+remain separate measurement surfaces. Broader html5lib coverage still requires
+complete named references, preprocessing, CDATA and further recovery behavior.
 
 `tree_builder_conformance` also remains independently outstanding. Z7 therefore
 remains `planned`.

@@ -78,16 +78,18 @@ public:
 // Bounded production token-event boundary for the currently admitted external
 // tokenizer-conformance surface. V1 accepts Data, PLAINTEXT, RCDATA, RAWTEXT
 // and Script data as explicit initial states. Data delegates to the admitted
-// bounded Data-stream coordinator. RCDATA/RAWTEXT use last_start_tag for
-// appropriate end-tag matching. Script data delegates to the admitted bounded
-// Script-data state machine and, after an appropriate close, continues through
-// the same admitted Data-stream composition on the unconsumed suffix.
-// Character output is bounded by maximum_token_bytes.
+// bounded Data-stream coordinator, including literal ampersand fallback and
+// bounded decimal/hex numeric character references in Data/attribute contexts.
+// RCDATA/RAWTEXT use last_start_tag for appropriate end-tag matching. Script
+// data delegates to the admitted bounded Script-data state machine and, after
+// an appropriate close, continues through the same admitted Data-stream
+// composition on the unconsumed suffix. Character output is bounded by
+// maximum_token_bytes.
 //
 // This remains intentionally narrower than complete WHATWG tokenization.
-// CDATA, complete named/numeric character references, full input-stream
-// preprocessing and broader recovery remain fail-closed where the admitted
-// component surfaces do not yet implement them.
+// CDATA, complete named character references, full input-stream preprocessing
+// and broader recovery remain fail-closed where the admitted component
+// surfaces do not yet implement them.
 bool tokenize_html_token_stream_v1(
     std::string_view input,
     HtmlTokenizerV1InitialState initial_state,
