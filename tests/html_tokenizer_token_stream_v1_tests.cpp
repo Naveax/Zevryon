@@ -393,6 +393,20 @@ bool test_text_state_allows_empty_last_start_tag() {
                {character("</foo></>")},
                {}) &&
         run_case(
+               "RCDATA empty last-start-tag reports input control",
+               HtmlTokenizerV1InitialState::Rcdata,
+               "",
+               std::string(1U, '\x0B'),
+               {character(std::string(1U, '\x0B'))},
+               {ExpectedError{"control-character-in-input-stream", 1U, 1U}}) &&
+        run_case(
+               "RAWTEXT empty last-start-tag reports input control",
+               HtmlTokenizerV1InitialState::Rawtext,
+               "",
+               std::string(1U, '\x0B'),
+               {character(std::string(1U, '\x0B'))},
+               {ExpectedError{"control-character-in-input-stream", 1U, 1U}}) &&
+        run_case(
                "RCDATA empty last-start-tag uses canonical named reference",
                HtmlTokenizerV1InitialState::Rcdata,
                "",

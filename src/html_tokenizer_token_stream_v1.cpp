@@ -36,6 +36,12 @@ bool ascii_alpha(char value) noexcept {
         (value >= 'A' && value <= 'Z');
 }
 
+bool input_control_parse_error(char value) noexcept {
+    const auto byte = static_cast<unsigned char>(value);
+    return (byte >= 0x01U && byte <= 0x08U) || byte == 0x0BU ||
+        (byte >= 0x0EU && byte <= 0x1FU) || byte == 0x7FU;
+}
+
 bool ascii_digit(char value) noexcept {
     return value >= '0' && value <= '9';
 }
@@ -537,6 +543,12 @@ private:
 
     bool consume_text_state(std::size_t* cursor, bool rcdata) {
         const char character = input_[*cursor];
+        if (input_control_parse_error(character) &&
+            !emit_parse_error(
+                *cursor,
+                "control-character-in-input-stream")) {
+            return false;
+        }
         if (rcdata && character == '&') {
             return consume_rcdata_reference(cursor);
         }
