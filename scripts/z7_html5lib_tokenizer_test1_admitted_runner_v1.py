@@ -22,8 +22,8 @@ RUNNER_SIZE_BYTES = 10006
 RUNNER_SHA256 = "524fcfa4d561a14f0c4e72e0573549abe6341fd4dfb8e16bc2dcf59a608a7219"
 RUNNER_TEST_COUNT = 69
 RUNNER_EXECUTION_COUNT = 69
-ADMITTED_EXECUTION_COUNT = 45
-UNSUPPORTED_EXECUTION_COUNT = 24
+ADMITTED_EXECUTION_COUNT = 48
+UNSUPPORTED_EXECUTION_COUNT = 21
 
 STATE_MAP = {
     "Data state": "DATA",
@@ -41,6 +41,8 @@ ADMITTED_DESCRIPTIONS = frozenset(
         "Doctype in error",
         # Data tag / attribute surface.
         "Single Start Tag",
+        "Empty end tag",
+        "Empty start tag",
         "Start Tag w/attribute",
         "Start Tag w/attribute no quotes",
         "Start/End Tag",
@@ -49,6 +51,7 @@ ADMITTED_DESCRIPTIONS = frozenset(
         "Multiple atts",
         "Multiple atts no space",
         "Repeated attr",
+        "Open angled bracket in unquoted attribute value state",
         # Comment state-family surface.
         "Simple comment",
         "Comment, Central dash no space",
@@ -181,11 +184,11 @@ def fixture_partition(tests: list[dict[str, Any]]) -> tuple[list[str], list[str]
     )
     require(
         len(admitted) == ADMITTED_EXECUTION_COUNT,
-        "test1 admitted denominator must remain exactly 45",
+        f"test1 admitted denominator must remain exactly {ADMITTED_EXECUTION_COUNT}",
     )
     require(
         len(unsupported) == UNSUPPORTED_EXECUTION_COUNT,
-        "test1 unsupported denominator must remain exactly 24",
+        f"test1 unsupported denominator must remain exactly {UNSUPPORTED_EXECUTION_COUNT}",
     )
     return admitted, unsupported
 
@@ -506,7 +509,11 @@ def execute_fixture(probe: Path, fixture: Path) -> dict[str, Any]:
 def self_test(fixture: Path) -> None:
     tests = load_fixture(fixture)
     admitted, unsupported = fixture_partition(tests)
-    require(len(admitted) == 45 and len(unsupported) == 24, "self-test denominator mismatch")
+    require(
+        len(admitted) == ADMITTED_EXECUTION_COUNT and
+        len(unsupported) == UNSUPPORTED_EXECUTION_COUNT,
+        "self-test denominator mismatch",
+    )
 
     synthetic = "\n".join(
         [
