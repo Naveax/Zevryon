@@ -20,54 +20,30 @@ The external corpus provenance remains pinned to:
 The runner freezes three separate counts:
 
 - full pinned fixture executions: **69**
-- admitted executions: **58**
-- explicitly unsupported executions: **11**
+- admitted executions: **68**
+- explicitly unsupported executions: **1**
 
 A green admitted-runner result requires exactly:
 
-- `passed = 58`
+- `passed = 68`
 - `failed = 0`
-- `unsupported = 11`
+- `unsupported = 1`
 
-The 11 unsupported executions are not silently discarded and are not counted as passing. A green CTest therefore means only that the admitted 58-case surface matches the pinned external token/error stream.
+The one unsupported execution is not silently discarded and is not counted as passing. A green CTest therefore means only that the admitted 68-case surface matches the pinned external token/error stream.
 
 ## Admitted surface
 
-The fixed allowlist is derived from behavior already covered by production component/canonical regressions:
+The fixed allowlist is derived from production behavior already covered by component/canonical regressions:
 
 - 6 DOCTYPE / bogus-comment declaration cases;
 - 12 Data start-tag, end-tag, attribute and bounded recovery cases;
 - 10 literal-ampersand / bounded numeric-character-reference cases;
+- 10 bounded named-character-reference cases;
 - 16 comment-state-family cases;
 - 13 Script-data cases;
 - 1 `plaintext element` token-stream case.
 
-The recovery promotion contributes:
-
-- `Empty end tag`;
-- `Empty start tag`;
-- `Open angled bracket in unquoted attribute value state`.
-
-The numeric promotion contributes exactly these ten pinned cases:
-
-- `Ampersand EOF`;
-- `Ampersand ampersand EOF`;
-- `Ampersand space EOF`;
-- `Ampersand, number sign`;
-- `Unfinished numeric entity`;
-- `ASCII decimal entity`;
-- `ASCII hexadecimal entity`;
-- `Hexadecimal entity in attribute`;
-- `Unquoted attribute ending in ampersand`;
-- `Unquoted attribute at end of tag with final character of &, with tag followed by characters`.
-
-These cases use the production Data tokenizer and shared character-reference component. The runner does not perform runner-side entity decoding.
-
-The `plaintext element` case remains token-stream observation only. The tokenizer does not invent tree-builder feedback merely because it emitted an element token.
-
-## Remaining unsupported executions
-
-The remaining **11** pinned executions are deliberately excluded because they require named-character-reference matching or raw non-ASCII preprocessing authority that this production boundary has not admitted:
+The named-reference promotion contributes exactly these ten pinned cases after the production named-character-reference slice is admitted:
 
 - `Unfinished entity`;
 - `Entity with trailing semicolon (1)`;
@@ -75,13 +51,22 @@ The remaining **11** pinned executions are deliberately excluded because they re
 - `Entity without trailing semicolon (1)`;
 - `Entity without trailing semicolon (2)`;
 - `Partial entity match at end of file`;
-- `Non-ASCII character reference name`;
 - `Entity in attribute without semicolon ending in x`;
 - `Entity in attribute without semicolon ending in 1`;
 - `Entity in attribute without semicolon ending in i`;
 - `Entity in attribute without semicolon`.
 
-This explicit list is part of the authority boundary. Those executions must not become passes until their production semantics are separately admitted and measured.
+These executions are observed through the ordinary production Data tokenizer and shared character-reference component. The runner performs no runner-side entity decoding. Longest-match resolution, legacy semicolonless behavior, attribute-context veto, ambiguous-ampersand fallback and named replacement payloads are therefore measured at the existing probe boundary.
+
+The `plaintext element` case remains token-stream observation only. The tokenizer does not invent tree-builder feedback merely because it emitted an element token.
+
+## Remaining unsupported execution
+
+Exactly one pinned execution remains outside this admitted authority:
+
+- `Non-ASCII character reference name`.
+
+Its raw input contains non-ASCII bytes and therefore remains behind the separate input-preprocessing / non-ASCII tokenizer-location authority boundary. It must not be converted to a pass merely because named-character-reference production behavior is broader.
 
 ## Probe wire authority
 
@@ -95,7 +80,7 @@ The admitted runner consumes canonical production probe records without reconstr
 - `ERROR`: exact parse-error code, line and column
 - `STATS`: common canonical token-stream counters
 
-Decoded numeric-reference output is observed through the ordinary Character or StartTag attribute payload in this existing wire format.
+Character-reference output is observed through ordinary Character or StartTag attribute payloads in this existing wire format.
 
 ## Integrity checks
 
@@ -105,20 +90,19 @@ Before executing the probe, the runner:
 2. runs the aggregate tokenizer corpus provenance verifier;
 3. requires the exact pinned `test1.test` Git blob, byte size, SHA-256, test count and execution count from the manifest;
 4. requires all 69 descriptions to remain unique;
-5. requires the fixed 58-description allowlist to match the pinned fixture exactly;
-6. requires the unsupported denominator to remain exactly 11;
+5. requires the fixed 68-description allowlist to match the pinned fixture exactly;
+6. requires the unsupported denominator to remain exactly 1;
 7. requires every admitted case to use an explicitly admitted initial state and ASCII input/`lastStartTag` surface.
 
-The self-test independently checks the 58/11 partition and the probe wire parser.
+The self-test independently checks the 68/1 partition and the probe wire parser.
 
 ## Explicit nonclaims
 
-This runner does **not** claim that `test1.test` passes 69/69. Complete named-character-reference longest-match and ambiguous-ampersand rules remain outside this authority, as does raw non-ASCII character-reference-name preprocessing.
+This runner does **not** claim that `test1.test` passes 69/69. The remaining raw non-ASCII execution stays unsupported until input preprocessing / non-ASCII tokenizer-location authority is separately admitted.
 
 It also does not claim:
 
 - full input-stream preprocessing or U+0000 raw-input replacement;
-- complete named character references;
 - full non-ASCII tokenizer/location authority;
 - CDATA authority;
 - tree-builder-driven tokenizer state selection;
