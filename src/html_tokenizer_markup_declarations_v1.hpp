@@ -25,11 +25,13 @@ struct HtmlTokenizerMarkupDeclarationsV1Stats {
 // On success next_offset is the first byte after the consumed declaration.
 // Token and parse-error events are delivered directly through the shared
 // production tokenizer sink. The caller must provide prefix/location context
-// that has already passed the v1 ASCII/preprocessing authority; declaration
-// bytes themselves are validated here. The admitted surface covers bounded
-// comments, simple ASCII DOCTYPEs and bogus-comment recovery for incorrectly
-// opened declarations. Public/system identifiers, NUL replacement and broader
-// malformed-DOCTYPE recovery remain fail closed.
+// that has already passed the v1 preprocessing authority; declaration bytes
+// themselves are validated here. The admitted surface covers bounded comments,
+// bounded ASCII DOCTYPE names, PUBLIC/SYSTEM quoted identifiers, the associated
+// ASCII malformed-DOCTYPE recovery states, and bogus-comment recovery for
+// incorrectly opened declarations. Raw NUL replacement, non-ASCII DOCTYPE
+// preprocessing/location authority, and nullable missing-name token emission
+// remain fail closed.
 bool consume_html_markup_declaration_v1(
     std::string_view input,
     std::size_t markup_open_offset,
