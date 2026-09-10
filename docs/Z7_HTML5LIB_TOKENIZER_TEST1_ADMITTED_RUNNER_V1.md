@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This slice executes the already-pinned `tokenizer/test1.test` corpus only across the production tokenizer behavior that has separately reached an admitted canonical boundary. It is deliberately not a whole-fixture conformance claim.
+This slice executes the already-pinned `tokenizer/test1.test` corpus only across production tokenizer behavior that has separately reached an admitted canonical boundary. It is deliberately not a whole-fixture conformance claim.
 
 The external corpus provenance remains pinned to:
 
@@ -20,16 +20,16 @@ The external corpus provenance remains pinned to:
 The runner freezes three separate counts:
 
 - full pinned fixture executions: **69**
-- admitted executions: **48**
-- explicitly unsupported executions: **21**
+- admitted executions: **58**
+- explicitly unsupported executions: **11**
 
 A green admitted-runner result requires exactly:
 
-- `passed = 48`
+- `passed = 58`
 - `failed = 0`
-- `unsupported = 21`
+- `unsupported = 11`
 
-The 21 unsupported executions are not silently discarded and are not counted as passing. Therefore a green CTest result means only that the admitted 48-case surface matches the pinned external token/error stream.
+The 11 unsupported executions are not silently discarded and are not counted as passing. A green CTest therefore means only that the admitted 58-case surface matches the pinned external token/error stream.
 
 ## Admitted surface
 
@@ -37,23 +37,55 @@ The fixed allowlist is derived from behavior already covered by production compo
 
 - 6 DOCTYPE / bogus-comment declaration cases;
 - 12 Data start-tag, end-tag, attribute and bounded recovery cases;
+- 10 literal-ampersand / bounded numeric-character-reference cases;
 - 16 comment-state-family cases;
 - 13 Script-data cases;
 - 1 `plaintext element` token-stream case.
 
-The recovery promotion adds exactly these three pinned `test1.test` cases after the bounded Data tag-recovery production slice was admitted:
+The recovery promotion contributes:
 
 - `Empty end tag`;
 - `Empty start tag`;
 - `Open angled bracket in unquoted attribute value state`.
 
-This authority revision intentionally promotes only those recovery cases. Production behavior admitted by later independent slices does not silently alter this frozen 48/21 denominator; such cases require their own external-runner authority promotion.
+The numeric promotion contributes exactly these ten pinned cases:
 
-The `plaintext element` case is token-stream observation only. The tokenizer emits the `plaintext` start tag and following character data; it does not invent tree-builder feedback or claim that the standalone tokenizer switched itself because an element token was emitted.
+- `Ampersand EOF`;
+- `Ampersand ampersand EOF`;
+- `Ampersand space EOF`;
+- `Ampersand, number sign`;
+- `Unfinished numeric entity`;
+- `ASCII decimal entity`;
+- `ASCII hexadecimal entity`;
+- `Hexadecimal entity in attribute`;
+- `Unquoted attribute ending in ampersand`;
+- `Unquoted attribute at end of tag with final character of &, with tag followed by characters`.
+
+These cases use the production Data tokenizer and shared character-reference component. The runner does not perform runner-side entity decoding.
+
+The `plaintext element` case remains token-stream observation only. The tokenizer does not invent tree-builder feedback merely because it emitted an element token.
+
+## Remaining unsupported executions
+
+The remaining **11** pinned executions are deliberately excluded because they require named-character-reference matching or raw non-ASCII preprocessing authority that this production boundary has not admitted:
+
+- `Unfinished entity`;
+- `Entity with trailing semicolon (1)`;
+- `Entity with trailing semicolon (2)`;
+- `Entity without trailing semicolon (1)`;
+- `Entity without trailing semicolon (2)`;
+- `Partial entity match at end of file`;
+- `Non-ASCII character reference name`;
+- `Entity in attribute without semicolon ending in x`;
+- `Entity in attribute without semicolon ending in 1`;
+- `Entity in attribute without semicolon ending in i`;
+- `Entity in attribute without semicolon`.
+
+This explicit list is part of the authority boundary. Those executions must not become passes until their production semantics are separately admitted and measured.
 
 ## Probe wire authority
 
-The admitted runner consumes the canonical probe records without reconstructing tokens from node output:
+The admitted runner consumes canonical production probe records without reconstructing tokens from node output:
 
 - `C`: Character
 - `E`: EndTag
@@ -63,9 +95,7 @@ The admitted runner consumes the canonical probe records without reconstructing 
 - `ERROR`: exact parse-error code, line and column
 - `STATS`: common canonical token-stream counters
 
-For html5lib DOCTYPE expectations, the fixture's final boolean is the token correctness bit while the probe exposes `force_quirks`; the runner compares them as logical inverses. Missing DOCTYPE identifiers remain distinct from present empty identifiers.
-
-Start-tag attributes are compared as maps because the html5lib JSON fixture represents them as an object. The runner still rejects duplicate attributes in the published probe record rather than allowing a duplicate to disappear during normalization.
+Decoded numeric-reference output is observed through the ordinary Character or StartTag attribute payload in this existing wire format.
 
 ## Integrity checks
 
@@ -75,15 +105,15 @@ Before executing the probe, the runner:
 2. runs the aggregate tokenizer corpus provenance verifier;
 3. requires the exact pinned `test1.test` Git blob, byte size, SHA-256, test count and execution count from the manifest;
 4. requires all 69 descriptions to remain unique;
-5. requires the fixed 48-description allowlist to match the pinned fixture exactly;
-6. requires the unsupported denominator to remain exactly 21;
+5. requires the fixed 58-description allowlist to match the pinned fixture exactly;
+6. requires the unsupported denominator to remain exactly 11;
 7. requires every admitted case to use an explicitly admitted initial state and ASCII input/`lastStartTag` surface.
 
-The self-test independently checks the 48/21 partition and the extended StartTag/Comment/DOCTYPE/Character/EndTag probe wire parser.
+The self-test independently checks the 58/11 partition and the probe wire parser.
 
 ## Explicit nonclaims
 
-This runner does **not** claim that `test1.test` passes 69/69. This authority revision does not promote the remaining character-reference/preprocessing cases merely because a separate production slice may implement some of them.
+This runner does **not** claim that `test1.test` passes 69/69. Complete named-character-reference longest-match and ambiguous-ampersand rules remain outside this authority, as does raw non-ASCII character-reference-name preprocessing.
 
 It also does not claim:
 
