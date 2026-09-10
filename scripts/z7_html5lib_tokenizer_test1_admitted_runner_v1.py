@@ -22,8 +22,8 @@ RUNNER_SIZE_BYTES = 10006
 RUNNER_SHA256 = "524fcfa4d561a14f0c4e72e0573549abe6341fd4dfb8e16bc2dcf59a608a7219"
 RUNNER_TEST_COUNT = 69
 RUNNER_EXECUTION_COUNT = 69
-ADMITTED_EXECUTION_COUNT = 48
-UNSUPPORTED_EXECUTION_COUNT = 21
+ADMITTED_EXECUTION_COUNT = 58
+UNSUPPORTED_EXECUTION_COUNT = 11
 
 STATE_MAP = {
     "Data state": "DATA",
@@ -52,6 +52,17 @@ ADMITTED_DESCRIPTIONS = frozenset(
         "Multiple atts no space",
         "Repeated attr",
         "Open angled bracket in unquoted attribute value state",
+        # Literal ampersand and bounded numeric character-reference surface.
+        "Ampersand EOF",
+        "Ampersand ampersand EOF",
+        "Ampersand space EOF",
+        "Ampersand, number sign",
+        "Unfinished numeric entity",
+        "ASCII decimal entity",
+        "ASCII hexadecimal entity",
+        "Hexadecimal entity in attribute",
+        "Unquoted attribute ending in ampersand",
+        "Unquoted attribute at end of tag with final character of &, with tag followed by characters",
         # Comment state-family surface.
         "Simple comment",
         "Comment, Central dash no space",
