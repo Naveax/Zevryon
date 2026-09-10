@@ -2,7 +2,9 @@
 
 ## Purpose
 
-This slice executes the already-pinned `tokenizer/test1.test` corpus only across production tokenizer behavior that has separately reached an admitted canonical boundary. It is deliberately not a whole-fixture conformance claim.
+This runner executes the pinned html5lib `tokenizer/test1.test` fixture only through production tokenizer behavior that has separately reached an admitted canonical boundary. With the bounded UTF-8 Data-text slice admitted, every execution in this one pinned fixture is now inside that production boundary.
+
+This is a **fixture-complete authority claim for `test1.test` only**. It is deliberately not a claim of full WHATWG tokenizer conformance or of the wider html5lib tokenizer corpus.
 
 The external corpus provenance remains pinned to:
 
@@ -17,60 +19,51 @@ The external corpus provenance remains pinned to:
 
 ## Frozen denominators
 
-The runner freezes three separate counts:
+The runner freezes:
 
 - full pinned fixture executions: **69**
-- admitted executions: **68**
-- explicitly unsupported executions: **1**
+- admitted executions: **69**
+- explicitly unsupported executions: **0**
 
-A green admitted-runner result requires exactly:
+A green result requires exactly:
 
-- `passed = 68`
+- `passed = 69`
 - `failed = 0`
-- `unsupported = 1`
+- `unsupported = 0`
 
-The one unsupported execution is not silently discarded and is not counted as passing. A green CTest therefore means only that the admitted 68-case surface matches the pinned external token/error stream.
+No execution in this pinned fixture is skipped, converted to a synthetic pass or decoded by runner-side entity logic. `full_fixture_pass_claim` is derived only when the admitted surface passes, all 69 executions pass, and the unsupported set is empty.
 
 ## Admitted surface
 
-The fixed allowlist is derived from production behavior already covered by component/canonical regressions:
+The 69-case fixed allowlist is derived from production behavior already covered by component/canonical regressions:
 
 - 6 DOCTYPE / bogus-comment declaration cases;
 - 12 Data start-tag, end-tag, attribute and bounded recovery cases;
 - 10 literal-ampersand / bounded numeric-character-reference cases;
 - 10 bounded named-character-reference cases;
+- 1 literal non-ASCII Data case after ambiguous-ampersand fallback;
 - 16 comment-state-family cases;
 - 13 Script-data cases;
 - 1 `plaintext element` token-stream case.
 
-The named-reference promotion contributes exactly these ten pinned cases after the production named-character-reference slice is admitted:
+The final promoted case is exactly:
 
-- `Unfinished entity`;
-- `Entity with trailing semicolon (1)`;
-- `Entity with trailing semicolon (2)`;
-- `Entity without trailing semicolon (1)`;
-- `Entity without trailing semicolon (2)`;
-- `Partial entity match at end of file`;
-- `Entity in attribute without semicolon ending in x`;
-- `Entity in attribute without semicolon ending in 1`;
-- `Entity in attribute without semicolon ending in i`;
-- `Entity in attribute without semicolon`.
+- description: `Non-ASCII character reference name`
+- initial state: `Data state`
+- `lastStartTag`: empty
+- input: `&¬;` (UTF-8 bytes `26 c2 ac 3b`)
 
-These executions are observed through the ordinary production Data tokenizer and shared character-reference component. The runner performs no runner-side entity decoding. Longest-match resolution, legacy semicolonless behavior, attribute-context veto, ambiguous-ampersand fallback and named replacement payloads are therefore measured at the existing probe boundary.
+The name is inherited from html5lib. The production behavior does not treat U+00AC as an ASCII named-reference-name character. Character-reference consumption falls back to literal `&`; the admitted UTF-8 Data path then preserves U+00AC as ordinary character data, followed by `;`.
 
-The `plaintext element` case remains token-stream observation only. The tokenizer does not invent tree-builder feedback merely because it emitted an element token.
+## Narrow non-ASCII authority guard
 
-## Remaining unsupported execution
+The runner does not remove its non-ASCII boundary wholesale. All admitted cases remain ASCII except the single pinned case above. If any other admitted input becomes non-ASCII, or if that case changes description, state, `lastStartTag` or exact input text, the runner fails before invoking the production probe.
 
-Exactly one pinned execution remains outside this admitted authority:
-
-- `Non-ASCII character reference name`.
-
-Its raw input contains non-ASCII bytes and therefore remains behind the separate input-preprocessing / non-ASCII tokenizer-location authority boundary. It must not be converted to a pass merely because named-character-reference production behavior is broader.
+This keeps the external authority tied to the exact production surface that was admitted rather than silently widening it to arbitrary Unicode markup or preprocessing behavior.
 
 ## Probe wire authority
 
-The admitted runner consumes canonical production probe records without reconstructing tokens from node output:
+The runner consumes canonical production probe records without reconstructing tokens from node output:
 
 - `C`: Character
 - `E`: EndTag
@@ -80,7 +73,7 @@ The admitted runner consumes canonical production probe records without reconstr
 - `ERROR`: exact parse-error code, line and column
 - `STATS`: common canonical token-stream counters
 
-Character-reference output is observed through ordinary Character or StartTag attribute payloads in this existing wire format.
+Named/numeric reference decoding and UTF-8 Data handling are therefore measured at the same production boundary as the rest of the fixture.
 
 ## Integrity checks
 
@@ -90,25 +83,27 @@ Before executing the probe, the runner:
 2. runs the aggregate tokenizer corpus provenance verifier;
 3. requires the exact pinned `test1.test` Git blob, byte size, SHA-256, test count and execution count from the manifest;
 4. requires all 69 descriptions to remain unique;
-5. requires the fixed 68-description allowlist to match the pinned fixture exactly;
-6. requires the unsupported denominator to remain exactly 1;
-7. requires every admitted case to use an explicitly admitted initial state and ASCII input/`lastStartTag` surface.
+5. requires the fixed 69-description allowlist to match the pinned fixture exactly;
+6. requires the unsupported denominator to remain exactly 0;
+7. requires every admitted case to use an explicitly admitted initial state;
+8. requires ASCII input/`lastStartTag` for every case except the one exact pinned `&¬;` Data shape;
+9. requires that exceptional shape to retain its exact description, state, empty `lastStartTag` and input text.
 
-The self-test independently checks the 68/1 partition and the probe wire parser.
+The built-in self-test independently checks the 69/0 partition and probe wire parser.
 
 ## Explicit nonclaims
 
-This runner does **not** claim that `test1.test` passes 69/69. The remaining raw non-ASCII execution stays unsupported until input preprocessing / non-ASCII tokenizer-location authority is separately admitted.
+A green runner now claims **69/69 only for this exact pinned `tokenizer/test1.test` fixture**. It does not claim:
 
-It also does not claim:
-
-- full input-stream preprocessing or U+0000 raw-input replacement;
-- full non-ASCII tokenizer/location authority;
+- complete WHATWG input-stream preprocessing;
+- raw U+0000 replacement or CR/LF normalization;
+- arbitrary non-ASCII tag, attribute-name or raw attribute-value support;
 - CDATA authority;
 - tree-builder-driven tokenizer state selection;
+- the wider pinned html5lib tokenizer corpus is fully executable;
 - full WHATWG tokenizer conformance;
 - `html_tokenizer_conformance` gate completion;
 - `tree_builder_conformance` gate completion;
 - Z7 completion.
 
-Z7 remains `planned` until the configured canonical gates close with their actual required evidence.
+Z7 remains `planned` until its configured canonical gates close with their actual required evidence.

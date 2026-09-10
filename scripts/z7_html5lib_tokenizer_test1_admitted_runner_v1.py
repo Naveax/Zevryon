@@ -22,8 +22,8 @@ RUNNER_SIZE_BYTES = 10006
 RUNNER_SHA256 = "524fcfa4d561a14f0c4e72e0573549abe6341fd4dfb8e16bc2dcf59a608a7219"
 RUNNER_TEST_COUNT = 69
 RUNNER_EXECUTION_COUNT = 69
-ADMITTED_EXECUTION_COUNT = 68
-UNSUPPORTED_EXECUTION_COUNT = 1
+ADMITTED_EXECUTION_COUNT = 69
+UNSUPPORTED_EXECUTION_COUNT = 0
 
 STATE_MAP = {
     "Data state": "DATA",
@@ -74,6 +74,8 @@ ADMITTED_DESCRIPTIONS = frozenset(
         "Entity in attribute without semicolon ending in 1",
         "Entity in attribute without semicolon ending in i",
         "Entity in attribute without semicolon",
+        # Literal non-ASCII Data following ambiguous-ampersand fallback.
+        "Non-ASCII character reference name",
         # Comment state-family surface.
         "Simple comment",
         "Comment, Central dash no space",
@@ -479,7 +481,17 @@ def execute_fixture(probe: Path, fixture: Path) -> dict[str, Any]:
         require(isinstance(last_start_tag, str), f"test[{test_index}] lastStartTag invalid")
         require(isinstance(input_text, str), f"test[{test_index}] input invalid")
         require(test.get("doubleEscaped", False) is False, f"admitted test {description!r} is doubleEscaped")
-        require(input_text.isascii() and last_start_tag.isascii(), f"admitted test {description!r} is non-ASCII")
+        if input_text.isascii():
+            require(last_start_tag.isascii(), f"admitted test {description!r} has non-ASCII lastStartTag")
+        else:
+            require(
+                description == "Non-ASCII character reference name",
+                f"admitted test {description!r} uses an unpinned non-ASCII input surface",
+            )
+            require(
+                raw_state == "Data state" and last_start_tag == "" and input_text == "&¬;",
+                "pinned non-ASCII test1 authority shape drifted",
+            )
 
         label = f"test[{test_index}] {description} [{raw_state}]"
         token_stream = expected_tokens(test, label)
@@ -522,7 +534,11 @@ def execute_fixture(probe: Path, fixture: Path) -> dict[str, Any]:
         "unsupported": len(unsupported_descriptions),
         "unsupported_descriptions": unsupported_descriptions,
         "admitted_surface_pass_claim": admitted_surface_pass,
-        "full_fixture_pass_claim": False,
+        "full_fixture_pass_claim": (
+            admitted_surface_pass
+            and passed == RUNNER_EXECUTION_COUNT
+            and len(unsupported_descriptions) == 0
+        ),
         "html_tokenizer_conformance_claim": False,
         "z7_status_change": False,
     }
