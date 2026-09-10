@@ -1,0 +1,75 @@
+name: Z7 Data UTF-8 text builder
+
+on:
+  push:
+    branches:
+      - candidate/z7-data-utf8-text-v1
+
+permissions:
+  contents: write
+
+jobs:
+  build-production:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: candidate/z7-data-utf8-text-v1
+          fetch-depth: 1
+
+      - name: Apply bounded UTF-8 Data text slice
+        run: python3 scripts/apply_z7_data_utf8_text_v1.py
+
+      - name: Install focused build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+
+      - name: Build focused tokenizer targets
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-html-tokenizer-data-utf8-text-v1-tests
+          zevryon-html-tokenizer-token-stream-v1-probe
+          zevryon-html-tokenizer-named-character-reference-v1-tests
+          zevryon-html-tokenizer-numeric-character-reference-v1-tests
+
+      - name: Run focused regressions
+        run: >-
+          ctest --test-dir build --output-on-failure
+          -R "(html-tokenizer-(data-utf8-text|named-character-reference|numeric-character-reference)-v1-tests|z7-html5lib-tokenizer-(corpus-provenance|test1-admitted-runner-v1|test1-admitted-runner-v1-self-test)|z7-html-named-reference-table-(provenance|verifier-tests))"
+
+      - name: Assert exact production probe for literal non-ASCII Data
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(build/zevryon-html-tokenizer-token-stream-v1-probe DATA '' 26c2ac3b)"
+          expected=$'TOKEN\tC\t26c2ac3b\nSTATS\t4\t1\t1\t4\t0\t0'
+          printf '%s\n' "$actual"
+          test "$actual" = "$expected"
+
+      - name: Commit tested production slice and remove builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/z7_data_utf8_text_builder.yml scripts/apply_z7_data_utf8_text_v1.py
+          git add \
+            src/html_tokenizer_utf8_v1.hpp \
+            src/html_tokenizer_data_tags_v1.cpp \
+            src/html_tokenizer_character_reference_v1.cpp \
+            src/html_tokenizer_data_stream_v1.cpp \
+            src/html_tokenizer_data_tags_v1.hpp \
+            tests/html_tokenizer_data_utf8_text_v1_tests.cpp \
+            docs/Z7_HTML_TOKENIZER_DATA_UTF8_TEXT_V1.md \
+            cmake/logical_node_arena.cmake
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Z7: admit bounded UTF-8 Data text scalars'
+          git push origin HEAD:candidate/z7-data-utf8-text-v1
