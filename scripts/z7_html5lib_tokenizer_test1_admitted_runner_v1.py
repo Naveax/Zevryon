@@ -22,8 +22,8 @@ RUNNER_SIZE_BYTES = 10006
 RUNNER_SHA256 = "524fcfa4d561a14f0c4e72e0573549abe6341fd4dfb8e16bc2dcf59a608a7219"
 RUNNER_TEST_COUNT = 69
 RUNNER_EXECUTION_COUNT = 69
-ADMITTED_EXECUTION_COUNT = 58
-UNSUPPORTED_EXECUTION_COUNT = 11
+ADMITTED_EXECUTION_COUNT = 68
+UNSUPPORTED_EXECUTION_COUNT = 1
 
 STATE_MAP = {
     "Data state": "DATA",
@@ -63,6 +63,17 @@ ADMITTED_DESCRIPTIONS = frozenset(
         "Hexadecimal entity in attribute",
         "Unquoted attribute ending in ampersand",
         "Unquoted attribute at end of tag with final character of &, with tag followed by characters",
+        # Bounded WHATWG named-character-reference surface.
+        "Unfinished entity",
+        "Entity with trailing semicolon (1)",
+        "Entity with trailing semicolon (2)",
+        "Entity without trailing semicolon (1)",
+        "Entity without trailing semicolon (2)",
+        "Partial entity match at end of file",
+        "Entity in attribute without semicolon ending in x",
+        "Entity in attribute without semicolon ending in 1",
+        "Entity in attribute without semicolon ending in i",
+        "Entity in attribute without semicolon",
         # Comment state-family surface.
         "Simple comment",
         "Comment, Central dash no space",
