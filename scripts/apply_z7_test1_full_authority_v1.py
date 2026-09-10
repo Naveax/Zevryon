@@ -28,6 +28,12 @@ runner = replace_once(runner, anchor, addition, "final test1 allowlist insertion
 old_guard = '''        require(test.get("doubleEscaped", False) is False, f"admitted test {description!r} is doubleEscaped")\n        require(input_text.isascii() and last_start_tag.isascii(), f"admitted test {description!r} is non-ASCII")\n\n        label = f"test[{test_index}] {description} [{raw_state}]"\n'''
 new_guard = '''        require(test.get("doubleEscaped", False) is False, f"admitted test {description!r} is doubleEscaped")\n        if input_text.isascii():\n            require(last_start_tag.isascii(), f"admitted test {description!r} has non-ASCII lastStartTag")\n        else:\n            require(\n                description == "Non-ASCII character reference name",\n                f"admitted test {description!r} uses an unpinned non-ASCII input surface",\n            )\n            require(\n                raw_state == "Data state" and last_start_tag == "" and input_text == "&¬;",\n                "pinned non-ASCII test1 authority shape drifted",\n            )\n\n        label = f"test[{test_index}] {description} [{raw_state}]"\n'''
 runner = replace_once(runner, old_guard, new_guard, "non-ASCII authority guard")
+runner = replace_once(
+    runner,
+    '        "full_fixture_pass_claim": False,\n',
+    '        "full_fixture_pass_claim": (\n            admitted_surface_pass\n            and passed == RUNNER_EXECUTION_COUNT\n            and len(unsupported_descriptions) == 0\n        ),\n',
+    "full fixture pass claim derivation",
+)
 RUNNER.write_text(runner, encoding="utf-8", newline="\n")
 
 DOC.write_text(
@@ -64,7 +70,7 @@ A green result requires exactly:
 - `failed = 0`
 - `unsupported = 0`
 
-No execution in this pinned fixture is skipped, converted to a synthetic pass or decoded by runner-side entity logic.
+No execution in this pinned fixture is skipped, converted to a synthetic pass or decoded by runner-side entity logic. `full_fixture_pass_claim` is derived only when the admitted surface passes, all 69 executions pass, and the unsupported set is empty.
 
 ## Admitted surface
 
