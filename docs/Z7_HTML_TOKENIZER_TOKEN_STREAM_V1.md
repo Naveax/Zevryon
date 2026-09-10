@@ -64,7 +64,7 @@ Default caller bounds are 1 MiB input and 64 KiB token.
 
 Character data is coalesced only up to the configured token limit. The sink consumes tokens incrementally, so the API does not retain the complete output stream internally.
 
-Invalid initial-state enum values and missing RCDATA/RAWTEXT `last_start_tag` context fail before token/error events are emitted. Allocation failures in state/context setup and token execution are contained by the production API and reported through the explicit error channel.
+Invalid initial-state enum values fail before token/error events are emitted. RCDATA/RAWTEXT now accept an empty `last_start_tag`; in that authority shape no end-tag candidate is appropriate and `</...` spellings remain character data. Allocation failures in state/context setup and token execution are contained by the production API and reported through the explicit error channel.
 
 ## Parse-error authority
 

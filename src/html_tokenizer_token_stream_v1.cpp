@@ -1,5 +1,6 @@
 #include "html_tokenizer_token_stream_v1.hpp"
 
+#include "html_tokenizer_character_reference_v1.hpp"
 #include "html_tokenizer_data_stream_v1.hpp"
 #include "html_tokenizer_script_data_v1.hpp"
 
@@ -494,29 +495,44 @@ private:
     }
 
     bool consume_rcdata_reference(std::size_t* cursor) {
-        struct Reference {
-            std::string_view source;
-            std::string_view decoded;
-        };
-        constexpr Reference references[] = {
-            {"&amp;", "&"},
-            {"&lt;", "<"},
-            {"&gt;", ">"},
-            {"&quot;", "\""},
-            {"&apos;", "'"},
-        };
-        for (const Reference& reference : references) {
-            if (input_.substr(*cursor).starts_with(reference.source)) {
-                if (!append_characters(reference.decoded)) {
-                    return false;
-                }
-                *cursor += reference.source.size();
-                return true;
-            }
+        if (cursor == nullptr || *cursor >= input_.size() || input_[*cursor] != '&') {
+            return fail_tokenizer(
+                error_,
+                "HTML tokenizer RCDATA character-reference dispatch invariant failed");
         }
-        return fail_tokenizer(
-            error_,
-            "HTML tokenizer RCDATA named-character reference is outside admitted v1 subset");
+        const std::size_t reference_start = *cursor;
+        HtmlTokenizerCharacterReferenceV1Stats reference_stats{};
+        HtmlTokenizerCharacterReferenceV1Result reference_result{};
+        const bool success = consume_html_character_reference_v1(
+            input_,
+            reference_start,
+            HtmlTokenizerCharacterReferenceV1Context::Data,
+            sink_,
+            &reference_stats,
+            &reference_result,
+            error_);
+        if (!add_counter(
+                &stats_->parse_errors_emitted,
+                reference_stats.parse_errors_emitted,
+                error_,
+                "HTML tokenizer RCDATA parse-error")) {
+            return false;
+        }
+        if (!success) {
+            return false;
+        }
+        if (reference_result.next_offset <= reference_start ||
+            reference_result.next_offset > input_.size() ||
+            reference_result.replacement_utf8.empty()) {
+            return fail_tokenizer(
+                error_,
+                "HTML tokenizer RCDATA character-reference result invariant failed");
+        }
+        if (!append_characters(reference_result.replacement_utf8)) {
+            return false;
+        }
+        *cursor = reference_result.next_offset;
+        return true;
     }
 
     bool consume_text_state(std::size_t* cursor, bool rcdata) {
@@ -533,6 +549,18 @@ private:
         }
         if (*cursor + 1U >= input_.size() ||
             input_[*cursor + 1U] != '/') {
+            if (!append_character('<')) {
+                return false;
+            }
+            ++*cursor;
+            return true;
+        }
+
+        // With no last-start-tag authority, no end-tag candidate can be
+        // appropriate. Reconsume the slash/name bytes in the active text state
+        // by publishing only the '<' now. This preserves literal </... input
+        // without manufacturing an empty-name end tag.
+        if (last_start_tag_.empty()) {
             if (!append_character('<')) {
                 return false;
             }
@@ -769,14 +797,6 @@ bool tokenize_html_token_stream_v1(
         return fail_tokenizer(
             error,
             "HTML tokenizer initial state is invalid");
-    }
-
-    if ((active_state == ActiveState::Rcdata ||
-         active_state == ActiveState::Rawtext) &&
-        last_start_tag.empty()) {
-        return fail_tokenizer(
-            error,
-            "HTML tokenizer RCDATA/RAWTEXT requires non-empty last-start-tag");
     }
 
     bool success = false;
