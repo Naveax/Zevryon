@@ -136,13 +136,13 @@ bool test_data_parse_error_coordinates_and_common_stats_are_preserved() {
         require(stats.parse_errors_emitted == 1U, "recoverable Data error stats");
 }
 
-bool test_data_failure_retains_already_accepted_events_and_stats() {
+bool test_data_public_doctype_preserves_accepted_prefix_and_stats() {
     const std::string input = "<!--ok--><!DOCTYPE html PUBLIC 'x'>";
     CollectingSink sink;
     HtmlTokenizerV1Stats stats;
     std::string error;
     if (!require(
-            !tokenize_html_token_stream_v1(
+            tokenize_html_token_stream_v1(
                 input,
                 HtmlTokenizerV1InitialState::Data,
                 "",
@@ -150,23 +150,31 @@ bool test_data_failure_retains_already_accepted_events_and_stats() {
                 &sink,
                 &stats,
                 &error),
-            "unsupported PUBLIC doctype fails closed") ||
-        !require(error.find("PUBLIC/SYSTEM") != std::string::npos,
-                 "PUBLIC doctype failure is explicit")) {
+            std::string("admitted PUBLIC doctype: ") + error) ||
+        !require(sink.tokens.size() == 2U, "PUBLIC doctype composed token count") ||
+        !require(sink.errors.empty(), "PUBLIC doctype composed stream has no errors")) {
         return false;
     }
 
-    return require(sink.tokens.size() == 1U, "accepted prefix event is retained") &&
-        require(sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Comment &&
+    return require(sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Comment &&
                     sink.tokens[0].data == "ok",
                 "accepted prefix comment is retained") &&
-        require(stats.input_bytes == input.size(), "failure retains full input stats") &&
-        require(stats.tokens_emitted == 1U,
-                "failure retains accepted prefix token accounting") &&
+        require(sink.tokens[1].kind == HtmlTokenizerV1TokenKind::Doctype &&
+                    sink.tokens[1].name == "html" &&
+                    sink.tokens[1].has_public_identifier &&
+                    sink.tokens[1].public_identifier == "x" &&
+                    !sink.tokens[1].has_system_identifier &&
+                    sink.tokens[1].system_identifier.empty() &&
+                    !sink.tokens[1].force_quirks,
+                "PUBLIC doctype token payload") &&
+        require(stats.input_bytes == input.size(), "PUBLIC doctype retains full input stats") &&
+        require(stats.tokens_emitted == 2U,
+                "PUBLIC doctype aggregate token accounting") &&
         require(stats.character_tokens_emitted == 0U &&
                     stats.character_bytes_emitted == 0U &&
-                    stats.end_tags_emitted == 0U,
-                "failure common counters do not invent events");
+                    stats.end_tags_emitted == 0U &&
+                    stats.parse_errors_emitted == 0U,
+                "PUBLIC doctype common counters remain exact");
 }
 
 bool test_data_initial_state_does_not_validate_unused_last_start_tag() {
@@ -201,7 +209,7 @@ bool test_data_initial_state_does_not_validate_unused_last_start_tag() {
 int main() {
     if (!test_data_initial_state_preserves_full_admitted_token_order() ||
         !test_data_parse_error_coordinates_and_common_stats_are_preserved() ||
-        !test_data_failure_retains_already_accepted_events_and_stats() ||
+        !test_data_public_doctype_preserves_accepted_prefix_and_stats() ||
         !test_data_initial_state_does_not_validate_unused_last_start_tag()) {
         return 1;
     }
