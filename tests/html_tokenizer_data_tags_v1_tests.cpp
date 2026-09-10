@@ -218,7 +218,7 @@ bool test_plaintext_start_tag_does_not_fake_tree_builder_feedback() {
         require(sink.errors.empty(), "plaintext token case has no errors");
 }
 
-bool test_fail_closed_boundaries() {
+bool test_admitted_references_and_fail_closed_boundaries() {
     {
         CollectingSink sink;
         std::string error;
@@ -234,14 +234,22 @@ bool test_fail_closed_boundaries() {
     }
     {
         CollectingSink sink;
+        HtmlTokenizerDataTagsV1Stats stats;
         std::string error;
         if (!require(
-                !tokenize_html_data_tags_v1(
-                    "a&amp;b", {}, &sink, nullptr, &error),
-                "character references remain fail-closed") ||
+                tokenize_html_data_tags_v1(
+                    "a&amp;b", {}, &sink, &stats, &error),
+                std::string("named character reference is admitted: ") + error) ||
+            !require(sink.tokens.size() == 1U, "named reference token count") ||
             !require(
-                error.find("character references") != std::string::npos,
-                "character-reference failure is explicit")) {
+                sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Character &&
+                    sink.tokens[0].data == "a&b",
+                "named reference decodes inside coalesced Data character token") ||
+            !require(sink.errors.empty(), "named reference emits no parse errors") ||
+            !require(stats.tokens_emitted == 1U &&
+                         stats.character_tokens_emitted == 1U &&
+                         stats.character_bytes_emitted == 3U,
+                     "named reference output stats use decoded bytes")) {
             return false;
         }
     }
@@ -308,7 +316,7 @@ int main() {
         !test_duplicate_attribute_first_wins() ||
         !test_end_tag_attributes_are_diagnosed_and_dropped() ||
         !test_plaintext_start_tag_does_not_fake_tree_builder_feedback() ||
-        !test_fail_closed_boundaries() ||
+        !test_admitted_references_and_fail_closed_boundaries() ||
         !test_token_and_attribute_bounds()) {
         return 1;
     }
