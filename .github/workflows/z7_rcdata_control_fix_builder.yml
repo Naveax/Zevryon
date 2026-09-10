@@ -1,0 +1,41 @@
+name: Z7 RCDATA control-error fix builder
+
+on:
+  push:
+    branches:
+      - candidate/z7-rcdata-rawtext-empty-last-start-tag-v1
+    paths:
+      - '.github/workflows/z7_rcdata_control_fix_builder.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: candidate/z7-rcdata-rawtext-empty-last-start-tag-v1
+          fetch-depth: 1
+      - name: Apply exact control-error fix
+        env:
+          PATCH_B64: ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCgpzcmNfcGF0aCA9IFBhdGgoInNyYy9odG1sX3Rva2VuaXplcl90b2tlbl9zdHJlYW1fdjEuY3BwIikKc3JjID0gc3JjX3BhdGgucmVhZF90ZXh0KGVuY29kaW5nPSJ1dGYtOCIpCgpvbGQgPSAnJydib29sIGFzY2lpX2FscGhhKGNoYXIgdmFsdWUpIG5vZXhjZXB0IHsKICAgIHJldHVybiAodmFsdWUgPj0gJ2EnICYmIHZhbHVlIDw9ICd6JykgfHwKICAgICAgICAodmFsdWUgPj0gJ0EnICYmIHZhbHVlIDw9ICdaJyk7Cn0KJycnCm5ldyA9ICcnJ2Jvb2wgYXNjaWlfYWxwaGEoY2hhciB2YWx1ZSkgbm9leGNlcHQgewogICAgcmV0dXJuICh2YWx1ZSA+PSAnYScgJiYgdmFsdWUgPD0gJ3onKSB8fAogICAgICAgICh2YWx1ZSA+PSAnQScgJiYgdmFsdWUgPD0gJ1onKTsKfQoKYm9vbCBpbnB1dF9jb250cm9sX3BhcnNlX2Vycm9yKGNoYXIgdmFsdWUpIG5vZXhjZXB0IHsKICAgIGNvbnN0IGF1dG8gYnl0ZSA9IHN0YXRpY19jYXN0PHVuc2lnbmVkIGNoYXI+KHZhbHVlKTsKICAgIHJldHVybiAoYnl0ZSA+PSAweDAxVSAmJiBieXRlIDw9IDB4MDhVKSB8fCBieXRlID09IDB4MEJVIHx8CiAgICAgICAgKGJ5dGUgPj0gMHgwRVUgJiYgYnl0ZSA8PSAweDFGVSkgfHwgYnl0ZSA9PSAweDdGVTsKfQonJycKYXNzZXJ0IHNyYy5jb3VudChvbGQpID09IDEsICJhc2NpaSBoZWxwZXIgYW5jaG9yIGRyaWZ0ZWQiCnNyYyA9IHNyYy5yZXBsYWNlKG9sZCwgbmV3LCAxKQoKb2xkID0gJycnICAgIGJvb2wgY29uc3VtZV90ZXh0X3N0YXRlKHN0ZDo6c2l6ZV90KiBjdXJzb3IsIGJvb2wgcmNkYXRhKSB7CiAgICAgICAgY29uc3QgY2hhciBjaGFyYWN0ZXIgPSBpbnB1dF9bKmN1cnNvcl07CiAgICAgICAgaWYgKHJjZGF0YSAmJiBjaGFyYWN0ZXIgPT0gJyYnKSB7CicnJwpuZXcgPSAnJycgICAgYm9vbCBjb25zdW1lX3RleHRfc3RhdGUoc3RkOjpzaXplX3QqIGN1cnNvciwgYm9vbCByY2RhdGEpIHsKICAgICAgICBjb25zdCBjaGFyIGNoYXJhY3RlciA9IGlucHV0X1sqY3Vyc29yXTsKICAgICAgICBpZiAoaW5wdXRfY29udHJvbF9wYXJzZV9lcnJvcihjaGFyYWN0ZXIpICYmCiAgICAgICAgICAgICFlbWl0X3BhcnNlX2Vycm9yKCpjdXJzb3IsICJjb250cm9sLWNoYXJhY3Rlci1pbi1pbnB1dC1zdHJlYW0iKSkgewogICAgICAgICAgICByZXR1cm4gZmFsc2U7CiAgICAgICAgfQogICAgICAgIGlmIChyY2RhdGEgJiYgY2hhcmFjdGVyID09ICcmJykgewonJycKYXNzZXJ0IHNyYy5jb3VudChvbGQpID09IDEsICJ0ZXh0LXN0YXRlIGNvbnRyb2wgYW5jaG9yIGRyaWZ0ZWQiCnNyYyA9IHNyYy5yZXBsYWNlKG9sZCwgbmV3LCAxKQpzcmNfcGF0aC53cml0ZV90ZXh0KHNyYywgZW5jb2Rpbmc9InV0Zi04IikKCnRlc3RfcGF0aCA9IFBhdGgoInRlc3RzL2h0bWxfdG9rZW5pemVyX3Rva2VuX3N0cmVhbV92MV90ZXN0cy5jcHAiKQp0ZXN0cyA9IHRlc3RfcGF0aC5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04IikKYW5jaG9yID0gJycnICAgICAgICBydW5fY2FzZSgKICAgICAgICAgICAgICAgIlJBV1RFWFQgZW1wdHkgbGFzdC1zdGFydC10YWcga2VlcHMgZW5kLXRhZyBzcGVsbGluZyBsaXRlcmFsIiwKICAgICAgICAgICAgICAgSHRtbFRva2VuaXplclYxSW5pdGlhbFN0YXRlOjpSYXd0ZXh0LAogICAgICAgICAgICAgICAiIiwKICAgICAgICAgICAgICAgIjwvZm9vPjwvPiIsCiAgICAgICAgICAgICAgIHtjaGFyYWN0ZXIoIjwvZm9vPjwvPiIpfSwKICAgICAgICAgICAgICAge30pICYmCicnZwppbnNlcnQgPSBhbmNob3IgKyAnJycgICAgICAgIHJ1bl9jYXNlKAogICAgICAgICAgICAgICAiUkNEQVRBIGVtcHR5IGxhc3Qtc3RhcnQtdGFnIHJlcG9ydHMgaW5wdXQgY29udHJvbCIsCiAgICAgICAgICAgICAgIEh0bWxUb2tlbml6ZXJWMUluaXRpYWxTdGF0ZTo6UmNkYXRhLAogICAgICAgICAgICAgICAiIiwKICAgICAgICAgICAgICAgc3RkOjpzdHJpbmcoMVUsICdcXHgwQicpLAogICAgICAgICAgICAgICB7Y2hhcmFjdGVyKHN0ZDo6c3RyaW5nKDFVLCAnXFx4MEInKSl9LAogICAgICAgICAgICAgICB7RXhwZWN0ZWRFcnJvcnsiY29udHJvbC1jaGFyYWN0ZXItaW4taW5wdXQtc3RyZWFtIiwgMVUsIDFVfX0pICYmCiAgICAgICAgcnVuX2Nhc2UoCiAgICAgICAgICAgICAgICJSQVdURVhUIGVtcHR5IGxhc3Qtc3RhcnQtdGFnIHJlcG9ydHMgaW5wdXQgY29udHJvbCIsCiAgICAgICAgICAgICAgIEh0bWxUb2tlbml6ZXJWMUluaXRpYWxTdGF0ZTo6UmF3dGV4dCwKICAgICAgICAgICAgICAgIiIsCiAgICAgICAgICAgICAgIHN0ZDo6c3RyaW5nKDFVLCAnXFx4MEInKSwKICAgICAgICAgICAgICAge2NoYXJhY3RlcihzdGQ6OnN0cmluZygxVSwgJ1xceDBCJykpfSwKICAgICAgICAgICAgICAge0V4cGVjdGVkRXJyb3J7ImNvbnRyb2wtY2hhcmFjdGVyLWluLWlucHV0LXN0cmVhbSIsIDFVLCAxVX19KSAmJgonJycKYXNzZXJ0IHRlc3RzLmNvdW50KGFuY2hvcikgPT0gMSwgImZvY3VzZWQgdGVzdCBhbmNob3IgZHJpZnRlZCIKdGVzdHMgPSB0ZXN0cy5yZXBsYWNlKGFuY2hvciwgaW5zZXJ0LCAxKQp0ZXN0X3BhdGgud3JpdGVfdGV4dCh0ZXN0cywgZW5jb2Rpbmc9InV0Zi04IikK
+        run: |
+          echo "$PATCH_B64" | base64 --decode > /tmp/z7_fix.py
+          python3 /tmp/z7_fix.py
+      - name: Focused verification
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_RUST_CORE=OFF -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+          cmake --build build --parallel 2 --target zevryon-html-tokenizer-token-stream-v1-tests
+          ctest --test-dir build --output-on-failure -R '^zevryon-html-tokenizer-token-stream-v1-tests$'
+      - name: Commit fix and remove builder
+        run: |
+          rm .github/workflows/z7_rcdata_control_fix_builder.yml
+          git config user.name Naveax
+          git config user.email Omersevik095@gmail.com
+          git add src/html_tokenizer_token_stream_v1.cpp tests/html_tokenizer_token_stream_v1_tests.cpp .github/workflows/z7_rcdata_control_fix_builder.yml
+          git commit -m 'Z7: report text-state input control errors'
+          git push origin HEAD:candidate/z7-rcdata-rawtext-empty-last-start-tag-v1
