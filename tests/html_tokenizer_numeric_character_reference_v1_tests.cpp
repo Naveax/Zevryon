@@ -65,7 +65,7 @@ bool run_reference(
 }
 
 bool test_literal_ampersand_fallback() {
-    for (const std::string input : {std::string("&"), std::string("&&"), std::string("& ")}) {
+    for (const std::string& input : {std::string("&"), std::string("&&"), std::string("& ")}) {
         CollectingSink sink;
         HtmlTokenizerCharacterReferenceV1Stats stats;
         HtmlTokenizerCharacterReferenceV1Result result;
