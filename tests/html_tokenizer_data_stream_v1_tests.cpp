@@ -256,17 +256,31 @@ bool test_admitted_references_fail_closed_surfaces_and_bounds() {
         HtmlTokenizerDataStreamV1Stats stats;
         std::string error;
         if (!require(
-                !tokenize_html_data_stream_v1(
+                tokenize_html_data_stream_v1(
                     "<!DOCTYPE html PUBLIC 'x'>",
                     {},
                     &sink,
                     &stats,
                     &error),
-                "PUBLIC doctype remains fail closed") ||
-            !require(error.find("PUBLIC/SYSTEM") != std::string::npos,
-                     "PUBLIC doctype failure explicit") ||
-            !require(stats.markup_declarations_consumed == 0U,
-                     "failed markup declaration is not counted consumed")) {
+                std::string("PUBLIC doctype is admitted: ") + error) ||
+            !require(sink.tokens.size() == 1U, "PUBLIC doctype token count") ||
+            !require(sink.errors.empty(), "PUBLIC doctype has no parse errors") ||
+            !require(
+                sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Doctype &&
+                    sink.tokens[0].name == "html" &&
+                    sink.tokens[0].has_public_identifier &&
+                    sink.tokens[0].public_identifier == "x" &&
+                    !sink.tokens[0].has_system_identifier &&
+                    sink.tokens[0].system_identifier.empty() &&
+                    !sink.tokens[0].force_quirks,
+                "PUBLIC doctype token payload") ||
+            !require(stats.tokens_emitted == 1U &&
+                         stats.doctype_tokens_emitted == 1U &&
+                         stats.parse_errors_emitted == 0U,
+                     "PUBLIC doctype token accounting") ||
+            !require(stats.data_segments_consumed == 0U &&
+                         stats.markup_declarations_consumed == 1U,
+                     "PUBLIC doctype declaration accounting")) {
             return false;
         }
     }

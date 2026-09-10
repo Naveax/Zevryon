@@ -72,10 +72,14 @@ bool check_errors(
     return true;
 }
 
-bool run_doctype_case(
+bool run_doctype_full_case(
     std::string_view label,
     std::string_view input,
     std::string_view expected_name,
+    bool expected_has_public_identifier,
+    std::string_view expected_public_identifier,
+    bool expected_has_system_identifier,
+    std::string_view expected_system_identifier,
     bool expected_force_quirks,
     const std::vector<ExpectedError>& expected_errors = {}) {
     CollectingSink sink;
@@ -100,16 +104,38 @@ bool run_doctype_case(
     const HtmlTokenizerV1Token& token = sink.tokens[0];
     return require(token.kind == HtmlTokenizerV1TokenKind::Doctype, std::string(label) + " kind") &&
         require(token.name == expected_name, std::string(label) + " normalized name") &&
-        require(!token.has_public_identifier && !token.has_system_identifier,
-                std::string(label) + " null identifiers") &&
-        require(token.public_identifier.empty() && token.system_identifier.empty(),
-                std::string(label) + " identifier payloads empty") &&
+        require(token.has_public_identifier == expected_has_public_identifier,
+                std::string(label) + " public identifier presence") &&
+        require(token.public_identifier == expected_public_identifier,
+                std::string(label) + " public identifier payload") &&
+        require(token.has_system_identifier == expected_has_system_identifier,
+                std::string(label) + " system identifier presence") &&
+        require(token.system_identifier == expected_system_identifier,
+                std::string(label) + " system identifier payload") &&
         require(token.force_quirks == expected_force_quirks,
                 std::string(label) + " force-quirks") &&
         require(stats.tokens_emitted == 1U && stats.doctype_tokens_emitted == 1U &&
                     stats.comment_tokens_emitted == 0U &&
                     stats.parse_errors_emitted == expected_errors.size(),
                 std::string(label) + " stats");
+}
+
+bool run_doctype_case(
+    std::string_view label,
+    std::string_view input,
+    std::string_view expected_name,
+    bool expected_force_quirks,
+    const std::vector<ExpectedError>& expected_errors = {}) {
+    return run_doctype_full_case(
+        label,
+        input,
+        expected_name,
+        false,
+        {},
+        false,
+        {},
+        expected_force_quirks,
+        expected_errors);
 }
 
 bool run_comment_case(
@@ -123,13 +149,7 @@ bool run_comment_case(
     std::string error;
     if (!require(
             consume_html_markup_declaration_v1(
-                input,
-                0U,
-                {},
-                &sink,
-                &stats,
-                &next_offset,
-                &error),
+                input, 0U, {}, &sink, &stats, &next_offset, &error),
             std::string(label) + ": " + error) ||
         !require(next_offset == input.size(), std::string(label) + " consumes input") ||
         !require(sink.tokens.size() == 1U, std::string(label) + " token count") ||
@@ -157,6 +177,130 @@ bool test_pinned_test1_doctypes() {
             true,
             {ExpectedError{"eof-in-doctype", 1U, 15U}}) &&
         run_doctype_case("Doctype in error", "<!DOCTYPE foo>", "foo", false);
+}
+
+bool test_bounded_ascii_doctype_recovery() {
+    if (!run_doctype_case(
+            "missing whitespace before name",
+            "<!DOCTYPEhtml>",
+            "html",
+            false,
+            {ExpectedError{"missing-whitespace-before-doctype-name", 1U, 10U}}) ||
+        !run_doctype_case(
+            "punctuation starts name",
+            "<!DOCTYPE!>",
+            "!",
+            false,
+            {ExpectedError{"missing-whitespace-before-doctype-name", 1U, 10U}}) ||
+        !run_doctype_case("punctuation in name", "<!DOCTYPE a!>", "a!", false) ||
+        !run_doctype_case(
+            "bogus after name",
+            "<!DOCTYPE a b>",
+            "a",
+            true,
+            {ExpectedError{"invalid-character-sequence-after-doctype-name", 1U, 13U}}) ||
+        !run_doctype_full_case(
+            "PUBLIC quoted identifier",
+            "<!DOCTYPE a PUBLIC \"x\">",
+            "a",
+            true,
+            "x",
+            false,
+            {},
+            false) ||
+        !run_doctype_full_case(
+            "PUBLIC quote without whitespace",
+            "<!DOCTYPE a PUBLIC'x'>",
+            "a",
+            true,
+            "x",
+            false,
+            {},
+            false,
+            {ExpectedError{"missing-whitespace-after-doctype-public-keyword", 1U, 19U}}) ||
+        !run_doctype_full_case(
+            "PUBLIC and SYSTEM identifiers",
+            "<!DOCTYPE a PUBLIC \"x\" \"y\">",
+            "a",
+            true,
+            "x",
+            true,
+            "y",
+            false) ||
+        !run_doctype_full_case(
+            "SYSTEM quoted identifier",
+            "<!DOCTYPE a SYSTEM \"y\">",
+            "a",
+            false,
+            {},
+            true,
+            "y",
+            false) ||
+        !run_doctype_full_case(
+            "SYSTEM quote without whitespace",
+            "<!DOCTYPE a SYSTEM'y'>",
+            "a",
+            false,
+            {},
+            true,
+            "y",
+            false,
+            {ExpectedError{"missing-whitespace-after-doctype-system-keyword", 1U, 19U}}) ||
+        !run_doctype_case(
+            "missing PUBLIC identifier",
+            "<!DOCTYPE a PUBLIC>",
+            "a",
+            true,
+            {ExpectedError{"missing-doctype-public-identifier", 1U, 19U}}) ||
+        !run_doctype_case(
+            "missing SYSTEM identifier",
+            "<!DOCTYPE a SYSTEM>",
+            "a",
+            true,
+            {ExpectedError{"missing-doctype-system-identifier", 1U, 19U}}) ||
+        !run_doctype_full_case(
+            "abrupt PUBLIC identifier",
+            "<!DOCTYPE a PUBLIC \"x>",
+            "a",
+            true,
+            "x",
+            false,
+            {},
+            true,
+            {ExpectedError{"abrupt-doctype-public-identifier", 1U, 22U}}) ||
+        !run_doctype_full_case(
+            "abrupt SYSTEM identifier",
+            "<!DOCTYPE a SYSTEM \"x>",
+            "a",
+            false,
+            {},
+            true,
+            "x",
+            true,
+            {ExpectedError{"abrupt-doctype-system-identifier", 1U, 22U}}) ||
+        !run_doctype_full_case(
+            "unexpected character after SYSTEM identifier",
+            "<!DOCTYPE a SYSTEM \"\"!>",
+            "a",
+            false,
+            {},
+            true,
+            {},
+            false,
+            {ExpectedError{"unexpected-character-after-doctype-system-identifier", 1U, 22U}})) {
+        return false;
+    }
+
+    std::string control_name = "<!DOCTYPE ";
+    control_name.push_back('\x08');
+    control_name.push_back('>');
+    const std::string expected_name(1U, '\x08');
+    return run_doctype_case(
+        "ASCII control in name",
+        control_name,
+        expected_name,
+        false,
+        {ExpectedError{"control-character-in-input-stream", 1U, 11U}});
 }
 
 bool test_pinned_test1_comments() {
@@ -253,23 +397,51 @@ bool test_fail_closed_boundaries() {
     }
     {
         CollectingSink sink;
+        HtmlTokenizerMarkupDeclarationsV1Config config;
+        config.maximum_token_bytes = 3U;
+        HtmlTokenizerMarkupDeclarationsV1Stats stats;
+        std::size_t next_offset = 99U;
+        std::string error;
+        if (!require(
+                !consume_html_markup_declaration_v1(
+                    "<!DOCTYPE abcd>", 0U, config, &sink, &stats, &next_offset, &error),
+                "DOCTYPE hard cap rejects oversized name") ||
+            !require(error.find("DOCTYPE name exceeds bounded byte limit") != std::string::npos,
+                     "DOCTYPE hard-cap error explicit") ||
+            !require(sink.tokens.empty(), "DOCTYPE hard cap publishes no token")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string input = "<!DOCTYPE a PUBLIC \"";
+        input.append("\xC2\xAC", 2U);
+        input += "\">";
         HtmlTokenizerMarkupDeclarationsV1Stats stats;
         std::size_t next_offset = 0U;
         std::string error;
         if (!require(
                 !consume_html_markup_declaration_v1(
-                    "<!DOCTYPE html PUBLIC 'x'>",
-                    0U,
-                    {},
-                    &sink,
-                    &stats,
-                    &next_offset,
-                    &error),
-                "PUBLIC identifier remains fail closed") ||
-            !require(error.find("PUBLIC/SYSTEM") != std::string::npos,
-                     "PUBLIC failure identifies open recovery surface") ||
-            !require(sink.tokens.empty() && sink.errors.empty(),
-                     "unsupported DOCTYPE publishes no events")) {
+                    input, 0U, {}, &sink, &stats, &next_offset, &error),
+                "non-ASCII DOCTYPE identifier remains fail closed") ||
+            !require(error.find("PUBLIC/SYSTEM or malformed DOCTYPE recovery") != std::string::npos,
+                     "non-ASCII DOCTYPE boundary preserves explicit authority class") ||
+            !require(sink.tokens.empty(), "unsupported non-ASCII DOCTYPE publishes no token")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        HtmlTokenizerMarkupDeclarationsV1Stats stats;
+        std::size_t next_offset = 0U;
+        std::string error;
+        if (!require(
+                !consume_html_markup_declaration_v1(
+                    "<!DOCTYPE >", 0U, {}, &sink, &stats, &next_offset, &error),
+                "missing DOCTYPE name remains fail closed") ||
+            !require(error.find("missing DOCTYPE name recovery") != std::string::npos,
+                     "missing DOCTYPE name boundary explicit") ||
+            !require(sink.tokens.empty(), "missing DOCTYPE name publishes no token")) {
             return false;
         }
     }
@@ -296,6 +468,7 @@ bool test_fail_closed_boundaries() {
 
 int main() {
     if (!test_pinned_test1_doctypes() ||
+        !test_bounded_ascii_doctype_recovery() ||
         !test_pinned_test1_comments() ||
         !test_nonzero_offset_preserves_global_location() ||
         !test_fail_closed_boundaries()) {

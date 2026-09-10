@@ -23,18 +23,15 @@ bool ascii_byte(char value) noexcept {
     return static_cast<unsigned char>(value) < 0x80U;
 }
 
-bool ascii_alpha(char value) noexcept {
-    return (value >= 'a' && value <= 'z') ||
-        (value >= 'A' && value <= 'Z');
-}
-
-bool ascii_digit(char value) noexcept {
-    return value >= '0' && value <= '9';
-}
-
 bool ascii_space(char value) noexcept {
     return value == ' ' || value == '\t' || value == '\n' ||
         value == '\r' || value == '\f';
+}
+
+bool ascii_control_parse_error(char value) noexcept {
+    const auto byte = static_cast<unsigned char>(value);
+    return (byte >= 0x01U && byte <= 0x08U) || byte == 0x0BU ||
+        (byte >= 0x0EU && byte <= 0x1FU) || byte == 0x7FU;
 }
 
 char ascii_lower(char value) noexcept {
@@ -42,11 +39,6 @@ char ascii_lower(char value) noexcept {
         return static_cast<char>(value + ('a' - 'A'));
     }
     return value;
-}
-
-bool doctype_name_character(char value) noexcept {
-    return ascii_alpha(value) || ascii_digit(value) || value == '-' ||
-        value == '_' || value == ':';
 }
 
 bool ascii_iequals_at(
@@ -150,6 +142,25 @@ public:
     }
 
 private:
+    enum class DoctypeState {
+        AfterKeyword,
+        BeforeName,
+        Name,
+        AfterName,
+        AfterPublicKeyword,
+        BeforePublicIdentifier,
+        PublicIdentifierDoubleQuoted,
+        PublicIdentifierSingleQuoted,
+        AfterPublicIdentifier,
+        BetweenPublicAndSystemIdentifiers,
+        AfterSystemKeyword,
+        BeforeSystemIdentifier,
+        SystemIdentifierDoubleQuoted,
+        SystemIdentifierSingleQuoted,
+        AfterSystemIdentifier,
+        Bogus,
+    };
+
     bool emit_parse_error(std::size_t offset, std::string code) {
         HtmlTokenizerV1ParseError parse_error =
             position_error(input_, offset, std::move(code));
@@ -193,8 +204,19 @@ private:
                 "HTML markup declaration comment-token");
     }
 
-    bool emit_doctype(std::string name, bool force_quirks) {
-        if (name.size() > config_.maximum_token_bytes) {
+    bool emit_doctype(
+        std::string name,
+        std::string public_identifier,
+        bool has_public_identifier,
+        std::string system_identifier,
+        bool has_system_identifier,
+        bool force_quirks) {
+        if (name.size() > config_.maximum_token_bytes ||
+            public_identifier.size() > config_.maximum_token_bytes ||
+            system_identifier.size() > config_.maximum_token_bytes ||
+            name.size() + public_identifier.size() > config_.maximum_token_bytes ||
+            name.size() + public_identifier.size() + system_identifier.size() >
+                config_.maximum_token_bytes) {
             return fail_markup(
                 error_,
                 "HTML markup declaration DOCTYPE token exceeds bounded byte limit");
@@ -202,6 +224,10 @@ private:
         HtmlTokenizerV1Token token;
         token.kind = HtmlTokenizerV1TokenKind::Doctype;
         token.name = std::move(name);
+        token.public_identifier = std::move(public_identifier);
+        token.system_identifier = std::move(system_identifier);
+        token.has_public_identifier = has_public_identifier;
+        token.has_system_identifier = has_system_identifier;
         token.force_quirks = force_quirks;
         if (!sink_->on_token(token, error_)) {
             if (error_->empty()) {
@@ -219,68 +245,540 @@ private:
                 "HTML markup declaration DOCTYPE-token");
     }
 
-    bool consume_doctype() {
-        std::size_t cursor = offset_ + 9U;
-        if (cursor >= input_.size() || !ascii_space(input_[cursor])) {
+    bool append_doctype_byte(
+        std::string* destination,
+        char value,
+        std::string_view label) {
+        if (destination->size() >= config_.maximum_token_bytes) {
+            return fail_markup(
+                error_,
+                "HTML markup declaration DOCTYPE " + std::string(label) +
+                    " exceeds bounded byte limit");
+        }
+        destination->push_back(value);
+        return true;
+    }
+
+    bool fail_unsupported_doctype_ascii_boundary(
+        bool original_missing_whitespace_before_name,
+        DoctypeState state) {
+        if (original_missing_whitespace_before_name || state == DoctypeState::AfterKeyword) {
             return fail_markup(
                 error_,
                 "HTML markup declaration malformed DOCTYPE-name transition is outside admitted v1 recovery");
         }
-        while (cursor < input_.size() && ascii_space(input_[cursor])) {
-            ++cursor;
-        }
-        if (cursor >= input_.size()) {
+        if (state == DoctypeState::BeforeName) {
             return fail_markup(
                 error_,
                 "HTML markup declaration missing DOCTYPE name recovery is outside admitted v1 subset");
         }
+        return fail_markup(
+            error_,
+            "HTML markup declaration PUBLIC/SYSTEM or malformed DOCTYPE recovery is outside admitted v1 subset");
+    }
 
-        std::string name;
-        while (cursor < input_.size() && doctype_name_character(input_[cursor])) {
-            if (name.size() >= config_.maximum_token_bytes) {
-                return fail_markup(
-                    error_,
-                    "HTML markup declaration DOCTYPE name exceeds bounded byte limit");
-            }
-            name.push_back(ascii_lower(input_[cursor]));
-            ++cursor;
-        }
-        if (name.empty()) {
+    bool observe_doctype_character(
+        std::size_t cursor,
+        bool original_missing_whitespace_before_name,
+        DoctypeState state) {
+        const char value = input_[cursor];
+        if (value == '\0') {
             return fail_markup(
                 error_,
-                "HTML markup declaration missing DOCTYPE name recovery is outside admitted v1 subset");
+                "HTML markup declaration input preprocessing/NUL replacement is not implemented");
         }
-
-        if (cursor == input_.size()) {
-            if (!emit_parse_error(input_.size(), "eof-in-doctype") ||
-                !emit_doctype(std::move(name), true)) {
-                return false;
-            }
-            *next_offset_ = input_.size();
-            return true;
+        if (!ascii_byte(value)) {
+            return fail_unsupported_doctype_ascii_boundary(
+                original_missing_whitespace_before_name,
+                state);
         }
-
-        while (cursor < input_.size() && ascii_space(input_[cursor])) {
-            ++cursor;
-        }
-        if (cursor == input_.size()) {
-            if (!emit_parse_error(input_.size(), "eof-in-doctype") ||
-                !emit_doctype(std::move(name), true)) {
-                return false;
-            }
-            *next_offset_ = input_.size();
-            return true;
-        }
-        if (input_[cursor] != '>') {
-            return fail_markup(
-                error_,
-                "HTML markup declaration PUBLIC/SYSTEM or malformed DOCTYPE recovery is outside admitted v1 subset");
-        }
-        if (!emit_doctype(std::move(name), false)) {
+        if (ascii_control_parse_error(value) &&
+            !emit_parse_error(cursor, "control-character-in-input-stream")) {
             return false;
         }
-        *next_offset_ = cursor + 1U;
         return true;
+    }
+
+    bool finish_doctype(
+        std::size_t next_offset,
+        std::string name,
+        std::string public_identifier,
+        bool has_public_identifier,
+        std::string system_identifier,
+        bool has_system_identifier,
+        bool force_quirks) {
+        if (!emit_doctype(
+                std::move(name),
+                std::move(public_identifier),
+                has_public_identifier,
+                std::move(system_identifier),
+                has_system_identifier,
+                force_quirks)) {
+            return false;
+        }
+        *next_offset_ = next_offset;
+        return true;
+    }
+
+    bool consume_doctype() {
+        std::size_t cursor = offset_ + 9U;
+        DoctypeState state = DoctypeState::AfterKeyword;
+        bool skip_observe_once = false;
+        bool original_missing_whitespace_before_name = false;
+        bool force_quirks = false;
+        bool has_public_identifier = false;
+        bool has_system_identifier = false;
+        std::string name;
+        std::string public_identifier;
+        std::string system_identifier;
+
+        for (;;) {
+            if (cursor >= input_.size()) {
+                if (state == DoctypeState::AfterKeyword) {
+                    return fail_markup(
+                        error_,
+                        "HTML markup declaration malformed DOCTYPE-name transition is outside admitted v1 recovery");
+                }
+                if (state == DoctypeState::BeforeName) {
+                    return fail_markup(
+                        error_,
+                        "HTML markup declaration missing DOCTYPE name recovery is outside admitted v1 subset");
+                }
+                if (state != DoctypeState::Bogus) {
+                    if (!emit_parse_error(input_.size(), "eof-in-doctype")) {
+                        return false;
+                    }
+                    force_quirks = true;
+                }
+                return finish_doctype(
+                    input_.size(),
+                    std::move(name),
+                    std::move(public_identifier),
+                    has_public_identifier,
+                    std::move(system_identifier),
+                    has_system_identifier,
+                    force_quirks);
+            }
+
+            if (!skip_observe_once) {
+                if (!observe_doctype_character(
+                        cursor,
+                        original_missing_whitespace_before_name,
+                        state)) {
+                    return false;
+                }
+            } else {
+                skip_observe_once = false;
+            }
+
+            const char value = input_[cursor];
+            switch (state) {
+            case DoctypeState::AfterKeyword:
+                if (ascii_space(value)) {
+                    state = DoctypeState::BeforeName;
+                    ++cursor;
+                    break;
+                }
+                if (value == '>') {
+                    return fail_markup(
+                        error_,
+                        "HTML markup declaration malformed DOCTYPE-name transition is outside admitted v1 recovery");
+                }
+                if (!emit_parse_error(cursor, "missing-whitespace-before-doctype-name")) {
+                    return false;
+                }
+                original_missing_whitespace_before_name = true;
+                state = DoctypeState::BeforeName;
+                skip_observe_once = true;
+                break;
+
+            case DoctypeState::BeforeName:
+                if (ascii_space(value)) {
+                    ++cursor;
+                    break;
+                }
+                if (value == '>') {
+                    return fail_markup(
+                        error_,
+                        "HTML markup declaration missing DOCTYPE name recovery is outside admitted v1 subset");
+                }
+                if (!append_doctype_byte(&name, ascii_lower(value), "name")) {
+                    return false;
+                }
+                state = DoctypeState::Name;
+                ++cursor;
+                break;
+
+            case DoctypeState::Name:
+                if (ascii_space(value)) {
+                    state = DoctypeState::AfterName;
+                    ++cursor;
+                    break;
+                }
+                if (value == '>') {
+                    return finish_doctype(
+                        cursor + 1U,
+                        std::move(name),
+                        std::move(public_identifier),
+                        has_public_identifier,
+                        std::move(system_identifier),
+                        has_system_identifier,
+                        force_quirks);
+                }
+                if (!append_doctype_byte(&name, ascii_lower(value), "name")) {
+                    return false;
+                }
+                ++cursor;
+                break;
+
+            case DoctypeState::AfterName:
+                if (ascii_space(value)) {
+                    ++cursor;
+                    break;
+                }
+                if (value == '>') {
+                    return finish_doctype(
+                        cursor + 1U,
+                        std::move(name),
+                        std::move(public_identifier),
+                        has_public_identifier,
+                        std::move(system_identifier),
+                        has_system_identifier,
+                        force_quirks);
+                }
+                if (ascii_iequals_at(input_, cursor, "PUBLIC")) {
+                    cursor += 6U;
+                    state = DoctypeState::AfterPublicKeyword;
+                    break;
+                }
+                if (ascii_iequals_at(input_, cursor, "SYSTEM")) {
+                    cursor += 6U;
+                    state = DoctypeState::AfterSystemKeyword;
+                    break;
+                }
+                if (!emit_parse_error(cursor, "invalid-character-sequence-after-doctype-name")) {
+                    return false;
+                }
+                force_quirks = true;
+                state = DoctypeState::Bogus;
+                ++cursor;
+                break;
+
+            case DoctypeState::AfterPublicKeyword:
+                if (ascii_space(value)) {
+                    state = DoctypeState::BeforePublicIdentifier;
+                    ++cursor;
+                    break;
+                }
+                if (value == '"' || value == '\'') {
+                    if (!emit_parse_error(
+                            cursor,
+                            "missing-whitespace-after-doctype-public-keyword")) {
+                        return false;
+                    }
+                    has_public_identifier = true;
+                    state = value == '"'
+                        ? DoctypeState::PublicIdentifierDoubleQuoted
+                        : DoctypeState::PublicIdentifierSingleQuoted;
+                    ++cursor;
+                    break;
+                }
+                if (value == '>') {
+                    if (!emit_parse_error(cursor, "missing-doctype-public-identifier")) {
+                        return false;
+                    }
+                    force_quirks = true;
+                    return finish_doctype(
+                        cursor + 1U,
+                        std::move(name),
+                        std::move(public_identifier),
+                        has_public_identifier,
+                        std::move(system_identifier),
+                        has_system_identifier,
+                        force_quirks);
+                }
+                if (!emit_parse_error(cursor, "missing-quote-before-doctype-public-identifier")) {
+                    return false;
+                }
+                force_quirks = true;
+                state = DoctypeState::Bogus;
+                ++cursor;
+                break;
+
+            case DoctypeState::BeforePublicIdentifier:
+                if (ascii_space(value)) {
+                    ++cursor;
+                    break;
+                }
+                if (value == '"' || value == '\'') {
+                    has_public_identifier = true;
+                    state = value == '"'
+                        ? DoctypeState::PublicIdentifierDoubleQuoted
+                        : DoctypeState::PublicIdentifierSingleQuoted;
+                    ++cursor;
+                    break;
+                }
+                if (value == '>') {
+                    if (!emit_parse_error(cursor, "missing-doctype-public-identifier")) {
+                        return false;
+                    }
+                    force_quirks = true;
+                    return finish_doctype(
+                        cursor + 1U,
+                        std::move(name),
+                        std::move(public_identifier),
+                        has_public_identifier,
+                        std::move(system_identifier),
+                        has_system_identifier,
+                        force_quirks);
+                }
+                if (!emit_parse_error(cursor, "missing-quote-before-doctype-public-identifier")) {
+                    return false;
+                }
+                force_quirks = true;
+                state = DoctypeState::Bogus;
+                ++cursor;
+                break;
+
+            case DoctypeState::PublicIdentifierDoubleQuoted:
+            case DoctypeState::PublicIdentifierSingleQuoted: {
+                const char quote = state == DoctypeState::PublicIdentifierDoubleQuoted ? '"' : '\'';
+                if (value == quote) {
+                    state = DoctypeState::AfterPublicIdentifier;
+                    ++cursor;
+                    break;
+                }
+                if (value == '>') {
+                    if (!emit_parse_error(cursor, "abrupt-doctype-public-identifier")) {
+                        return false;
+                    }
+                    force_quirks = true;
+                    return finish_doctype(
+                        cursor + 1U,
+                        std::move(name),
+                        std::move(public_identifier),
+                        has_public_identifier,
+                        std::move(system_identifier),
+                        has_system_identifier,
+                        force_quirks);
+                }
+                if (!append_doctype_byte(&public_identifier, value, "public identifier")) {
+                    return false;
+                }
+                ++cursor;
+                break;
+            }
+
+            case DoctypeState::AfterPublicIdentifier:
+                if (ascii_space(value)) {
+                    state = DoctypeState::BetweenPublicAndSystemIdentifiers;
+                    ++cursor;
+                    break;
+                }
+                if (value == '>') {
+                    return finish_doctype(
+                        cursor + 1U,
+                        std::move(name),
+                        std::move(public_identifier),
+                        has_public_identifier,
+                        std::move(system_identifier),
+                        has_system_identifier,
+                        force_quirks);
+                }
+                if (value == '"' || value == '\'') {
+                    if (!emit_parse_error(
+                            cursor,
+                            "missing-whitespace-between-doctype-public-and-system-identifiers")) {
+                        return false;
+                    }
+                    has_system_identifier = true;
+                    state = value == '"'
+                        ? DoctypeState::SystemIdentifierDoubleQuoted
+                        : DoctypeState::SystemIdentifierSingleQuoted;
+                    ++cursor;
+                    break;
+                }
+                if (!emit_parse_error(cursor, "missing-quote-before-doctype-system-identifier")) {
+                    return false;
+                }
+                force_quirks = true;
+                state = DoctypeState::Bogus;
+                ++cursor;
+                break;
+
+            case DoctypeState::BetweenPublicAndSystemIdentifiers:
+                if (ascii_space(value)) {
+                    ++cursor;
+                    break;
+                }
+                if (value == '>') {
+                    return finish_doctype(
+                        cursor + 1U,
+                        std::move(name),
+                        std::move(public_identifier),
+                        has_public_identifier,
+                        std::move(system_identifier),
+                        has_system_identifier,
+                        force_quirks);
+                }
+                if (value == '"' || value == '\'') {
+                    has_system_identifier = true;
+                    state = value == '"'
+                        ? DoctypeState::SystemIdentifierDoubleQuoted
+                        : DoctypeState::SystemIdentifierSingleQuoted;
+                    ++cursor;
+                    break;
+                }
+                if (!emit_parse_error(cursor, "missing-quote-before-doctype-system-identifier")) {
+                    return false;
+                }
+                force_quirks = true;
+                state = DoctypeState::Bogus;
+                ++cursor;
+                break;
+
+            case DoctypeState::AfterSystemKeyword:
+                if (ascii_space(value)) {
+                    state = DoctypeState::BeforeSystemIdentifier;
+                    ++cursor;
+                    break;
+                }
+                if (value == '"' || value == '\'') {
+                    if (!emit_parse_error(
+                            cursor,
+                            "missing-whitespace-after-doctype-system-keyword")) {
+                        return false;
+                    }
+                    has_system_identifier = true;
+                    state = value == '"'
+                        ? DoctypeState::SystemIdentifierDoubleQuoted
+                        : DoctypeState::SystemIdentifierSingleQuoted;
+                    ++cursor;
+                    break;
+                }
+                if (value == '>') {
+                    if (!emit_parse_error(cursor, "missing-doctype-system-identifier")) {
+                        return false;
+                    }
+                    force_quirks = true;
+                    return finish_doctype(
+                        cursor + 1U,
+                        std::move(name),
+                        std::move(public_identifier),
+                        has_public_identifier,
+                        std::move(system_identifier),
+                        has_system_identifier,
+                        force_quirks);
+                }
+                if (!emit_parse_error(cursor, "missing-quote-before-doctype-system-identifier")) {
+                    return false;
+                }
+                force_quirks = true;
+                state = DoctypeState::Bogus;
+                ++cursor;
+                break;
+
+            case DoctypeState::BeforeSystemIdentifier:
+                if (ascii_space(value)) {
+                    ++cursor;
+                    break;
+                }
+                if (value == '"' || value == '\'') {
+                    has_system_identifier = true;
+                    state = value == '"'
+                        ? DoctypeState::SystemIdentifierDoubleQuoted
+                        : DoctypeState::SystemIdentifierSingleQuoted;
+                    ++cursor;
+                    break;
+                }
+                if (value == '>') {
+                    if (!emit_parse_error(cursor, "missing-doctype-system-identifier")) {
+                        return false;
+                    }
+                    force_quirks = true;
+                    return finish_doctype(
+                        cursor + 1U,
+                        std::move(name),
+                        std::move(public_identifier),
+                        has_public_identifier,
+                        std::move(system_identifier),
+                        has_system_identifier,
+                        force_quirks);
+                }
+                if (!emit_parse_error(cursor, "missing-quote-before-doctype-system-identifier")) {
+                    return false;
+                }
+                force_quirks = true;
+                state = DoctypeState::Bogus;
+                ++cursor;
+                break;
+
+            case DoctypeState::SystemIdentifierDoubleQuoted:
+            case DoctypeState::SystemIdentifierSingleQuoted: {
+                const char quote = state == DoctypeState::SystemIdentifierDoubleQuoted ? '"' : '\'';
+                if (value == quote) {
+                    state = DoctypeState::AfterSystemIdentifier;
+                    ++cursor;
+                    break;
+                }
+                if (value == '>') {
+                    if (!emit_parse_error(cursor, "abrupt-doctype-system-identifier")) {
+                        return false;
+                    }
+                    force_quirks = true;
+                    return finish_doctype(
+                        cursor + 1U,
+                        std::move(name),
+                        std::move(public_identifier),
+                        has_public_identifier,
+                        std::move(system_identifier),
+                        has_system_identifier,
+                        force_quirks);
+                }
+                if (!append_doctype_byte(&system_identifier, value, "system identifier")) {
+                    return false;
+                }
+                ++cursor;
+                break;
+            }
+
+            case DoctypeState::AfterSystemIdentifier:
+                if (ascii_space(value)) {
+                    ++cursor;
+                    break;
+                }
+                if (value == '>') {
+                    return finish_doctype(
+                        cursor + 1U,
+                        std::move(name),
+                        std::move(public_identifier),
+                        has_public_identifier,
+                        std::move(system_identifier),
+                        has_system_identifier,
+                        force_quirks);
+                }
+                if (!emit_parse_error(cursor, "unexpected-character-after-doctype-system-identifier")) {
+                    return false;
+                }
+                state = DoctypeState::Bogus;
+                ++cursor;
+                break;
+
+            case DoctypeState::Bogus:
+                if (value == '>') {
+                    return finish_doctype(
+                        cursor + 1U,
+                        std::move(name),
+                        std::move(public_identifier),
+                        has_public_identifier,
+                        std::move(system_identifier),
+                        has_system_identifier,
+                        force_quirks);
+                }
+                ++cursor;
+                break;
+            }
+        }
     }
 
     bool consume_bogus_comment() {
