@@ -20,7 +20,8 @@ This component is a bounded Data-state tag tokenizer that emits the shared `Html
 - the self-closing start-tag flag;
 - coalesced Character tokens outside tags;
 - literal ampersand fallback;
-- decimal and hexadecimal numeric character references in Data and attribute values.
+- decimal and hexadecimal numeric character references in Data and attribute values;
+- the complete pinned WHATWG named-character-reference table in Data and attribute values.
 
 Numeric references may decode to multi-byte UTF-8 output even though raw input remains ASCII-only for the current preprocessing/location authority. Decoded replacement bytes are appended under the existing token/attribute byte bound.
 
@@ -62,7 +63,6 @@ The following remain outside this component:
 - `<!...` markup declarations, comments and DOCTYPE, which are owned by the separate Data-stream composition layer;
 - `<?...` bogus-comment recovery;
 - bogus-comment recovery for invalid end-tag-open bytes other than the admitted empty `</>` case;
-- complete named character references and their longest-match/ambiguous-ampersand rules;
 - NUL replacement and complete input-stream preprocessing;
 - non-ASCII raw-input preprocessing/location authority;
 - remaining malformed tag/attribute recovery not explicitly admitted above;
@@ -85,7 +85,7 @@ The dedicated `html-tokenizer-data-tag-recovery-v1-tests` adds authority for:
 - all five unquoted attribute-value special bytes, including exact error position and retained payload;
 - explicit proof that generic tag-open recovery does not accidentally admit NUL or non-ASCII preprocessing debt.
 
-The dedicated `html-tokenizer-numeric-character-reference-v1-tests` adds authority for literal ampersand fallback, decimal/hex numeric decoding, exact numeric recovery errors, C1/noncharacter/scalar validation, decoded UTF-8 output, Data coalescing, quoted/unquoted attribute integration, named-reference fail-closed behavior and replacement byte caps.
+The dedicated `html-tokenizer-numeric-character-reference-v1-tests` retains authority for literal ampersand fallback, decimal/hex numeric decoding, exact numeric recovery errors, C1/noncharacter/scalar validation, decoded UTF-8 output, Data coalescing, quoted/unquoted attribute integration and replacement byte caps. `html-tokenizer-named-character-reference-v1-tests` adds full pinned-table longest-match, two-scalar output, legacy-semicolon recovery, attribute veto, ambiguous-ampersand and named replacement-cap authority.
 
 The pinned html5lib `test1.test` runner denominator remains separate authority. Production capability becoming broader does not itself promote historical unsupported cases into passes.
 
@@ -93,6 +93,6 @@ The pinned html5lib `test1.test` runner denominator remains separate authority. 
 
 This slice does not satisfy `html_tokenizer_conformance`. It expands the production token surface required to run more of the pinned external corpus honestly.
 
-The admitted `test1.test` runner remains a separate authority surface, and unsupported cases continue to be counted explicitly rather than converted to passes. Complete named character references, broader recovery, preprocessing, CDATA and tree-builder conformance remain open.
+The admitted `test1.test` runner remains a separate authority surface, and unsupported cases continue to be counted explicitly rather than converted to passes. Raw-input preprocessing/non-ASCII authority, broader recovery, CDATA and tree-builder conformance remain open.
 
 `tree_builder_conformance` remains independently outstanding and Z7 remains `planned`.

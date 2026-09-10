@@ -1,5 +1,7 @@
 #include "html_tokenizer_character_reference_v1.hpp"
 
+#include "html_named_character_references_v1.generated.hpp"
+
 #include <algorithm>
 #include <limits>
 #include <new>
@@ -194,6 +196,110 @@ bool validate_context(
     return fail_reference(error, "HTML character-reference context is invalid");
 }
 
+const HtmlNamedCharacterReferenceV1GeneratedEntry* find_longest_named_reference(
+    std::string_view input,
+    std::size_t name_start,
+    std::size_t* matched_length) noexcept {
+    *matched_length = 0U;
+    if (name_start >= input.size()) {
+        return nullptr;
+    }
+
+    const std::size_t maximum = std::min<std::size_t>(
+        kHtmlNamedCharacterReferenceV1MaximumNameBytes,
+        input.size() - name_start);
+    for (std::size_t length = maximum; length > 0U; --length) {
+        const std::string_view candidate = input.substr(name_start, length);
+        const auto found = std::lower_bound(
+            kHtmlNamedCharacterReferenceV1Entries.begin(),
+            kHtmlNamedCharacterReferenceV1Entries.end(),
+            candidate,
+            [](const HtmlNamedCharacterReferenceV1GeneratedEntry& entry,
+               std::string_view value) noexcept {
+                return entry.name < value;
+            });
+        if (found != kHtmlNamedCharacterReferenceV1Entries.end() &&
+            found->name == candidate) {
+            *matched_length = length;
+            return &*found;
+        }
+    }
+    return nullptr;
+}
+
+bool consume_named_reference(
+    std::string_view input,
+    std::size_t ampersand_offset,
+    HtmlTokenizerCharacterReferenceV1Context context,
+    HtmlTokenizerV1Sink* sink,
+    HtmlTokenizerCharacterReferenceV1Stats* stats,
+    HtmlTokenizerCharacterReferenceV1Result* result,
+    std::string* error) {
+    const std::size_t name_start = ampersand_offset + 1U;
+    std::size_t matched_length = 0U;
+    const HtmlNamedCharacterReferenceV1GeneratedEntry* matched =
+        find_longest_named_reference(input, name_start, &matched_length);
+
+    if (matched == nullptr) {
+        std::size_t cursor = name_start;
+        while (cursor < input.size() && ascii_alphanumeric(input[cursor])) {
+            ++cursor;
+        }
+        if (cursor < input.size() && input[cursor] == ';') {
+            if (!emit_parse_error(
+                    input,
+                    cursor,
+                    "unknown-named-character-reference",
+                    sink,
+                    stats,
+                    error)) {
+                return false;
+            }
+        }
+        result->replacement_utf8.assign(
+            input.substr(ampersand_offset, cursor - ampersand_offset));
+        result->next_offset = cursor;
+        return true;
+    }
+
+    const std::size_t matched_end = name_start + matched_length;
+    const bool terminated = !matched->name.empty() && matched->name.back() == ';';
+    if (!terminated &&
+        context == HtmlTokenizerCharacterReferenceV1Context::Attribute &&
+        matched_end < input.size() &&
+        (input[matched_end] == '=' || ascii_alphanumeric(input[matched_end]))) {
+        result->replacement_utf8.assign(
+            input.substr(ampersand_offset, matched_end - ampersand_offset));
+        result->next_offset = matched_end;
+        return true;
+    }
+
+    if (!terminated &&
+        !emit_parse_error(
+            input,
+            matched_end,
+            "missing-semicolon-after-character-reference",
+            sink,
+            stats,
+            error)) {
+        return false;
+    }
+
+    if (matched->codepoint_count == 0U || matched->codepoint_count > 2U) {
+        return fail_reference(error, "HTML named-reference table entry is invalid");
+    }
+    result->replacement_utf8.clear();
+    if (!append_utf8(matched->first_codepoint, &result->replacement_utf8, error)) {
+        return false;
+    }
+    if (matched->codepoint_count == 2U &&
+        !append_utf8(matched->second_codepoint, &result->replacement_utf8, error)) {
+        return false;
+    }
+    result->next_offset = matched_end;
+    return true;
+}
+
 bool consume_impl(
     std::string_view input,
     std::size_t ampersand_offset,
@@ -221,9 +327,14 @@ bool consume_impl(
 
     const char first = input[cursor];
     if (ascii_alphanumeric(first)) {
-        return fail_reference(
-            error,
-            "HTML named character references are outside admitted numeric v1 subset");
+        return consume_named_reference(
+            input,
+            ampersand_offset,
+            context,
+            sink,
+            stats,
+            result,
+            error);
     }
     if (first != '#') {
         result->replacement_utf8 = "&";

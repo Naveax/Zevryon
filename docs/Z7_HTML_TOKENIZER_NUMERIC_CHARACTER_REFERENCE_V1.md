@@ -23,7 +23,7 @@ V1 admits:
 - UTF-8 emission for decoded scalars;
 - use from both Data and attribute-value contexts.
 
-Complete named character references are explicitly outside this slice. An ASCII alphanumeric named candidate therefore fails closed rather than approximating the named-reference table.
+Complete named character references were explicitly outside this numeric slice at admission time. The later named-reference slice extends the same shared component using the separately pinned complete table; this document retains the numeric slice's independent scope.
 
 ## Input/output authority boundary
 

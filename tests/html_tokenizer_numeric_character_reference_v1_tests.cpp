@@ -240,24 +240,25 @@ bool test_numeric_end_state_rules() {
     return true;
 }
 
-bool test_named_candidate_remains_fail_closed() {
+bool test_named_candidate_uses_shared_table() {
     CollectingSink sink;
     HtmlTokenizerCharacterReferenceV1Stats stats;
     HtmlTokenizerCharacterReferenceV1Result result;
     std::string error;
+    const std::string not_sign("\xC2\xAC", 2U);
     return require(
-               !run_reference(
+               run_reference(
                    "&not;",
                    HtmlTokenizerCharacterReferenceV1Context::Data,
                    &sink,
                    &stats,
                    &result,
                    &error),
-               "named reference must remain unsupported") &&
-        require(error.find("named character references") != std::string::npos,
-                "named failure explicit") &&
-        require(sink.errors.empty() && sink.tokens.empty(), "named failure publishes nothing") &&
-        require(stats.parse_errors_emitted == 0U, "named failure stats");
+               std::string("named reference dispatch: ") + error) &&
+        require(result.replacement_utf8 == not_sign && result.next_offset == 5U,
+                "named reference replacement") &&
+        require(sink.errors.empty() && sink.tokens.empty(), "named reference diagnostics") &&
+        require(stats.parse_errors_emitted == 0U, "named reference stats");
 }
 
 bool test_data_and_attribute_integration() {
@@ -359,7 +360,7 @@ int main() {
             test_absence_of_digits_recovery() &&
             test_decimal_hex_and_missing_semicolon() &&
             test_numeric_end_state_rules() &&
-            test_named_candidate_remains_fail_closed() &&
+            test_named_candidate_uses_shared_table() &&
             test_data_and_attribute_integration() &&
             test_replacement_respects_token_byte_cap()
         ? 0
