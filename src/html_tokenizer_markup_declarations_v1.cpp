@@ -760,7 +760,6 @@ private:
                 if (!emit_parse_error(cursor, "unexpected-character-after-doctype-system-identifier")) {
                     return false;
                 }
-                force_quirks = true;
                 state = DoctypeState::Bogus;
                 ++cursor;
                 break;
