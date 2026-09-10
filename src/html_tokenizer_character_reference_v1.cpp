@@ -1,6 +1,7 @@
 #include "html_tokenizer_character_reference_v1.hpp"
 
 #include "html_named_character_references_v1.generated.hpp"
+#include "html_tokenizer_utf8_v1.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -57,13 +58,23 @@ HtmlTokenizerV1ParseError position_error(
     result.line = 1U;
     result.column = 1U;
     const std::size_t limit = std::min(offset, input.size());
-    for (std::size_t index = 0U; index < limit; ++index) {
+    for (std::size_t index = 0U; index < limit;) {
         if (input[index] == '\n') {
             ++result.line;
             result.column = 1U;
-        } else {
-            ++result.column;
+            ++index;
+            continue;
         }
+        std::size_t scalar_bytes = 1U;
+        if (static_cast<unsigned char>(input[index]) >= 0x80U) {
+            const std::size_t validated =
+                detail::html_tokenizer_utf8_scalar_bytes_v1(input, index);
+            if (validated != 0U && validated <= limit - index) {
+                scalar_bytes = validated;
+            }
+        }
+        ++result.column;
+        index += scalar_bytes;
     }
     return result;
 }

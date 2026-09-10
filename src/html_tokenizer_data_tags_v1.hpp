@@ -37,12 +37,14 @@ struct HtmlTokenizerDataTagsV1Stats {
 // Character-reference admission includes literal ampersand fallback,
 // bounded decimal/hex numeric references and the complete pinned WHATWG named
 // reference table in Data and attribute-value contexts. Decoded references may
-// produce UTF-8 output bytes even though raw input remains deliberately
-// ASCII-only for v1 location/preprocessing authority.
+// produce UTF-8 output bytes. Raw Data character text additionally admits
+// well-formed UTF-8 Unicode scalars and preserves their exact UTF-8 bytes;
+// malformed UTF-8 fails closed. Parse-error columns across admitted UTF-8 Data
+// text count Unicode scalars rather than encoding bytes.
 //
 // This slice intentionally does not approximate markup declarations,
-// comments, DOCTYPE, NUL/input preprocessing, non-ASCII raw-input/location
-// authority or the remaining broader malformed-
+// comments, DOCTYPE, NUL/input preprocessing, CR/LF preprocessing, non-ASCII
+// tag/attribute names or raw non-ASCII attribute values, nor the broader malformed-
 // tag and bogus-comment recovery states. Those surfaces fail closed until
 // separately admitted by later conformance slices.
 bool tokenize_html_data_tags_v1(

@@ -2,6 +2,7 @@
 
 #include "html_tokenizer_data_tags_v1.hpp"
 #include "html_tokenizer_markup_declarations_v1.hpp"
+#include "html_tokenizer_utf8_v1.hpp"
 
 #include <limits>
 #include <new>
@@ -68,19 +69,31 @@ bool advance_position(
     SourcePosition* position,
     std::string_view consumed,
     std::string* error) {
-    for (char character : consumed) {
+    for (std::size_t index = 0U; index < consumed.size();) {
+        const char character = consumed[index];
         if (character == '\n') {
             if (position->line == std::numeric_limits<std::uint64_t>::max()) {
                 return fail_stream(error, "HTML Data stream source line overflow");
             }
             ++position->line;
             position->column = 1U;
+            ++index;
             continue;
+        }
+        std::size_t scalar_bytes = 1U;
+        if (static_cast<unsigned char>(character) >= 0x80U) {
+            scalar_bytes = detail::html_tokenizer_utf8_scalar_bytes_v1(consumed, index);
+            if (scalar_bytes == 0U) {
+                return fail_stream(
+                    error,
+                    "HTML Data stream source-position input contains invalid UTF-8 scalar encoding");
+            }
         }
         if (position->column == std::numeric_limits<std::uint64_t>::max()) {
             return fail_stream(error, "HTML Data stream source column overflow");
         }
         ++position->column;
+        index += scalar_bytes;
     }
     return true;
 }
