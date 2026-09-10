@@ -2,20 +2,22 @@
 
 ## Scope
 
-This slice exposes the already-admitted bounded Data-stream coordinator through the canonical production token-event boundary:
+This slice exposes the bounded Data-stream coordinator through the canonical production token-event boundary:
 
 - `HtmlTokenizerV1InitialState::Data`
 - `tokenize_html_token_stream_v1()`
 
-The canonical entrypoint delegates Data input to `tokenize_html_data_stream_v1()` with the same configured input/token byte bounds and the admitted `maximum_attributes = 256` bound. `last_start_tag` is intentionally not validated for a Data initial state because Data tokenization does not consume it.
+The canonical entrypoint delegates Data input to `tokenize_html_data_stream_v1()` with the configured input/token byte bounds and the admitted `maximum_attributes = 256` bound. `last_start_tag` is intentionally not validated for a Data initial state because Data tokenization does not consume it.
 
 This is composition authority, not a second Data tokenizer implementation.
+
+The delegated Data surface now includes literal ampersand fallback plus bounded decimal/hex numeric character references in Data and attribute contexts. Numeric decoding may yield multi-byte UTF-8 output while raw-input preprocessing/location authority remains ASCII-only.
 
 ## Event and accounting semantics
 
 The Data-stream remains a streaming, non-transactional producer. Events accepted by the downstream sink before a later fail-closed condition remain published.
 
-The canonical boundary therefore merges Data-stream common counters whether the delegated call succeeds or fails:
+The canonical boundary merges Data-stream common counters whether the delegated call succeeds or fails:
 
 - total emitted tokens;
 - Character-token count;
@@ -23,56 +25,35 @@ The canonical boundary therefore merges Data-stream common counters whether the 
 - EndTag count;
 - parse-error count.
 
-`input_bytes` remains the byte length of the original canonical input and is not added a second time from the delegated Data-stream stats.
-
-The focused regression authority includes a valid Comment followed by an unsupported PUBLIC DOCTYPE to prove that an accepted prefix event and its common accounting survive a later fail-closed result.
+Character-reference parse errors are emitted through the same sink and therefore flow into this common accounting. `input_bytes` remains the byte length of the original canonical input and is not added a second time from delegated stats.
 
 ## Canonical regression authority
 
-`html-tokenizer-data-canonical-v1-tests` covers:
+`html-tokenizer-data-canonical-v1-tests` covers ordered production Data tokens, recoverable parse-error coordinates, success/failure common accounting, accepted-prefix preservation and Data-state independence from unused `last_start_tag`.
 
-1. ordered Character, Comment, StartTag+attribute, Character, EndTag, DOCTYPE and Character output through `HtmlTokenizerV1InitialState::Data`;
-2. recoverable Data parse-error code and global line/column preservation;
-3. common canonical stats for successful and fail-closed delegated execution;
-4. preservation of already accepted prefix events on a later unsupported PUBLIC/SYSTEM DOCTYPE surface;
-5. Data-state independence from the unused `last_start_tag` argument.
-
-Component-level Data-tag, markup-declaration and Data-stream tests remain separate and continue to own their narrower invariants.
+Component-level Data-tag, markup-declaration, Data-stream, tag-recovery and numeric-character-reference tests own the narrower invariants beneath this canonical boundary.
 
 ## Probe protocol
 
-The production-linked tokenizer probe now accepts `DATA` in addition to the previously admitted state selectors.
+The production-linked tokenizer probe accepts `DATA` and exposes lossless Character/EndTag/StartTag/Comment/DOCTYPE records. Existing Character/EndTag records remain byte-for-byte stable for the frozen `contentModelFlags.test` authority.
 
-The legacy records used by the frozen `contentModelFlags.test` runner remain byte-for-byte unchanged:
+Decoded numeric-reference output is visible naturally through Character data or StartTag attribute values as UTF-8 hex in the existing probe protocol; no runner-only decoding path is introduced.
 
-- `TOKEN\tC\t<data-hex>` for Character;
-- `TOKEN\tE\t<name-hex>` for EndTag.
+## External corpus authority remains separate
 
-Additional lossless records are available for a later external-corpus adapter:
-
-- `S`: StartTag name, self-closing flag, exact attribute count, then ordered name/value hex pairs;
-- `M`: Comment data;
-- `D`: DOCTYPE name, explicit public/system identifier presence bits and values, and force-quirks.
-
-The presence bits are required because html5lib expectations distinguish a missing DOCTYPE identifier from an empty identifier.
-
-## Frozen external runner remains unchanged in scope
-
-The currently admitted `z7-html5lib-tokenizer-runner-v1` remains frozen to `contentModelFlags.test` at exactly 14 test objects / 24 initial-state executions. The separately pinned `tokenizer/test1.test` corpus is provenance authority only at this stage.
-
-A later runner slice must explicitly parse the new `S/M/D` records, map default/Data initial-state semantics, compare full external token structures, and report unsupported cases separately. Unsupported cases must never be converted into passes merely to improve a conformance percentage.
+The frozen `contentModelFlags.test` runner remains 14 objects / 24 executions. The pinned `tokenizer/test1.test` runner separately records admitted/pass/fail/unsupported accounting. Production capability broadening does not silently rewrite that historical denominator; supported cases are promoted only by a dedicated runner-authority slice.
 
 ## Explicit nonclaims
 
 This slice does **not** claim:
 
-- execution or passing of `tokenizer/test1.test`;
-- complete named or numeric character-reference handling;
-- complete input-stream preprocessing or U+0000 replacement;
-- general non-ASCII preprocessing/location authority;
+- complete named-character-reference handling or the full named table;
+- complete input-stream preprocessing or U+0000 raw-input replacement;
+- general non-ASCII raw-input preprocessing/location authority;
 - complete DOCTYPE PUBLIC/SYSTEM support;
 - complete recovery behavior;
 - CDATA authority;
+- full `tokenizer/test1.test` success;
 - `html_tokenizer_conformance` gate closure;
 - `tree_builder_conformance` gate closure;
 - Z7 completion.

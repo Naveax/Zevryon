@@ -1,5 +1,7 @@
 #include "html_tokenizer_data_tags_v1.hpp"
 
+#include "html_tokenizer_character_reference_v1.hpp"
+
 #include <algorithm>
 #include <limits>
 #include <new>
@@ -155,9 +157,14 @@ public:
                     "HTML Data-tag tokenizer non-ASCII preprocessing/location authority is not implemented");
             }
             if (character == '&') {
-                return fail_data_tokenizer(
-                    error_,
-                    "HTML Data-tag tokenizer character references are outside admitted v1 subset");
+                if (!consume_character_reference(
+                        &cursor,
+                        HtmlTokenizerCharacterReferenceV1Context::Data,
+                        &character_buffer_,
+                        "HTML Data-tag tokenizer coalesced character token")) {
+                    return false;
+                }
+                continue;
             }
             if (character == '<') {
                 if (!consume_tag(&cursor)) {
@@ -186,6 +193,70 @@ private:
                 "HTML Data-tag tokenizer coalesced character token exceeds bounded byte limit");
         }
         character_buffer_.push_back(character);
+        return true;
+    }
+
+    bool append_bounded_bytes(
+        std::string* value,
+        std::string_view bytes,
+        std::string_view label) {
+        if (value->size() > config_.maximum_token_bytes ||
+            bytes.size() > config_.maximum_token_bytes - value->size()) {
+            return fail_data_tokenizer(
+                error_,
+                std::string(label) + " exceeds bounded byte limit");
+        }
+        value->append(bytes.data(), bytes.size());
+        return true;
+    }
+
+    bool consume_character_reference(
+        std::size_t* cursor,
+        HtmlTokenizerCharacterReferenceV1Context context,
+        std::string* destination,
+        std::string_view destination_label) {
+        if (cursor == nullptr || destination == nullptr || *cursor >= input_.size()) {
+            return fail_data_tokenizer(
+                error_,
+                "HTML Data-tag tokenizer character-reference dispatch invariant failed");
+        }
+
+        const std::size_t reference_start = *cursor;
+        HtmlTokenizerCharacterReferenceV1Stats reference_stats{};
+        HtmlTokenizerCharacterReferenceV1Result reference_result{};
+        const bool success = consume_html_character_reference_v1(
+            input_,
+            reference_start,
+            context,
+            sink_,
+            &reference_stats,
+            &reference_result,
+            error_);
+
+        if (!add_counter(
+                &stats_->parse_errors_emitted,
+                reference_stats.parse_errors_emitted,
+                error_,
+                "HTML Data-tag tokenizer parse-error")) {
+            return false;
+        }
+        if (!success) {
+            return false;
+        }
+        if (reference_result.next_offset <= reference_start ||
+            reference_result.next_offset > input_.size() ||
+            reference_result.replacement_utf8.empty()) {
+            return fail_data_tokenizer(
+                error_,
+                "HTML Data-tag tokenizer character-reference result invariant failed");
+        }
+        if (!append_bounded_bytes(
+                destination,
+                reference_result.replacement_utf8,
+                destination_label)) {
+            return false;
+        }
+        *cursor = reference_result.next_offset;
         return true;
     }
 
@@ -298,9 +369,14 @@ private:
                         "HTML Data-tag tokenizer non-ASCII attribute-value authority is not implemented");
                 }
                 if (character == '&') {
-                    return fail_data_tokenizer(
-                        error_,
-                        "HTML Data-tag tokenizer attribute character references are outside admitted v1 subset");
+                    if (!consume_character_reference(
+                            cursor,
+                            HtmlTokenizerCharacterReferenceV1Context::Attribute,
+                            value,
+                            "HTML Data-tag tokenizer attribute value")) {
+                        return false;
+                    }
+                    continue;
                 }
                 if (!append_value_character(value, character)) {
                     return false;
@@ -337,9 +413,14 @@ private:
                     "HTML Data-tag tokenizer non-ASCII attribute-value authority is not implemented");
             }
             if (character == '&') {
-                return fail_data_tokenizer(
-                    error_,
-                    "HTML Data-tag tokenizer attribute character references are outside admitted v1 subset");
+                if (!consume_character_reference(
+                        cursor,
+                        HtmlTokenizerCharacterReferenceV1Context::Attribute,
+                        value,
+                        "HTML Data-tag tokenizer attribute value")) {
+                    return false;
+                }
+                continue;
             }
             if (character == '"' || character == '\'' || character == '<' ||
                 character == '=' || character == '`') {
