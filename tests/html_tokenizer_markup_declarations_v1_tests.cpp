@@ -286,7 +286,7 @@ bool test_bounded_ascii_doctype_recovery() {
             {},
             true,
             {},
-            true,
+            false,
             {ExpectedError{"unexpected-character-after-doctype-system-identifier", 1U, 22U}})) {
         return false;
     }
