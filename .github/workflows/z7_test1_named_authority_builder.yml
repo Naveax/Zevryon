@@ -1,0 +1,80 @@
+name: Z7 test1 named authority builder
+
+on:
+  push:
+    branches:
+      - candidate/z7-test1-named-authority-v1
+
+permissions:
+  contents: write
+
+jobs:
+  build-authority:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: candidate/z7-test1-named-authority-v1
+          fetch-depth: 1
+
+      - name: Apply 68/1 admitted authority promotion
+        run: python3 scripts/apply_z7_test1_named_authority_v1.py
+
+      - name: Install focused build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+
+      - name: Build focused tokenizer targets
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-html-tokenizer-token-stream-v1-probe
+          zevryon-html-tokenizer-named-character-reference-v1-tests
+          zevryon-html-tokenizer-numeric-character-reference-v1-tests
+
+      - name: Run focused production and authority tests
+        run: >-
+          ctest --test-dir build --output-on-failure
+          -R "(html-tokenizer-(named|numeric)-character-reference-v1-tests|z7-html5lib-tokenizer-(corpus-provenance|test1-admitted-runner-v1|test1-admitted-runner-v1-self-test)|z7-html-named-reference-table-(provenance|verifier-tests))"
+
+      - name: Assert exact 68/1 external authority report
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="$(python3 scripts/z7_html5lib_tokenizer_test1_admitted_runner_v1.py --probe build/zevryon-html-tokenizer-token-stream-v1-probe)"
+          printf '%s\n' "$report"
+          REPORT="$report" python3 - <<'PY'
+          import json
+          import os
+
+          report = json.loads(os.environ["REPORT"])
+          assert report["executions"] == 69, report
+          assert report["admitted"] == 68, report
+          assert report["passed"] == 68, report
+          assert report["failed"] == 0, report
+          assert report["unsupported"] == 1, report
+          assert report["unsupported_descriptions"] == ["Non-ASCII character reference name"], report
+          assert report["admitted_surface_pass_claim"] is True, report
+          assert report["full_fixture_pass_claim"] is False, report
+          assert report["html_tokenizer_conformance_claim"] is False, report
+          assert report["z7_status_change"] is False, report
+          PY
+
+      - name: Commit tested authority slice and remove builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/z7_test1_named_authority_builder.yml scripts/apply_z7_test1_named_authority_v1.py
+          git add scripts/z7_html5lib_tokenizer_test1_admitted_runner_v1.py docs/Z7_HTML5LIB_TOKENIZER_TEST1_ADMITTED_RUNNER_V1.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Z7: promote admitted test1 named authority to 68/1'
+          git push origin HEAD:candidate/z7-test1-named-authority-v1
