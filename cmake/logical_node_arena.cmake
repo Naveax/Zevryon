@@ -165,6 +165,17 @@ if(BUILD_TESTING)
     COMMAND zevryon-html-tokenizer-data-canonical-v1-tests)
 
   add_executable(
+    zevryon-html-tokenizer-data-tag-recovery-v1-tests
+    tests/html_tokenizer_data_tag_recovery_v1_tests.cpp)
+  target_link_libraries(
+    zevryon-html-tokenizer-data-tag-recovery-v1-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-html-tokenizer-data-tag-recovery-v1-tests)
+  add_test(
+    NAME html-tokenizer-data-tag-recovery-v1-tests
+    COMMAND zevryon-html-tokenizer-data-tag-recovery-v1-tests)
+
+  add_executable(
     zevryon-html-tokenizer-token-stream-v1-probe
     tests/html_tokenizer_token_stream_v1_probe.cpp)
   target_link_libraries(
