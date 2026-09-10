@@ -1,0 +1,35 @@
+{
+  "schema": "zevryon.z7.html-named-reference-table.v1",
+  "authority": "z7-html-named-reference-table-provenance-v1",
+  "conformance_claim": false,
+  "upstream": {
+    "repository": "whatwg/html-build",
+    "commit": "283a3531a61106d07d9a7d9fb3e6f3b9bfd33d70",
+    "path": "entities/out/entities.json",
+    "git_blob": "557170b41f47a13a46ec695561eb5fe76da73bdb",
+    "size_bytes": 145897,
+    "sha256": "d741d877ac77c4194c4ad526b5b4a19aef8dfe411ab840a466891cdbb9f362e6",
+    "entry_count": 2231,
+    "legacy_name_count": 106,
+    "two_scalar_count": 93,
+    "maximum_name_bytes": 32,
+    "vendored_path": "third_party/whatwg-html-build/entities.json"
+  },
+  "license": {
+    "upstream_path": "LICENSE",
+    "git_blob": "f2dcda46deccefd245749202a88a7837e35c6daa",
+    "vendored_path": "third_party/whatwg-html-build/LICENSE"
+  },
+  "generator": "scripts/generate_html_named_character_references_v1.py",
+  "generated_sha256": {
+    "src/html_named_character_references_v1.generated.hpp": "4c20aee30406c1f07c52ce8fd0f1be42b7187d451fd6d90ca1e9d3a568e6e047",
+    "src/html_named_character_references_v1.generated_part0.inc": "bfc1611dfba2764d9ae7a8cc2a1d314a7da58fe4157d542a8a5295bac7daa562",
+    "src/html_named_character_references_v1.generated_part1.inc": "b452492d9469d5791b88ae5f3ed5f1ddeb589ae1bb4ac67f51e91a98a5448774",
+    "src/html_named_character_references_v1.generated_part2.inc": "2d09a9f84c0161d04bcfa774a9d1bb72e103944ca58db09ff931c6542a009ac2",
+    "src/html_named_character_references_v1.generated_part3.inc": "82ada17129d658eace6d8ef1dd87f8cb7aac68196612b928753a1c7d075bdbfb",
+    "src/html_named_character_references_v1.generated_part4.inc": "c95530729bb1c5bbf310c41f292d3622445074594c374de616a33f00ef31fe49",
+    "src/html_named_character_references_v1.generated_part5.inc": "aac58edfecb5a31bc7d091d4fda40249011dfe8afcc5ba2778e9a92cda8fc9ea",
+    "src/html_named_character_references_v1.generated_part6.inc": "63c128f65b783f79533642a822a91fa0cbd1193dfc5fe4a9243eb780ff4eefea",
+    "src/html_named_character_references_v1.generated_part7.inc": "0f4be6810c06ce0b7ac7b29ab97e0d33fd64302b979d0de8e1c4767658894f0e"
+  }
+}
