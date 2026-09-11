@@ -20,6 +20,52 @@ jobs:
       - name: Apply bounded nullable DOCTYPE-name candidate
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("scripts/apply_z7_tokenizer_nullable_doctype_name_v1.py")
+          text = path.read_text(encoding="utf-8")
+          old = """text = replace_once(
+              text,
+              '''        std::string system_identifier,
+                  bool has_system_identifier,
+                  bool force_quirks) {
+          ''',
+              '''        std::string system_identifier,
+                  bool has_system_identifier,
+                  bool force_quirks,
+                  bool has_doctype_name = true) {
+          ''',
+              \"emit_doctype signature\",
+          )
+          """
+          new = """text = replace_once(
+              text,
+              '''    bool emit_doctype(
+                  std::string name,
+                  std::string public_identifier,
+                  bool has_public_identifier,
+                  std::string system_identifier,
+                  bool has_system_identifier,
+                  bool force_quirks) {
+          ''',
+              '''    bool emit_doctype(
+                  std::string name,
+                  std::string public_identifier,
+                  bool has_public_identifier,
+                  std::string system_identifier,
+                  bool has_system_identifier,
+                  bool force_quirks,
+                  bool has_doctype_name = true) {
+          ''',
+              \"emit_doctype signature\",
+          )
+          """
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f"diagnostic helper bootstrap expected one anchor, found {count}")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
           python3 scripts/apply_z7_tokenizer_nullable_doctype_name_v1.py
           git diff --check
 
