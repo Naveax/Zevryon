@@ -420,6 +420,100 @@ bool test_tag_name_and_self_closing_state_recovery() {
     return true;
 }
 
+bool test_tag_eof_recovery() {
+    {
+        CollectingSink sink;
+        std::string error;
+        if (!require(
+                tokenize_html_data_tags_v1("<", {}, &sink, nullptr, &error),
+                std::string("EOF after tag-open: ") + error) ||
+            !require(sink.tokens.size() == 1U, "tag-open EOF character token count") ||
+            !require(
+                sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Character &&
+                    sink.tokens[0].data == "<",
+                "tag-open EOF literal recovery") ||
+            !require(sink.errors.size() == 1U, "tag-open EOF error count") ||
+            !require(
+                sink.errors[0].code == "eof-before-tag-name" &&
+                    sink.errors[0].line == 1U && sink.errors[0].column == 2U,
+                "tag-open EOF error position")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string error;
+        if (!require(
+                tokenize_html_data_tags_v1("</", {}, &sink, nullptr, &error),
+                std::string("EOF after end-tag-open: ") + error) ||
+            !require(sink.tokens.size() == 1U, "end-tag-open EOF character token count") ||
+            !require(
+                sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Character &&
+                    sink.tokens[0].data == "</",
+                "end-tag-open EOF literal recovery") ||
+            !require(sink.errors.size() == 1U, "end-tag-open EOF error count") ||
+            !require(
+                sink.errors[0].code == "eof-before-tag-name" &&
+                    sink.errors[0].column == 3U,
+                "end-tag-open EOF error position")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string error;
+        if (!require(
+                tokenize_html_data_tags_v1("<<", {}, &sink, nullptr, &error),
+                std::string("reconsumed tag-open EOF: ") + error) ||
+            !require(sink.tokens.size() == 1U, "reconsumed tag-open EOF token count") ||
+            !require(
+                sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Character &&
+                    sink.tokens[0].data == "<<",
+                "reconsumed tag-open EOF literal output") ||
+            !require(sink.errors.size() == 2U, "reconsumed tag-open EOF error count") ||
+            !require(
+                sink.errors[0].code == "invalid-first-character-of-tag-name" &&
+                    sink.errors[0].column == 2U,
+                "reconsumed tag-open first error") ||
+            !require(
+                sink.errors[1].code == "eof-before-tag-name" &&
+                    sink.errors[1].column == 3U,
+                "reconsumed tag-open EOF error")) {
+            return false;
+        }
+    }
+
+    const std::vector<std::string> incomplete_tags = {
+        "<a",
+        "<a ",
+        "<a a",
+        "<a a ",
+        "<a a =",
+        "<a a =\"a",
+        "<a a ='a",
+        "<a a =a",
+        "<a a ='a'",
+        "<z/",
+    };
+    for (const std::string& input : incomplete_tags) {
+        CollectingSink sink;
+        std::string error;
+        if (!require(
+                tokenize_html_data_tags_v1(input, {}, &sink, nullptr, &error),
+                std::string("eof-in-tag recovery for ") + input + ": " + error) ||
+            !require(sink.tokens.empty(), "incomplete tag publishes no token") ||
+            !require(sink.errors.size() == 1U, "incomplete tag EOF error count") ||
+            !require(
+                sink.errors[0].code == "eof-in-tag" &&
+                    sink.errors[0].line == 1U &&
+                    sink.errors[0].column == input.size() + 1U,
+                "incomplete tag EOF error position")) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool test_admitted_references_and_fail_closed_boundaries() {
     {
         CollectingSink sink;
@@ -518,6 +612,7 @@ int main() {
         !test_duplicate_attribute_first_wins() ||
         !test_attribute_name_state_recovery() ||
         !test_tag_name_and_self_closing_state_recovery() ||
+        !test_tag_eof_recovery() ||
         !test_end_tag_attributes_are_diagnosed_and_dropped() ||
         !test_plaintext_start_tag_does_not_fake_tree_builder_feedback() ||
         !test_admitted_references_and_fail_closed_boundaries() ||

@@ -323,6 +323,29 @@ private:
             "HTML Data-tag tokenizer parse-error");
     }
 
+    bool recover_eof_before_tag_name(
+        std::size_t* cursor,
+        std::string_view literal) {
+        if (!emit_parse_error(input_.size(), "eof-before-tag-name")) {
+            return false;
+        }
+        for (const char character : literal) {
+            if (!append_character(character)) {
+                return false;
+            }
+        }
+        *cursor = input_.size();
+        return true;
+    }
+
+    bool recover_eof_in_tag(std::size_t* cursor) {
+        if (!emit_parse_error(input_.size(), "eof-in-tag")) {
+            return false;
+        }
+        *cursor = input_.size();
+        return true;
+    }
+
     bool append_name_character(std::string* value, char character) {
         if (!ascii_byte(character)) {
             return fail_data_tokenizer(
@@ -364,9 +387,8 @@ private:
         std::size_t* cursor,
         std::string* value) {
         if (*cursor >= input_.size()) {
-            return fail_data_tokenizer(
-                error_,
-                "HTML Data-tag tokenizer EOF after attribute equals is outside admitted recovery");
+            // The outer tag state owns the single canonical eof-in-tag error.
+            return true;
         }
 
         const char opening = input_[*cursor];
@@ -400,9 +422,9 @@ private:
                 ++*cursor;
             }
             if (*cursor == input_.size()) {
-                return fail_data_tokenizer(
-                    error_,
-                    "HTML Data-tag tokenizer EOF in quoted attribute value is outside admitted recovery");
+                // Preserve the unterminated value only as transient state; the
+                // incomplete tag is discarded when the outer state emits EOF.
+                return true;
             }
             ++*cursor;
             return true;
@@ -655,9 +677,7 @@ private:
         const std::size_t tag_open = *cursor;
         std::size_t probe = tag_open + 1U;
         if (probe >= input_.size()) {
-            return fail_data_tokenizer(
-                error_,
-                "HTML Data-tag tokenizer EOF after tag-open is outside admitted recovery");
+            return recover_eof_before_tag_name(cursor, "<");
         }
 
         if (input_[probe] == '!') {
@@ -676,9 +696,7 @@ private:
             end_tag = true;
             ++probe;
             if (probe >= input_.size()) {
-                return fail_data_tokenizer(
-                    error_,
-                    "HTML Data-tag tokenizer EOF after end-tag open is outside admitted recovery");
+                return recover_eof_before_tag_name(cursor, "</");
             }
             if (input_[probe] == '>') {
                 if (!emit_parse_error(probe, "missing-end-tag-name")) {
@@ -759,9 +777,9 @@ private:
                 ++probe;
             }
             if (probe >= input_.size()) {
-                return fail_data_tokenizer(
-                    error_,
-                    "HTML Data-tag tokenizer EOF in tag is outside admitted recovery");
+                // WHATWG EOF in tag/attribute states emits eof-in-tag and
+                // discards the current incomplete tag token.
+                return recover_eof_in_tag(cursor);
             }
 
             if (input_[probe] == '>') {
@@ -795,11 +813,7 @@ private:
 
             if (input_[probe] == '/') {
                 if (probe + 1U >= input_.size()) {
-                    // Generic EOF recovery is a separate canonical pass. Keep
-                    // the pre-v5 unsupported classification stable for now.
-                    return fail_data_tokenizer(
-                        error_,
-                        "HTML Data-tag tokenizer first attribute without separating whitespace is outside admitted v1 subset");
+                    return recover_eof_in_tag(cursor);
                 }
                 if (input_[probe + 1U] == '>') {
                     self_closing = true;
