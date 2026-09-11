@@ -23,43 +23,35 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          # The source contains several deliberately retained state-local NUL guards.
-          # Patch only DataTagTokenizer::run(), then remove the now-redundant broad
-          # helper block before applying the remaining focused changes.
+          # Select the NUL guard by class/function structure instead of a repeated
+          # literal. Other state-local NUL guards must remain untouched.
           source_path = Path("src/html_tokenizer_data_tags_v1.cpp")
           source = source_path.read_text(encoding="utf-8")
-          old = '''    bool run() {
-              std::size_t cursor = 0U;
-              while (cursor < input_.size()) {
-                  const char character = input_[cursor];
-                  if (character == '\\0') {
-                      return fail_data_tokenizer(
-                          error_,
-                          "HTML Data-tag tokenizer input preprocessing/NUL replacement is not implemented");
-                  }
-                  if (!ascii_byte(character)) {
+          class_pos = source.index("class DataTagTokenizer final")
+          run_pos = source.index("    bool run() {", class_pos)
+          guard_pos = source.index("            if (character == '\\0') {", run_pos)
+          next_state_pos = source.index("            if (!ascii_byte(character)) {", guard_pos)
+          if source.find("            if (character == '\\0') {", run_pos, guard_pos) != -1:
+              raise SystemExit("unexpected earlier DataTagTokenizer::run NUL guard")
+          new_guard = '''            if (character == '\\0') {
+              if (!emit_parse_error(cursor, "unexpected-null-character") ||
+                  !append_bounded_bytes(
+                      &character_buffer_,
+                      kReplacementCharacterUtf8,
+                      "HTML Data-tag tokenizer coalesced character token")) {
+                  return false;
+              }
+              ++cursor;
+              continue;
+          }
           '''
-          new = '''    bool run() {
-              std::size_t cursor = 0U;
-              while (cursor < input_.size()) {
-                  const char character = input_[cursor];
-                  if (character == '\\0') {
-                      if (!emit_parse_error(cursor, "unexpected-null-character") ||
-                          !append_bounded_bytes(
-                              &character_buffer_,
-                              kReplacementCharacterUtf8,
-                              "HTML Data-tag tokenizer coalesced character token")) {
-                          return false;
-                      }
-                      ++cursor;
-                      continue;
-                  }
-                  if (!ascii_byte(character)) {
-          '''
-          if source.count(old) != 1:
-              raise SystemExit(f"DataTagTokenizer::run NUL anchor count={source.count(old)}")
-          source_path.write_text(source.replace(old, new, 1), encoding="utf-8")
+          source_path.write_text(
+              source[:guard_pos] + new_guard + source[next_state_pos:],
+              encoding="utf-8",
+          )
 
+          # Remove only the obsolete broad replacement block from the diagnostic
+          # helper; the helper still applies the constant/tests/census changes.
           helper_path = Path("scripts/apply_z7_tokenizer_data_text_nul_diagnostic_v1.py")
           helper = helper_path.read_text(encoding="utf-8")
           label = '"ordinary Data-state NUL replacement"'
@@ -70,8 +62,10 @@ jobs:
           block_end = helper.find(")\n", label_pos)
           if block_start < 0 or block_end < 0:
               raise SystemExit("broad helper NUL block boundaries not found")
-          block_end += 2
-          helper_path.write_text(helper[:block_start] + helper[block_end:], encoding="utf-8")
+          helper_path.write_text(
+              helper[:block_start] + helper[block_end + 2:],
+              encoding="utf-8",
+          )
           PY
           python3 scripts/apply_z7_tokenizer_data_text_nul_diagnostic_v1.py
           git diff --check
