@@ -3,6 +3,7 @@
 #include "html_tokenizer_character_reference_v1.hpp"
 #include "html_tokenizer_data_stream_v1.hpp"
 #include "html_tokenizer_script_data_v1.hpp"
+#include "html_tokenizer_utf8_v1.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -201,6 +202,292 @@ private:
     std::uint64_t base_line_{1U};
     std::uint64_t base_column_{1U};
 };
+
+HtmlTokenizerV1ParseError cdata_position_error_utf16(
+    std::string_view input,
+    std::size_t offset,
+    std::string code) {
+    HtmlTokenizerV1ParseError result;
+    result.code = std::move(code);
+    result.line = 1U;
+    result.column = 1U;
+
+    const std::size_t limit = std::min(offset, input.size());
+    std::size_t index = 0U;
+    while (index < limit) {
+        if (input[index] == '\n') {
+            ++result.line;
+            result.column = 1U;
+            ++index;
+            continue;
+        }
+
+        const std::size_t scalar_bytes =
+            detail::html_tokenizer_utf8_scalar_bytes_v1(input, index);
+        if (scalar_bytes == 0U || scalar_bytes > limit - index) {
+            // Invalid UTF-8 never reaches the admitted CDATA corpus surface;
+            // keep this fallback bounded and monotonic rather than reading
+            // across an invalid/truncated sequence.
+            ++result.column;
+            ++index;
+            continue;
+        }
+
+        // html5lib's pinned error coordinates count UTF-16 code units.
+        // A well-formed four-byte UTF-8 scalar is supplementary and therefore
+        // occupies one surrogate pair; all other Unicode scalars occupy one.
+        result.column += scalar_bytes == 4U ? 2U : 1U;
+        index += scalar_bytes;
+    }
+    return result;
+}
+
+bool emit_canonical_parse_error(
+    std::string_view full_input,
+    std::size_t offset,
+    std::string code,
+    HtmlTokenizerV1Sink* sink,
+    HtmlTokenizerV1Stats* stats,
+    std::string* error) {
+    HtmlTokenizerV1ParseError parse_error =
+        cdata_position_error_utf16(full_input, offset, std::move(code));
+    if (!sink->on_parse_error(parse_error, error)) {
+        if (error->empty()) {
+            *error = "HTML tokenizer sink rejected parse error";
+        }
+        return false;
+    }
+    return increment_counter(
+        &stats->parse_errors_emitted,
+        error,
+        "HTML tokenizer parse-error");
+}
+
+bool emit_canonical_character(
+    std::string_view data,
+    const HtmlTokenizerV1Config& config,
+    HtmlTokenizerV1Sink* sink,
+    HtmlTokenizerV1Stats* stats,
+    std::string* error) {
+    if (data.empty()) {
+        return true;
+    }
+    if (data.size() > config.maximum_token_bytes) {
+        return fail_tokenizer(
+            error,
+            "HTML tokenizer CDATA character token exceeds bounded byte limit");
+    }
+    HtmlTokenizerV1Token token;
+    token.kind = HtmlTokenizerV1TokenKind::Character;
+    token.data.assign(data.data(), data.size());
+    if (!sink->on_token(token, error)) {
+        if (error->empty()) {
+            *error = "HTML tokenizer sink rejected CDATA character token";
+        }
+        return false;
+    }
+    return increment_counter(
+               &stats->tokens_emitted,
+               error,
+               "HTML tokenizer token") &&
+        increment_counter(
+               &stats->character_tokens_emitted,
+               error,
+               "HTML tokenizer character-token") &&
+        add_counter(
+               &stats->character_bytes_emitted,
+               static_cast<std::uint64_t>(data.size()),
+               error,
+               "HTML tokenizer character-byte");
+}
+
+class CdataContinuationSink final : public HtmlTokenizerV1Sink {
+public:
+    CdataContinuationSink(
+        HtmlTokenizerV1Sink* downstream,
+        std::string prefix,
+        std::size_t maximum_token_bytes,
+        std::uint64_t base_line,
+        std::uint64_t base_column,
+        HtmlTokenizerV1Stats* stats)
+        : downstream_(downstream),
+          prefix_(std::move(prefix)),
+          maximum_token_bytes_(maximum_token_bytes),
+          base_line_(base_line),
+          base_column_(base_column),
+          stats_(stats) {}
+
+    bool on_token(const HtmlTokenizerV1Token& token, std::string* error) override {
+        if (!prefix_.empty() && token.kind == HtmlTokenizerV1TokenKind::Character) {
+            if (prefix_.size() > maximum_token_bytes_ ||
+                token.data.size() > maximum_token_bytes_ - prefix_.size()) {
+                return fail_tokenizer(
+                    error,
+                    "HTML tokenizer CDATA/Data coalesced character token exceeds bounded byte limit");
+            }
+            HtmlTokenizerV1Token merged = token;
+            merged.data.insert(0U, prefix_);
+            prefix_.clear();
+            return emit_counted_token(merged, error);
+        }
+        if (!flush_prefix(error)) {
+            return false;
+        }
+        return emit_counted_token(token, error);
+    }
+
+    bool on_parse_error(
+        const HtmlTokenizerV1ParseError& parse_error,
+        std::string* error) override {
+        HtmlTokenizerV1ParseError translated = parse_error;
+        if (parse_error.line == 1U) {
+            translated.line = base_line_;
+            translated.column = base_column_ + parse_error.column - 1U;
+        } else {
+            translated.line = base_line_ + parse_error.line - 1U;
+            translated.column = parse_error.column;
+        }
+        if (!downstream_->on_parse_error(translated, error)) {
+            if (error->empty()) {
+                *error = "HTML tokenizer sink rejected translated Data parse error";
+            }
+            return false;
+        }
+        return increment_counter(
+            &stats_->parse_errors_emitted,
+            error,
+            "HTML tokenizer parse-error");
+    }
+
+    bool finish(std::string* error) {
+        return flush_prefix(error);
+    }
+
+private:
+    bool emit_counted_token(const HtmlTokenizerV1Token& token, std::string* error) {
+        if (!downstream_->on_token(token, error)) {
+            if (error->empty()) {
+                *error = "HTML tokenizer sink rejected CDATA/Data continuation token";
+            }
+            return false;
+        }
+        if (!increment_counter(
+                &stats_->tokens_emitted,
+                error,
+                "HTML tokenizer token")) {
+            return false;
+        }
+        if (token.kind == HtmlTokenizerV1TokenKind::Character) {
+            return increment_counter(
+                       &stats_->character_tokens_emitted,
+                       error,
+                       "HTML tokenizer character-token") &&
+                add_counter(
+                       &stats_->character_bytes_emitted,
+                       static_cast<std::uint64_t>(token.data.size()),
+                       error,
+                       "HTML tokenizer character-byte");
+        }
+        if (token.kind == HtmlTokenizerV1TokenKind::EndTag) {
+            return increment_counter(
+                &stats_->end_tags_emitted,
+                error,
+                "HTML tokenizer end-tag");
+        }
+        return true;
+    }
+
+    bool flush_prefix(std::string* error) {
+        if (prefix_.empty()) {
+            return true;
+        }
+        HtmlTokenizerV1Token token;
+        token.kind = HtmlTokenizerV1TokenKind::Character;
+        token.data = std::move(prefix_);
+        prefix_.clear();
+        return emit_counted_token(token, error);
+    }
+
+    HtmlTokenizerV1Sink* downstream_{nullptr};
+    std::string prefix_;
+    std::size_t maximum_token_bytes_{0U};
+    std::uint64_t base_line_{1U};
+    std::uint64_t base_column_{1U};
+    HtmlTokenizerV1Stats* stats_{nullptr};
+};
+
+bool run_cdata_canonical(
+    std::string_view input,
+    HtmlTokenizerV1Config config,
+    HtmlTokenizerV1Sink* sink,
+    HtmlTokenizerV1Stats* stats,
+    std::string* error) {
+    const std::size_t marker = input.find("]]>");
+    const std::size_t prefix_end =
+        marker == std::string_view::npos ? input.size() : marker;
+
+    for (std::size_t index = 0U; index < prefix_end; ++index) {
+        if (input_control_parse_error(input[index]) &&
+            !emit_canonical_parse_error(
+                input,
+                index,
+                "control-character-in-input-stream",
+                sink,
+                stats,
+                error)) {
+            return false;
+        }
+    }
+
+    if (marker == std::string_view::npos) {
+        if (!emit_canonical_character(input, config, sink, stats, error)) {
+            return false;
+        }
+        return emit_canonical_parse_error(
+            input,
+            input.size(),
+            "eof-in-cdata",
+            sink,
+            stats,
+            error);
+    }
+
+    const std::size_t data_offset = marker + 3U;
+    if (data_offset == input.size()) {
+        return emit_canonical_character(
+            input.substr(0U, marker),
+            config,
+            sink,
+            stats,
+            error);
+    }
+
+    const HtmlTokenizerV1ParseError base =
+        cdata_position_error_utf16(input, data_offset, "");
+    CdataContinuationSink translated_sink(
+        sink,
+        std::string(input.substr(0U, marker)),
+        config.maximum_token_bytes,
+        base.line,
+        base.column,
+        stats);
+
+    HtmlTokenizerDataStreamV1Config data_config{};
+    data_config.maximum_input_bytes = config.maximum_input_bytes;
+    data_config.maximum_token_bytes = config.maximum_token_bytes;
+    data_config.maximum_attributes = 256U;
+    HtmlTokenizerDataStreamV1Stats ignored_data_stats{};
+    const bool success = tokenize_html_data_stream_v1(
+        input.substr(data_offset),
+        data_config,
+        &translated_sink,
+        &ignored_data_stats,
+        error);
+    if (!success) {
+        return false;
+    }
+    return translated_sink.finish(error);
+}
 
 bool account_script_stats(
     const HtmlTokenizerScriptDataV1Stats& source,
@@ -786,6 +1073,19 @@ bool tokenize_html_token_stream_v1(
         return success;
     }
 
+    if (initial_state == HtmlTokenizerV1InitialState::CdataSection) {
+        const bool success = run_cdata_canonical(
+            input,
+            config,
+            sink,
+            &local_stats,
+            error);
+        if (stats != nullptr) {
+            *stats = local_stats;
+        }
+        return success;
+    }
+
     ActiveState active_state = ActiveState::Plaintext;
     switch (initial_state) {
     case HtmlTokenizerV1InitialState::Plaintext:
@@ -801,6 +1101,10 @@ bool tokenize_html_token_stream_v1(
         return fail_tokenizer(
             error,
             "HTML tokenizer Script-data dispatch invariant failed");
+    case HtmlTokenizerV1InitialState::CdataSection:
+        return fail_tokenizer(
+            error,
+            "HTML tokenizer CDATA-section dispatch invariant failed");
     case HtmlTokenizerV1InitialState::Data:
         return fail_tokenizer(
             error,

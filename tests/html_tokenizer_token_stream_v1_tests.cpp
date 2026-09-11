@@ -68,6 +68,8 @@ const char* state_name(HtmlTokenizerV1InitialState state) {
         return "RAWTEXT";
     case HtmlTokenizerV1InitialState::ScriptData:
         return "SCRIPT_DATA";
+    case HtmlTokenizerV1InitialState::CdataSection:
+        return "CDATA_SECTION";
     }
     return "unknown";
 }
@@ -295,6 +297,123 @@ bool test_pinned_content_model_flag_semantics() {
         "pinned contentModelFlags authority expands to exactly 24 executions");
 }
 
+bool test_cdata_section_initial_state() {
+    if (!run_case(
+            "CDATA empty EOF",
+            HtmlTokenizerV1InitialState::CdataSection,
+            "",
+            "",
+            {},
+            {ExpectedError{"eof-in-cdata", 1U, 1U}}) ||
+        !run_case(
+            "CDATA literal content EOF",
+            HtmlTokenizerV1InitialState::CdataSection,
+            "",
+            "foo",
+            {character("foo")},
+            {ExpectedError{"eof-in-cdata", 1U, 4U}}) ||
+        !run_case(
+            "CDATA supplementary scalar EOF coordinate",
+            HtmlTokenizerV1InitialState::CdataSection,
+            "",
+            std::string("\xF4\x80\x80\x80", 4U),
+            {character(std::string("\xF4\x80\x80\x80", 4U))},
+            {ExpectedError{"eof-in-cdata", 1U, 3U}}) ||
+        !run_case(
+            "CDATA ASCII plus supplementary scalar EOF coordinate",
+            HtmlTokenizerV1InitialState::CdataSection,
+            "",
+            std::string(";\xF4\x80\x80\x80", 5U),
+            {character(std::string(";\xF4\x80\x80\x80", 5U))},
+            {ExpectedError{"eof-in-cdata", 1U, 4U}}) ||
+        !run_case(
+            "CDATA control then EOF",
+            HtmlTokenizerV1InitialState::CdataSection,
+            "",
+            std::string(1U, '\x0B'),
+            {character(std::string(1U, '\x0B'))},
+            {
+                ExpectedError{"control-character-in-input-stream", 1U, 1U},
+                ExpectedError{"eof-in-cdata", 1U, 2U},
+            }) ||
+        !run_case(
+            "CDATA marker at EOF",
+            HtmlTokenizerV1InitialState::CdataSection,
+            "",
+            "foo&#32;]]>",
+            {character("foo&#32;")},
+            {}) ||
+        !run_case(
+            "CDATA continuation coalesces into Data character output",
+            HtmlTokenizerV1InitialState::CdataSection,
+            "",
+            "foo&#32;]]>&#32;",
+            {character("foo&#32; ")},
+            {}) ||
+        !run_case(
+            "CDATA extra bracket",
+            HtmlTokenizerV1InitialState::CdataSection,
+            "",
+            "foo]]]>",
+            {character("foo]")},
+            {}) ||
+        !run_case(
+            "CDATA preserves raw NUL",
+            HtmlTokenizerV1InitialState::CdataSection,
+            "",
+            std::string("\0]]>", 4U),
+            {character(std::string(1U, '\0'))},
+            {})) {
+        return false;
+    }
+
+    {
+        CollectingSink sink;
+        HtmlTokenizerV1Config config;
+        config.maximum_token_bytes = 3U;
+        std::string error;
+        if (!require(
+                !tokenize_html_token_stream_v1(
+                    "abcd",
+                    HtmlTokenizerV1InitialState::CdataSection,
+                    "",
+                    config,
+                    &sink,
+                    nullptr,
+                    &error),
+                "CDATA character token hard cap rejects oversized token") ||
+            !require(
+                error.find("CDATA character token exceeds bounded byte limit") != std::string::npos,
+                "CDATA hard-cap failure is explicit") ||
+            !require(sink.tokens.empty(), "CDATA hard-cap failure publishes no partial token")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        HtmlTokenizerV1Config config;
+        config.maximum_token_bytes = 3U;
+        std::string error;
+        if (!require(
+                !tokenize_html_token_stream_v1(
+                    "ab]]>cd",
+                    HtmlTokenizerV1InitialState::CdataSection,
+                    "",
+                    config,
+                    &sink,
+                    nullptr,
+                    &error),
+                "CDATA/Data merged token hard cap rejects oversized token") ||
+            !require(
+                error.find("CDATA/Data coalesced character token exceeds bounded byte limit") != std::string::npos,
+                "CDATA/Data merged hard-cap failure is explicit") ||
+            !require(sink.tokens.empty(), "CDATA/Data merged hard-cap failure publishes no partial token")) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool test_character_token_bound_fails_closed() {
     CollectingSink sink;
     HtmlTokenizerV1Config config;
@@ -426,6 +545,7 @@ bool test_text_state_allows_empty_last_start_tag() {
 
 int main() {
     if (!test_pinned_content_model_flag_semantics() ||
+        !test_cdata_section_initial_state() ||
         !test_character_token_bound_fails_closed() ||
         !test_nul_preprocessing_gap_fails_closed() ||
         !test_invalid_initial_state_fails_closed() ||
