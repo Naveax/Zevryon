@@ -23,22 +23,18 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          # Select the NUL guard by class/function structure instead of a repeated
-          # literal. Other state-local NUL guards must remain untouched.
+          # Data state is deliberately different from RCDATA/RAWTEXT/Script:
+          # WHATWG requires unexpected-null-character plus the current U+0000
+          # character itself, not U+FFFD. Select only the top-level Data guard.
           source_path = Path("src/html_tokenizer_data_tags_v1.cpp")
           source = source_path.read_text(encoding="utf-8")
           class_pos = source.index("class DataTagTokenizer final")
           run_pos = source.index("    bool run() {", class_pos)
           guard_pos = source.index("            if (character == '\\0') {", run_pos)
           next_state_pos = source.index("            if (!ascii_byte(character)) {", guard_pos)
-          if source.find("            if (character == '\\0') {", run_pos, guard_pos) != -1:
-              raise SystemExit("unexpected earlier DataTagTokenizer::run NUL guard")
           new_guard = '''            if (character == '\\0') {
               if (!emit_parse_error(cursor, "unexpected-null-character") ||
-                  !append_bounded_bytes(
-                      &character_buffer_,
-                      kReplacementCharacterUtf8,
-                      "HTML Data-tag tokenizer coalesced character token")) {
+                  !append_character(character)) {
                   return false;
               }
               ++cursor;
@@ -50,24 +46,54 @@ jobs:
               encoding="utf-8",
           )
 
-          # Remove only the obsolete broad replacement block from the diagnostic
-          # helper; the helper still applies the constant/tests/census changes.
+          # Strip the diagnostic helper's obsolete replacement-character constant
+          # and repeated broad source patch. Keep its focused tests/census edits.
           helper_path = Path("scripts/apply_z7_tokenizer_data_text_nul_diagnostic_v1.py")
           helper = helper_path.read_text(encoding="utf-8")
-          label = '"ordinary Data-state NUL replacement"'
-          label_pos = helper.find(label)
-          if label_pos < 0:
-              raise SystemExit("broad helper NUL block label not found")
-          block_start = helper.rfind("text = replace_once(", 0, label_pos)
-          block_end = helper.find(")\n", label_pos)
-          if block_start < 0 or block_end < 0:
-              raise SystemExit("broad helper NUL block boundaries not found")
-          helper_path.write_text(
-              helper[:block_start] + helper[block_end + 2:],
-              encoding="utf-8",
-          )
+          for label in (
+              '"Data replacement scalar constant"',
+              '"ordinary Data-state NUL replacement"',
+          ):
+              label_pos = helper.find(label)
+              if label_pos < 0:
+                  raise SystemExit(f"helper block label not found: {label}")
+              block_start = helper.rfind("text = replace_once(", 0, label_pos)
+              block_end = helper.find(")\n", label_pos)
+              if block_start < 0 or block_end < 0:
+                  raise SystemExit(f"helper block boundaries not found: {label}")
+              helper = helper[:block_start] + helper[block_end + 2:]
+          helper_path.write_text(helper, encoding="utf-8")
           PY
+
           python3 scripts/apply_z7_tokenizer_data_text_nul_diagnostic_v1.py
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path("tests/html_tokenizer_data_utf8_text_v1_tests.cpp"): (
+                  '''        std::string expected = "A";
+                  expected.append("\\xEF\\xBF\\xBD", 3U);
+                  expected.push_back('B');
+                  ''',
+                  '''        const std::string expected("A\\0B", 3U);
+                  ''',
+              ),
+              Path("tests/html_tokenizer_data_tags_v1_tests.cpp"): (
+                  '''        std::string expected = "a";
+                  expected.append("\\xEF\\xBF\\xBD", 3U);
+                  expected.push_back('b');
+                  ''',
+                  '''        const std::string expected("a\\0b", 3U);
+                  ''',
+              ),
+          }
+          for path, (old, new) in replacements.items():
+              text = path.read_text(encoding="utf-8")
+              if text.count(old) != 1:
+                  raise SystemExit(f"raw Data-NUL expected-payload anchor drifted: {path}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
           git diff --check
 
       - name: Install focused build dependencies
@@ -121,22 +147,22 @@ jobs:
           assert report["files"] == 14, report
           assert report["tests"] == 6810, report
           assert report["executions"] == 7036, report
+          assert report["passed"] == 6797, report
+          assert report["failed"] == 122, report
+          assert report["unsupported"] == 117, report
           assert report["passed"] + report["failed"] + report["unsupported"] == 7036, report
-          assert report["failed"] <= 122, report
-          assert report["unsupported"] <= 119, report
-          assert report["reason_counts"].get("failed:parse-error-stream-mismatch", 0) <= 113, report
-          assert report["reason_counts"].get("failed:token-stream-mismatch", 0) <= 9, report
+          assert report["reason_counts"].get("unsupported:input-preprocessing-nul", 0) == 59, report
+          assert report["reason_counts"].get("failed:parse-error-stream-mismatch", 0) == 113, report
+          assert report["reason_counts"].get("failed:token-stream-mismatch", 0) == 9, report
+          assert report["file_reports"]["tokenizer/test2.test"] == {
+              "executions": 45, "passed": 45, "failed": 0, "unsupported": 0
+          }, report
+          assert report["file_reports"]["tokenizer/unicodeCharsProblematic.test"] == {
+              "executions": 5, "passed": 1, "failed": 0, "unsupported": 4
+          }, report
           assert report["full_corpus_pass_claim"] is False, report
           assert report["html_tokenizer_conformance_claim"] is False, report
           assert report["z7_status_change"] is False, report
-          print("DIAGNOSTIC_TOTALS", report["passed"], report["failed"], report["unsupported"])
-          print("DIAGNOSTIC_NUL_UNSUPPORTED", report["reason_counts"].get("unsupported:input-preprocessing-nul", 0))
-          for fixture in (
-              "tokenizer/test2.test",
-              "tokenizer/test3.test",
-              "tokenizer/unicodeCharsProblematic.test",
-          ):
-              print("DIAGNOSTIC_FIXTURE", fixture, json.dumps(report["file_reports"].get(fixture), sort_keys=True))
           print(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True))
           PY
 
