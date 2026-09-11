@@ -1,0 +1,91 @@
+name: Z7 DOCTYPE unsupported-surface diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostic/z7-doctype-nonascii-surface-v1
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: diagnostic/z7-doctype-nonascii-surface-v1
+
+      - name: Install focused build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+
+      - name: Configure and build production tokenizer probe
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DZEVRYON_ENABLE_RUST_CORE=OFF \
+            -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+          cmake --build build --parallel 2 --target zevryon-html-tokenizer-token-stream-v1-probe
+
+      - name: Enumerate all remaining DOCTYPE unsupported executions
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import importlib.util
+          import json
+          from pathlib import Path
+
+          root = Path.cwd()
+          module_path = root / "scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py"
+          spec = importlib.util.spec_from_file_location("z7_census", module_path)
+          module = importlib.util.module_from_spec(spec)
+          assert spec.loader is not None
+          spec.loader.exec_module(module)
+          module.MAX_SAMPLES = 10000
+          report = module.execute_census(
+              (root / "build/zevryon-html-tokenizer-token-stream-v1-probe").resolve(),
+              module.DEFAULT_MANIFEST.resolve(),
+          )
+          selected = [
+              sample for sample in report["unsupported_samples"]
+              if "DOCTYPE" in sample["reason"] or "doctype" in sample["reason"]
+          ]
+          payload = {
+              "totals": {
+                  "passed": report["passed"],
+                  "failed": report["failed"],
+                  "unsupported": report["unsupported"],
+              },
+              "doctype_reason_counts": {
+                  key: value for key, value in report["reason_counts"].items()
+                  if "DOCTYPE" in key or "doctype" in key
+              },
+              "doctype_unsupported_samples": selected,
+          }
+          Path("doctype-surface.json").write_text(
+              json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True),
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True))
+          assert report["passed"] == 6795, report
+          assert report["failed"] == 122, report
+          assert report["unsupported"] == 119, report
+          assert len(selected) == sum(payload["doctype_reason_counts"].values()), payload
+          PY
+
+      - name: Upload diagnostic evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: z7-doctype-unsupported-surface
+          path: doctype-surface.json
+          if-no-files-found: error
+
+      - name: Block publication from diagnostic branch
+        run: |
+          echo "Diagnostic-only branch; no production publication." >&2
+          exit 1
