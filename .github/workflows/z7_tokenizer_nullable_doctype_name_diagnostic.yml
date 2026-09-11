@@ -118,26 +118,22 @@ jobs:
 
           path = Path("tests/html_tokenizer_markup_declarations_v1_tests.cpp")
           text = path.read_text(encoding="utf-8")
-          old = '''    {
+          needle = '"missing DOCTYPE name remains fail closed"'
+          position = text.find(needle)
+          if position < 0:
+              raise SystemExit("stale missing-name regression marker not found")
+          start = text.rfind("\n    {\n", 0, position)
+          if start < 0:
+              raise SystemExit("stale missing-name regression start not found")
+          start += 1
+          next_block_marker = '''    {
               CollectingSink sink;
-              HtmlTokenizerMarkupDeclarationsV1Stats stats;
-              std::size_t next_offset = 0U;
-              std::string error;
-              if (!require(
-                      !consume_html_markup_declaration_v1(
-                          "<!DOCTYPE >", 0U, {}, &sink, &stats, &next_offset, &error),
-                      "missing DOCTYPE name remains fail closed") ||
-                  !require(error.find("missing DOCTYPE name recovery") != std::string::npos,
-                           "missing DOCTYPE name boundary explicit") ||
-                  !require(sink.tokens.empty(), "missing DOCTYPE name publishes no token")) {
-                  return false;
-              }
-          }
+              const std::string input("<!--a\\0b-->", 10U);
           '''
-          count = text.count(old)
-          if count != 1:
-              raise SystemExit(f"stale missing-name regression expected once, found {count}")
-          path.write_text(text.replace(old, "", 1), encoding="utf-8")
+          end = text.find(next_block_marker, position)
+          if end < 0:
+              raise SystemExit("stale missing-name regression end marker not found")
+          path.write_text(text[:start] + text[end:], encoding="utf-8")
           PY
           git diff --check
 
