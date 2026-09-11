@@ -229,6 +229,45 @@ bool test_missing_doctype_name_recovery() {
             false);
 }
 
+bool test_utf8_doctype_name_bytes() {
+    std::string spaced = "<!DOCTYPE caf";
+    spaced.append("\xC3\xA9", 2U);
+    spaced.push_back('>');
+    std::string expected = "caf";
+    expected.append("\xC3\xA9", 2U);
+    if (!run_doctype_case(
+            "UTF-8 scalar in DOCTYPE name",
+            spaced,
+            expected,
+            false)) {
+        return false;
+    }
+
+    std::string adjacent = "<!DOCTYPE";
+    adjacent.append("\xC3\xA9", 2U);
+    adjacent.push_back('>');
+    const std::string adjacent_expected("\xC3\xA9", 2U);
+    if (!run_doctype_case(
+            "UTF-8 scalar starts DOCTYPE name without whitespace",
+            adjacent,
+            adjacent_expected,
+            false,
+            {ExpectedError{"missing-whitespace-before-doctype-name", 1U, 10U}})) {
+        return false;
+    }
+
+    std::string eof_name = "<!DOCTYPE caf";
+    eof_name.append("\xF0\x90\x80\x80", 4U);
+    std::string eof_expected = "caf";
+    eof_expected.append("\xF0\x90\x80\x80", 4U);
+    return run_doctype_case(
+        "non-BMP UTF-8 DOCTYPE name EOF UTF-16 column",
+        eof_name,
+        eof_expected,
+        true,
+        {ExpectedError{"eof-in-doctype", 1U, 16U}});
+}
+
 bool test_bounded_ascii_doctype_recovery() {
     if (!run_doctype_case(
             "missing whitespace before name",
@@ -504,6 +543,7 @@ bool test_fail_closed_boundaries() {
 int main() {
     if (!test_pinned_test1_doctypes() ||
         !test_missing_doctype_name_recovery() ||
+        !test_utf8_doctype_name_bytes() ||
         !test_bounded_ascii_doctype_recovery() ||
         !test_pinned_test1_comments() ||
         !test_nonzero_offset_preserves_global_location() ||

@@ -11,8 +11,9 @@ The external tokenizer authority is the complete pinned `html5lib/html5lib-tests
 `consume_html_markup_declaration_v1()` consumes one declaration beginning at `<` followed by `!`. The admitted surface includes:
 
 - case-insensitive `<!DOCTYPE` recognition;
-- bounded ASCII DOCTYPE-name handling with ASCII uppercase normalization;
-- missing-whitespace-before-name recovery for an otherwise representable ASCII name;
+- bounded UTF-8 DOCTYPE-name handling with ASCII uppercase normalization;
+- missing-whitespace-before-name recovery for representable ASCII and UTF-8 names;
+- html5lib-compatible one-based parse-error columns measured in UTF-16 code units for valid UTF-8 input, including non-BMP scalars;
 - nullable DOCTYPE-name representation plus `missing-doctype-name` / `eof-in-doctype` recovery with force-quirks;
 - arbitrary representable ASCII bytes in the DOCTYPE name rather than the historical `[A-Za-z0-9_:-]` subset;
 - whitespace / `>` transitions after the name;
@@ -34,11 +35,11 @@ DOCTYPE payload accounting covers the name plus public and system identifier pay
 This slice remains intentionally narrower than full WHATWG input preprocessing. It does not manufacture support for:
 
 - raw NUL replacement/input-stream preprocessing;
-- non-ASCII DOCTYPE-name or identifier authority where preprocessing/location semantics are not yet admitted;
+- non-ASCII DOCTYPE public/system identifier authority outside the admitted name states;
 - non-ASCII comment / bogus-comment preprocessing authority;
 - CDATA and unrelated tokenizer-state gaps.
 
-For unsupported non-ASCII DOCTYPE inputs the production boundary retains the pre-existing census failure class instead of silently moving an execution from one unsupported reason bucket to another. This matters because the full-corpus `no-regression` authority checks every fixture and every failure/unsupported reason independently, not just global totals.
+Non-ASCII bytes are admitted only while the DOCTYPE machine is entering or consuming the name (`AfterKeyword`, `BeforeName`, `Name`). Public/system identifier and other non-ASCII recovery states remain fail closed. Source columns follow the pinned html5lib fixture convention: BMP UTF-8 scalars count as one UTF-16 code unit and non-BMP scalars count as two. This bounded distinction prevents unsupported executions from being converted into parse-error-stream regressions.
 
 ## External regression authority
 
@@ -66,7 +67,9 @@ The focused markup-declaration tests retain the original pinned `test1.test` DOC
 - ASCII control characters;
 - bounded DOCTYPE payload rejection;
 - nullable missing-name recovery at `>` and EOF;
-- retained non-ASCII and NUL fail-closed boundaries.
+- UTF-8 DOCTYPE names with and without separating whitespace;
+- non-BMP DOCTYPE-name EOF diagnostics using UTF-16-code-unit columns;
+- retained non-ASCII identifier/comment and NUL fail-closed boundaries.
 
 Exact one-based parse-error locations are asserted.
 
