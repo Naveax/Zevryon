@@ -25,6 +25,7 @@ jobs:
 
           path = Path("scripts/apply_z7_tokenizer_nullable_doctype_name_v1.py")
           text = path.read_text(encoding="utf-8")
+
           old = """text = replace_once(
               text,
               '''        std::string system_identifier,
@@ -63,7 +64,52 @@ jobs:
           """
           count = text.count(old)
           if count != 1:
-              raise SystemExit(f"diagnostic helper bootstrap expected one anchor, found {count}")
+              raise SystemExit(f"diagnostic emit helper bootstrap expected one anchor, found {count}")
+          text = text.replace(old, new, 1)
+
+          old = """text = replace_once(
+              text,
+              '''    bool expected_force_quirks,
+              const std::vector<ExpectedError>& expected_errors = {}) {
+          ''',
+              '''    bool expected_force_quirks,
+              const std::vector<ExpectedError>& expected_errors = {},
+              bool expected_has_doctype_name = true) {
+          ''',
+              \"focused helper name-presence argument\",
+          )
+          """
+          new = """text = replace_once(
+              text,
+              '''bool run_doctype_full_case(
+              std::string_view label,
+              std::string_view input,
+              std::string_view expected_name,
+              bool expected_has_public_identifier,
+              std::string_view expected_public_identifier,
+              bool expected_has_system_identifier,
+              std::string_view expected_system_identifier,
+              bool expected_force_quirks,
+              const std::vector<ExpectedError>& expected_errors = {}) {
+          ''',
+              '''bool run_doctype_full_case(
+              std::string_view label,
+              std::string_view input,
+              std::string_view expected_name,
+              bool expected_has_public_identifier,
+              std::string_view expected_public_identifier,
+              bool expected_has_system_identifier,
+              std::string_view expected_system_identifier,
+              bool expected_force_quirks,
+              const std::vector<ExpectedError>& expected_errors = {},
+              bool expected_has_doctype_name = true) {
+          ''',
+              \"focused helper name-presence argument\",
+          )
+          """
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f"diagnostic focused helper bootstrap expected one anchor, found {count}")
           path.write_text(text.replace(old, new, 1), encoding="utf-8")
           PY
           python3 scripts/apply_z7_tokenizer_nullable_doctype_name_v1.py
