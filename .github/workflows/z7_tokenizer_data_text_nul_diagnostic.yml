@@ -1,0 +1,106 @@
+name: Z7 ordinary Data-text NUL diagnostic
+
+on:
+  push:
+    branches:
+      - candidate/z7-tokenizer-data-text-nul-v1
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: candidate/z7-tokenizer-data-text-nul-v1
+
+      - name: Apply bounded ordinary Data-text NUL candidate
+        run: |
+          set -euo pipefail
+          python3 scripts/apply_z7_tokenizer_data_text_nul_diagnostic_v1.py
+          git diff --check
+
+      - name: Install focused build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+
+      - name: Build focused Data/token-stream targets
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-html-tokenizer-data-tags-v1-tests
+          zevryon-html-tokenizer-data-utf8-text-v1-tests
+          zevryon-html-tokenizer-data-tag-recovery-v1-tests
+          zevryon-html-tokenizer-token-stream-v1-tests
+          zevryon-html-tokenizer-token-stream-v1-probe
+
+      - name: Run focused tests
+        run: |
+          set -euo pipefail
+          ./build/zevryon-html-tokenizer-data-tags-v1-tests
+          ./build/zevryon-html-tokenizer-data-utf8-text-v1-tests
+          ./build/zevryon-html-tokenizer-data-tag-recovery-v1-tests
+          ./build/zevryon-html-tokenizer-token-stream-v1-tests
+
+      - name: Verify corpus harness self-tests
+        run: |
+          set -euo pipefail
+          python3 scripts/z7_html5lib_tokenizer_corpus_verify.py --self-test
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py --self-test
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v9_baseline.py --self-test
+
+      - name: Measure full corpus without publishing authority
+        run: |
+          set -euo pipefail
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py \
+            --probe build/zevryon-html-tokenizer-token-stream-v1-probe \
+            > census.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("census.json").read_text(encoding="utf-8"))
+          assert report["files"] == 14, report
+          assert report["tests"] == 6810, report
+          assert report["executions"] == 7036, report
+          assert report["passed"] + report["failed"] + report["unsupported"] == 7036, report
+          assert report["failed"] <= 122, report
+          assert report["unsupported"] <= 119, report
+          assert report["reason_counts"].get("failed:parse-error-stream-mismatch", 0) <= 113, report
+          assert report["reason_counts"].get("failed:token-stream-mismatch", 0) <= 9, report
+          assert report["full_corpus_pass_claim"] is False, report
+          assert report["html_tokenizer_conformance_claim"] is False, report
+          assert report["z7_status_change"] is False, report
+          print("DIAGNOSTIC_TOTALS", report["passed"], report["failed"], report["unsupported"])
+          print("DIAGNOSTIC_NUL_UNSUPPORTED", report["reason_counts"].get("unsupported:input-preprocessing-nul", 0))
+          for fixture in (
+              "tokenizer/test2.test",
+              "tokenizer/test3.test",
+              "tokenizer/unicodeCharsProblematic.test",
+          ):
+              print("DIAGNOSTIC_FIXTURE", fixture, json.dumps(report["file_reports"].get(fixture), sort_keys=True))
+          print(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True))
+          PY
+
+      - name: Upload diagnostic evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: z7-ordinary-data-text-nul-diagnostic
+          path: census.json
+          if-no-files-found: error
+
+      - name: Block publication from diagnostic run
+        run: |
+          echo "Diagnostic-only run completed; production publication is intentionally blocked." >&2
+          exit 1
