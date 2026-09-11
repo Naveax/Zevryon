@@ -21,6 +21,16 @@ jobs:
           set -euo pipefail
           python3 -m py_compile scripts/apply_z7_data_tag_name_self_closing_state_v1.py
           python3 scripts/apply_z7_data_tag_name_self_closing_state_v1.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('src/html_tokenizer_data_tags_v1.cpp')
+          text = path.read_text(encoding='utf-8')
+          old = """bool ascii_digit(char value) noexcept {\n    return value >= '0' && value <= '9';\n}\n\n"""
+          count = text.count(old)
+          if count != 1:
+              raise RuntimeError(f'obsolete ascii_digit helper: expected 1 match, found {count}')
+          path.write_text(text.replace(old, '', 1), encoding='utf-8', newline='\n')
+          PY
           git diff --check
           git diff -- src/html_tokenizer_data_tags_v1.cpp tests/html_tokenizer_data_tags_v1_tests.cpp docs/Z7_HTML_TOKENIZER_DATA_TAGS_V1.md
 
