@@ -1,0 +1,116 @@
+name: Z7 Data-tag EOF recovery builder
+
+on:
+  push:
+    branches:
+      - candidate/z7-data-tag-eof-recovery-v1
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-admit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply exact production patch
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/apply_z7_data_tag_eof_recovery_v1.py
+          python3 scripts/apply_z7_data_tag_eof_recovery_v1.py
+          git diff --check
+          git diff -- src/html_tokenizer_data_tags_v1.cpp tests/html_tokenizer_data_tags_v1_tests.cpp docs/Z7_HTML_TOKENIZER_DATA_TAGS_V1.md
+
+      - name: Install focused build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+
+      - name: Build focused tokenizer authority
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-html-tokenizer-data-tags-v1-tests
+          zevryon-html-tokenizer-token-stream-v1-probe
+
+      - name: Run focused Data-tag authority
+        run: ctest --test-dir build --output-on-failure -R '^html-tokenizer-data-tags-v1-tests$'
+
+      - name: Verify v5 authority and full-corpus no-regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/z7_html5lib_tokenizer_corpus_verify.py --self-test
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v5_baseline.py --self-test
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v5_baseline.py \
+            --policy no-regression \
+            --probe build/zevryon-html-tokenizer-token-stream-v1-probe \
+            > census.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('census.json').read_text(encoding='utf-8'))
+          eof_needles = (
+              'EOF after attribute equals is outside admitted recovery',
+              'EOF after end-tag open is outside admitted recovery',
+              'EOF after tag-open is outside admitted recovery',
+              'EOF in quoted attribute value is outside admitted recovery',
+              'EOF in tag is outside admitted recovery',
+          )
+          eof_debt = sum(
+              count for reason, count in report['reason_counts'].items()
+              if any(needle in reason for needle in eof_needles)
+          )
+          historical_tag_bucket = (
+              'unsupported:production-fail-closed:'
+              'HTML Data-tag tokenizer first attribute without separating whitespace '
+              'is outside admitted v1 subset'
+          )
+          assert report['files'] == 14, report
+          assert report['tests'] == 6810, report
+          assert report['executions'] == 7036, report
+          assert report['passed'] > 6618, report
+          assert report['failed'] <= 122, report
+          assert report['unsupported'] < 296, report
+          assert eof_debt == 0, (eof_debt, report)
+          assert report['reason_counts'].get(historical_tag_bucket, 0) < 3, report
+          assert report['baseline_policy'] == 'no-regression', report
+          assert report['baseline_regression_free'] is True, report
+          assert report['exact_execution_accounting'] is True, report
+          assert report['full_corpus_pass_claim'] is False, report
+          assert report['html_tokenizer_conformance_claim'] is False, report
+          assert report['z7_status_change'] is False, report
+          print(json.dumps({
+              'passed': report['passed'],
+              'failed': report['failed'],
+              'unsupported': report['unsupported'],
+              'eof_debt': eof_debt,
+              'historical_tag_bucket': report['reason_counts'].get(historical_tag_bucket, 0),
+          }, sort_keys=True))
+          PY
+
+      - name: Commit self-clean production result
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f census.json
+          rm -f .github/workflows/z7_data_tag_eof_recovery_builder.yml
+          rm -f scripts/apply_z7_data_tag_eof_recovery_v1.py
+          git add -A
+          git diff --cached --check
+          test -n "$(git status --porcelain)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Z7: admit bounded Data-tag EOF recovery'
+          git push origin HEAD:candidate/z7-data-tag-eof-recovery-v1
