@@ -249,8 +249,6 @@ def classify_pre_execution(
     # Data/text-state NUL preprocessing debt bucket.
     if "\x00" in input_text and state_name != "CDATA section state":
         return "input-preprocessing-nul"
-    if "\r" in input_text:
-        return "input-preprocessing-cr"
     return None
 
 
