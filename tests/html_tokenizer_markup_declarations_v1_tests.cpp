@@ -81,7 +81,8 @@ bool run_doctype_full_case(
     bool expected_has_system_identifier,
     std::string_view expected_system_identifier,
     bool expected_force_quirks,
-    const std::vector<ExpectedError>& expected_errors = {}) {
+    const std::vector<ExpectedError>& expected_errors = {},
+    bool expected_has_doctype_name = true) {
     CollectingSink sink;
     HtmlTokenizerMarkupDeclarationsV1Stats stats;
     std::size_t next_offset = 0U;
@@ -103,6 +104,8 @@ bool run_doctype_full_case(
     }
     const HtmlTokenizerV1Token& token = sink.tokens[0];
     return require(token.kind == HtmlTokenizerV1TokenKind::Doctype, std::string(label) + " kind") &&
+        require(token.has_doctype_name == expected_has_doctype_name,
+                std::string(label) + " name presence") &&
         require(token.name == expected_name, std::string(label) + " normalized name") &&
         require(token.has_public_identifier == expected_has_public_identifier,
                 std::string(label) + " public identifier presence") &&
@@ -177,6 +180,53 @@ bool test_pinned_test1_doctypes() {
             true,
             {ExpectedError{"eof-in-doctype", 1U, 15U}}) &&
         run_doctype_case("Doctype in error", "<!DOCTYPE foo>", "foo", false);
+}
+
+bool test_missing_doctype_name_recovery() {
+    return run_doctype_full_case(
+               "missing name immediate close",
+               "<!DOCTYPE>",
+               "",
+               false,
+               {},
+               false,
+               {},
+               true,
+               {ExpectedError{"missing-doctype-name", 1U, 10U}},
+               false) &&
+        run_doctype_full_case(
+            "missing name after whitespace",
+            "<!DOCTYPE >",
+            "",
+            false,
+            {},
+            false,
+            {},
+            true,
+            {ExpectedError{"missing-doctype-name", 1U, 11U}},
+            false) &&
+        run_doctype_full_case(
+            "missing name at EOF after keyword",
+            "<!DOCTYPE",
+            "",
+            false,
+            {},
+            false,
+            {},
+            true,
+            {ExpectedError{"eof-in-doctype", 1U, 10U}},
+            false) &&
+        run_doctype_full_case(
+            "missing name at EOF after whitespace",
+            "<!DOCTYPE ",
+            "",
+            false,
+            {},
+            false,
+            {},
+            true,
+            {ExpectedError{"eof-in-doctype", 1U, 11U}},
+            false);
 }
 
 bool test_bounded_ascii_doctype_recovery() {
@@ -432,21 +482,6 @@ bool test_fail_closed_boundaries() {
     }
     {
         CollectingSink sink;
-        HtmlTokenizerMarkupDeclarationsV1Stats stats;
-        std::size_t next_offset = 0U;
-        std::string error;
-        if (!require(
-                !consume_html_markup_declaration_v1(
-                    "<!DOCTYPE >", 0U, {}, &sink, &stats, &next_offset, &error),
-                "missing DOCTYPE name remains fail closed") ||
-            !require(error.find("missing DOCTYPE name recovery") != std::string::npos,
-                     "missing DOCTYPE name boundary explicit") ||
-            !require(sink.tokens.empty(), "missing DOCTYPE name publishes no token")) {
-            return false;
-        }
-    }
-    {
-        CollectingSink sink;
         const std::string input("<!--a\0b-->", 10U);
         HtmlTokenizerMarkupDeclarationsV1Stats stats;
         std::size_t next_offset = 0U;
@@ -468,6 +503,7 @@ bool test_fail_closed_boundaries() {
 
 int main() {
     if (!test_pinned_test1_doctypes() ||
+        !test_missing_doctype_name_recovery() ||
         !test_bounded_ascii_doctype_recovery() ||
         !test_pinned_test1_comments() ||
         !test_nonzero_offset_preserves_global_location() ||

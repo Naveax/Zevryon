@@ -210,7 +210,8 @@ private:
         bool has_public_identifier,
         std::string system_identifier,
         bool has_system_identifier,
-        bool force_quirks) {
+        bool force_quirks,
+        bool has_doctype_name = true) {
         if (name.size() > config_.maximum_token_bytes ||
             public_identifier.size() > config_.maximum_token_bytes ||
             system_identifier.size() > config_.maximum_token_bytes ||
@@ -224,6 +225,7 @@ private:
         HtmlTokenizerV1Token token;
         token.kind = HtmlTokenizerV1TokenKind::Doctype;
         token.name = std::move(name);
+        token.has_doctype_name = has_doctype_name;
         token.public_identifier = std::move(public_identifier);
         token.system_identifier = std::move(system_identifier);
         token.has_public_identifier = has_public_identifier;
@@ -306,14 +308,16 @@ private:
         bool has_public_identifier,
         std::string system_identifier,
         bool has_system_identifier,
-        bool force_quirks) {
+        bool force_quirks,
+        bool has_doctype_name = true) {
         if (!emit_doctype(
                 std::move(name),
                 std::move(public_identifier),
                 has_public_identifier,
                 std::move(system_identifier),
                 has_system_identifier,
-                force_quirks)) {
+                force_quirks,
+                has_doctype_name)) {
             return false;
         }
         *next_offset_ = next_offset;
@@ -334,15 +338,21 @@ private:
 
         for (;;) {
             if (cursor >= input_.size()) {
-                if (state == DoctypeState::AfterKeyword) {
-                    return fail_markup(
-                        error_,
-                        "HTML markup declaration malformed DOCTYPE-name transition is outside admitted v1 recovery");
-                }
-                if (state == DoctypeState::BeforeName) {
-                    return fail_markup(
-                        error_,
-                        "HTML markup declaration missing DOCTYPE name recovery is outside admitted v1 subset");
+                if (state == DoctypeState::AfterKeyword ||
+                    state == DoctypeState::BeforeName) {
+                    if (!emit_parse_error(input_.size(), "eof-in-doctype")) {
+                        return false;
+                    }
+                    force_quirks = true;
+                    return finish_doctype(
+                        input_.size(),
+                        std::move(name),
+                        std::move(public_identifier),
+                        has_public_identifier,
+                        std::move(system_identifier),
+                        has_system_identifier,
+                        force_quirks,
+                        false);
                 }
                 if (state != DoctypeState::Bogus) {
                     if (!emit_parse_error(input_.size(), "eof-in-doctype")) {
@@ -380,9 +390,19 @@ private:
                     break;
                 }
                 if (value == '>') {
-                    return fail_markup(
-                        error_,
-                        "HTML markup declaration malformed DOCTYPE-name transition is outside admitted v1 recovery");
+                    if (!emit_parse_error(cursor, "missing-doctype-name")) {
+                        return false;
+                    }
+                    force_quirks = true;
+                    return finish_doctype(
+                        cursor + 1U,
+                        std::move(name),
+                        std::move(public_identifier),
+                        has_public_identifier,
+                        std::move(system_identifier),
+                        has_system_identifier,
+                        force_quirks,
+                        false);
                 }
                 if (!emit_parse_error(cursor, "missing-whitespace-before-doctype-name")) {
                     return false;
@@ -398,9 +418,19 @@ private:
                     break;
                 }
                 if (value == '>') {
-                    return fail_markup(
-                        error_,
-                        "HTML markup declaration missing DOCTYPE name recovery is outside admitted v1 subset");
+                    if (!emit_parse_error(cursor, "missing-doctype-name")) {
+                        return false;
+                    }
+                    force_quirks = true;
+                    return finish_doctype(
+                        cursor + 1U,
+                        std::move(name),
+                        std::move(public_identifier),
+                        has_public_identifier,
+                        std::move(system_identifier),
+                        has_system_identifier,
+                        force_quirks,
+                        false);
                 }
                 if (!append_doctype_byte(&name, ascii_lower(value), "name")) {
                     return false;

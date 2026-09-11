@@ -169,16 +169,18 @@ def parse_probe(stdout: str) -> tuple[list[tuple[Any, ...]], list[tuple[str, int
                 tokens.append(("S", name, self_closing, tuple(sorted(attrs))))
                 continue
             if kind == "D":
-                require(len(fields) == 8, f"probe DOCTYPE line {line_number} malformed")
-                name = decode_hex(fields[2], "probe DOCTYPE name")
-                has_public = parse_bool(fields[3], "probe DOCTYPE public flag")
-                public_id = decode_hex(fields[4], "probe DOCTYPE public id")
-                has_system = parse_bool(fields[5], "probe DOCTYPE system flag")
-                system_id = decode_hex(fields[6], "probe DOCTYPE system id")
-                force_quirks = parse_bool(fields[7], "probe DOCTYPE force-quirks")
+                require(len(fields) == 9, f"probe DOCTYPE line {line_number} malformed")
+                has_name = parse_bool(fields[2], "probe DOCTYPE name flag")
+                name = decode_hex(fields[3], "probe DOCTYPE name")
+                has_public = parse_bool(fields[4], "probe DOCTYPE public flag")
+                public_id = decode_hex(fields[5], "probe DOCTYPE public id")
+                has_system = parse_bool(fields[6], "probe DOCTYPE system flag")
+                system_id = decode_hex(fields[7], "probe DOCTYPE system id")
+                force_quirks = parse_bool(fields[8], "probe DOCTYPE force-quirks")
+                require(has_name or name == "", "probe absent DOCTYPE name has payload")
                 require(has_public or public_id == "", "probe absent public id has payload")
                 require(has_system or system_id == "", "probe absent system id has payload")
-                tokens.append(("D", name, public_id if has_public else None, system_id if has_system else None, force_quirks))
+                tokens.append(("D", name if has_name else None, public_id if has_public else None, system_id if has_system else None, force_quirks))
                 continue
             raise CensusError(f"probe token kind invalid on line {line_number}: {kind!r}")
         if fields[0] == "ERROR":
@@ -218,10 +220,6 @@ def common_stats(input_text: str, tokens: list[tuple[Any, ...]], errors: list[tu
     )
 
 
-def has_nullable_doctype_name(tokens: list[tuple[Any, ...]]) -> bool:
-    return any(token[0] == "D" and token[1] is None for token in tokens)
-
-
 def classify_pre_execution(
     upstream_path: str,
     state_name: str,
@@ -233,8 +231,6 @@ def classify_pre_execution(
         return "xml-violation-infoset-coercion"
     if state_name not in STATE_MAP:
         return f"initial-state:{state_name}"
-    if has_nullable_doctype_name(tokens):
-        return "probe-wire-null-doctype-name"
     try:
         input_text.encode("utf-8")
         last_start_tag.encode("utf-8")

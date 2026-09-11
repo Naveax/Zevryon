@@ -38,7 +38,8 @@ struct HtmlTokenizerV1Token {
     bool self_closing{false};
 
     // DOCTYPE-only fields. Presence is explicit because the external tokenizer
-    // authority distinguishes a missing identifier (null) from an empty one.
+    // authority distinguishes a missing name/identifier (null) from an empty one.
+    bool has_doctype_name{false};
     std::string public_identifier;
     std::string system_identifier;
     bool has_public_identifier{false};

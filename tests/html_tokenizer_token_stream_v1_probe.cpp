@@ -132,7 +132,8 @@ void emit_token(const HtmlTokenizerV1Token& token) {
         std::cout << "TOKEN\tM\t" << encode_hex(token.data) << '\n';
         return;
     case HtmlTokenizerV1TokenKind::Doctype:
-        std::cout << "TOKEN\tD\t" << encode_hex(token.name) << '\t'
+        std::cout << "TOKEN\tD\t" << (token.has_doctype_name ? 1 : 0) << '\t'
+                  << encode_hex(token.name) << '\t'
                   << (token.has_public_identifier ? 1 : 0) << '\t'
                   << encode_hex(token.public_identifier) << '\t'
                   << (token.has_system_identifier ? 1 : 0) << '\t'

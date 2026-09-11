@@ -13,6 +13,7 @@ The external tokenizer authority is the complete pinned `html5lib/html5lib-tests
 - case-insensitive `<!DOCTYPE` recognition;
 - bounded ASCII DOCTYPE-name handling with ASCII uppercase normalization;
 - missing-whitespace-before-name recovery for an otherwise representable ASCII name;
+- nullable DOCTYPE-name representation plus `missing-doctype-name` / `eof-in-doctype` recovery with force-quirks;
 - arbitrary representable ASCII bytes in the DOCTYPE name rather than the historical `[A-Za-z0-9_:-]` subset;
 - whitespace / `>` transitions after the name;
 - case-insensitive `PUBLIC` and `SYSTEM` keyword recognition;
@@ -34,7 +35,6 @@ This slice remains intentionally narrower than full WHATWG input preprocessing. 
 
 - raw NUL replacement/input-stream preprocessing;
 - non-ASCII DOCTYPE-name or identifier authority where preprocessing/location semantics are not yet admitted;
-- missing DOCTYPE-name tokens whose external wire representation currently requires nullable-name support;
 - non-ASCII comment / bogus-comment preprocessing authority;
 - CDATA and unrelated tokenizer-state gaps.
 
@@ -65,6 +65,7 @@ The focused markup-declaration tests retain the original pinned `test1.test` DOC
 - unexpected data after a system identifier;
 - ASCII control characters;
 - bounded DOCTYPE payload rejection;
+- nullable missing-name recovery at `>` and EOF;
 - retained non-ASCII and NUL fail-closed boundaries.
 
 Exact one-based parse-error locations are asserted.
