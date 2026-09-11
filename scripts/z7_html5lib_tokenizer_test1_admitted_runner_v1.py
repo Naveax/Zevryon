@@ -340,19 +340,21 @@ def parse_probe_output(stdout: str) -> tuple[
                 tokens.append(("S", name, self_closing, tuple(sorted(attrs))))
                 continue
             if kind == "D":
-                require(len(fields) == 8, f"probe DOCTYPE line {line_number} malformed")
-                name = decode_hex(fields[2], f"probe DOCTYPE name line {line_number}")
-                has_public = parse_bool_field(fields[3], f"probe DOCTYPE public flag line {line_number}")
-                public_payload = decode_hex(fields[4], f"probe DOCTYPE public id line {line_number}")
-                has_system = parse_bool_field(fields[5], f"probe DOCTYPE system flag line {line_number}")
-                system_payload = decode_hex(fields[6], f"probe DOCTYPE system id line {line_number}")
-                force_quirks = parse_bool_field(fields[7], f"probe DOCTYPE force-quirks line {line_number}")
+                require(len(fields) == 9, f"probe DOCTYPE line {line_number} malformed")
+                has_name = parse_bool_field(fields[2], f"probe DOCTYPE name flag line {line_number}")
+                name_payload = decode_hex(fields[3], f"probe DOCTYPE name line {line_number}")
+                has_public = parse_bool_field(fields[4], f"probe DOCTYPE public flag line {line_number}")
+                public_payload = decode_hex(fields[5], f"probe DOCTYPE public id line {line_number}")
+                has_system = parse_bool_field(fields[6], f"probe DOCTYPE system flag line {line_number}")
+                system_payload = decode_hex(fields[7], f"probe DOCTYPE system id line {line_number}")
+                force_quirks = parse_bool_field(fields[8], f"probe DOCTYPE force-quirks line {line_number}")
+                require(has_name or name_payload == "", f"probe DOCTYPE absent name has payload")
                 require(has_public or public_payload == "", f"probe DOCTYPE absent public id has payload")
                 require(has_system or system_payload == "", f"probe DOCTYPE absent system id has payload")
                 tokens.append(
                     (
                         "D",
-                        name,
+                        name_payload if has_name else None,
                         public_payload if has_public else None,
                         system_payload if has_system else None,
                         force_quirks,
@@ -557,7 +559,7 @@ def self_test(fixture: Path) -> None:
         [
             "TOKEN\tS\t68\t1\t2\t61\t62\t63\t64",
             "TOKEN\tM\t78",
-            "TOKEN\tD\t68746d6c\t0\t\t0\t\t1",
+            "TOKEN\tD\t1\t68746d6c\t0\t\t0\t\t1",
             "TOKEN\tC\t7a",
             "TOKEN\tE\t68",
             "ERROR\t656f662d696e2d746167\t2\t3",
