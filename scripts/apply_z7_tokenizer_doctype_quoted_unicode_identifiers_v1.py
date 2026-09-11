@@ -15,29 +15,6 @@ source = ROOT / "src/html_tokenizer_markup_declarations_v1.cpp"
 text = source.read_text(encoding="utf-8")
 text = replace_once(
     text,
-    """                if (state != DoctypeState::Bogus) {
-                    if (!emit_parse_error(input_.size(), "eof-in-doctype")) {
-                        return false;
-                    }
-                    force_quirks = true;
-                }
-""",
-    """                if (state != DoctypeState::Bogus) {
-                    if (!emit_parse_error(input_.size(), "eof-in-doctype")) {
-                        return false;
-                    }
-                    if (state != DoctypeState::PublicIdentifierDoubleQuoted &&
-                        state != DoctypeState::PublicIdentifierSingleQuoted &&
-                        state != DoctypeState::SystemIdentifierDoubleQuoted &&
-                        state != DoctypeState::SystemIdentifierSingleQuoted) {
-                        force_quirks = true;
-                    }
-                }
-""",
-    "quoted DOCTYPE identifier EOF force-quirks",
-)
-text = replace_once(
-    text,
     """        if (!ascii_byte(value)) {
             if (state == DoctypeState::AfterKeyword ||
                 state == DoctypeState::BeforeName ||
@@ -84,7 +61,7 @@ new_test = r'''bool test_utf8_doctype_quoted_identifiers() {
             scalar,
             false,
             {},
-            false,
+            true,
             {
                 ExpectedError{"missing-whitespace-before-doctype-name", 1U, 10U},
                 ExpectedError{"missing-whitespace-after-doctype-public-keyword", 1U, 18U},
@@ -141,4 +118,4 @@ text = replace_once(
 )
 tests.write_text(text, encoding="utf-8")
 
-print("applied quoted Unicode DOCTYPE identifier + EOF quirks diagnostic patch")
+print("applied quoted Unicode DOCTYPE identifier diagnostic patch")
