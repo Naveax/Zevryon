@@ -12,6 +12,7 @@ namespace {
 
 constexpr std::size_t kMaximumConfiguredInputBytes = 16U * 1024U * 1024U;
 constexpr std::size_t kMaximumConfiguredTokenBytes = 1024U * 1024U;
+constexpr std::string_view kReplacementCharacterUtf8 = "\xEF\xBF\xBD";
 
 enum class ScriptState : std::uint8_t {
     Data,
@@ -179,12 +180,6 @@ public:
     bool run() {
         std::size_t cursor = 0U;
         while (cursor < input_.size() && !done_) {
-            if (input_[cursor] == '\0') {
-                stats_->bytes_consumed = static_cast<std::uint64_t>(cursor);
-                return fail_script(
-                    error_,
-                    "HTML Script-data input preprocessing/NUL replacement is not implemented");
-            }
             if (!ascii_byte(input_[cursor])) {
                 stats_->bytes_consumed = static_cast<std::uint64_t>(cursor);
                 return fail_script(
@@ -211,6 +206,16 @@ public:
     }
 
 private:
+    bool consume_null(std::size_t* cursor, ScriptState next_state) {
+        if (!emit_parse_error(*cursor, "unexpected-null-character") ||
+            !append_characters(kReplacementCharacterUtf8)) {
+            return false;
+        }
+        state_ = next_state;
+        ++*cursor;
+        return true;
+    }
+
     bool append_character(char character) {
         if (character_buffer_.size() >= config_.maximum_token_bytes) {
             return fail_script(
@@ -411,6 +416,9 @@ private:
         const char character = input_[*cursor];
         switch (state_) {
         case ScriptState::Data:
+            if (character == '\0') {
+                return consume_null(cursor, ScriptState::Data);
+            }
             if (character == '<') {
                 state_ = ScriptState::LessThanSign;
                 ++*cursor;
@@ -483,6 +491,9 @@ private:
             return true;
 
         case ScriptState::Escaped:
+            if (character == '\0') {
+                return consume_null(cursor, ScriptState::Escaped);
+            }
             if (character == '-') {
                 if (!append_character('-')) {
                     return false;
@@ -503,6 +514,9 @@ private:
             return true;
 
         case ScriptState::EscapedDash:
+            if (character == '\0') {
+                return consume_null(cursor, ScriptState::Escaped);
+            }
             if (character == '-') {
                 if (!append_character('-')) {
                     return false;
@@ -524,6 +538,9 @@ private:
             return true;
 
         case ScriptState::EscapedDashDash:
+            if (character == '\0') {
+                return consume_null(cursor, ScriptState::Escaped);
+            }
             if (character == '-') {
                 if (!append_character('-')) {
                     return false;
@@ -611,6 +628,9 @@ private:
             return true;
 
         case ScriptState::DoubleEscaped:
+            if (character == '\0') {
+                return consume_null(cursor, ScriptState::DoubleEscaped);
+            }
             if (character == '-') {
                 if (!append_character('-')) {
                     return false;
@@ -634,6 +654,9 @@ private:
             return true;
 
         case ScriptState::DoubleEscapedDash:
+            if (character == '\0') {
+                return consume_null(cursor, ScriptState::DoubleEscaped);
+            }
             if (character == '-') {
                 if (!append_character('-')) {
                     return false;
@@ -658,6 +681,9 @@ private:
             return true;
 
         case ScriptState::DoubleEscapedDashDash:
+            if (character == '\0') {
+                return consume_null(cursor, ScriptState::DoubleEscaped);
+            }
             if (character == '-') {
                 if (!append_character('-')) {
                     return false;

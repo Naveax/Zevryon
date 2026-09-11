@@ -84,8 +84,9 @@ Canonical focused regressions additionally prove:
   state transition;
 - a delegated Data parse error after a multiline Script-data prefix is reported
   at its global original-input line/column;
-- NUL/preprocessing debt remains fail-closed through the canonical entrypoint
-  without publishing a partial Character token.
+- Script-data U+0000 is handled state-locally across ordinary, escaped and
+  double-escaped Character-consuming states: one `unexpected-null-character`
+  is emitted and UTF-8 U+FFFD is appended without disturbing state recovery.
 
 The tokenizer probe accepts `SCRIPT_DATA` as an initial-state selector. Its
 current wire protocol still exposes only Character and EndTag tokens because
@@ -97,7 +98,7 @@ change rather than an implicit protocol mutation.
 
 Neither the standalone component nor canonical composition approximates:
 
-- U+0000 replacement or complete input-stream preprocessing;
+- Data/markup/comment/DOCTYPE U+0000 recovery or complete input-stream preprocessing;
 - general non-ASCII preprocessing/location authority;
 - attributes on appropriate Script-data end tags;
 - self-closing/trailing-solidus recovery on appropriate Script-data end tags;
@@ -126,6 +127,7 @@ This is implementation/regression authority for bounded Script-data plus its
 canonical transition into the admitted Data stream. It does **not** satisfy the
 canonical `html_tokenizer_conformance` gate.
 
-Complete character references, preprocessing, CDATA, broader recovery, full
-`test1.test` execution, tree-builder-driven tokenizer transitions and
+Complete Data-state NUL recovery, broader preprocessing/non-ASCII authority,
+character-reference and malformed-markup recovery gaps, full tokenizer corpus
+conformance, tree-builder-driven tokenizer transitions and
 `tree_builder_conformance` remain outstanding. Z7 remains `planned`.

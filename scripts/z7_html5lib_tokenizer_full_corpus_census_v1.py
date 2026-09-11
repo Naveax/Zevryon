@@ -244,13 +244,15 @@ def classify_pre_execution(
                     item.encode("utf-8")
     except UnicodeEncodeError:
         return "non-utf8-scalar-test-data"
-    # CDATA preserves raw NUL. PLAINTEXT/RCDATA/RAWTEXT now admit their
-    # tokenizer-state U+FFFD replacement + unexpected-null-character behavior.
-    # Data and Script data remain behind the separate NUL authority boundary.
+    # CDATA preserves raw NUL. PLAINTEXT/RCDATA/RAWTEXT and Script data
+    # now admit their state-specific U+FFFD replacement behavior. Data remains
+    # behind the separate NUL authority boundary because its markup/comment/
+    # DOCTYPE state family needs a distinct bounded admission slice.
     if "\x00" in input_text and state_name not in {
         "PLAINTEXT state",
         "RCDATA state",
         "RAWTEXT state",
+        "Script data state",
         "CDATA section state",
     }:
         return "input-preprocessing-nul"

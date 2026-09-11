@@ -335,32 +335,85 @@ bool test_eof_in_comment_like_text_reports_error() {
                 "comment-like EOF error stats");
 }
 
-bool test_fail_closed_boundaries() {
-    {
-        const std::string input("a\0b", 3U);
-        CollectingSink sink;
-        HtmlTokenizerScriptDataV1Stats stats;
-        HtmlTokenizerScriptDataV1Result result;
-        std::string error;
-        if (!require(
-                !consume_html_script_data_v1(
-                    input,
-                    "script",
-                    {},
-                    &sink,
-                    &stats,
-                    &result,
-                    &error),
-                "NUL remains fail closed") ||
-            !require(error.find("preprocessing/NUL replacement") != std::string::npos,
-                     "NUL failure identifies preprocessing debt") ||
-            !require(sink.tokens.empty() && sink.errors.empty(),
-                     "NUL failure does not flush partial character data") ||
-            !require(stats.bytes_consumed == 1U,
-                     "NUL failure reports consumed prefix")) {
+bool run_nul_replacement_case(
+    std::string_view description,
+    const std::string& input) {
+    const std::string replacement("\xEF\xBF\xBD", 3U);
+    const std::size_t nul_offset = input.find('\0');
+    if (!require(nul_offset != std::string::npos,
+                 std::string(description) + " contains NUL")) {
+        return false;
+    }
+
+    std::string expected = input;
+    expected.replace(nul_offset, 1U, replacement);
+
+    CollectingSink sink;
+    HtmlTokenizerScriptDataV1Stats stats;
+    HtmlTokenizerScriptDataV1Result result;
+    std::string error;
+    if (!require(
+            consume_html_script_data_v1(
+                input,
+                "script",
+                {},
+                &sink,
+                &stats,
+                &result,
+                &error),
+            std::string(description) + ": " + error) ||
+        !require(sink.tokens.size() == 1U,
+                 std::string(description) + " token count") ||
+        !require(sink.errors.size() == 1U,
+                 std::string(description) + " parse-error count")) {
+        return false;
+    }
+
+    return require(
+               sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Character &&
+                   sink.tokens[0].data == expected,
+               std::string(description) + " replacement payload") &&
+        require(
+            sink.errors[0].code == "unexpected-null-character" &&
+                sink.errors[0].line == 1U &&
+                sink.errors[0].column == nul_offset + 1U,
+            std::string(description) + " exact parse-error location") &&
+        require(
+            !result.transitioned_to_data && result.next_offset == input.size(),
+            std::string(description) + " EOF result") &&
+        require(
+            stats.input_bytes_available == input.size() &&
+                stats.bytes_consumed == input.size() &&
+                stats.tokens_emitted == 1U &&
+                stats.character_tokens_emitted == 1U &&
+                stats.character_bytes_emitted == input.size() + 2U &&
+                stats.end_tags_emitted == 0U &&
+                stats.parse_errors_emitted == 1U,
+            std::string(description) + " event stats");
+}
+
+bool test_nul_replacement_across_script_character_states() {
+    const std::string cases[] = {
+        std::string("a\0b", 3U),
+        std::string("<!--x\0-->", 9U),
+        std::string("<!--x-\0-->", 10U),
+        std::string("<!--\0-->", 8U),
+        std::string("<!--<script>\0</script>-->", 25U),
+        std::string("<!--<script>x-\0</script>-->", 27U),
+        std::string("<!--<script>--\0</script>-->", 27U),
+    };
+    for (std::size_t index = 0U; index < std::size(cases); ++index) {
+        if (!run_nul_replacement_case(
+                std::string("Script-data NUL state case ") +
+                    std::to_string(index),
+                cases[index])) {
             return false;
         }
     }
+    return true;
+}
+
+bool test_fail_closed_boundaries() {
     {
         const std::string input("a\xC3\xA9", 3U);
         CollectingSink sink;
@@ -446,6 +499,7 @@ int main() {
         !test_escaped_appropriate_end_tag_transitions() ||
         !test_double_escaped_script_spelling_does_not_close() ||
         !test_eof_in_comment_like_text_reports_error() ||
+        !test_nul_replacement_across_script_character_states() ||
         !test_fail_closed_boundaries()) {
         return 1;
     }

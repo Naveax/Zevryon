@@ -32,8 +32,9 @@ struct HtmlTokenizerScriptDataV1Result {
 //
 // The component implements the admitted ASCII Script-data escaped and
 // double-escaped state family through the shared HtmlTokenizerV1Sink event
-// boundary. NUL replacement/input preprocessing and unsupported appropriate
-// end-tag attribute/self-closing recovery remain fail closed.
+// boundary. Script-data U+0000 emits unexpected-null-character and U+FFFD in
+// the states that consume Character data. Broader preprocessing and unsupported
+// appropriate end-tag attribute/self-closing recovery remain fail closed.
 bool consume_html_script_data_v1(
     std::string_view input,
     std::string_view last_start_tag,

@@ -159,27 +159,43 @@ bool test_script_data_suffix_error_location_is_global() {
                 "global suffix merged stats");
 }
 
-bool test_script_data_nul_fails_closed_through_canonical_entrypoint() {
+bool test_script_data_nul_replacement_through_canonical_entrypoint() {
     const std::string input("a\0b", 3U);
+    std::string expected = "a";
+    expected.append("\xEF\xBF\xBD", 3U);
+    expected.push_back('b');
+
     CollectingSink sink;
     HtmlTokenizerV1Stats stats;
     std::string error;
-    return require(
-               !tokenize_html_token_stream_v1(
-                   input,
-                   HtmlTokenizerV1InitialState::ScriptData,
-                   "script",
-                   {},
-                   &sink,
-                   &stats,
-                   &error),
-               "canonical Script-data NUL remains fail closed") &&
-        require(error.find("preprocessing/NUL replacement") != std::string::npos,
-                "canonical Script-data NUL failure identifies preprocessing debt") &&
-        require(sink.tokens.empty() && sink.errors.empty(),
-                "canonical Script-data NUL failure publishes no partial events") &&
-        require(stats.input_bytes == input.size() && stats.tokens_emitted == 0U,
-                "canonical Script-data NUL failure stats");
+    if (!require(
+            tokenize_html_token_stream_v1(
+                input,
+                HtmlTokenizerV1InitialState::ScriptData,
+                "script",
+                {},
+                &sink,
+                &stats,
+                &error),
+            std::string("canonical Script-data NUL replacement: ") + error) ||
+        !require(error.empty(), "canonical Script-data NUL leaves no fatal error") ||
+        !require(sink.tokens.size() == 1U, "canonical Script-data NUL token count") ||
+        !require(sink.errors.size() == 1U, "canonical Script-data NUL parse-error count")) {
+        return false;
+    }
+
+    return require(character_is(sink.tokens[0], expected),
+                   "canonical Script-data NUL replacement payload") &&
+        require(sink.errors[0].code == "unexpected-null-character" &&
+                    sink.errors[0].line == 1U && sink.errors[0].column == 2U,
+                "canonical Script-data NUL exact parse-error location") &&
+        require(stats.input_bytes == input.size(), "canonical Script-data NUL input bytes") &&
+        require(stats.tokens_emitted == 1U &&
+                    stats.character_tokens_emitted == 1U &&
+                    stats.character_bytes_emitted == expected.size() &&
+                    stats.end_tags_emitted == 0U &&
+                    stats.parse_errors_emitted == 1U,
+                "canonical Script-data NUL stats");
 }
 
 } // namespace
@@ -188,7 +204,7 @@ int main() {
     if (!test_script_data_initial_state_character_path() ||
         !test_script_data_close_composes_data_suffix() ||
         !test_script_data_suffix_error_location_is_global() ||
-        !test_script_data_nul_fails_closed_through_canonical_entrypoint()) {
+        !test_script_data_nul_replacement_through_canonical_entrypoint()) {
         return 1;
     }
     return 0;
