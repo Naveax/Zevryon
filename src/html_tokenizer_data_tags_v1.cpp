@@ -323,6 +323,94 @@ private:
             "HTML Data-tag tokenizer parse-error");
     }
 
+    bool emit_comment(std::string data) {
+        if (!flush_character()) {
+            return false;
+        }
+        HtmlTokenizerV1Token token;
+        token.kind = HtmlTokenizerV1TokenKind::Comment;
+        token.data = std::move(data);
+        if (!sink_->on_token(token, error_)) {
+            if (error_->empty()) {
+                *error_ = "HTML Data-tag tokenizer sink rejected comment token";
+            }
+            return false;
+        }
+        return increment_counter(
+                   &stats_->tokens_emitted,
+                   error_,
+                   "HTML Data-tag tokenizer token") &&
+            increment_counter(
+                &stats_->comment_tokens_emitted,
+                error_,
+                "HTML Data-tag tokenizer comment-token");
+    }
+
+    bool consume_bogus_comment(
+        std::size_t* cursor,
+        std::size_t data_begin,
+        std::size_t error_offset,
+        std::string error_code,
+        bool leading_control_error_emitted) {
+        if (cursor == nullptr || data_begin > input_.size()) {
+            return fail_data_tokenizer(
+                error_,
+                "HTML Data-tag tokenizer bogus-comment dispatch invariant failed");
+        }
+        if (!emit_parse_error(error_offset, std::move(error_code))) {
+            return false;
+        }
+
+        std::string data;
+        data.reserve(std::min<std::size_t>(
+            input_.size() - data_begin,
+            config_.maximum_token_bytes));
+        std::size_t scan = data_begin;
+        while (scan < input_.size() && input_[scan] != '>') {
+            const char character = input_[scan];
+            if (character == '\0') {
+                return fail_data_tokenizer(
+                    error_,
+                    "HTML Data-tag tokenizer input preprocessing/NUL replacement is not implemented");
+            }
+            if (!ascii_byte(character)) {
+                const std::size_t scalar_bytes =
+                    detail::html_tokenizer_utf8_scalar_bytes_v1(input_, scan);
+                if (scalar_bytes == 0U) {
+                    return fail_data_tokenizer(
+                        error_,
+                        "HTML Data-tag tokenizer bogus comment contains invalid UTF-8 scalar encoding");
+                }
+                if (!append_bounded_bytes(
+                        &data,
+                        input_.substr(scan, scalar_bytes),
+                        "HTML Data-tag tokenizer bogus comment token")) {
+                    return false;
+                }
+                scan += scalar_bytes;
+                continue;
+            }
+            if (ascii_control_parse_error(character) &&
+                !(leading_control_error_emitted && scan == data_begin) &&
+                !emit_parse_error(scan, "control-character-in-input-stream")) {
+                return false;
+            }
+            if (!append_bounded_bytes(
+                    &data,
+                    input_.substr(scan, 1U),
+                    "HTML Data-tag tokenizer bogus comment token")) {
+                return false;
+            }
+            ++scan;
+        }
+
+        if (!emit_comment(std::move(data))) {
+            return false;
+        }
+        *cursor = scan < input_.size() ? scan + 1U : scan;
+        return true;
+    }
+
     bool recover_eof_before_tag_name(
         std::size_t* cursor,
         std::string_view literal) {
@@ -686,9 +774,12 @@ private:
                 "HTML Data-tag tokenizer comments/DOCTYPE/markup declarations are outside admitted v1 subset");
         }
         if (input_[probe] == '?') {
-            return fail_data_tokenizer(
-                error_,
-                "HTML Data-tag tokenizer bogus-comment recovery is outside admitted v1 subset");
+            return consume_bogus_comment(
+                cursor,
+                probe,
+                probe,
+                "unexpected-question-mark-instead-of-tag-name",
+                false);
         }
 
         bool end_tag = false;
@@ -719,9 +810,18 @@ private:
                     "HTML Data-tag tokenizer non-ASCII preprocessing/location authority is not implemented");
             }
             if (end_tag) {
-                return fail_data_tokenizer(
-                    error_,
-                    "HTML Data-tag tokenizer bogus-comment end-tag recovery is outside admitted v1 subset");
+                const bool leading_control_error_emitted =
+                    ascii_control_parse_error(input_[probe]);
+                if (leading_control_error_emitted &&
+                    !emit_parse_error(probe, "control-character-in-input-stream")) {
+                    return false;
+                }
+                return consume_bogus_comment(
+                    cursor,
+                    probe,
+                    probe,
+                    "invalid-first-character-of-tag-name",
+                    leading_control_error_emitted);
             }
             if (!emit_parse_error(
                     probe,

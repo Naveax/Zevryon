@@ -22,6 +22,7 @@ struct HtmlTokenizerDataTagsV1Stats {
     std::uint64_t character_bytes_emitted{0U};
     std::uint64_t start_tags_emitted{0U};
     std::uint64_t end_tags_emitted{0U};
+    std::uint64_t comment_tokens_emitted{0U};
     std::uint64_t attributes_emitted{0U};
     std::uint64_t parse_errors_emitted{0U};
 };
@@ -44,8 +45,8 @@ struct HtmlTokenizerDataTagsV1Stats {
 //
 // This slice intentionally does not approximate markup declarations,
 // comments, DOCTYPE, NUL/input preprocessing, CR/LF preprocessing, non-ASCII
-// tag/attribute names or raw non-ASCII attribute values, nor the broader malformed-
-// tag and bogus-comment recovery states. Those surfaces fail closed until
+// tag/attribute names or raw non-ASCII attribute values, nor the remaining malformed-
+// tag recovery states. Those surfaces fail closed until
 // separately admitted by later conformance slices.
 bool tokenize_html_data_tags_v1(
     std::string_view input,

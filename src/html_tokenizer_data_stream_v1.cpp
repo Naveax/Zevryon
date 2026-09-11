@@ -193,6 +193,7 @@ bool aggregate_data_stats(
         add_counter(&aggregate->character_bytes_emitted, part.character_bytes_emitted, error, "HTML Data stream character-byte") &&
         add_counter(&aggregate->start_tags_emitted, part.start_tags_emitted, error, "HTML Data stream start-tag") &&
         add_counter(&aggregate->end_tags_emitted, part.end_tags_emitted, error, "HTML Data stream end-tag") &&
+        add_counter(&aggregate->comment_tokens_emitted, part.comment_tokens_emitted, error, "HTML Data stream comment-token") &&
         add_counter(&aggregate->attributes_emitted, part.attributes_emitted, error, "HTML Data stream attribute") &&
         add_counter(&aggregate->parse_errors_emitted, part.parse_errors_emitted, error, "HTML Data stream parse-error");
 }

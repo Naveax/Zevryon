@@ -514,6 +514,165 @@ bool test_tag_eof_recovery() {
     return true;
 }
 
+bool test_bogus_comment_recovery() {
+    {
+        CollectingSink sink;
+        HtmlTokenizerDataTagsV1Stats stats;
+        std::string error;
+        if (!require(
+                tokenize_html_data_tags_v1(
+                    "<?namespace>", {}, &sink, &stats, &error),
+                std::string("processing-instruction bogus comment: ") + error) ||
+            !require(sink.tokens.size() == 1U, "processing-instruction comment token count") ||
+            !require(
+                sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Comment &&
+                    sink.tokens[0].data == "?namespace",
+                "processing-instruction comment payload") ||
+            !require(sink.errors.size() == 1U, "processing-instruction error count") ||
+            !require(
+                sink.errors[0].code == "unexpected-question-mark-instead-of-tag-name" &&
+                    sink.errors[0].line == 1U && sink.errors[0].column == 2U,
+                "processing-instruction error position") ||
+            !require(stats.tokens_emitted == 1U && stats.comment_tokens_emitted == 1U,
+                     "processing-instruction comment stats")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string error;
+        if (!require(
+                tokenize_html_data_tags_v1("<?foo-->", {}, &sink, nullptr, &error),
+                std::string("bogus comment close: ") + error) ||
+            !require(sink.tokens.size() == 1U, "bogus comment close token count") ||
+            !require(
+                sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Comment &&
+                    sink.tokens[0].data == "?foo--",
+                "bogus comment stops at first greater-than") ||
+            !require(sink.errors.size() == 1U, "bogus comment close error count")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string error;
+        if (!require(
+                tokenize_html_data_tags_v1("</1>", {}, &sink, nullptr, &error),
+                std::string("invalid end-tag bogus comment: ") + error) ||
+            !require(sink.tokens.size() == 1U, "invalid end-tag comment token count") ||
+            !require(
+                sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Comment &&
+                    sink.tokens[0].data == "1",
+                "invalid end-tag comment payload") ||
+            !require(sink.errors.size() == 1U, "invalid end-tag error count") ||
+            !require(
+                sink.errors[0].code == "invalid-first-character-of-tag-name" &&
+                    sink.errors[0].line == 1U && sink.errors[0].column == 3U,
+                "invalid end-tag error position")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string error;
+        const std::string input("</\v>", 4U);
+        if (!require(
+                tokenize_html_data_tags_v1(input, {}, &sink, nullptr, &error),
+                std::string("invalid end-tag control ordering: ") + error) ||
+            !require(sink.tokens.size() == 1U, "invalid end-tag control comment count") ||
+            !require(
+                sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Comment &&
+                    sink.tokens[0].data == std::string("\v", 1U),
+                "invalid end-tag control comment payload") ||
+            !require(sink.errors.size() == 2U, "invalid end-tag control error count") ||
+            !require(
+                sink.errors[0].code == "control-character-in-input-stream" &&
+                    sink.errors[0].line == 1U && sink.errors[0].column == 3U,
+                "input-stream control error precedes end-tag state error") ||
+            !require(
+                sink.errors[1].code == "invalid-first-character-of-tag-name" &&
+                    sink.errors[1].line == 1U && sink.errors[1].column == 3U,
+                "invalid end-tag state error follows control observation")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string error;
+        if (!require(
+                tokenize_html_data_tags_v1("a<?b>c", {}, &sink, nullptr, &error),
+                std::string("bogus comment event ordering: ") + error) ||
+            !require(sink.tokens.size() == 3U, "bogus comment event ordering token count") ||
+            !require(
+                sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Character &&
+                    sink.tokens[0].data == "a",
+                "character data flushes before bogus comment") ||
+            !require(
+                sink.tokens[1].kind == HtmlTokenizerV1TokenKind::Comment &&
+                    sink.tokens[1].data == "?b",
+                "bogus comment is emitted between character runs") ||
+            !require(
+                sink.tokens[2].kind == HtmlTokenizerV1TokenKind::Character &&
+                    sink.tokens[2].data == "c",
+                "character data resumes after bogus comment")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string error;
+        if (!require(
+                tokenize_html_data_tags_v1("<?foo", {}, &sink, nullptr, &error),
+                std::string("bogus comment EOF: ") + error) ||
+            !require(sink.tokens.size() == 1U, "bogus comment EOF token count") ||
+            !require(
+                sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Comment &&
+                    sink.tokens[0].data == "?foo",
+                "bogus comment EOF payload") ||
+            !require(sink.errors.size() == 1U, "bogus comment EOF has only entry parse error")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string error;
+        const std::string input("<?\v>", 4U);
+        if (!require(
+                tokenize_html_data_tags_v1(input, {}, &sink, nullptr, &error),
+                std::string("bogus comment control input: ") + error) ||
+            !require(sink.tokens.size() == 1U, "bogus comment control token count") ||
+            !require(sink.tokens[0].data == std::string("?\v", 2U),
+                     "bogus comment retains admitted control byte") ||
+            !require(sink.errors.size() == 2U, "bogus comment control error count") ||
+            !require(
+                sink.errors[0].code == "unexpected-question-mark-instead-of-tag-name" &&
+                    sink.errors[0].column == 2U,
+                "bogus comment entry error precedes input control error") ||
+            !require(
+                sink.errors[1].code == "control-character-in-input-stream" &&
+                    sink.errors[1].column == 3U,
+                "bogus comment control error position")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        HtmlTokenizerDataTagsV1Config config;
+        config.maximum_token_bytes = 3U;
+        std::string error;
+        if (!require(
+                !tokenize_html_data_tags_v1("<?abcd>", config, &sink, nullptr, &error),
+                "bogus comment token bound rejects oversized payload") ||
+            !require(
+                error.find("bogus comment token exceeds bounded byte limit") != std::string::npos,
+                "bogus comment token bound failure is explicit") ||
+            !require(sink.tokens.empty(), "oversized bogus comment publishes no comment token")) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool test_admitted_references_and_fail_closed_boundaries() {
     {
         CollectingSink sink;
@@ -613,6 +772,7 @@ int main() {
         !test_attribute_name_state_recovery() ||
         !test_tag_name_and_self_closing_state_recovery() ||
         !test_tag_eof_recovery() ||
+        !test_bogus_comment_recovery() ||
         !test_end_tag_attributes_are_diagnosed_and_dropped() ||
         !test_plaintext_start_tag_does_not_fake_tree_builder_feedback() ||
         !test_admitted_references_and_fail_closed_boundaries() ||
