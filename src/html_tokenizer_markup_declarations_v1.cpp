@@ -70,7 +70,11 @@ HtmlTokenizerV1ParseError position_error(
             ++result.line;
             result.column = 1U;
         } else {
-            ++result.column;
+            const unsigned char byte = static_cast<unsigned char>(input[index]);
+            if ((byte & 0xC0U) == 0x80U) {
+                continue;
+            }
+            result.column += (byte & 0xF8U) == 0xF0U ? 2U : 1U;
         }
     }
     return result;
@@ -290,6 +294,11 @@ private:
                 "HTML markup declaration input preprocessing/NUL replacement is not implemented");
         }
         if (!ascii_byte(value)) {
+            if (state == DoctypeState::AfterKeyword ||
+                state == DoctypeState::BeforeName ||
+                state == DoctypeState::Name) {
+                return true;
+            }
             return fail_unsupported_doctype_ascii_boundary(
                 original_missing_whitespace_before_name,
                 state);
