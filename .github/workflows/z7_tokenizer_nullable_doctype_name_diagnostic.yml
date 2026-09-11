@@ -126,13 +126,10 @@ jobs:
           if start < 0:
               raise SystemExit("stale missing-name regression start not found")
           start += 1
-          next_block_marker = '''    {
-              CollectingSink sink;
-              const std::string input("<!--a\\0b-->", 10U);
-          '''
-          end = text.find(next_block_marker, position)
+          end = text.find("\n    {\n", position)
           if end < 0:
-              raise SystemExit("stale missing-name regression end marker not found")
+              raise SystemExit("stale missing-name regression next top-level block not found")
+          end += 1
           path.write_text(text[:start] + text[end:], encoding="utf-8")
           PY
           git diff --check
