@@ -268,6 +268,42 @@ bool test_utf8_doctype_name_bytes() {
         {ExpectedError{"eof-in-doctype", 1U, 16U}});
 }
 
+bool test_utf8_doctype_quoted_identifiers() {
+    const std::string scalar("\xF0\x90\x80\x80", 4U);
+
+    std::string public_input = "<!DOCTYPEa PUBLIC\"";
+    public_input += scalar;
+    if (!run_doctype_full_case(
+            "non-BMP UTF-8 public identifier EOF",
+            public_input,
+            "a",
+            true,
+            scalar,
+            false,
+            {},
+            true,
+            {
+                ExpectedError{"missing-whitespace-before-doctype-name", 1U, 10U},
+                ExpectedError{"missing-whitespace-after-doctype-public-keyword", 1U, 18U},
+                ExpectedError{"eof-in-doctype", 1U, 21U},
+            })) {
+        return false;
+    }
+
+    std::string system_input = "<!DOCTYPE a SYSTEM \"";
+    system_input += scalar;
+    system_input += "\">";
+    return run_doctype_full_case(
+        "non-BMP UTF-8 system identifier closed",
+        system_input,
+        "a",
+        false,
+        {},
+        true,
+        scalar,
+        false);
+}
+
 bool test_bounded_ascii_doctype_recovery() {
     if (!run_doctype_case(
             "missing whitespace before name",
@@ -503,9 +539,9 @@ bool test_fail_closed_boundaries() {
     }
     {
         CollectingSink sink;
-        std::string input = "<!DOCTYPE a PUBLIC \"";
+        std::string input = "<!DOCTYPE a PUBLIC ";
         input.append("\xC2\xAC", 2U);
-        input += "\">";
+        input += ">";
         HtmlTokenizerMarkupDeclarationsV1Stats stats;
         std::size_t next_offset = 0U;
         std::string error;
@@ -544,6 +580,7 @@ int main() {
     if (!test_pinned_test1_doctypes() ||
         !test_missing_doctype_name_recovery() ||
         !test_utf8_doctype_name_bytes() ||
+        !test_utf8_doctype_quoted_identifiers() ||
         !test_bounded_ascii_doctype_recovery() ||
         !test_pinned_test1_comments() ||
         !test_nonzero_offset_preserves_global_location() ||
