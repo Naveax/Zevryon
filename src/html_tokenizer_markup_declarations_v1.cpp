@@ -296,7 +296,11 @@ private:
         if (!ascii_byte(value)) {
             if (state == DoctypeState::AfterKeyword ||
                 state == DoctypeState::BeforeName ||
-                state == DoctypeState::Name) {
+                state == DoctypeState::Name ||
+                state == DoctypeState::PublicIdentifierDoubleQuoted ||
+                state == DoctypeState::PublicIdentifierSingleQuoted ||
+                state == DoctypeState::SystemIdentifierDoubleQuoted ||
+                state == DoctypeState::SystemIdentifierSingleQuoted) {
                 return true;
             }
             return fail_unsupported_doctype_ascii_boundary(

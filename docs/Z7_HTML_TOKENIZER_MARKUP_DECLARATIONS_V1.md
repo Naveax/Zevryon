@@ -18,7 +18,7 @@ The external tokenizer authority is the complete pinned `html5lib/html5lib-tests
 - arbitrary representable ASCII bytes in the DOCTYPE name rather than the historical `[A-Za-z0-9_:-]` subset;
 - whitespace / `>` transitions after the name;
 - case-insensitive `PUBLIC` and `SYSTEM` keyword recognition;
-- double- and single-quoted public/system identifiers with explicit null-vs-empty presence flags;
+- double- and single-quoted public/system identifiers with explicit null-vs-empty presence flags, including valid UTF-8 payload bytes;
 - the missing-whitespace-after-keyword and missing-whitespace-between-public/system-identifier recoveries;
 - missing/abrupt quoted identifier diagnostics;
 - invalid sequences after a DOCTYPE name and unexpected characters after a system identifier through the bogus-DOCTYPE state;
@@ -35,15 +35,15 @@ DOCTYPE payload accounting covers the name plus public and system identifier pay
 This slice remains intentionally narrower than full WHATWG input preprocessing. It does not manufacture support for:
 
 - raw NUL replacement/input-stream preprocessing;
-- non-ASCII DOCTYPE public/system identifier authority outside the admitted name states;
+- non-ASCII DOCTYPE PUBLIC/SYSTEM transition and malformed-recovery authority outside quoted identifier payload states;
 - non-ASCII comment / bogus-comment preprocessing authority;
 - CDATA and unrelated tokenizer-state gaps.
 
-Non-ASCII bytes are admitted only while the DOCTYPE machine is entering or consuming the name (`AfterKeyword`, `BeforeName`, `Name`). Public/system identifier and other non-ASCII recovery states remain fail closed. Source columns follow the pinned html5lib fixture convention: BMP UTF-8 scalars count as one UTF-16 code unit and non-BMP scalars count as two. This bounded distinction prevents unsupported executions from being converted into parse-error-stream regressions.
+Non-ASCII bytes are admitted while the DOCTYPE machine is entering or consuming the name (`AfterKeyword`, `BeforeName`, `Name`) and while consuming an already-open double- or single-quoted public/system identifier. Unquoted PUBLIC/SYSTEM transitions, malformed recovery states, comments, and bogus comments remain fail closed. Source columns follow the pinned html5lib fixture convention: BMP UTF-8 scalars count as one UTF-16 code unit and non-BMP scalars count as two. This bounded distinction prevents unsupported executions from being converted into parse-error-stream regressions.
 
 ## External regression authority
 
-The full-corpus census snapshot is **5660 pass / 129 fail / 1247 unsupported / 7036 total** before this recovery slice. Production tokenizer changes are checked with the census `no-regression` policy:
+The frozen v9 authority remains separate from observed production progress. Immediately before this slice, the Unicode-name admission measures **6799 pass / 122 fail / 115 unsupported / 7036 total**; this quoted-identifier admission is accepted only at the measured **6807 pass / 122 fail / 107 unsupported / 7036 total** distribution. Production tokenizer changes are checked with the census `no-regression` policy:
 
 - `passed` may only stay equal or increase;
 - `failed` and `unsupported` may only stay equal or decrease;
@@ -69,7 +69,8 @@ The focused markup-declaration tests retain the original pinned `test1.test` DOC
 - nullable missing-name recovery at `>` and EOF;
 - UTF-8 DOCTYPE names with and without separating whitespace;
 - non-BMP DOCTYPE-name EOF diagnostics using UTF-16-code-unit columns;
-- retained non-ASCII identifier/comment and NUL fail-closed boundaries.
+- quoted UTF-8 public/system identifiers, including non-BMP EOF and closed-identifier cases;
+- retained unquoted/malformed non-ASCII transition, comment, bogus-comment, and NUL fail-closed boundaries.
 
 Exact one-based parse-error locations are asserted.
 
