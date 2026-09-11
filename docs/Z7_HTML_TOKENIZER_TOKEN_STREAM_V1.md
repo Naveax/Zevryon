@@ -68,7 +68,7 @@ Character data is coalesced only up to the configured token limit. The sink cons
 
 Invalid initial-state enum values fail before token/error events are emitted. Allocation failures in state/context setup and token execution are contained by the production API and reported through the explicit error channel.
 
-Raw NUL still fails closed because input-stream NUL replacement/preprocessing is not yet admitted.
+Raw NUL is state-local rather than globally admitted. PLAINTEXT, RCDATA and RAWTEXT emit `unexpected-null-character` and append U+FFFD for U+0000. CDATA retains its separately admitted literal-NUL authority. Data and Script-data NUL behavior remain outside this slice and stay behind the corpus NUL authority boundary.
 
 ## Parse-error authority
 
@@ -107,6 +107,6 @@ These are C++ core tests. Full admission still depends on the vendored html5lib 
 
 This slice advances the production token-event surface used by the frozen tokenizer corpus. It does not satisfy `html_tokenizer_conformance` by itself.
 
-Still outstanding are explicitly unsupported corpus surfaces such as CDATA initial-state handling, CR/NUL input-stream preprocessing, broader non-ASCII preprocessing/location authority, nullable DOCTYPE-name probe-wire representation and remaining malformed Data-tag/DOCTYPE/comment recovery buckets.
+Still outstanding are explicitly unsupported corpus surfaces such as Data/Script-data NUL handling, broader non-ASCII preprocessing/location authority, nullable DOCTYPE-name probe-wire representation and remaining malformed Data-tag/DOCTYPE/comment recovery buckets.
 
 The tree-builder remains a separate consumer/conformance boundary. Z7 therefore remains unchanged.

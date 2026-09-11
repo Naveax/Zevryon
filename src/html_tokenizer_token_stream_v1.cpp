@@ -17,6 +17,7 @@ namespace {
 
 constexpr std::size_t kMaximumConfiguredInputBytes = 16U * 1024U * 1024U;
 constexpr std::size_t kMaximumConfiguredTokenBytes = 1024U * 1024U;
+constexpr std::string_view kReplacementCharacterUtf8 = "\xEF\xBF\xBD";
 
 enum class ActiveState : std::uint8_t {
     Plaintext,
@@ -688,13 +689,18 @@ public:
     bool run() {
         std::size_t cursor = 0U;
         while (cursor < input_.size()) {
-            if (input_[cursor] == '\0') {
-                return fail_tokenizer(
-                    error_,
-                    "HTML tokenizer input preprocessing/NUL replacement is not implemented in v1 token stream");
-            }
             switch (state_) {
             case ActiveState::Plaintext:
+                if (input_[cursor] == '\0') {
+                    if (!emit_parse_error(
+                            cursor,
+                            "unexpected-null-character") ||
+                        !append_characters(kReplacementCharacterUtf8)) {
+                        return false;
+                    }
+                    ++cursor;
+                    break;
+                }
                 if (!append_character(input_[cursor])) {
                     return false;
                 }
@@ -865,6 +871,16 @@ private:
 
     bool consume_text_state(std::size_t* cursor, bool rcdata) {
         const char character = input_[*cursor];
+        if (character == '\0') {
+            if (!emit_parse_error(
+                    *cursor,
+                    "unexpected-null-character") ||
+                !append_characters(kReplacementCharacterUtf8)) {
+                return false;
+            }
+            ++*cursor;
+            return true;
+        }
         if (input_control_parse_error(character) &&
             !emit_parse_error(
                 *cursor,
@@ -988,6 +1004,11 @@ private:
 
     bool consume_data_state(std::size_t* cursor) {
         const char character = input_[*cursor];
+        if (character == '\0') {
+            return fail_tokenizer(
+                error_,
+                "HTML tokenizer post-text-state Data NUL handling is outside admitted v1 subset");
+        }
         if (character == '&') {
             return fail_tokenizer(
                 error_,

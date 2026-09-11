@@ -482,25 +482,30 @@ bool test_crlf_input_preprocessing() {
                {});
 }
 
-bool test_nul_preprocessing_gap_fails_closed() {
-    CollectingSink sink;
-    const std::string input("a\0b", 3U);
-    std::string error;
-    return require(
-               !tokenize_html_token_stream_v1(
-                   input,
-                   HtmlTokenizerV1InitialState::Plaintext,
-                   "plaintext",
-                   {},
-                   &sink,
-                   nullptr,
-                   &error),
-               "NUL fails closed until preprocessing/replacement is admitted") &&
-        require(
-            error.find("preprocessing/NUL replacement is not implemented") !=
-                std::string::npos,
-            "NUL failure identifies preprocessing debt") &&
-        require(sink.tokens.empty(), "NUL failure does not flush partial token");
+bool test_text_state_nul_replacement() {
+    const std::string replacement("\xEF\xBF\xBD", 3U);
+    const std::string plaintext_input("a\r\n\0b", 5U);
+    return run_case(
+               "PLAINTEXT CRLF plus NUL replacement",
+               HtmlTokenizerV1InitialState::Plaintext,
+               "plaintext",
+               plaintext_input,
+               {character(std::string("a\n") + replacement + "b")},
+               {ExpectedError{"unexpected-null-character", 2U, 1U}}) &&
+        run_case(
+               "RCDATA NUL replacement",
+               HtmlTokenizerV1InitialState::Rcdata,
+               "xmp",
+               std::string(1U, '\0'),
+               {character(replacement)},
+               {ExpectedError{"unexpected-null-character", 1U, 1U}}) &&
+        run_case(
+               "RAWTEXT NUL replacement",
+               HtmlTokenizerV1InitialState::Rawtext,
+               "xmp",
+               std::string(1U, '\0'),
+               {character(replacement)},
+               {ExpectedError{"unexpected-null-character", 1U, 1U}});
 }
 
 bool test_invalid_initial_state_fails_closed() {
@@ -593,7 +598,7 @@ int main() {
         !test_cdata_section_initial_state() ||
         !test_character_token_bound_fails_closed() ||
         !test_crlf_input_preprocessing() ||
-        !test_nul_preprocessing_gap_fails_closed() ||
+        !test_text_state_nul_replacement() ||
         !test_invalid_initial_state_fails_closed() ||
         !test_text_state_allows_empty_last_start_tag()) {
         return 1;
