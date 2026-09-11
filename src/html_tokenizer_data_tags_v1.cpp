@@ -34,10 +34,6 @@ bool ascii_alpha(char value) noexcept {
         (value >= 'A' && value <= 'Z');
 }
 
-bool ascii_digit(char value) noexcept {
-    return value >= '0' && value <= '9';
-}
-
 bool ascii_space(char value) noexcept {
     return value == ' ' || value == '\t' || value == '\n' ||
         value == '\r' || value == '\f';
@@ -54,10 +50,6 @@ char ascii_lower(char value) noexcept {
         return static_cast<char>(value + ('a' - 'A'));
     }
     return value;
-}
-
-bool tag_name_character(char value) noexcept {
-    return ascii_alpha(value) || ascii_digit(value) || value == '-';
 }
 
 bool increment_counter(
@@ -466,7 +458,8 @@ private:
         std::size_t* cursor,
         std::vector<HtmlTokenizerV1Attribute>* attributes,
         std::size_t* token_bytes,
-        bool missing_whitespace_before) {
+        bool missing_whitespace_before,
+        bool leading_control_error_already_emitted) {
         if (*cursor >= input_.size()) {
             return fail_data_tokenizer(
                 error_,
@@ -475,12 +468,14 @@ private:
 
         const std::size_t name_begin = *cursor;
         HtmlTokenizerV1Attribute attribute;
-        bool leading_control_error_emitted = false;
+        bool leading_control_error_emitted =
+            leading_control_error_already_emitted;
 
         // Input-stream control errors conceptually occur while the next input
         // character is consumed. Preserve that ordering ahead of the tokenizer
         // missing-whitespace diagnostic when the same byte starts an attribute.
         if (missing_whitespace_before &&
+            !leading_control_error_emitted &&
             ascii_byte(input_[*cursor]) &&
             ascii_control_parse_error(input_[*cursor])) {
             if (!emit_parse_error(*cursor, "control-character-in-input-stream")) {
@@ -723,8 +718,28 @@ private:
         }
 
         std::string name;
-        while (probe < input_.size() && tag_name_character(input_[probe])) {
-            if (!append_name_character(&name, input_[probe])) {
+        while (probe < input_.size()) {
+            const char character = input_[probe];
+            if (ascii_space(character) || character == '/' || character == '>') {
+                break;
+            }
+            if (character == '\0') {
+                return fail_data_tokenizer(
+                    error_,
+                    "HTML Data-tag tokenizer input preprocessing/NUL replacement is not implemented");
+            }
+            if (!ascii_byte(character)) {
+                // Preserve the historical census bucket until Unicode tag-name
+                // preprocessing/location authority is admitted.
+                return fail_data_tokenizer(
+                    error_,
+                    "HTML Data-tag tokenizer first attribute without separating whitespace is outside admitted v1 subset");
+            }
+            if (ascii_control_parse_error(character) &&
+                !emit_parse_error(probe, "control-character-in-input-stream")) {
+                return false;
+            }
+            if (!append_name_character(&name, character)) {
                 return false;
             }
             ++probe;
@@ -734,6 +749,8 @@ private:
         std::vector<HtmlTokenizerV1Attribute> attributes;
         bool self_closing = false;
         bool parsed_attribute = false;
+        bool solidus_reconsume_allows_attribute = false;
+        bool leading_control_error_emitted = false;
 
         while (true) {
             bool had_whitespace = false;
@@ -776,55 +793,98 @@ private:
                 return true;
             }
 
-            if (input_[probe] == '/' &&
-                probe + 1U < input_.size() &&
-                input_[probe + 1U] == '>') {
-                self_closing = true;
-                const std::size_t close_offset = probe + 1U;
-                probe += 2U;
-                if (end_tag && !attributes.empty()) {
-                    if (!emit_parse_error(
-                            close_offset,
-                            "end-tag-with-attributes")) {
-                        return false;
-                    }
-                    attributes.clear();
-                }
-                if (end_tag &&
-                    !emit_parse_error(
-                        close_offset,
-                        "end-tag-with-trailing-solidus")) {
-                    return false;
-                }
-                if (!emit_tag(
-                        std::move(name),
-                        std::move(attributes),
-                        end_tag,
-                        self_closing)) {
-                    return false;
-                }
-                *cursor = probe;
-                return true;
-            }
-
-            bool missing_whitespace_before = false;
-            if (!had_whitespace) {
-                if (!parsed_attribute) {
+            if (input_[probe] == '/') {
+                if (probe + 1U >= input_.size()) {
+                    // Generic EOF recovery is a separate canonical pass. Keep
+                    // the pre-v5 unsupported classification stable for now.
                     return fail_data_tokenizer(
                         error_,
                         "HTML Data-tag tokenizer first attribute without separating whitespace is outside admitted v1 subset");
                 }
-                missing_whitespace_before = true;
+                if (input_[probe + 1U] == '>') {
+                    self_closing = true;
+                    const std::size_t close_offset = probe + 1U;
+                    probe += 2U;
+                    if (end_tag && !attributes.empty()) {
+                        if (!emit_parse_error(
+                                close_offset,
+                                "end-tag-with-attributes")) {
+                            return false;
+                        }
+                        attributes.clear();
+                    }
+                    if (end_tag &&
+                        !emit_parse_error(
+                            close_offset,
+                            "end-tag-with-trailing-solidus")) {
+                        return false;
+                    }
+                    if (!emit_tag(
+                            std::move(name),
+                            std::move(attributes),
+                            end_tag,
+                            self_closing)) {
+                        return false;
+                    }
+                    *cursor = probe;
+                    return true;
+                }
+
+                const std::size_t reconsume_offset = probe + 1U;
+                const char reconsume_character = input_[reconsume_offset];
+                if (reconsume_character == '\0') {
+                    return fail_data_tokenizer(
+                        error_,
+                        "HTML Data-tag tokenizer input preprocessing/NUL replacement is not implemented");
+                }
+                if (!ascii_byte(reconsume_character)) {
+                    // Do not move the existing non-ASCII debt into a new census
+                    // bucket before Unicode tag-name authority is admitted.
+                    return fail_data_tokenizer(
+                        error_,
+                        "HTML Data-tag tokenizer first attribute without separating whitespace is outside admitted v1 subset");
+                }
+                leading_control_error_emitted =
+                    ascii_control_parse_error(reconsume_character);
+                if (leading_control_error_emitted &&
+                    !emit_parse_error(
+                        reconsume_offset,
+                        "control-character-in-input-stream")) {
+                    return false;
+                }
+                if (!emit_parse_error(
+                        reconsume_offset,
+                        "unexpected-solidus-in-tag")) {
+                    return false;
+                }
+                probe = reconsume_offset;
+                solidus_reconsume_allows_attribute = true;
+                continue;
+            }
+
+            bool missing_whitespace_before = false;
+            if (!had_whitespace) {
+                if (!parsed_attribute &&
+                    !solidus_reconsume_allows_attribute) {
+                    return fail_data_tokenizer(
+                        error_,
+                        "HTML Data-tag tokenizer first attribute without separating whitespace is outside admitted v1 subset");
+                }
+                missing_whitespace_before =
+                    parsed_attribute && !solidus_reconsume_allows_attribute;
             }
 
             if (!parse_attribute(
                     &probe,
                     &attributes,
                     &token_bytes,
-                    missing_whitespace_before)) {
+                    missing_whitespace_before,
+                    leading_control_error_emitted)) {
                 return false;
             }
             parsed_attribute = true;
+            solidus_reconsume_allows_attribute = false;
+            leading_control_error_emitted = false;
         }
     }
 
