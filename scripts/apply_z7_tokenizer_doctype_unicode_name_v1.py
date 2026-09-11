@@ -25,11 +25,15 @@ text = replace_once(
     """        if (input[index] == '\\n') {
             ++result.line;
             result.column = 1U;
-        } else if ((static_cast<unsigned char>(input[index]) & 0xC0U) != 0x80U) {
-            ++result.column;
+        } else {
+            const unsigned char byte = static_cast<unsigned char>(input[index]);
+            if ((byte & 0xC0U) == 0x80U) {
+                continue;
+            }
+            result.column += (byte & 0xF8U) == 0xF0U ? 2U : 1U;
         }
 """,
-    "UTF-8 scalar-aware source columns",
+    "UTF-16-code-unit source columns",
 )
 text = replace_once(
     text,
@@ -89,11 +93,11 @@ new_test = r'''bool test_utf8_doctype_name_bytes() {
     std::string eof_expected = "caf";
     eof_expected.append("\xF0\x90\x80\x80", 4U);
     return run_doctype_case(
-        "non-BMP UTF-8 DOCTYPE name EOF scalar column",
+        "non-BMP UTF-8 DOCTYPE name EOF UTF-16 column",
         eof_name,
         eof_expected,
         true,
-        {ExpectedError{"eof-in-doctype", 1U, 15U}});
+        {ExpectedError{"eof-in-doctype", 1U, 16U}});
 }
 
 '''
@@ -118,4 +122,4 @@ text = replace_once(
 )
 tests.write_text(text, encoding="utf-8")
 
-print("applied bounded Unicode DOCTYPE-name + scalar-column diagnostic patch")
+print("applied bounded Unicode DOCTYPE-name + UTF-16-column diagnostic patch")
