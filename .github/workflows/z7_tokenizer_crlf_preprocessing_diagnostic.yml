@@ -1,4 +1,4 @@
-name: Z7 CRLF preprocessing diagnostic
+name: Z7 CRLF preprocessing builder
 
 on:
   push:
@@ -6,10 +6,10 @@ on:
       - candidate/z7-tokenizer-crlf-preprocessing-v1
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  diagnose:
+  build-and-verify:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -17,9 +17,43 @@ jobs:
           fetch-depth: 0
           ref: candidate/z7-tokenizer-crlf-preprocessing-v1
 
-      - name: Apply diagnostic production patch
+      - name: Apply production patch and documentation
+        shell: bash
         run: |
+          set -euo pipefail
           python3 scripts/apply_z7_tokenizer_crlf_preprocessing_v1.py
+          cat > docs/Z7_HTML_TOKENIZER_INPUT_NEWLINE_PREPROCESSING_V1.md <<'EOF'
+          # Z7 HTML tokenizer input newline preprocessing v1
+
+          This slice admits the HTML input-stream newline normalization required by the pinned html5lib tokenizer corpus at the canonical `tokenize_html_token_stream_v1()` boundary.
+
+          ## Production contract
+
+          Before tokenizer-state dispatch, the bounded raw input is normalized as follows:
+
+          - `CRLF` becomes one `LF`;
+          - an isolated `CR` becomes one `LF`;
+          - input without `CR` remains a non-owning view and performs no normalization allocation;
+          - when normalization is required, retained temporary storage never exceeds the already-validated raw input byte length;
+          - `HtmlTokenizerV1Stats::input_bytes` continues to report the original raw input byte count rather than the shorter normalized view.
+
+          The normalized view is shared by Data, PLAINTEXT, RCDATA, RAWTEXT, Script-data and CDATA initial-state dispatch. This keeps markup/comment parsing and text states on one input-preprocessing authority instead of duplicating newline rules inside individual states.
+
+          ## Corpus evidence
+
+          Diagnostic run `34598730563` applied the production patch in an isolated CI workspace and measured the complete pinned 7036-execution corpus before publication:
+
+          - v8 authority: **6743 pass / 122 fail / 171 unsupported**;
+          - newline candidate: **6775 pass / 122 fail / 139 unsupported**;
+          - movement: **+32 pass / 0 fail / -32 unsupported**;
+          - `unsupported:input-preprocessing-cr`: **32 -> 0**.
+
+          Only three fixture reports moved: `domjs.test` gained 3 exact passes, `test3.test` gained 21, and `test4.test` gained 8. All existing failure buckets remained unchanged.
+
+          ## Nonclaims
+
+          This slice does not implement NUL replacement, malformed/non-scalar input preprocessing, remaining non-ASCII tokenizer debt, XML infoset coercion, tree construction, or full tokenizer conformance. The generic NUL preprocessing debt remains separately fail-closed and the pinned CDATA raw-NUL behavior remains unchanged.
+          EOF
           git diff --check
 
       - name: Install focused build dependencies
@@ -35,13 +69,13 @@ jobs:
           -DZEVRYON_ENABLE_RUST_CORE=OFF
           -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
 
-      - name: Build focused tokenizer targets
+      - name: Build focused production targets
         run: >-
           cmake --build build --parallel 2 --target
           zevryon-html-tokenizer-token-stream-v1-tests
           zevryon-html-tokenizer-token-stream-v1-probe
 
-      - name: Run focused tokenizer tests
+      - name: Run focused token-stream tests
         run: ./build/zevryon-html-tokenizer-token-stream-v1-tests
 
       - name: Verify corpus and v8 authority self-tests
@@ -50,11 +84,12 @@ jobs:
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py --self-test
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v8_baseline.py --self-test
 
-      - name: Measure raw CRLF corpus movement
+      - name: Require exact CRLF corpus movement
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py \
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v8_baseline.py \
+            --policy no-regression \
             --probe build/zevryon-html-tokenizer-token-stream-v1-probe \
             > census.json
           python3 - <<'PY'
@@ -62,44 +97,50 @@ jobs:
           from pathlib import Path
 
           report = json.loads(Path("census.json").read_text(encoding="utf-8"))
-          baseline = json.loads(Path("config/z7_html5lib_tokenizer_full_corpus_census_v8.json").read_text(encoding="utf-8"))
-
           assert report["files"] == 14, report
           assert report["tests"] == 6810, report
           assert report["executions"] == 7036, report
+          assert report["passed"] == 6775, report
+          assert report["failed"] == 122, report
+          assert report["unsupported"] == 139, report
           assert report["passed"] + report["failed"] + report["unsupported"] == 7036, report
-          assert report["exact_execution_accounting"] is True, report
+          assert report["baseline_policy"] == "no-regression", report
+          assert report["baseline_regression_free"] is True, report
+          assert report["reason_counts"].get("unsupported:input-preprocessing-cr", 0) == 0, report
+          assert report["reason_counts"].get("unsupported:input-preprocessing-nul", 0) == 67, report
+          assert report["reason_counts"].get("failed:parse-error-stream-mismatch", 0) == 113, report
+          assert report["reason_counts"].get("failed:token-stream-mismatch", 0) == 9, report
+          assert report["file_reports"]["tokenizer/domjs.test"] == {
+              "executions": 59, "passed": 50, "failed": 1, "unsupported": 8
+          }, report
+          assert report["file_reports"]["tokenizer/test3.test"] == {
+              "executions": 1786, "passed": 1646, "failed": 27, "unsupported": 113
+          }, report
+          assert report["file_reports"]["tokenizer/test4.test"] == {
+              "executions": 85, "passed": 80, "failed": 0, "unsupported": 5
+          }, report
+          assert report["full_corpus_pass_claim"] is False, report
           assert report["html_tokenizer_conformance_claim"] is False, report
           assert report["z7_status_change"] is False, report
-
-          print("CRLF_DIAGNOSTIC_TOTALS", json.dumps({
-              "passed": report["passed"],
-              "failed": report["failed"],
-              "unsupported": report["unsupported"],
-          }, sort_keys=True))
-          print("CRLF_DIAGNOSTIC_DELTA", json.dumps({
-              "passed": report["passed"] - baseline["passed"],
-              "failed": report["failed"] - baseline["failed"],
-              "unsupported": report["unsupported"] - baseline["unsupported"],
-          }, sort_keys=True))
-
-          changed_files = {}
-          for path, current in report["file_reports"].items():
-              before = baseline["file_reports"][path]
-              if current != before:
-                  changed_files[path] = {"before": before, "after": current}
-          print("CRLF_DIAGNOSTIC_CHANGED_FILES", json.dumps(changed_files, indent=2, sort_keys=True))
-
-          changed_reasons = {}
-          keys = set(baseline["reason_counts"]) | set(report["reason_counts"])
-          for key in sorted(keys):
-              before = baseline["reason_counts"].get(key, 0)
-              after = report["reason_counts"].get(key, 0)
-              if before != after:
-                  changed_reasons[key] = {"before": before, "after": after, "delta": after - before}
-          print("CRLF_DIAGNOSTIC_CHANGED_REASONS", json.dumps(changed_reasons, indent=2, sort_keys=True))
-          print("CRLF_DIAGNOSTIC_FAILURE_SAMPLES", json.dumps(report["failure_samples"], indent=2, ensure_ascii=False))
-          print("CRLF_DIAGNOSTIC_UNSUPPORTED_SAMPLES", json.dumps(report["unsupported_samples"], indent=2, ensure_ascii=False))
-
-          raise SystemExit("diagnostic-only run complete; production publication intentionally blocked")
+          print(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True))
           PY
+
+      - name: Commit tested production diff and self-clean builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f census.json
+          rm -f .github/workflows/z7_tokenizer_crlf_preprocessing_diagnostic.yml
+          rm -f scripts/apply_z7_tokenizer_crlf_preprocessing_v1.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/html_tokenizer_token_stream_v1.cpp \
+                  tests/html_tokenizer_token_stream_v1_tests.cpp \
+                  scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py \
+                  docs/Z7_HTML_TOKENIZER_INPUT_NEWLINE_PREPROCESSING_V1.md \
+                  .github/workflows/z7_tokenizer_crlf_preprocessing_diagnostic.yml \
+                  scripts/apply_z7_tokenizer_crlf_preprocessing_v1.py
+          git diff --cached --quiet && { echo "builder produced no diff" >&2; exit 1; }
+          git diff --cached --check
+          git commit -m "Z7: admit bounded CR/CRLF input preprocessing"
+          git push origin HEAD:candidate/z7-tokenizer-crlf-preprocessing-v1
