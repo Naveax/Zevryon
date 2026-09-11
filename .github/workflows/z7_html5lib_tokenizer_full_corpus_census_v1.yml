@@ -15,6 +15,7 @@ on:
       - 'config/z7_html5lib_tokenizer_full_corpus_census_v6.json'
       - 'config/z7_html5lib_tokenizer_full_corpus_census_v7.json'
       - 'config/z7_html5lib_tokenizer_full_corpus_census_v8.json'
+      - 'config/z7_html5lib_tokenizer_full_corpus_census_v9.json'
       - 'tests/fixtures/html5lib-tokenizer/**'
       - 'docs/Z7_HTML5LIB_TOKENIZER_FULL_CORPUS_CENSUS_V1.md'
       - '.github/workflows/z7_html5lib_tokenizer_full_corpus_census_v1.yml'
@@ -59,12 +60,13 @@ jobs:
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v6_baseline.py --self-test
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v7_baseline.py --self-test
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v8_baseline.py --self-test
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v9_baseline.py --self-test
 
       - name: Require admitted census to remain regression-free
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v8_baseline.py \
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v9_baseline.py \
             --policy no-regression \
             --probe build/zevryon-html-tokenizer-token-stream-v1-probe \
             > census.json
@@ -76,9 +78,9 @@ jobs:
           assert report["files"] == 14, report
           assert report["tests"] == 6810, report
           assert report["executions"] == 7036, report
-          assert report["passed"] >= 6743, report
+          assert report["passed"] >= 6775, report
           assert report["failed"] <= 122, report
-          assert report["unsupported"] <= 171, report
+          assert report["unsupported"] <= 139, report
           assert report["passed"] + report["failed"] + report["unsupported"] == 7036, report
           assert report["baseline_policy"] == "no-regression", report
           assert report["baseline_regression_free"] is True, report
