@@ -1,0 +1,78 @@
+name: Z7 remaining DOCTYPE transition unsupported census diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostic/z7-doctype-transition-unsupported-census-v1
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: diagnostic/z7-doctype-transition-unsupported-census-v1
+
+      - name: Expand diagnostic sample cap only
+        run: |
+          set -euo pipefail
+          sed -i 's/MAX_SAMPLES = 25/MAX_SAMPLES = 200/' scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py
+          grep -F 'MAX_SAMPLES = 200' scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py
+          git diff --check
+
+      - name: Install focused build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_RUST_CORE=OFF -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+
+      - name: Build canonical tokenizer probe
+        run: cmake --build build --parallel 2 --target zevryon-html-tokenizer-token-stream-v1-probe
+
+      - name: Verify harnesses
+        run: |
+          set -euo pipefail
+          python3 scripts/z7_html5lib_tokenizer_corpus_verify.py --self-test
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py --self-test
+
+      - name: Measure and print remaining DOCTYPE unsupported cases
+        run: |
+          set -euo pipefail
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py \
+            --probe build/zevryon-html-tokenizer-token-stream-v1-probe \
+            > census.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('census.json').read_text(encoding='utf-8'))
+          print('TOTALS', report['passed'], report['failed'], report['unsupported'])
+          print('REASONS')
+          for reason, count in sorted(report['reason_counts'].items()):
+              if 'DOCTYPE' in reason or 'PUBLIC/SYSTEM' in reason:
+                  print(count, reason)
+          print('DOCTYPE_UNSUPPORTED_SAMPLES')
+          selected = []
+          for sample in report['unsupported_samples']:
+              reason = sample.get('reason', '')
+              label = sample.get('label', '')
+              if 'DOCTYPE' in reason or 'PUBLIC/SYSTEM' in reason or '<!DOCTYPE' in label:
+                  selected.append(sample)
+          for sample in selected:
+              print(json.dumps(sample, ensure_ascii=False, sort_keys=True))
+          assert report['passed'] == 6807, report
+          assert report['failed'] == 122, report
+          assert report['unsupported'] == 107, report
+          assert len(selected) >= 12, selected
+          PY
+
+      - name: Block diagnostic publication
+        run: |
+          echo 'Diagnostic evidence collected; branch must not be merged.' >&2
+          exit 1
