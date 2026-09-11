@@ -10,6 +10,7 @@ on:
       - 'config/z7_html5lib_tokenizer_full_corpus_census_v1.json'
       - 'config/z7_html5lib_tokenizer_full_corpus_census_v2.json'
       - 'config/z7_html5lib_tokenizer_full_corpus_census_v3.json'
+      - 'config/z7_html5lib_tokenizer_full_corpus_census_v4.json'
       - 'tests/fixtures/html5lib-tokenizer/**'
       - 'docs/Z7_HTML5LIB_TOKENIZER_FULL_CORPUS_CENSUS_V1.md'
       - '.github/workflows/z7_html5lib_tokenizer_full_corpus_census_v1.yml'
@@ -49,12 +50,13 @@ jobs:
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1_baseline.py --self-test
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v2_baseline.py --self-test
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v3_baseline.py --self-test
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v4_baseline.py --self-test
 
       - name: Require admitted census to remain regression-free
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v3_baseline.py \
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v4_baseline.py \
             --policy no-regression \
             --probe build/zevryon-html-tokenizer-token-stream-v1-probe \
             > census.json
@@ -66,9 +68,9 @@ jobs:
           assert report["files"] == 14, report
           assert report["tests"] == 6810, report
           assert report["executions"] == 7036, report
-          assert report["passed"] >= 6491, report
-          assert report["failed"] <= 129, report
-          assert report["unsupported"] <= 416, report
+          assert report["passed"] >= 6571, report
+          assert report["failed"] <= 122, report
+          assert report["unsupported"] <= 343, report
           assert report["passed"] + report["failed"] + report["unsupported"] == 7036, report
           assert report["baseline_policy"] == "no-regression", report
           assert report["baseline_regression_free"] is True, report
