@@ -363,39 +363,63 @@ bool test_invalid_initial_state_fails_closed() {
             "invalid initial-state failure emits no events");
 }
 
-bool test_text_state_requires_last_start_tag() {
-    CollectingSink sink;
-    std::string error;
-    const bool rcdata_rejected = !tokenize_html_token_stream_v1(
-        "text",
-        HtmlTokenizerV1InitialState::Rcdata,
-        "",
-        {},
-        &sink,
-        nullptr,
-        &error);
-    const bool rcdata_error =
-        error.find("requires non-empty last-start-tag") != std::string::npos;
-
-    error.clear();
-    const bool rawtext_rejected = !tokenize_html_token_stream_v1(
-        "text",
-        HtmlTokenizerV1InitialState::Rawtext,
-        "",
-        {},
-        &sink,
-        nullptr,
-        &error);
-    const bool rawtext_error =
-        error.find("requires non-empty last-start-tag") != std::string::npos;
-
-    return require(rcdata_rejected, "RCDATA without last-start-tag is rejected") &&
-        require(rcdata_error, "RCDATA last-start-tag rejection is explicit") &&
-        require(rawtext_rejected, "RAWTEXT without last-start-tag is rejected") &&
-        require(rawtext_error, "RAWTEXT last-start-tag rejection is explicit") &&
-        require(
-            sink.tokens.empty() && sink.errors.empty(),
-            "missing last-start-tag failures emit no events");
+bool test_text_state_allows_empty_last_start_tag() {
+    return run_case(
+               "RCDATA empty last-start-tag plain text",
+               HtmlTokenizerV1InitialState::Rcdata,
+               "",
+               "alpha",
+               {character("alpha")},
+               {}) &&
+        run_case(
+               "RAWTEXT empty last-start-tag plain text",
+               HtmlTokenizerV1InitialState::Rawtext,
+               "",
+               "alpha",
+               {character("alpha")},
+               {}) &&
+        run_case(
+               "RCDATA empty last-start-tag keeps end-tag spelling literal",
+               HtmlTokenizerV1InitialState::Rcdata,
+               "",
+               "</foo></>",
+               {character("</foo></>")},
+               {}) &&
+        run_case(
+               "RAWTEXT empty last-start-tag keeps end-tag spelling literal",
+               HtmlTokenizerV1InitialState::Rawtext,
+               "",
+               "</foo></>",
+               {character("</foo></>")},
+               {}) &&
+        run_case(
+               "RCDATA empty last-start-tag reports input control",
+               HtmlTokenizerV1InitialState::Rcdata,
+               "",
+               std::string(1U, '\x0B'),
+               {character(std::string(1U, '\x0B'))},
+               {ExpectedError{"control-character-in-input-stream", 1U, 1U}}) &&
+        run_case(
+               "RAWTEXT empty last-start-tag reports input control",
+               HtmlTokenizerV1InitialState::Rawtext,
+               "",
+               std::string(1U, '\x0B'),
+               {character(std::string(1U, '\x0B'))},
+               {ExpectedError{"control-character-in-input-stream", 1U, 1U}}) &&
+        run_case(
+               "RCDATA empty last-start-tag uses canonical named reference",
+               HtmlTokenizerV1InitialState::Rcdata,
+               "",
+               "&NotEqualTilde;",
+               {character("≂̸")},
+               {}) &&
+        run_case(
+               "RCDATA empty last-start-tag uses canonical numeric reference",
+               HtmlTokenizerV1InitialState::Rcdata,
+               "",
+               "&#x1F642;",
+               {character("🙂")},
+               {});
 }
 
 } // namespace
@@ -405,7 +429,7 @@ int main() {
         !test_character_token_bound_fails_closed() ||
         !test_nul_preprocessing_gap_fails_closed() ||
         !test_invalid_initial_state_fails_closed() ||
-        !test_text_state_requires_last_start_tag()) {
+        !test_text_state_allows_empty_last_start_tag()) {
         return 1;
     }
     return 0;
