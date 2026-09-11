@@ -26,6 +26,7 @@ STATE_MAP = {
     "RCDATA state": "RCDATA",
     "RAWTEXT state": "RAWTEXT",
     "Script data state": "SCRIPT_DATA",
+    "CDATA section state": "CDATA_SECTION",
 }
 
 DOUBLE_ESCAPE_RE = re.compile(r"\\u([0-9A-Fa-f]{4})")
@@ -243,7 +244,10 @@ def classify_pre_execution(
                     item.encode("utf-8")
     except UnicodeEncodeError:
         return "non-utf8-scalar-test-data"
-    if "\x00" in input_text:
+    # The html5lib CDATA initial-state authority intentionally preserves raw
+    # NUL as Character data. Do not route that state through the generic
+    # Data/text-state NUL preprocessing debt bucket.
+    if "\x00" in input_text and state_name != "CDATA section state":
         return "input-preprocessing-nul"
     if "\r" in input_text:
         return "input-preprocessing-cr"
@@ -430,8 +434,12 @@ def self_test() -> None:
     token = expected_token(["DOCTYPE", None, None, None, False], "self-test")
     require(token == ("D", None, None, None, True), "nullable DOCTYPE expectation")
     require(
-        classify_pre_execution("tokenizer/test2.test", "CDATA section state", "x", "", []) == "initial-state:CDATA section state",
-        "CDATA unsupported classification",
+        classify_pre_execution("tokenizer/test2.test", "CDATA section state", "x", "", []) is None,
+        "CDATA admitted classification",
+    )
+    require(
+        classify_pre_execution("tokenizer/domjs.test", "CDATA section state", "\x00]]>", "", []) is None,
+        "CDATA raw NUL bypasses generic preprocessing bucket",
     )
     require(
         classify_pre_execution("tokenizer/test2.test", "Data state", "a\x00b", "", []) == "input-preprocessing-nul",

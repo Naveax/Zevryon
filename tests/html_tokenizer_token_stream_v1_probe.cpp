@@ -83,6 +83,10 @@ bool parse_state(std::string_view value, HtmlTokenizerV1InitialState* state) {
         *state = HtmlTokenizerV1InitialState::ScriptData;
         return true;
     }
+    if (value == "CDATA_SECTION") {
+        *state = HtmlTokenizerV1InitialState::CdataSection;
+        return true;
+    }
     return false;
 }
 
@@ -142,7 +146,7 @@ void emit_token(const HtmlTokenizerV1Token& token) {
 
 int main(int argc, char** argv) {
     if (argc != 4) {
-        std::cerr << "usage: probe <DATA|PLAINTEXT|RCDATA|RAWTEXT|SCRIPT_DATA> <last-tag-hex> <input-hex>\n";
+        std::cerr << "usage: probe <DATA|PLAINTEXT|RCDATA|RAWTEXT|SCRIPT_DATA|CDATA_SECTION> <last-tag-hex> <input-hex>\n";
         return 64;
     }
 
