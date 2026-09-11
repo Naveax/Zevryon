@@ -20,6 +20,59 @@ jobs:
       - name: Apply bounded ordinary Data-text NUL candidate
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # The source contains several deliberately retained state-local NUL guards.
+          # Patch only DataTagTokenizer::run(), then remove the now-redundant broad
+          # helper block before applying the remaining focused changes.
+          source_path = Path("src/html_tokenizer_data_tags_v1.cpp")
+          source = source_path.read_text(encoding="utf-8")
+          old = '''    bool run() {
+              std::size_t cursor = 0U;
+              while (cursor < input_.size()) {
+                  const char character = input_[cursor];
+                  if (character == '\\0') {
+                      return fail_data_tokenizer(
+                          error_,
+                          "HTML Data-tag tokenizer input preprocessing/NUL replacement is not implemented");
+                  }
+                  if (!ascii_byte(character)) {
+          '''
+          new = '''    bool run() {
+              std::size_t cursor = 0U;
+              while (cursor < input_.size()) {
+                  const char character = input_[cursor];
+                  if (character == '\\0') {
+                      if (!emit_parse_error(cursor, "unexpected-null-character") ||
+                          !append_bounded_bytes(
+                              &character_buffer_,
+                              kReplacementCharacterUtf8,
+                              "HTML Data-tag tokenizer coalesced character token")) {
+                          return false;
+                      }
+                      ++cursor;
+                      continue;
+                  }
+                  if (!ascii_byte(character)) {
+          '''
+          if source.count(old) != 1:
+              raise SystemExit(f"DataTagTokenizer::run NUL anchor count={source.count(old)}")
+          source_path.write_text(source.replace(old, new, 1), encoding="utf-8")
+
+          helper_path = Path("scripts/apply_z7_tokenizer_data_text_nul_diagnostic_v1.py")
+          helper = helper_path.read_text(encoding="utf-8")
+          label = '"ordinary Data-state NUL replacement"'
+          label_pos = helper.find(label)
+          if label_pos < 0:
+              raise SystemExit("broad helper NUL block label not found")
+          block_start = helper.rfind("text = replace_once(", 0, label_pos)
+          block_end = helper.find(")\n", label_pos)
+          if block_start < 0 or block_end < 0:
+              raise SystemExit("broad helper NUL block boundaries not found")
+          block_end += 2
+          helper_path.write_text(helper[:block_start] + helper[block_end:], encoding="utf-8")
+          PY
           python3 scripts/apply_z7_tokenizer_data_text_nul_diagnostic_v1.py
           git diff --check
 
