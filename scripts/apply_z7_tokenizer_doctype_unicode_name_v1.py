@@ -22,7 +22,9 @@ text = replace_once(
         }
 """,
     """        if (!ascii_byte(value)) {
-            if (state == DoctypeState::BeforeName || state == DoctypeState::Name) {
+            if (state == DoctypeState::AfterKeyword ||
+                state == DoctypeState::BeforeName ||
+                state == DoctypeState::Name) {
                 return true;
             }
             return fail_unsupported_doctype_ascii_boundary(
