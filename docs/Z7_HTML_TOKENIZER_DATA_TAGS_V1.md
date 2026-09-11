@@ -19,6 +19,7 @@ This component is a bounded Data-state tag tokenizer that emits the shared `Html
 - empty/boolean attributes;
 - the self-closing start-tag flag;
 - coalesced Character tokens outside tags;
+- bounded bogus Comment tokens entered from `<?...` tag-open recovery and invalid end-tag-open bytes;
 - literal ampersand fallback;
 - decimal and hexadecimal numeric character references in Data and attribute values;
 - the complete pinned WHATWG named-character-reference table in Data and attribute values.
@@ -46,6 +47,9 @@ The component completes tokenization for the following bounded recovery families
 - EOF in tag-name, attribute-name/value, after-attribute and self-closing-start-tag states: `eof-in-tag`, discarding the incomplete tag token without publishing partial attributes;
 - tag-open invalid ASCII `anything else`: `invalid-first-character-of-tag-name`, literal `<` Character output, then reconsume in Data;
 - empty end tag `</>`: `missing-end-tag-name`, no EndTag token;
+- `<?...` tag-open recovery: `unexpected-question-mark-instead-of-tag-name`, reconsuming `?` into a bounded bogus Comment token;
+- invalid ASCII end-tag-open recovery such as `</1>`: `invalid-first-character-of-tag-name`, reconsuming the offending byte into a bounded bogus Comment token;
+- bogus Comment data stops at the first `>` or EOF, preserves admitted UTF-8 scalar bytes, reports admitted input controls and obeys the token byte cap;
 - the five special bytes `"`, `'`, `<`, `=`, and `` ` `` in an unquoted attribute value: `unexpected-character-in-unquoted-attribute-value`, with the offending byte retained in the attribute value;
 - digitless numeric references: `absence-of-digits-in-numeric-character-reference` plus literal temporary-buffer recovery;
 - numeric references without `;`: `missing-semicolon-after-character-reference` with the terminating byte reconsumed by the caller;
@@ -70,8 +74,6 @@ The sink is streaming. A later unsupported construct can fail after earlier comp
 The following remain outside this component:
 
 - `<!...` markup declarations, comments and DOCTYPE, which are owned by the separate Data-stream composition layer;
-- `<?...` bogus-comment recovery;
-- bogus-comment recovery for invalid end-tag-open bytes other than the admitted empty `</>` case;
 - NUL replacement and complete input-stream preprocessing;
 - non-ASCII raw-input preprocessing/location authority, including non-ASCII tag and attribute names;
 - remaining malformed tag/attribute recovery not explicitly admitted above;
@@ -85,7 +87,7 @@ These cases return an explicit API failure instead of fabricating a token stream
 
 ## Focused regression authority
 
-The established Data-tag suite covers normalized tags, attributes, duplicate/missing-whitespace diagnostics, end-tag diagnostics, `<plaintext>` separation and hard caps.
+The established Data-tag suite covers normalized tags, attributes, duplicate/missing-whitespace diagnostics, end-tag diagnostics, `<plaintext>` separation and hard caps. It also covers bogus-comment entry from `<?...` and invalid end-tag-open bytes, EOF termination, event ordering, control diagnostics and the comment token byte cap.
 
 The dedicated `html-tokenizer-data-tag-recovery-v1-tests` adds authority for:
 
