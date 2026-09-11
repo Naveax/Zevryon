@@ -1,0 +1,179 @@
+name: Z7 Unicode DOCTYPE name diagnostic
+
+on:
+  push:
+    branches:
+      - candidate/z7-tokenizer-doctype-unicode-name-v1
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: candidate/z7-tokenizer-doctype-unicode-name-v1
+
+      - name: Apply bounded Unicode DOCTYPE-name candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one anchor, found {count}")
+              return text.replace(old, new, 1)
+
+          source = Path("src/html_tokenizer_markup_declarations_v1.cpp")
+          text = source.read_text(encoding="utf-8")
+          text = replace_once(
+              text,
+              '''        if (!ascii_byte(value)) {
+              return fail_unsupported_doctype_ascii_boundary(
+                  original_missing_whitespace_before_name,
+                  state);
+          }
+          ''',
+              '''        if (!ascii_byte(value)) {
+              if (state == DoctypeState::BeforeName || state == DoctypeState::Name) {
+                  return true;
+              }
+              return fail_unsupported_doctype_ascii_boundary(
+                  original_missing_whitespace_before_name,
+                  state);
+          }
+          ''',
+              "Unicode DOCTYPE-name observer admission",
+          )
+          source.write_text(text, encoding="utf-8")
+
+          tests = Path("tests/html_tokenizer_markup_declarations_v1_tests.cpp")
+          text = tests.read_text(encoding="utf-8")
+          new_test = r'''bool test_utf8_doctype_name_bytes() {
+              std::string spaced = "<!DOCTYPE caf";
+              spaced.append("\xC3\xA9", 2U);
+              spaced.push_back('>');
+              std::string expected = "caf";
+              expected.append("\xC3\xA9", 2U);
+              if (!run_doctype_case(
+                      "UTF-8 scalar in DOCTYPE name",
+                      spaced,
+                      expected,
+                      false)) {
+                  return false;
+              }
+
+              std::string adjacent = "<!DOCTYPE";
+              adjacent.append("\xC3\xA9", 2U);
+              adjacent.push_back('>');
+              const std::string adjacent_expected("\xC3\xA9", 2U);
+              return run_doctype_case(
+                  "UTF-8 scalar starts DOCTYPE name without whitespace",
+                  adjacent,
+                  adjacent_expected,
+                  false,
+                  {ExpectedError{"missing-whitespace-before-doctype-name", 1U, 10U}});
+          }
+
+          '''
+          text = replace_once(
+              text,
+              '''bool test_bounded_ascii_doctype_recovery() {
+          ''',
+              new_test + '''bool test_bounded_ascii_doctype_recovery() {
+          ''',
+              "insert Unicode DOCTYPE-name regressions",
+          )
+          text = replace_once(
+              text,
+              '''        !test_missing_doctype_name_recovery() ||
+              !test_bounded_ascii_doctype_recovery() ||
+          ''',
+              '''        !test_missing_doctype_name_recovery() ||
+              !test_utf8_doctype_name_bytes() ||
+              !test_bounded_ascii_doctype_recovery() ||
+          ''',
+              "register Unicode DOCTYPE-name regressions",
+          )
+          tests.write_text(text, encoding="utf-8")
+          PY
+          git diff --check
+
+      - name: Install focused build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+
+      - name: Build focused tokenizer targets
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-html-tokenizer-markup-declarations-v1-tests
+          zevryon-html-tokenizer-token-stream-v1-tests
+          zevryon-html-tokenizer-token-stream-v1-probe
+
+      - name: Run focused tests
+        run: |
+          set -euo pipefail
+          ./build/zevryon-html-tokenizer-markup-declarations-v1-tests
+          ./build/zevryon-html-tokenizer-token-stream-v1-tests
+
+      - name: Verify corpus harnesses
+        run: |
+          set -euo pipefail
+          python3 scripts/z7_html5lib_tokenizer_corpus_verify.py --self-test
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py --self-test
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v9_baseline.py --self-test
+
+      - name: Measure complete corpus without publishing authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py \
+            --probe build/zevryon-html-tokenizer-token-stream-v1-probe \
+            > census.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("census.json").read_text(encoding="utf-8"))
+          assert report["files"] == 14, report
+          assert report["tests"] == 6810, report
+          assert report["executions"] == 7036, report
+          assert report["passed"] + report["failed"] + report["unsupported"] == 7036, report
+          assert report["failed"] <= 122, report
+          assert report["full_corpus_pass_claim"] is False, report
+          assert report["html_tokenizer_conformance_claim"] is False, report
+          assert report["z7_status_change"] is False, report
+          print("DIAGNOSTIC_TOTALS", report["passed"], report["failed"], report["unsupported"])
+          print("DIAGNOSTIC_MALFORMED_NAME", report["reason_counts"].get("unsupported:production-fail-closed:HTML markup declaration malformed DOCTYPE-name transition is outside admitted v1 recovery", 0))
+          print("DIAGNOSTIC_MISSING_NAME", report["reason_counts"].get("unsupported:production-fail-closed:HTML markup declaration missing DOCTYPE name recovery is outside admitted v1 subset", 0))
+          print("DIAGNOSTIC_PUBLIC_SYSTEM", report["reason_counts"].get("unsupported:production-fail-closed:HTML markup declaration PUBLIC/SYSTEM or malformed DOCTYPE recovery is outside admitted v1 subset", 0))
+          print(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True))
+          PY
+
+      - name: Upload diagnostic census
+        uses: actions/upload-artifact@v4
+        with:
+          name: z7-doctype-unicode-name-diagnostic
+          path: census.json
+          if-no-files-found: error
+
+      - name: Block diagnostic publication
+        shell: bash
+        run: |
+          echo "Diagnostic-only run completed; production publication is intentionally blocked." >&2
+          exit 1
