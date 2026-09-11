@@ -42,6 +42,8 @@ The component completes tokenization for the following bounded recovery families
 - `end-tag-with-trailing-solidus`, emitting an ordinary EndTag;
 - ASCII tag-name `anything else` bytes are retained in the normalized tag name, while admitted C0/DEL controls emit `control-character-in-input-stream`;
 - self-closing-start-tag recovery: a `/` not followed by `>` emits `unexpected-solidus-in-tag` and reconsumes the following admitted ASCII byte in before-attribute-name, preserving input-stream error ordering;
+- EOF after tag-open or end-tag-open: `eof-before-tag-name`, with the literal `<` or `</` bytes emitted as Character data;
+- EOF in tag-name, attribute-name/value, after-attribute and self-closing-start-tag states: `eof-in-tag`, discarding the incomplete tag token without publishing partial attributes;
 - tag-open invalid ASCII `anything else`: `invalid-first-character-of-tag-name`, literal `<` Character output, then reconsume in Data;
 - empty end tag `</>`: `missing-end-tag-name`, no EndTag token;
 - the five special bytes `"`, `'`, `<`, `=`, and `` ` `` in an unquoted attribute value: `unexpected-character-in-unquoted-attribute-value`, with the offending byte retained in the attribute value;
@@ -72,7 +74,7 @@ The following remain outside this component:
 - bogus-comment recovery for invalid end-tag-open bytes other than the admitted empty `</>` case;
 - NUL replacement and complete input-stream preprocessing;
 - non-ASCII raw-input preprocessing/location authority, including non-ASCII tag and attribute names;
-- generic EOF-in-tag/self-closing recovery and remaining malformed tag/attribute recovery not explicitly admitted above;
+- remaining malformed tag/attribute recovery not explicitly admitted above;
 - Script-data and CDATA states.
 
 These cases return an explicit API failure instead of fabricating a token stream.
