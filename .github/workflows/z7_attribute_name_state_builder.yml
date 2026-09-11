@@ -1,0 +1,95 @@
+name: Z7 Data attribute-name state builder
+
+on:
+  push:
+    branches:
+      - candidate/z7-data-attribute-name-state-v1
+    paths:
+      - 'scripts/z7_attribute_name_state_builder.py'
+      - '.github/workflows/z7_attribute_name_state_builder.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Configure commit identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Validate and apply exact production patch
+        run: |
+          python3 -m py_compile scripts/z7_attribute_name_state_builder.py
+          python3 scripts/z7_attribute_name_state_builder.py
+          git diff --check
+
+      - name: Install focused build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+
+      - name: Configure focused build
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+
+      - name: Build focused tokenizer authority
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-html-tokenizer-data-tags-v1-tests
+          zevryon-html-tokenizer-token-stream-v1-probe
+
+      - name: Run focused Data-tag tests
+        run: ./build/zevryon-html-tokenizer-data-tags-v1-tests
+
+      - name: Verify v3 authority and full-corpus no-regression
+        run: |
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v3_baseline.py --self-test
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v3_baseline.py \
+            --policy no-regression \
+            --probe build/zevryon-html-tokenizer-token-stream-v1-probe \
+            > census.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path('census.json').read_text(encoding='utf-8'))
+          target = 'unsupported:production-fail-closed:HTML Data-tag tokenizer attribute name byte is outside admitted v1 subset'
+          target_count = report['reason_counts'].get(target, 0)
+          assert report['executions'] == 7036, report
+          assert report['passed'] > 6491, report
+          assert report['failed'] <= 129, report
+          assert report['unsupported'] < 416, report
+          assert target_count < 77, (target_count, report)
+          assert report['baseline_regression_free'] is True, report
+          print(json.dumps({
+              'passed': report['passed'],
+              'failed': report['failed'],
+              'unsupported': report['unsupported'],
+              'attribute_name_bucket': target_count,
+          }, sort_keys=True))
+          PY
+
+      - name: Self-clean and commit admitted production slice
+        run: |
+          rm -f .github/workflows/z7_attribute_name_state_builder.yml
+          rm -f scripts/z7_attribute_name_state_builder.py
+          rm -f census.json
+          git add -A
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "builder produced no production diff" >&2
+            exit 1
+          fi
+          git commit -m "Z7: admit bounded Data attribute-name state"
+          git push origin HEAD:candidate/z7-data-attribute-name-state-v1
