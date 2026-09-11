@@ -1,0 +1,133 @@
+name: Z7 nullable DOCTYPE name production builder
+
+on:
+  push:
+    branches:
+      - candidate/z7-tokenizer-nullable-doctype-name-production-v1
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: candidate/z7-tokenizer-nullable-doctype-name-production-v1
+
+      - name: Apply nullable DOCTYPE-name production patch
+        run: |
+          set -euo pipefail
+          python3 scripts/apply_z7_tokenizer_nullable_doctype_name_production_v1.py
+          git diff --check
+
+      - name: Install focused build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+
+      - name: Build focused tokenizer targets
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-html-tokenizer-markup-declarations-v1-tests
+          zevryon-html-tokenizer-token-stream-v1-tests
+          zevryon-html-tokenizer-token-stream-v1-probe
+
+      - name: Run focused component and token-stream tests
+        run: |
+          set -euo pipefail
+          ./build/zevryon-html-tokenizer-markup-declarations-v1-tests
+          ./build/zevryon-html-tokenizer-token-stream-v1-tests
+
+      - name: Verify probe consumers and corpus harnesses
+        run: |
+          set -euo pipefail
+          python3 scripts/z7_html5lib_tokenizer_test1_admitted_runner_v1.py --self-test
+          python3 scripts/z7_html5lib_tokenizer_test1_admitted_runner_v1.py \
+            --probe build/zevryon-html-tokenizer-token-stream-v1-probe \
+            > test1.json
+          python3 scripts/z7_html5lib_tokenizer_corpus_verify.py --self-test
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py --self-test
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v9_baseline.py --self-test
+
+      - name: Require exact measured corpus movement
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v9_baseline.py \
+            --policy no-regression \
+            --probe build/zevryon-html-tokenizer-token-stream-v1-probe \
+            > census.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("census.json").read_text(encoding="utf-8"))
+          assert report["files"] == 14, report
+          assert report["tests"] == 6810, report
+          assert report["executions"] == 7036, report
+          assert report["passed"] == 6795, report
+          assert report["failed"] == 122, report
+          assert report["unsupported"] == 119, report
+          assert report["passed"] + report["failed"] + report["unsupported"] == 7036, report
+          assert report["baseline_policy"] == "no-regression", report
+          assert report["baseline_regression_free"] is True, report
+          assert report["exact_execution_accounting"] is True, report
+          assert report["reason_counts"].get("unsupported:probe-wire-null-doctype-name", 0) == 0, report
+          assert report["reason_counts"].get("unsupported:input-preprocessing-nul", 0) == 61, report
+          assert report["reason_counts"].get("failed:parse-error-stream-mismatch", 0) == 113, report
+          assert report["reason_counts"].get("failed:token-stream-mismatch", 0) == 9, report
+          assert report["file_reports"]["tokenizer/domjs.test"] == {
+              "executions": 59, "passed": 56, "failed": 1, "unsupported": 2
+          }, report
+          assert report["file_reports"]["tokenizer/test1.test"] == {
+              "executions": 69, "passed": 69, "failed": 0, "unsupported": 0
+          }, report
+          assert report["file_reports"]["tokenizer/test2.test"] == {
+              "executions": 45, "passed": 44, "failed": 0, "unsupported": 1
+          }, report
+          assert report["file_reports"]["tokenizer/test3.test"] == {
+              "executions": 1786, "passed": 1659, "failed": 27, "unsupported": 100
+          }, report
+          assert report["file_reports"]["tokenizer/test4.test"] == {
+              "executions": 85, "passed": 80, "failed": 0, "unsupported": 5
+          }, report
+          assert report["full_corpus_pass_claim"] is False, report
+          assert report["html_tokenizer_conformance_claim"] is False, report
+          assert report["z7_status_change"] is False, report
+          print(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True))
+          PY
+
+      - name: Commit tested production diff and self-clean builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f census.json test1.json
+          rm -f .github/workflows/z7_tokenizer_nullable_doctype_name_production_builder.yml
+          rm -f scripts/apply_z7_tokenizer_nullable_doctype_name_production_v1.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/html_tokenizer_token_stream_v1.hpp \
+                  src/html_tokenizer_markup_declarations_v1.cpp \
+                  tests/html_tokenizer_markup_declarations_v1_tests.cpp \
+                  tests/html_tokenizer_token_stream_v1_probe.cpp \
+                  scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py \
+                  scripts/z7_html5lib_tokenizer_test1_admitted_runner_v1.py \
+                  docs/Z7_HTML_TOKENIZER_MARKUP_DECLARATIONS_V1.md \
+                  docs/Z7_HTML_TOKENIZER_TOKEN_STREAM_V1.md \
+                  .github/workflows/z7_tokenizer_nullable_doctype_name_production_builder.yml \
+                  scripts/apply_z7_tokenizer_nullable_doctype_name_production_v1.py
+          git diff --cached --quiet && { echo "builder produced no diff" >&2; exit 1; }
+          git diff --cached --check
+          git commit -m "Z7: admit nullable DOCTYPE name recovery"
+          git push origin HEAD:candidate/z7-tokenizer-nullable-doctype-name-production-v1
