@@ -1,0 +1,56 @@
+name: Z7 Data-state NUL preclassifier bypass diagnostic
+on:
+  push:
+    branches: [diagnostic/z7-data-nul-preclassifier-bypass-v1]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: diagnostic/z7-data-nul-preclassifier-bypass-v1
+      - name: Admit Data-state NUL to production probe only for diagnosis
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py')
+          s=p.read_text()
+          old='''        "Script data state",\n        "CDATA section state",\n    }:\n'''
+          new='''        "Script data state",\n        "CDATA section state",\n        "Data state",\n    }:\n'''
+          assert s.count(old)==1
+          p.write_text(s.replace(old,new,1))
+          PY
+          git diff --check
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+      - name: Configure and build probe
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_RUST_CORE=OFF -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+          cmake --build build --parallel 2 --target zevryon-html-tokenizer-token-stream-v1-probe
+      - name: Measure current production NUL behavior
+        run: |
+          set -euo pipefail
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py --probe build/zevryon-html-tokenizer-token-stream-v1-probe > census.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('census.json').read_text())
+          print('TOTALS',r['passed'],r['failed'],r['unsupported'])
+          for reason,count in sorted(r['reason_counts'].items()):
+              if 'NUL' in reason or 'nul' in reason.lower() or reason.startswith('failed:'):
+                  print(count,reason)
+          print('UNSUPPORTED_SAMPLES')
+          for x in r['unsupported_samples']:
+              print(json.dumps(x,ensure_ascii=False,sort_keys=True))
+          print('FAILURE_SAMPLES')
+          for x in r['failure_samples']:
+              print(json.dumps(x,ensure_ascii=False,sort_keys=True))
+          assert r['executions']==7036
+          PY
+      - name: Block publication
+        run: exit 1
