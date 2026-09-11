@@ -12,19 +12,25 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 
 # WHATWG Data state is intentionally different from RCDATA/RAWTEXT/Script:
-# U+0000 emits unexpected-null-character and the current U+0000 itself.
+# U+0000 emits unexpected-null-character and the current U+0000 itself. Select
+# only DataTagTokenizer::run(); state-local tag/attribute/bogus-comment guards
+# remain untouched.
 path = ROOT / "src/html_tokenizer_data_tags_v1.cpp"
 text = path.read_text(encoding="utf-8")
-text = replace_once(
-    text,
-    '''            if (character == '\\0') {
+class_pos = text.index("class DataTagTokenizer final")
+run_pos = text.index("    bool run() {", class_pos)
+guard_pos = text.index("            if (character == '\\0') {", run_pos)
+next_state_pos = text.index("            if (!ascii_byte(character)) {", guard_pos)
+old_guard = text[guard_pos:next_state_pos]
+expected_guard = '''            if (character == '\\0') {
                 return fail_data_tokenizer(
                     error_,
                     "HTML Data-tag tokenizer input preprocessing/NUL replacement is not implemented");
             }
-            if (!ascii_byte(character)) {
-''',
-    '''            if (character == '\\0') {
+'''
+if old_guard != expected_guard:
+    raise SystemExit("ordinary Data-state raw NUL guard drifted")
+new_guard = '''            if (character == '\\0') {
                 if (!emit_parse_error(cursor, "unexpected-null-character") ||
                     !append_character(character)) {
                     return false;
@@ -32,10 +38,8 @@ text = replace_once(
                 ++cursor;
                 continue;
             }
-            if (!ascii_byte(character)) {
-''',
-    "ordinary Data-state raw NUL",
-)
+'''
+text = text[:guard_pos] + new_guard + text[next_state_pos:]
 path.write_text(text, encoding="utf-8")
 
 
