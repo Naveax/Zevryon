@@ -1,4 +1,4 @@
-name: Z7 Script-data NUL diagnostic
+name: Z7 Script-data NUL production builder
 
 on:
   push:
@@ -6,18 +6,18 @@ on:
       - candidate/z7-tokenizer-script-data-nul-replacement-v1
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  diagnose:
+  build-and-verify:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
           ref: candidate/z7-tokenizer-script-data-nul-replacement-v1
 
-      - name: Apply bounded Script-data NUL candidate
+      - name: Apply bounded Script-data NUL production patch
         run: |
           set -euo pipefail
           python3 scripts/apply_z7_tokenizer_script_data_nul_replacement_v1.py
@@ -57,11 +57,12 @@ jobs:
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py --self-test
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v9_baseline.py --self-test
 
-      - name: Measure complete corpus without publishing authority
+      - name: Require exact measured Script-data NUL movement
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py \
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v9_baseline.py \
+            --policy no-regression \
             --probe build/zevryon-html-tokenizer-token-stream-v1-probe \
             > census.json
           python3 - <<'PY'
@@ -72,26 +73,50 @@ jobs:
           assert report["files"] == 14, report
           assert report["tests"] == 6810, report
           assert report["executions"] == 7036, report
+          assert report["passed"] == 6781, report
+          assert report["failed"] == 122, report
+          assert report["unsupported"] == 133, report
           assert report["passed"] + report["failed"] + report["unsupported"] == 7036, report
+          assert report["baseline_policy"] == "no-regression", report
+          assert report["baseline_regression_free"] is True, report
+          assert report["exact_execution_accounting"] is True, report
+          assert report["reason_counts"].get("unsupported:input-preprocessing-nul", 0) == 61, report
+          assert report["reason_counts"].get("failed:parse-error-stream-mismatch", 0) == 113, report
+          assert report["reason_counts"].get("failed:token-stream-mismatch", 0) == 9, report
+          assert report["file_reports"]["tokenizer/domjs.test"] == {
+              "executions": 59, "passed": 56, "failed": 1, "unsupported": 2
+          }, report
+          assert report["file_reports"]["tokenizer/test3.test"] == {
+              "executions": 1786, "passed": 1646, "failed": 27, "unsupported": 113
+          }, report
+          assert report["file_reports"]["tokenizer/test4.test"] == {
+              "executions": 85, "passed": 80, "failed": 0, "unsupported": 5
+          }, report
           assert report["full_corpus_pass_claim"] is False, report
           assert report["html_tokenizer_conformance_claim"] is False, report
           assert report["z7_status_change"] is False, report
-          print("DIAGNOSTIC_TOTALS", report["passed"], report["failed"], report["unsupported"])
-          print("DIAGNOSTIC_NUL_UNSUPPORTED", report["reason_counts"].get("unsupported:input-preprocessing-nul", 0))
-          for fixture in ("tokenizer/domjs.test", "tokenizer/test3.test", "tokenizer/test4.test"):
-              print("DIAGNOSTIC_FIXTURE", fixture, json.dumps(report["file_reports"].get(fixture), sort_keys=True))
           print(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True))
           PY
 
-      - name: Upload diagnostic census
-        uses: actions/upload-artifact@v4
-        with:
-          name: z7-script-data-nul-diagnostic-census
-          path: census.json
-          if-no-files-found: error
-
-      - name: Block publication from diagnostic run
+      - name: Commit tested production diff and self-clean builder
         shell: bash
         run: |
-          echo "Diagnostic-only run completed; production publication is intentionally blocked." >&2
-          exit 1
+          set -euo pipefail
+          rm -f census.json
+          rm -f .github/workflows/z7_tokenizer_script_data_nul_diagnostic.yml
+          rm -f scripts/apply_z7_tokenizer_script_data_nul_replacement_v1.py
+          rm -f scripts/fix_z7_tokenizer_script_data_nul_test_lengths_v1.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/html_tokenizer_script_data_v1.cpp \
+                  src/html_tokenizer_script_data_v1.hpp \
+                  tests/html_tokenizer_script_data_v1_tests.cpp \
+                  scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py \
+                  docs/Z7_HTML_TOKENIZER_SCRIPT_DATA_V1.md \
+                  .github/workflows/z7_tokenizer_script_data_nul_diagnostic.yml \
+                  scripts/apply_z7_tokenizer_script_data_nul_replacement_v1.py \
+                  scripts/fix_z7_tokenizer_script_data_nul_test_lengths_v1.py
+          git diff --cached --quiet && { echo "builder produced no diff" >&2; exit 1; }
+          git diff --cached --check
+          git commit -m "Z7: admit bounded Script-data NUL replacement"
+          git push origin HEAD:candidate/z7-tokenizer-script-data-nul-replacement-v1
