@@ -43,6 +43,12 @@ bool ascii_space(char value) noexcept {
         value == '\r' || value == '\f';
 }
 
+bool ascii_control_parse_error(char value) noexcept {
+    const auto byte = static_cast<unsigned char>(value);
+    return (byte >= 0x01U && byte <= 0x08U) || byte == 0x0BU ||
+        (byte >= 0x0EU && byte <= 0x1FU) || byte == 0x7FU;
+}
+
 char ascii_lower(char value) noexcept {
     if (value >= 'A' && value <= 'Z') {
         return static_cast<char>(value + ('a' - 'A'));
@@ -52,11 +58,6 @@ char ascii_lower(char value) noexcept {
 
 bool tag_name_character(char value) noexcept {
     return ascii_alpha(value) || ascii_digit(value) || value == '-';
-}
-
-bool attribute_name_character(char value) noexcept {
-    return ascii_alpha(value) || ascii_digit(value) || value == '-' ||
-        value == '_' || value == ':';
 }
 
 bool increment_counter(
@@ -464,17 +465,82 @@ private:
     bool parse_attribute(
         std::size_t* cursor,
         std::vector<HtmlTokenizerV1Attribute>* attributes,
-        std::size_t* token_bytes) {
+        std::size_t* token_bytes,
+        bool missing_whitespace_before) {
+        if (*cursor >= input_.size()) {
+            return fail_data_tokenizer(
+                error_,
+                "HTML Data-tag tokenizer EOF before attribute name is outside admitted recovery");
+        }
+
         const std::size_t name_begin = *cursor;
         HtmlTokenizerV1Attribute attribute;
-        while (*cursor < input_.size() &&
-               attribute_name_character(input_[*cursor])) {
-            if (!append_name_character(&attribute.name, input_[*cursor])) {
+        bool leading_control_error_emitted = false;
+
+        // Input-stream control errors conceptually occur while the next input
+        // character is consumed. Preserve that ordering ahead of the tokenizer
+        // missing-whitespace diagnostic when the same byte starts an attribute.
+        if (missing_whitespace_before &&
+            ascii_byte(input_[*cursor]) &&
+            ascii_control_parse_error(input_[*cursor])) {
+            if (!emit_parse_error(*cursor, "control-character-in-input-stream")) {
+                return false;
+            }
+            leading_control_error_emitted = true;
+        }
+        if (missing_whitespace_before &&
+            !emit_parse_error(*cursor, "missing-whitespace-between-attributes")) {
+            return false;
+        }
+
+        // WHATWG before-attribute-name '=' recovery starts a real attribute
+        // whose initial name is '=' and then enters the attribute-name state.
+        if (input_[*cursor] == '=') {
+            if (!emit_parse_error(
+                    *cursor,
+                    "unexpected-equals-sign-before-attribute-name") ||
+                !append_name_character(&attribute.name, '=')) {
                 return false;
             }
             ++*cursor;
+        } else {
+            while (*cursor < input_.size()) {
+                const char character = input_[*cursor];
+                if (ascii_space(character) || character == '/' ||
+                    character == '>' || character == '=') {
+                    break;
+                }
+                if (character == '\0') {
+                    return fail_data_tokenizer(
+                        error_,
+                        "HTML Data-tag tokenizer input preprocessing/NUL replacement is not implemented");
+                }
+                if (!ascii_byte(character)) {
+                    // Keep the historical v3 census classification stable until
+                    // Unicode preprocessing/location authority is admitted.
+                    return fail_data_tokenizer(
+                        error_,
+                        "HTML Data-tag tokenizer attribute name byte is outside admitted v1 subset");
+                }
+                if (ascii_control_parse_error(character) &&
+                    !(leading_control_error_emitted && *cursor == name_begin) &&
+                    !emit_parse_error(*cursor, "control-character-in-input-stream")) {
+                    return false;
+                }
+                if ((character == '"' || character == '\'' || character == '<') &&
+                    !emit_parse_error(
+                        *cursor,
+                        "unexpected-character-in-attribute-name")) {
+                    return false;
+                }
+                if (!append_name_character(&attribute.name, character)) {
+                    return false;
+                }
+                ++*cursor;
+            }
         }
-        if (*cursor == name_begin) {
+
+        if (attribute.name.empty()) {
             return fail_data_tokenizer(
                 error_,
                 "HTML Data-tag tokenizer attribute name byte is outside admitted v1 subset");
@@ -503,7 +569,11 @@ private:
             while (*cursor < input_.size() && ascii_space(input_[*cursor])) {
                 ++*cursor;
             }
-            if (!parse_attribute_value(cursor, &attribute.value)) {
+            if (*cursor < input_.size() && input_[*cursor] == '>') {
+                if (!emit_parse_error(*cursor, "missing-attribute-value")) {
+                    return false;
+                }
+            } else if (!parse_attribute_value(cursor, &attribute.value)) {
                 return false;
             }
         } else {
@@ -737,23 +807,21 @@ private:
                 return true;
             }
 
+            bool missing_whitespace_before = false;
             if (!had_whitespace) {
                 if (!parsed_attribute) {
                     return fail_data_tokenizer(
                         error_,
                         "HTML Data-tag tokenizer first attribute without separating whitespace is outside admitted v1 subset");
                 }
-                if (!emit_parse_error(
-                        probe,
-                        "missing-whitespace-between-attributes")) {
-                    return false;
-                }
+                missing_whitespace_before = true;
             }
 
             if (!parse_attribute(
                     &probe,
                     &attributes,
-                    &token_bytes)) {
+                    &token_bytes,
+                    missing_whitespace_before)) {
                 return false;
             }
             parsed_attribute = true;
