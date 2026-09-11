@@ -437,6 +437,51 @@ bool test_character_token_bound_fails_closed() {
         require(sink.tokens.empty(), "hard-cap failure emits no partial character token");
 }
 
+bool test_crlf_input_preprocessing() {
+    return run_case(
+               "Data CR normalization",
+               HtmlTokenizerV1InitialState::Data,
+               "",
+               "a\rb",
+               {character("a\nb")},
+               {}) &&
+        run_case(
+               "PLAINTEXT CRLF and CR normalization",
+               HtmlTokenizerV1InitialState::Plaintext,
+               "plaintext",
+               "a\r\nb\rc",
+               {character("a\nb\nc")},
+               {}) &&
+        run_case(
+               "RCDATA CRLF normalization",
+               HtmlTokenizerV1InitialState::Rcdata,
+               "xmp",
+               "a\r\nb",
+               {character("a\nb")},
+               {}) &&
+        run_case(
+               "RAWTEXT CR normalization",
+               HtmlTokenizerV1InitialState::Rawtext,
+               "xmp",
+               "a\rb",
+               {character("a\nb")},
+               {}) &&
+        run_case(
+               "Script-data CRLF normalization",
+               HtmlTokenizerV1InitialState::ScriptData,
+               "script",
+               "a\r\nb",
+               {character("a\nb")},
+               {}) &&
+        run_case(
+               "CDATA CRLF normalization",
+               HtmlTokenizerV1InitialState::CdataSection,
+               "",
+               "a\r\nb]]>",
+               {character("a\nb")},
+               {});
+}
+
 bool test_nul_preprocessing_gap_fails_closed() {
     CollectingSink sink;
     const std::string input("a\0b", 3U);
@@ -547,6 +592,7 @@ int main() {
     if (!test_pinned_content_model_flag_semantics() ||
         !test_cdata_section_initial_state() ||
         !test_character_token_bound_fails_closed() ||
+        !test_crlf_input_preprocessing() ||
         !test_nul_preprocessing_gap_fails_closed() ||
         !test_invalid_initial_state_fails_closed() ||
         !test_text_state_allows_empty_last_start_tag()) {

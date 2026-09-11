@@ -32,6 +32,41 @@ bool fail_tokenizer(std::string* error, std::string message) {
     return false;
 }
 
+bool preprocess_html_input_newlines_v1(
+    std::string_view input,
+    std::string* storage,
+    std::string_view* normalized,
+    std::string* error) {
+    *normalized = input;
+    if (input.find('\r') == std::string_view::npos) {
+        return true;
+    }
+
+    try {
+        storage->clear();
+        storage->reserve(input.size());
+        for (std::size_t index = 0U; index < input.size(); ++index) {
+            const char character = input[index];
+            if (character != '\r') {
+                storage->push_back(character);
+                continue;
+            }
+
+            storage->push_back('\n');
+            if (index + 1U < input.size() && input[index + 1U] == '\n') {
+                ++index;
+            }
+        }
+    } catch (const std::bad_alloc&) {
+        return fail_tokenizer(
+            error,
+            "HTML tokenizer CR/CRLF preprocessing allocation failed within bounded input");
+    }
+
+    *normalized = std::string_view(*storage);
+    return true;
+}
+
 bool ascii_alpha(char value) noexcept {
     return (value >= 'a' && value <= 'z') ||
         (value >= 'A' && value <= 'Z');
@@ -1046,9 +1081,22 @@ bool tokenize_html_token_stream_v1(
             "HTML tokenizer input exceeds bounded byte limit");
     }
 
+    std::string preprocessed_input_storage;
+    std::string_view tokenizer_input = input;
+    if (!preprocess_html_input_newlines_v1(
+            input,
+            &preprocessed_input_storage,
+            &tokenizer_input,
+            error)) {
+        if (stats != nullptr) {
+            *stats = local_stats;
+        }
+        return false;
+    }
+
     if (initial_state == HtmlTokenizerV1InitialState::ScriptData) {
         const bool success = run_script_data_canonical(
-            input,
+            tokenizer_input,
             last_start_tag,
             config,
             sink,
@@ -1062,7 +1110,7 @@ bool tokenize_html_token_stream_v1(
 
     if (initial_state == HtmlTokenizerV1InitialState::Data) {
         const bool success = run_data_canonical(
-            input,
+            tokenizer_input,
             config,
             sink,
             &local_stats,
@@ -1075,7 +1123,7 @@ bool tokenize_html_token_stream_v1(
 
     if (initial_state == HtmlTokenizerV1InitialState::CdataSection) {
         const bool success = run_cdata_canonical(
-            input,
+            tokenizer_input,
             config,
             sink,
             &local_stats,
@@ -1127,7 +1175,7 @@ bool tokenize_html_token_stream_v1(
         }
 
         Tokenizer tokenizer(
-            input,
+            tokenizer_input,
             active_state,
             std::move(normalized_last_start_tag),
             config,
