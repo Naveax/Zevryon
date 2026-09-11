@@ -113,6 +113,32 @@ jobs:
           path.write_text(text.replace(old, new, 1), encoding="utf-8")
           PY
           python3 scripts/apply_z7_tokenizer_nullable_doctype_name_v1.py
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/html_tokenizer_markup_declarations_v1_tests.cpp")
+          text = path.read_text(encoding="utf-8")
+          old = '''    {
+              CollectingSink sink;
+              HtmlTokenizerMarkupDeclarationsV1Stats stats;
+              std::size_t next_offset = 0U;
+              std::string error;
+              if (!require(
+                      !consume_html_markup_declaration_v1(
+                          "<!DOCTYPE >", 0U, {}, &sink, &stats, &next_offset, &error),
+                      "missing DOCTYPE name remains fail closed") ||
+                  !require(error.find("missing DOCTYPE name recovery") != std::string::npos,
+                           "missing DOCTYPE name boundary explicit") ||
+                  !require(sink.tokens.empty(), "missing DOCTYPE name publishes no token")) {
+                  return false;
+              }
+          }
+          '''
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f"stale missing-name regression expected once, found {count}")
+          path.write_text(text.replace(old, "", 1), encoding="utf-8")
+          PY
           git diff --check
 
       - name: Install focused build dependencies
