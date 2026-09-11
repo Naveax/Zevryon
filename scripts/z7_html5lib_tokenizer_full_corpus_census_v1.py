@@ -244,10 +244,15 @@ def classify_pre_execution(
                     item.encode("utf-8")
     except UnicodeEncodeError:
         return "non-utf8-scalar-test-data"
-    # The html5lib CDATA initial-state authority intentionally preserves raw
-    # NUL as Character data. Do not route that state through the generic
-    # Data/text-state NUL preprocessing debt bucket.
-    if "\x00" in input_text and state_name != "CDATA section state":
+    # CDATA preserves raw NUL. PLAINTEXT/RCDATA/RAWTEXT now admit their
+    # tokenizer-state U+FFFD replacement + unexpected-null-character behavior.
+    # Data and Script data remain behind the separate NUL authority boundary.
+    if "\x00" in input_text and state_name not in {
+        "PLAINTEXT state",
+        "RCDATA state",
+        "RAWTEXT state",
+        "CDATA section state",
+    }:
         return "input-preprocessing-nul"
     return None
 
