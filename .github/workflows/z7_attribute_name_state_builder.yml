@@ -45,19 +45,15 @@ jobs:
 
           tests = Path('tests/html_tokenizer_data_tags_v1_tests.cpp')
           test_text = tests.read_text(encoding='utf-8')
-          unsupported_sentinel = """    {
-              CollectingSink sink;
-              std::string error;
-              if (!require(
-                      tokenize_html_data_tags_v1(\"<z ==> \", {}, &sink, nullptr, &error) == false,
-                      \"sentinel malformed case remains bounded\")) {
-                  return false;
-              }
-          }
-          """
-          if test_text.count(unsupported_sentinel) != 1:
-              raise SystemExit(f'fixture-free sentinel replacement count: {test_text.count(unsupported_sentinel)}')
-          tests.write_text(test_text.replace(unsupported_sentinel, '', 1), encoding='utf-8')
+          needle = 'tokenize_html_data_tags_v1("<z ==> ", {}, &sink, nullptr, &error) == false,'
+          if test_text.count(needle) != 1:
+              raise SystemExit(f'fixture-free sentinel needle count: {test_text.count(needle)}')
+          needle_at = test_text.index(needle)
+          block_start = test_text.rfind('    {\n', 0, needle_at)
+          block_end = test_text.find('    {\n', needle_at)
+          if block_start < 0 or block_end < 0 or block_end <= block_start:
+              raise SystemExit('cannot bound fixture-free sentinel block')
+          tests.write_text(test_text[:block_start] + test_text[block_end:], encoding='utf-8')
           PY
           git diff --check
 
