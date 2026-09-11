@@ -28,6 +28,21 @@ jobs:
         run: |
           python3 -m py_compile scripts/z7_attribute_name_state_builder.py
           python3 scripts/z7_attribute_name_state_builder.py
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/html_tokenizer_data_tags_v1.cpp')
+          text = path.read_text(encoding='utf-8')
+          old = """bool attribute_name_character(char value) noexcept {
+              return ascii_alpha(value) || ascii_digit(value) || value == '-' ||
+                  value == '_' || value == ':';
+          }
+
+          """
+          if text.count(old) != 1:
+              raise SystemExit(f'obsolete helper replacement count: {text.count(old)}')
+          path.write_text(text.replace(old, '', 1), encoding='utf-8')
+          PY
           git diff --check
 
       - name: Install focused build dependencies
