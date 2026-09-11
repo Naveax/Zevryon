@@ -18,7 +18,9 @@ jobs:
           ref: candidate/z7-tokenizer-cdata-initial-state-v1
 
       - name: Apply production patch
-        run: python3 scripts/run_z7_tokenizer_cdata_initial_state_v1.py
+        run: |
+          python3 scripts/run_z7_tokenizer_cdata_initial_state_v1.py
+          python3 scripts/correct_z7_tokenizer_cdata_location_v1.py
 
       - name: Install focused build dependencies
         run: |
@@ -48,11 +50,12 @@ jobs:
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py --self-test
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v7_baseline.py --self-test
 
-      - name: Diagnose exact CDATA corpus movement
+      - name: Require exact CDATA corpus movement
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py \
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v7_baseline.py \
+            --policy no-regression \
             --probe build/zevryon-html-tokenizer-token-stream-v1-probe \
             > census.json
           python3 - <<'PY'
@@ -63,20 +66,23 @@ jobs:
           assert report["files"] == 14, report
           assert report["tests"] == 6810, report
           assert report["executions"] == 7036, report
+          assert report["passed"] == 6743, report
+          assert report["failed"] == 122, report
+          assert report["unsupported"] == 171, report
           assert report["passed"] + report["failed"] + report["unsupported"] == 7036, report
-          summary = {
-              "passed": report["passed"],
-              "failed": report["failed"],
-              "unsupported": report["unsupported"],
-              "failure_samples": report.get("failure_samples", []),
-              "unsupported_samples": report.get("unsupported_samples", []),
-              "reason_counts": report["reason_counts"],
-              "file_reports": report["file_reports"],
-          }
-          print(json.dumps(summary, indent=2, ensure_ascii=False, sort_keys=True))
-          if report["failed"] > 122:
-              raise SystemExit("diagnostic: CDATA introduced new failures; production commit intentionally blocked")
-          raise SystemExit("diagnostic complete; production commit intentionally blocked until exact movement is understood")
+          assert report["baseline_policy"] == "no-regression", report
+          assert report["baseline_regression_free"] is True, report
+          assert report["reason_counts"].get("unsupported:initial-state:CDATA section state", 0) == 0, report
+          assert report["reason_counts"].get("unsupported:input-preprocessing-nul", 0) == 67, report
+          assert report["reason_counts"].get("failed:parse-error-stream-mismatch", 0) == 113, report
+          domjs = report["file_reports"]["tokenizer/domjs.test"]
+          test3 = report["file_reports"]["tokenizer/test3.test"]
+          assert domjs == {"executions": 59, "passed": 47, "failed": 1, "unsupported": 11}, report
+          assert test3 == {"executions": 1786, "passed": 1625, "failed": 27, "unsupported": 134}, report
+          assert report["full_corpus_pass_claim"] is False, report
+          assert report["html_tokenizer_conformance_claim"] is False, report
+          assert report["z7_status_change"] is False, report
+          print(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True))
           PY
 
       - name: Commit tested production diff and self-clean builder
@@ -87,6 +93,7 @@ jobs:
           rm -f .github/workflows/z7_tokenizer_cdata_initial_state_builder.yml
           rm -f scripts/apply_z7_tokenizer_cdata_initial_state_v1.py
           rm -f scripts/run_z7_tokenizer_cdata_initial_state_v1.py
+          rm -f scripts/correct_z7_tokenizer_cdata_location_v1.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/html_tokenizer_token_stream_v1.hpp \
@@ -97,7 +104,8 @@ jobs:
                   docs/Z7_HTML_TOKENIZER_CDATA_SECTION_V1.md \
                   .github/workflows/z7_tokenizer_cdata_initial_state_builder.yml \
                   scripts/apply_z7_tokenizer_cdata_initial_state_v1.py \
-                  scripts/run_z7_tokenizer_cdata_initial_state_v1.py
+                  scripts/run_z7_tokenizer_cdata_initial_state_v1.py \
+                  scripts/correct_z7_tokenizer_cdata_location_v1.py
           git diff --cached --quiet && { echo "builder produced no diff" >&2; exit 1; }
           git diff --cached --check
           git commit -m "Z7: admit bounded CDATA initial state"
