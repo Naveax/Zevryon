@@ -16,7 +16,7 @@ These are the state-machine behaviors required by the current HTML Standard for 
 
 The new recovery does not weaken the existing preprocessing boundary:
 
-- U+0000 remains fail-closed until replacement/preprocessing semantics are admitted;
+- U+0000 in tag-open/end-tag-open/tag/attribute recovery remains fail-closed; only the separate ordinary Data character-state path is admitted;
 - non-ASCII bytes remain fail-closed where the v1 component lacks preprocessing/location authority;
 - character references remain outside this slice;
 - bogus-comment recovery after an invalid end-tag-open byte other than `>` remains outside this slice;

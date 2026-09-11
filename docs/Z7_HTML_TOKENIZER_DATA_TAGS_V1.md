@@ -19,6 +19,7 @@ This component is a bounded Data-state tag tokenizer that emits the shared `Html
 - empty/boolean attributes;
 - the self-closing start-tag flag;
 - coalesced Character tokens outside tags;
+- ordinary Data-state U+0000 as literal U+0000 Character data plus `unexpected-null-character`;
 - bounded bogus Comment tokens entered from `<?...` tag-open recovery and invalid end-tag-open bytes;
 - literal ampersand fallback;
 - decimal and hexadecimal numeric character references in Data and attribute values;
@@ -74,7 +75,7 @@ The sink is streaming. A later unsupported construct can fail after earlier comp
 The following remain outside this component:
 
 - `<!...` markup declarations, comments and DOCTYPE, which are owned by the separate Data-stream composition layer;
-- NUL replacement and complete input-stream preprocessing;
+- NUL handling in tag, attribute, comment and DOCTYPE states; only ordinary Data character-state U+0000 is admitted here;
 - non-ASCII raw-input preprocessing/location authority, including non-ASCII tag and attribute names;
 - remaining malformed tag/attribute recovery not explicitly admitted above;
 - Script-data and CDATA states.

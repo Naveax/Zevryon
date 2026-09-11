@@ -68,7 +68,7 @@ Character data is coalesced only up to the configured token limit. The sink cons
 
 Invalid initial-state enum values fail before token/error events are emitted. Allocation failures in state/context setup and token execution are contained by the production API and reported through the explicit error channel.
 
-Raw NUL is state-local rather than globally admitted. PLAINTEXT, RCDATA, RAWTEXT and Script-data emit `unexpected-null-character` and append U+FFFD for U+0000 in their admitted Character-consuming states. CDATA retains its separately admitted literal-NUL authority. Data/markup/comment/DOCTYPE NUL behavior remains behind the corpus NUL authority boundary.
+Raw NUL is state-local rather than globally admitted. PLAINTEXT, RCDATA, RAWTEXT and Script-data emit `unexpected-null-character` and append U+FFFD for U+0000 in their admitted Character-consuming states. Ordinary Data character state instead emits `unexpected-null-character` and preserves the current U+0000 as Character data. CDATA retains its separately admitted literal-NUL authority. Tag/attribute/comment/DOCTYPE NUL behavior remains behind the corpus NUL authority boundary.
 
 ## Parse-error authority
 
@@ -98,7 +98,7 @@ Authority includes:
 - empty-context RCDATA/RAWTEXT literal end-tag spellings;
 - RCDATA/RAWTEXT `control-character-in-input-stream` diagnostics for U+000B;
 - token-byte hard-cap rejection;
-- state-local NUL recovery plus remaining Data/markup preprocessing debt;
+- state-local NUL recovery including ordinary Data character state, with tag/attribute/comment/DOCTYPE NUL debt retained;
 - invalid initial-state rejection.
 
 These are C++ core tests. Full admission still depends on the vendored html5lib corpus census comparing production token/error streams against the external expected outputs with explicit pass/fail/unsupported accounting.
@@ -107,6 +107,6 @@ These are C++ core tests. Full admission still depends on the vendored html5lib 
 
 This slice advances the production token-event surface used by the frozen tokenizer corpus. It does not satisfy `html_tokenizer_conformance` by itself.
 
-Still outstanding are explicitly unsupported corpus surfaces such as Data/markup/comment/DOCTYPE NUL handling, broader non-ASCII preprocessing/location authority and remaining malformed Data-tag/DOCTYPE/comment recovery buckets. Nullable DOCTYPE-name probe-wire representation is admitted by this slice.
+Still outstanding are explicitly unsupported corpus surfaces such as tag/attribute/comment/DOCTYPE NUL handling, broader non-ASCII preprocessing/location authority and remaining malformed Data-tag/DOCTYPE/comment recovery buckets. Ordinary Data character-state U+0000 and nullable DOCTYPE-name probe-wire representation are admitted.
 
 The tree-builder remains a separate consumer/conformance boundary. Z7 therefore remains unchanged.

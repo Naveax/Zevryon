@@ -154,10 +154,23 @@ bool test_scope_guards_remain_fail_closed() {
         HtmlTokenizerDataTagsV1Stats stats;
         std::string error;
         const std::string input("A\0B", 3U);
-        if (!require(!tokenize_html_data_tags_v1(input, {}, &sink, &stats, &error),
-                     "NUL preprocessing remains outside slice") ||
-            !require(error.find("NUL replacement is not implemented") != std::string::npos,
-                     "NUL guard remains explicit")) {
+        const std::string expected("A\0B", 3U);
+        if (!require(tokenize_html_data_tags_v1(input, {}, &sink, &stats, &error),
+                     std::string("ordinary Data NUL: ") + error) ||
+            !require(sink.tokens.size() == 1U &&
+                         sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Character &&
+                         sink.tokens[0].data == expected,
+                     "ordinary Data NUL preserves U+0000 payload") ||
+            !require(sink.errors.size() == 1U &&
+                         sink.errors[0].code == "unexpected-null-character" &&
+                         sink.errors[0].line == 1U && sink.errors[0].column == 2U,
+                     "ordinary Data NUL exact diagnostic") ||
+            !require(stats.input_bytes == input.size() &&
+                         stats.tokens_emitted == 1U &&
+                         stats.character_tokens_emitted == 1U &&
+                         stats.character_bytes_emitted == expected.size() &&
+                         stats.parse_errors_emitted == 1U,
+                     "ordinary Data NUL exact stats")) {
             return false;
         }
     }

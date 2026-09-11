@@ -10,6 +10,7 @@ This production slice admits well-formed UTF-8 Unicode scalar sequences as ordin
 - A non-ASCII Data byte must begin one canonical well-formed UTF-8 scalar sequence.
 - 2-, 3- and 4-byte scalar encodings are validated for continuation structure, overlong encodings, surrogate exclusion and the U+10FFFF upper bound.
 - Valid scalar bytes are preserved byte-for-byte in the coalesced Character token.
+- Ordinary Data-state U+0000 emits `unexpected-null-character` and is preserved as literal U+0000 Character data.
 - The existing `maximum_token_bytes` bound applies to the complete UTF-8 byte sequence before publication.
 - Character-reference fallback followed by a non-name Unicode scalar remains literal Data, including the pinned html5lib `&¬;` shape.
 - Parse-error columns in the Data tokenizer and character-reference diagnostics count admitted UTF-8 scalars instead of encoding bytes.
@@ -20,7 +21,7 @@ This production slice admits well-formed UTF-8 Unicode scalar sequences as ordin
 This slice still rejects:
 
 - malformed, truncated, overlong, surrogate or out-of-range UTF-8;
-- raw U+0000 / NUL preprocessing;
+- U+0000 handling after transitions into tag, attribute, comment or DOCTYPE states;
 - CR/LF input-stream normalization;
 - non-ASCII tag names;
 - non-ASCII attribute names;
@@ -31,7 +32,7 @@ The scalar validator is intentionally an encoding boundary, not a substitute for
 
 ## Verification
 
-The dedicated `html-tokenizer-data-utf8-text-v1-tests` target freezes valid 2/3/4-byte passthrough, literal ampersand fallback, scalar-aware error columns, malformed UTF-8 rejection, token-byte bounds, and the retained non-ASCII markup/NUL guards.
+The dedicated `html-tokenizer-data-utf8-text-v1-tests` target freezes valid 2/3/4-byte passthrough, literal ampersand fallback, scalar-aware error columns, malformed UTF-8 rejection, token-byte bounds, ordinary Data-state U+0000 authority, and the retained non-ASCII markup guards.
 
 The production probe is additionally checked with the exact UTF-8 bytes for `&¬;` so this slice can later support a separate external-authority promotion without coupling production behavior to the authority runner.
 

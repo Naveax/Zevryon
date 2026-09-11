@@ -241,17 +241,22 @@ def classify_pre_execution(
     except UnicodeEncodeError:
         return "non-utf8-scalar-test-data"
     # CDATA preserves raw NUL. PLAINTEXT/RCDATA/RAWTEXT and Script data
-    # now admit their state-specific U+FFFD replacement behavior. Data remains
-    # behind the separate NUL authority boundary because its markup/comment/
-    # DOCTYPE state family needs a distinct bounded admission slice.
-    if "\x00" in input_text and state_name not in {
-        "PLAINTEXT state",
-        "RCDATA state",
-        "RAWTEXT state",
-        "Script data state",
-        "CDATA section state",
-    }:
-        return "input-preprocessing-nul"
+    # admit their existing state-specific behavior. Data now admits only the
+    # ordinary character-data path: any '<' keeps markup/comment/tag/DOCTYPE NUL
+    # behind its separate state-local authority boundary.
+    if "\x00" in input_text:
+        if state_name in {
+            "PLAINTEXT state",
+            "RCDATA state",
+            "RAWTEXT state",
+            "Script data state",
+            "CDATA section state",
+        }:
+            pass
+        elif state_name == "Data state" and "<" not in input_text:
+            pass
+        else:
+            return "input-preprocessing-nul"
     return None
 
 
@@ -443,8 +448,12 @@ def self_test() -> None:
         "CDATA raw NUL bypasses generic preprocessing bucket",
     )
     require(
-        classify_pre_execution("tokenizer/test2.test", "Data state", "a\x00b", "", []) == "input-preprocessing-nul",
-        "NUL preprocessing classification",
+        classify_pre_execution("tokenizer/test2.test", "Data state", "a\x00b", "", []) is None,
+        "ordinary Data NUL admitted classification",
+    )
+    require(
+        classify_pre_execution("tokenizer/test3.test", "Data state", "<a\x00>", "", []) == "input-preprocessing-nul",
+        "markup Data NUL remains classified unsupported",
     )
     require(
         classify_pre_execution("tokenizer/xmlViolation.test", "Data state", "x", "", []) == "xml-violation-infoset-coercion",

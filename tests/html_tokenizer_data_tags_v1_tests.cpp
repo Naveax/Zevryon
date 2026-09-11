@@ -711,14 +711,22 @@ bool test_admitted_references_and_fail_closed_boundaries() {
     {
         CollectingSink sink;
         const std::string input("a\0b", 3U);
+        const std::string expected("a\0b", 3U);
         std::string error;
         if (!require(
-                !tokenize_html_data_tags_v1(
+                tokenize_html_data_tags_v1(
                     input, {}, &sink, nullptr, &error),
-                "NUL preprocessing remains fail-closed") ||
+                std::string("ordinary Data NUL: ") + error) ||
             !require(
-                error.find("preprocessing/NUL replacement") != std::string::npos,
-                "NUL failure is explicit")) {
+                sink.tokens.size() == 1U &&
+                    sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Character &&
+                    sink.tokens[0].data == expected,
+                "ordinary Data NUL preserves U+0000 payload") ||
+            !require(
+                sink.errors.size() == 1U &&
+                    sink.errors[0].code == "unexpected-null-character" &&
+                    sink.errors[0].line == 1U && sink.errors[0].column == 2U,
+                "ordinary Data NUL exact diagnostic")) {
             return false;
         }
     }
