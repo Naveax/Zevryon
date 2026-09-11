@@ -127,6 +127,18 @@ text = replace_once(
 """,
     "register quoted Unicode identifier regressions",
 )
+text = replace_once(
+    text,
+    """        std::string input = "<!DOCTYPE a PUBLIC \\\"";
+        input.append("\\xC2\\xAC", 2U);
+        input += "\\\">";
+""",
+    """        std::string input = "<!DOCTYPE a PUBLIC ";
+        input.append("\\xC2\\xAC", 2U);
+        input += ">";
+""",
+    "retain unquoted non-ASCII DOCTYPE identifier fail-closed regression",
+)
 tests.write_text(text, encoding="utf-8")
 
 print("applied quoted Unicode DOCTYPE identifier + EOF quirks diagnostic patch")
