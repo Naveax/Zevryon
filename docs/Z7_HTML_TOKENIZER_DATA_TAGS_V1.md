@@ -12,7 +12,7 @@ This component is a bounded Data-state tag tokenizer that emits the shared `Html
 
 - ordinary start tags;
 - ordinary end tags;
-- ASCII-case-insensitive tag and attribute names normalized to lowercase;
+- ASCII-case-insensitive tag names plus bounded ASCII attribute-name state handling, with ASCII letters normalized to lowercase;
 - single-quoted attribute values;
 - double-quoted attribute values;
 - unquoted attribute values inside the admitted byte subset;
@@ -32,6 +32,11 @@ The event boundary is shared with the canonical tokenizer stream. StartTag token
 The component completes tokenization for the following bounded recovery families:
 
 - `missing-whitespace-between-attributes`, retaining both admitted attributes;
+- before-attribute-name `=` recovery: `unexpected-equals-sign-before-attribute-name`, creating an attribute whose initial name byte is `=`;
+- attribute-name `"`, `'` and `<`: `unexpected-character-in-attribute-name`, with the offending ASCII byte retained;
+- admitted C0/DEL attribute-name input controls: `control-character-in-input-stream`, preserving the byte and maintaining input-error ordering ahead of tokenizer recovery on the same byte;
+- `missing-attribute-value` when an equals delimiter reaches `>` before a value;
+- ordinary admitted ASCII punctuation in attribute names, while `/`, whitespace, `>` and `=` retain their tokenizer transition roles;
 - `duplicate-attribute`, retaining the first value and dropping the duplicate;
 - `end-tag-with-attributes`, validating then suppressing attributes on the emitted EndTag;
 - `end-tag-with-trailing-solidus`, emitting an ordinary EndTag;
@@ -64,7 +69,7 @@ The following remain outside this component:
 - `<?...` bogus-comment recovery;
 - bogus-comment recovery for invalid end-tag-open bytes other than the admitted empty `</>` case;
 - NUL replacement and complete input-stream preprocessing;
-- non-ASCII raw-input preprocessing/location authority;
+- non-ASCII raw-input preprocessing/location authority, including non-ASCII attribute names;
 - remaining malformed tag/attribute recovery not explicitly admitted above;
 - Script-data and CDATA states.
 

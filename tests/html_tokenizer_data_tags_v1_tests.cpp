@@ -218,6 +218,115 @@ bool test_plaintext_start_tag_does_not_fake_tree_builder_feedback() {
         require(sink.errors.empty(), "plaintext token case has no errors");
 }
 
+bool test_attribute_name_state_recovery() {
+    {
+        CollectingSink sink;
+        std::string error;
+        if (!require(
+                tokenize_html_data_tags_v1("<z =>", {}, &sink, nullptr, &error),
+                std::string("equals-name recovery: ") + error)) {
+            return false;
+        }
+        if (!require(sink.tokens.size() == 1U, "equals-name token count") ||
+            !require(sink.tokens[0].attributes.size() == 1U, "equals-name attribute count") ||
+            !require(attribute_is(sink.tokens[0].attributes[0], "=", ""), "equals-name payload") ||
+            !require(sink.errors.size() == 1U, "equals-name error count") ||
+            !require(
+                sink.errors[0].code == "unexpected-equals-sign-before-attribute-name" &&
+                    sink.errors[0].line == 1U && sink.errors[0].column == 4U,
+                "equals-name error position")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string error;
+        if (!require(
+                tokenize_html_data_tags_v1("<z ==>", {}, &sink, nullptr, &error),
+                std::string("missing attribute value recovery: ") + error)) {
+            return false;
+        }
+        if (!require(sink.tokens.size() == 1U, "missing-value token count") ||
+            !require(sink.tokens[0].attributes.size() == 1U, "missing-value attribute count") ||
+            !require(attribute_is(sink.tokens[0].attributes[0], "=", ""), "missing-value payload") ||
+            !require(sink.errors.size() == 2U, "missing-value error count") ||
+            !require(
+                sink.errors[0].code == "unexpected-equals-sign-before-attribute-name" &&
+                    sink.errors[0].column == 4U,
+                "missing-value first error") ||
+            !require(
+                sink.errors[1].code == "missing-attribute-value" &&
+                    sink.errors[1].column == 6U,
+                "missing-value second error")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string error;
+        if (!require(
+                tokenize_html_data_tags_v1("<foo \"='bar'>", {}, &sink, nullptr, &error),
+                std::string("quoted-byte attribute name: ") + error)) {
+            return false;
+        }
+        if (!require(sink.tokens.size() == 1U, "quoted-name token count") ||
+            !require(sink.tokens[0].attributes.size() == 1U, "quoted-name attribute count") ||
+            !require(attribute_is(sink.tokens[0].attributes[0], "\"", "bar"), "quoted-name payload") ||
+            !require(sink.errors.size() == 1U, "quoted-name error count") ||
+            !require(
+                sink.errors[0].code == "unexpected-character-in-attribute-name" &&
+                    sink.errors[0].column == 6U,
+                "quoted-name error position")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string input = "<a a=''";
+        input.push_back('\x0B');
+        input.push_back('>');
+        std::string error;
+        if (!require(
+                tokenize_html_data_tags_v1(input, {}, &sink, nullptr, &error),
+                std::string("control attribute name: ") + error)) {
+            return false;
+        }
+        const std::string control_name(1U, '\x0B');
+        if (!require(sink.tokens.size() == 1U, "control-name token count") ||
+            !require(sink.tokens[0].attributes.size() == 2U, "control-name attribute count") ||
+            !require(attribute_is(sink.tokens[0].attributes[0], "a", ""), "control-name first attribute") ||
+            !require(attribute_is(sink.tokens[0].attributes[1], control_name, ""), "control-name payload") ||
+            !require(sink.errors.size() == 2U, "control-name error count") ||
+            !require(
+                sink.errors[0].code == "control-character-in-input-stream" &&
+                    sink.errors[0].column == 8U,
+                "control-name input error order") ||
+            !require(
+                sink.errors[1].code == "missing-whitespace-between-attributes" &&
+                    sink.errors[1].column == 8U,
+                "control-name whitespace error order")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string error;
+        if (!require(
+                tokenize_html_data_tags_v1("<a a<>", {}, &sink, nullptr, &error),
+                std::string("less-than attribute name: ") + error)) {
+            return false;
+        }
+        return require(sink.tokens.size() == 1U, "less-than token count") &&
+            require(sink.tokens[0].attributes.size() == 1U, "less-than attribute count") &&
+            require(attribute_is(sink.tokens[0].attributes[0], "a<", ""), "less-than name retained") &&
+            require(sink.errors.size() == 1U, "less-than error count") &&
+            require(
+                sink.errors[0].code == "unexpected-character-in-attribute-name" &&
+                    sink.errors[0].column == 5U,
+                "less-than error position");
+    }
+}
+
 bool test_admitted_references_and_fail_closed_boundaries() {
     {
         CollectingSink sink;
@@ -314,6 +423,7 @@ int main() {
         !test_attributes_and_self_closing() ||
         !test_missing_whitespace_error_position() ||
         !test_duplicate_attribute_first_wins() ||
+        !test_attribute_name_state_recovery() ||
         !test_end_tag_attributes_are_diagnosed_and_dropped() ||
         !test_plaintext_start_tag_does_not_fake_tree_builder_feedback() ||
         !test_admitted_references_and_fail_closed_boundaries() ||
