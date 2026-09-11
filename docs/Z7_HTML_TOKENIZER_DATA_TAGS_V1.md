@@ -12,7 +12,7 @@ This component is a bounded Data-state tag tokenizer that emits the shared `Html
 
 - ordinary start tags;
 - ordinary end tags;
-- ASCII-case-insensitive tag names plus bounded ASCII attribute-name state handling, with ASCII letters normalized to lowercase;
+- bounded ASCII tag-name and attribute-name state handling, with ASCII letters normalized to lowercase;
 - single-quoted attribute values;
 - double-quoted attribute values;
 - unquoted attribute values inside the admitted byte subset;
@@ -40,6 +40,8 @@ The component completes tokenization for the following bounded recovery families
 - `duplicate-attribute`, retaining the first value and dropping the duplicate;
 - `end-tag-with-attributes`, validating then suppressing attributes on the emitted EndTag;
 - `end-tag-with-trailing-solidus`, emitting an ordinary EndTag;
+- ASCII tag-name `anything else` bytes are retained in the normalized tag name, while admitted C0/DEL controls emit `control-character-in-input-stream`;
+- self-closing-start-tag recovery: a `/` not followed by `>` emits `unexpected-solidus-in-tag` and reconsumes the following admitted ASCII byte in before-attribute-name, preserving input-stream error ordering;
 - tag-open invalid ASCII `anything else`: `invalid-first-character-of-tag-name`, literal `<` Character output, then reconsume in Data;
 - empty end tag `</>`: `missing-end-tag-name`, no EndTag token;
 - the five special bytes `"`, `'`, `<`, `=`, and `` ` `` in an unquoted attribute value: `unexpected-character-in-unquoted-attribute-value`, with the offending byte retained in the attribute value;
@@ -69,8 +71,8 @@ The following remain outside this component:
 - `<?...` bogus-comment recovery;
 - bogus-comment recovery for invalid end-tag-open bytes other than the admitted empty `</>` case;
 - NUL replacement and complete input-stream preprocessing;
-- non-ASCII raw-input preprocessing/location authority, including non-ASCII attribute names;
-- remaining malformed tag/attribute recovery not explicitly admitted above;
+- non-ASCII raw-input preprocessing/location authority, including non-ASCII tag and attribute names;
+- generic EOF-in-tag/self-closing recovery and remaining malformed tag/attribute recovery not explicitly admitted above;
 - Script-data and CDATA states.
 
 These cases return an explicit API failure instead of fabricating a token stream.

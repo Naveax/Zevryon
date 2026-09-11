@@ -327,6 +327,99 @@ bool test_attribute_name_state_recovery() {
     }
 }
 
+bool test_tag_name_and_self_closing_state_recovery() {
+    {
+        CollectingSink sink;
+        std::string error;
+        if (!require(
+                tokenize_html_data_tags_v1("<a<b>", {}, &sink, nullptr, &error),
+                std::string("less-than tag-name state: ") + error)) {
+            return false;
+        }
+        if (!require(sink.tokens.size() == 1U, "less-than tag-name token count") ||
+            !require(
+                sink.tokens[0].kind == HtmlTokenizerV1TokenKind::StartTag &&
+                    sink.tokens[0].name == "a<b" &&
+                    sink.tokens[0].attributes.empty(),
+                "less-than byte remains in tag name") ||
+            !require(sink.errors.empty(), "less-than tag-name emits no parse error")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string error;
+        if (!require(
+                tokenize_html_data_tags_v1("<h/a='b'>", {}, &sink, nullptr, &error),
+                std::string("solidus reconsume: ") + error)) {
+            return false;
+        }
+        if (!require(sink.tokens.size() == 1U, "solidus reconsume token count") ||
+            !require(sink.tokens[0].name == "h", "solidus reconsume tag name") ||
+            !require(!sink.tokens[0].self_closing, "solidus reconsume is not self-closing") ||
+            !require(sink.tokens[0].attributes.size() == 1U, "solidus reconsume attribute count") ||
+            !require(attribute_is(sink.tokens[0].attributes[0], "a", "b"), "solidus reconsume attribute") ||
+            !require(sink.errors.size() == 1U, "solidus reconsume error count") ||
+            !require(
+                sink.errors[0].code == "unexpected-solidus-in-tag" &&
+                    sink.errors[0].line == 1U && sink.errors[0].column == 4U,
+                "solidus reconsume error position")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string input = "<a/";
+        input.push_back('\x0B');
+        input.push_back('>');
+        std::string error;
+        if (!require(
+                tokenize_html_data_tags_v1(input, {}, &sink, nullptr, &error),
+                std::string("solidus control reconsume: ") + error)) {
+            return false;
+        }
+        const std::string control_name(1U, '\x0B');
+        if (!require(sink.tokens.size() == 1U, "solidus control token count") ||
+            !require(sink.tokens[0].attributes.size() == 1U, "solidus control attribute count") ||
+            !require(attribute_is(sink.tokens[0].attributes[0], control_name, ""), "solidus control attribute") ||
+            !require(sink.errors.size() == 2U, "solidus control error count") ||
+            !require(
+                sink.errors[0].code == "control-character-in-input-stream" &&
+                    sink.errors[0].column == 4U,
+                "solidus control input error is first") ||
+            !require(
+                sink.errors[1].code == "unexpected-solidus-in-tag" &&
+                    sink.errors[1].column == 4U,
+                "solidus tokenizer error follows input error")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string input = "<a";
+        input.push_back('\x0B');
+        input.push_back('>');
+        std::string error;
+        if (!require(
+                tokenize_html_data_tags_v1(input, {}, &sink, nullptr, &error),
+                std::string("tag-name control byte: ") + error)) {
+            return false;
+        }
+        std::string expected_name = "a";
+        expected_name.push_back('\x0B');
+        if (!require(sink.tokens.size() == 1U, "tag-name control token count") ||
+            !require(sink.tokens[0].name == expected_name, "tag-name control byte retained") ||
+            !require(sink.errors.size() == 1U, "tag-name control error count") ||
+            !require(
+                sink.errors[0].code == "control-character-in-input-stream" &&
+                    sink.errors[0].column == 3U,
+                "tag-name control error position")) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool test_admitted_references_and_fail_closed_boundaries() {
     {
         CollectingSink sink;
@@ -424,6 +517,7 @@ int main() {
         !test_missing_whitespace_error_position() ||
         !test_duplicate_attribute_first_wins() ||
         !test_attribute_name_state_recovery() ||
+        !test_tag_name_and_self_closing_state_recovery() ||
         !test_end_tag_attributes_are_diagnosed_and_dropped() ||
         !test_plaintext_start_tag_does_not_fake_tree_builder_feedback() ||
         !test_admitted_references_and_fail_closed_boundaries() ||
