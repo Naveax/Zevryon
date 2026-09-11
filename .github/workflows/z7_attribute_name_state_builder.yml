@@ -31,17 +31,33 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          path = Path('src/html_tokenizer_data_tags_v1.cpp')
-          text = path.read_text(encoding='utf-8')
-          old = """bool attribute_name_character(char value) noexcept {
+          source = Path('src/html_tokenizer_data_tags_v1.cpp')
+          text = source.read_text(encoding='utf-8')
+          old_helper = """bool attribute_name_character(char value) noexcept {
               return ascii_alpha(value) || ascii_digit(value) || value == '-' ||
                   value == '_' || value == ':';
           }
 
           """
-          if text.count(old) != 1:
-              raise SystemExit(f'obsolete helper replacement count: {text.count(old)}')
-          path.write_text(text.replace(old, '', 1), encoding='utf-8')
+          if text.count(old_helper) != 1:
+              raise SystemExit(f'obsolete helper replacement count: {text.count(old_helper)}')
+          source.write_text(text.replace(old_helper, '', 1), encoding='utf-8')
+
+          tests = Path('tests/html_tokenizer_data_tags_v1_tests.cpp')
+          test_text = tests.read_text(encoding='utf-8')
+          unsupported_sentinel = """    {
+              CollectingSink sink;
+              std::string error;
+              if (!require(
+                      tokenize_html_data_tags_v1(\"<z ==> \", {}, &sink, nullptr, &error) == false,
+                      \"sentinel malformed case remains bounded\")) {
+                  return false;
+              }
+          }
+          """
+          if test_text.count(unsupported_sentinel) != 1:
+              raise SystemExit(f'fixture-free sentinel replacement count: {test_text.count(unsupported_sentinel)}')
+          tests.write_text(test_text.replace(unsupported_sentinel, '', 1), encoding='utf-8')
           PY
           git diff --check
 
