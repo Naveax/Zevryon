@@ -38,9 +38,11 @@ jobs:
           python3 - <<'PY'
           import importlib.util
           import json
+          import sys
           from pathlib import Path
 
           root = Path.cwd()
+          sys.path.insert(0, str(root / "scripts"))
           module_path = root / "scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py"
           spec = importlib.util.spec_from_file_location("z7_census", module_path)
           module = importlib.util.module_from_spec(spec)
