@@ -1,6 +1,6 @@
-#include "logical_node_source.hpp"
+#include "logical_node_source_v2.hpp"
 #include "massivedoc_store.hpp"
-#include "streaming_html_node_source.hpp"
+#include "streaming_html_node_source_v2.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -18,10 +18,10 @@ namespace {
 
 using zevryon::massivedoc::CorpusMetadata;
 using zevryon::massivedoc::LogicalNodeSourceNode;
-using zevryon::massivedoc::LogicalNodeSourceReader;
+using zevryon::massivedoc::LogicalNodeSourceV2Reader;
 using zevryon::massivedoc::StoreWriter;
-using zevryon::massivedoc::StreamingHtmlNodeSourceStats;
-using zevryon::massivedoc::produce_streaming_html_node_source;
+using zevryon::massivedoc::StreamingHtmlNodeSourceV2Stats;
+using zevryon::massivedoc::produce_streaming_html_node_source_v2;
 
 constexpr std::string_view kEnvelopeMismatch =
     "HTML parser node count disagrees with native store logical_nodes metadata";
@@ -111,7 +111,7 @@ bool collect_nodes(
     const std::filesystem::path& source_path,
     std::vector<LogicalNodeSourceNode>* nodes,
     std::string* error) {
-    LogicalNodeSourceReader reader(source_path);
+    LogicalNodeSourceV2Reader reader(source_path);
     if (!reader.open(error)) {
         return false;
     }
@@ -130,8 +130,25 @@ bool collect_nodes(
     return true;
 }
 
+bool append_wpt_text(std::string_view text, std::string* line, std::string* error) {
+    line->push_back('"');
+    for (const char character : text) {
+        if (character == '\r' || character == '\n') {
+            *error = "production text-node dump does not yet serialize embedded line breaks";
+            return false;
+        }
+        if (character == '\\' || character == '"') {
+            line->push_back('\\');
+        }
+        line->push_back(character);
+    }
+    line->push_back('"');
+    return true;
+}
+
 bool serialize_wpt_tree(
     const std::vector<LogicalNodeSourceNode>& nodes,
+    std::string_view html,
     std::vector<std::string>* lines,
     std::string* error) {
     if (nodes.empty() || nodes.front().tag != "#document") {
@@ -149,6 +166,25 @@ bool serialize_wpt_tree(
         depth[index] = parent == 0U ? 0U : depth[static_cast<std::size_t>(parent)] + 1U;
         std::string line = "| ";
         line.append(static_cast<std::size_t>(depth[index] * 2U), ' ');
+
+        if (nodes[index].tag == "#text") {
+            if (nodes[index].source_record_index != 0U ||
+                nodes[index].source_byte_offset > html.size() ||
+                nodes[index].source_byte_length >
+                    static_cast<std::uint64_t>(html.size()) - nodes[index].source_byte_offset) {
+                *error = "production text-node source span is outside probe HTML input";
+                return false;
+            }
+            const std::string_view text = html.substr(
+                static_cast<std::size_t>(nodes[index].source_byte_offset),
+                static_cast<std::size_t>(nodes[index].source_byte_length));
+            if (!append_wpt_text(text, &line, error)) {
+                return false;
+            }
+            lines->push_back(std::move(line));
+            continue;
+        }
+
         line.push_back('<');
         line += nodes[index].tag;
         line.push_back('>');
@@ -213,8 +249,8 @@ int main(int argc, char** argv) {
         return internal_failure(error);
     }
 
-    StreamingHtmlNodeSourceStats discovery_stats;
-    const bool discovery_ok = produce_streaming_html_node_source(
+    StreamingHtmlNodeSourceV2Stats discovery_stats;
+    const bool discovery_ok = produce_streaming_html_node_source_v2(
         discovery_store, discovery_source, {}, &discovery_stats, &error);
 
     std::uint64_t exact_nodes = 0U;
@@ -234,8 +270,8 @@ int main(int argc, char** argv) {
         if (!build_store(exact_store, html, exact_nodes, &error)) {
             return internal_failure(error);
         }
-        StreamingHtmlNodeSourceStats exact_stats;
-        if (!produce_streaming_html_node_source(
+        StreamingHtmlNodeSourceV2Stats exact_stats;
+        if (!produce_streaming_html_node_source_v2(
                 exact_store, source_path, {}, &exact_stats, &error)) {
             return unsupported(error.empty() ? "production tree builder failed closed" : error);
         }
@@ -249,12 +285,12 @@ int main(int argc, char** argv) {
         return internal_failure(error);
     }
     std::vector<std::string> lines;
-    if (!serialize_wpt_tree(nodes, &lines, &error)) {
-        return internal_failure(error);
+    if (!serialize_wpt_tree(nodes, html, &lines, &error)) {
+        return unsupported(error);
     }
 
     std::cout << "MODE\t" << scripting << '\n';
-    std::cout << "CAPS\tparse-errors=0\tfragments=0\ttext-nodes=0\tcomments=0\tnamespaces=0\n";
+    std::cout << "CAPS\tparse-errors=0\tfragments=0\ttext-nodes=1\tcomments=0\tnamespaces=0\n";
     for (const std::string& line : lines) {
         std::cout << "TREE\t" << encode_hex(line) << '\n';
     }
