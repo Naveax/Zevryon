@@ -20,6 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/apply_z7_data_tag_unicode_canonical_production_v3.py
+          python3 scripts/apply_z7_data_tag_unicode_recovery_expectation_v1.py
           git diff --check
       - name: Install focused build dependencies
         run: |
@@ -57,10 +58,10 @@ jobs:
       - name: Commit production diff and self-clean builder
         run: |
           set -euo pipefail
-          rm -f census.json scripts/apply_z7_data_tag_unicode_canonical_production_v3.py .github/workflows/z7_data_tag_unicode_canonical_production_builder_v3.yml
+          rm -f census.json scripts/apply_z7_data_tag_unicode_canonical_production_v3.py scripts/apply_z7_data_tag_unicode_recovery_expectation_v1.py .github/workflows/z7_data_tag_unicode_canonical_production_builder_v3.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/html_tokenizer_data_tags_v1.cpp tests/html_tokenizer_data_tags_v1_tests.cpp scripts/apply_z7_data_tag_unicode_canonical_production_v3.py .github/workflows/z7_data_tag_unicode_canonical_production_builder_v3.yml
+          git add src/html_tokenizer_data_tags_v1.cpp tests/html_tokenizer_data_tags_v1_tests.cpp tests/html_tokenizer_data_tag_recovery_v1_tests.cpp scripts/apply_z7_data_tag_unicode_canonical_production_v3.py scripts/apply_z7_data_tag_unicode_recovery_expectation_v1.py .github/workflows/z7_data_tag_unicode_canonical_production_builder_v3.yml
           git diff --cached --check
           git commit -m "Z7: admit canonical Data-tag Unicode scalars"
           git push origin HEAD:candidate/z7-data-tag-unicode-canonical-production-v3
