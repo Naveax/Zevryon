@@ -21,9 +21,9 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags origin 156a12a1c8173e70292028c1c7ab40839e81acdf
-          git show 156a12a1c8173e70292028c1c7ab40839e81acdf:scripts/apply_z7_tokenizer_comment_nul_after_doctype_production_v1.py > /tmp/apply_comment_nul.py
-          python3 /tmp/apply_comment_nul.py
-          rm -f /tmp/apply_comment_nul.py
+          git show 156a12a1c8173e70292028c1c7ab40839e81acdf:scripts/apply_z7_tokenizer_comment_nul_after_doctype_production_v1.py > scripts/.apply_comment_nul_tmp.py
+          python3 scripts/.apply_comment_nul_tmp.py
+          rm -f scripts/.apply_comment_nul_tmp.py
           git diff --check
 
       - name: Install focused build dependencies
@@ -65,7 +65,7 @@ jobs:
       - name: Commit production diff and self-clean builder
         run: |
           set -euo pipefail
-          rm -f census.json .github/workflows/z7_tokenizer_comment_nul_after_doctype_production_builder_v2.yml
+          rm -f census.json scripts/.apply_comment_nul_tmp.py .github/workflows/z7_tokenizer_comment_nul_after_doctype_production_builder_v2.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/html_tokenizer_markup_declarations_v1.cpp tests/html_tokenizer_markup_declarations_v1_tests.cpp scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py docs/Z7_HTML_TOKENIZER_MARKUP_DECLARATIONS_V1.md .github/workflows/z7_tokenizer_comment_nul_after_doctype_production_builder_v2.yml
