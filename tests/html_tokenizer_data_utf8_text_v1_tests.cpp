@@ -174,17 +174,26 @@ bool test_utf8_respects_token_byte_cap() {
         require(sink.tokens.empty(), "UTF-8 cap failure publishes no token");
 }
 
-bool test_scope_guards_remain_fail_closed() {
+bool test_admitted_unicode_tag_and_attribute_boundaries() {
     const std::string scalar("\xC2\xAC", 2U);
     {
         CollectingSink sink;
         HtmlTokenizerDataTagsV1Stats stats;
         std::string error;
         const std::string input = "<" + scalar + ">";
-        if (!require(!tokenize_html_data_tags_v1(input, {}, &sink, &stats, &error),
-                     "non-ASCII tag name remains outside slice") ||
-            !require(error.find("non-ASCII preprocessing/location authority") != std::string::npos,
-                     "non-ASCII tag-name guard remains explicit")) {
+        if (!require(tokenize_html_data_tags_v1(input, {}, &sink, &stats, &error),
+                     std::string("non-ASCII tag-open recovery: ") + error) ||
+            !require(sink.tokens.size() == 1U &&
+                         sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Character &&
+                         sink.tokens[0].data == input,
+                     "non-ASCII tag-open reconsumes through Data") ||
+            !require(sink.errors.size() == 1U &&
+                         sink.errors[0].code == "invalid-first-character-of-tag-name" &&
+                         sink.errors[0].line == 1U && sink.errors[0].column == 2U,
+                     "non-ASCII tag-open exact recovery error") ||
+            !require(stats.character_tokens_emitted == 1U &&
+                         stats.parse_errors_emitted == 1U,
+                     "non-ASCII tag-open recovery stats")) {
             return false;
         }
     }
@@ -193,10 +202,18 @@ bool test_scope_guards_remain_fail_closed() {
         HtmlTokenizerDataTagsV1Stats stats;
         std::string error;
         const std::string input = "<h a='" + scalar + "'>";
-        if (!require(!tokenize_html_data_tags_v1(input, {}, &sink, &stats, &error),
-                     "non-ASCII attribute value remains outside slice") ||
-            !require(error.find("non-ASCII attribute-value authority") != std::string::npos,
-                     "non-ASCII attribute-value guard remains explicit")) {
+        if (!require(tokenize_html_data_tags_v1(input, {}, &sink, &stats, &error),
+                     std::string("non-ASCII attribute value: ") + error) ||
+            !require(sink.tokens.size() == 1U &&
+                         sink.tokens[0].kind == HtmlTokenizerV1TokenKind::StartTag &&
+                         sink.tokens[0].name == "h" &&
+                         sink.tokens[0].attributes.size() == 1U,
+                     "non-ASCII attribute-value start-tag shape") ||
+            !require(sink.tokens[0].attributes[0].name == "a" &&
+                         sink.tokens[0].attributes[0].value == scalar,
+                     "non-ASCII attribute value is preserved") ||
+            !require(sink.errors.empty() && stats.parse_errors_emitted == 0U,
+                     "ordinary non-ASCII attribute value emits no parse error")) {
             return false;
         }
     }
@@ -238,7 +255,7 @@ int main() {
             test_plane_end_noncharacter_error() &&
             test_invalid_utf8_fails_closed() &&
             test_utf8_respects_token_byte_cap() &&
-            test_scope_guards_remain_fail_closed()
+            test_admitted_unicode_tag_and_attribute_boundaries()
         ? 0
         : 1;
 }
