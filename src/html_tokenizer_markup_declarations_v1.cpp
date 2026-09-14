@@ -1,5 +1,7 @@
 #include "html_tokenizer_markup_declarations_v1.hpp"
 
+#include "html_tokenizer_utf8_v1.hpp"
+
 #include <algorithm>
 #include <limits>
 #include <new>
@@ -33,6 +35,39 @@ bool ascii_control_parse_error(char value) noexcept {
     const auto byte = static_cast<unsigned char>(value);
     return (byte >= 0x01U && byte <= 0x08U) || byte == 0x0BU ||
         (byte >= 0x0EU && byte <= 0x1FU) || byte == 0x7FU;
+}
+
+bool decode_utf8_scalar_value(
+    std::string_view input,
+    std::size_t offset,
+    std::size_t scalar_bytes,
+    std::uint32_t* value) noexcept {
+    if (value == nullptr || scalar_bytes < 2U || scalar_bytes > 4U ||
+        offset > input.size() || scalar_bytes > input.size() - offset) {
+        return false;
+    }
+    const auto first = static_cast<unsigned char>(input[offset]);
+    std::uint32_t scalar = scalar_bytes == 2U
+        ? static_cast<std::uint32_t>(first & 0x1FU)
+        : scalar_bytes == 3U
+            ? static_cast<std::uint32_t>(first & 0x0FU)
+            : static_cast<std::uint32_t>(first & 0x07U);
+    for (std::size_t index = 1U; index < scalar_bytes; ++index) {
+        const auto continuation = static_cast<unsigned char>(input[offset + index]);
+        scalar = (scalar << 6U) |
+            static_cast<std::uint32_t>(continuation & 0x3FU);
+    }
+    *value = scalar;
+    return true;
+}
+
+bool unicode_noncharacter(std::uint32_t scalar) noexcept {
+    return (scalar >= 0xFDD0U && scalar <= 0xFDEFU) ||
+        (scalar <= 0x10FFFFU && (scalar & 0xFFFFU) >= 0xFFFEU);
+}
+
+bool unicode_control_parse_error(std::uint32_t scalar) noexcept {
+    return scalar >= 0x80U && scalar <= 0x9FU;
 }
 
 char ascii_lower(char value) noexcept {
@@ -219,13 +254,15 @@ private:
     bool collect_comment_data(
         std::size_t begin,
         std::size_t end,
-        std::string* data) {
+        std::string* data,
+        bool leading_ascii_control_error_emitted = false) {
         if (data == nullptr || begin > end || end > input_.size()) {
             return fail_markup(error_, "HTML markup declaration comment range invariant failed");
         }
         data->clear();
         data->reserve(std::min<std::size_t>(end - begin, config_.maximum_token_bytes));
-        for (std::size_t cursor = begin; cursor < end; ++cursor) {
+        std::size_t cursor = begin;
+        while (cursor < end) {
             const char value = input_[cursor];
             if (value == '\0') {
                 if (!emit_parse_error(cursor, "unexpected-null-character")) {
@@ -239,14 +276,43 @@ private:
                         "HTML markup declaration comment token exceeds bounded byte limit");
                 }
                 data->append(replacement.data(), replacement.size());
+                ++cursor;
                 continue;
             }
             if (!ascii_byte(value)) {
-                return fail_markup(
-                    error_,
-                    "HTML markup declaration non-ASCII comment authority is not implemented");
+                const std::size_t scalar_bytes =
+                    detail::html_tokenizer_utf8_scalar_bytes_v1(input_, cursor);
+                if (scalar_bytes == 0U || scalar_bytes > end - cursor) {
+                    return fail_markup(
+                        error_,
+                        "HTML markup declaration comment contains invalid UTF-8 scalar encoding");
+                }
+                std::uint32_t scalar = 0U;
+                if (!decode_utf8_scalar_value(input_, cursor, scalar_bytes, &scalar)) {
+                    return fail_markup(
+                        error_,
+                        "HTML markup declaration comment scalar decoding failed");
+                }
+                if (unicode_control_parse_error(scalar) &&
+                    !emit_parse_error(cursor, "control-character-in-input-stream")) {
+                    return false;
+                }
+                if (unicode_noncharacter(scalar) &&
+                    !emit_parse_error(cursor, "noncharacter-in-input-stream")) {
+                    return false;
+                }
+                if (data->size() > config_.maximum_token_bytes ||
+                    scalar_bytes > config_.maximum_token_bytes - data->size()) {
+                    return fail_markup(
+                        error_,
+                        "HTML markup declaration comment token exceeds bounded byte limit");
+                }
+                data->append(input_.data() + cursor, scalar_bytes);
+                cursor += scalar_bytes;
+                continue;
             }
             if (ascii_control_parse_error(value) &&
+                !(leading_ascii_control_error_emitted && cursor == begin) &&
                 !emit_parse_error(cursor, "control-character-in-input-stream")) {
                 return false;
             }
@@ -256,6 +322,7 @@ private:
                     "HTML markup declaration comment token exceeds bounded byte limit");
             }
             data->push_back(value);
+            ++cursor;
         }
         return true;
     }
@@ -976,8 +1043,10 @@ private:
 
     bool consume_bogus_comment() {
         const std::size_t data_begin = offset_ + 2U;
-        if (data_begin < input_.size() &&
-            ascii_control_parse_error(input_[data_begin]) &&
+        const bool leading_ascii_control_error_emitted =
+            data_begin < input_.size() &&
+            ascii_control_parse_error(input_[data_begin]);
+        if (leading_ascii_control_error_emitted &&
             !emit_parse_error(data_begin, "control-character-in-input-stream")) {
             return false;
         }
@@ -992,14 +1061,25 @@ private:
                     "HTML markup declaration input preprocessing/NUL replacement is not implemented");
             }
             if (!ascii_byte(input_[cursor])) {
-                return fail_markup(
-                    error_,
-                    "HTML markup declaration non-ASCII bogus-comment authority is not implemented");
+                const std::size_t scalar_bytes =
+                    detail::html_tokenizer_utf8_scalar_bytes_v1(input_, cursor);
+                if (scalar_bytes == 0U) {
+                    return fail_markup(
+                        error_,
+                        "HTML markup declaration bogus comment contains invalid UTF-8 scalar encoding");
+                }
+                cursor += scalar_bytes;
+                continue;
             }
             ++cursor;
         }
-        const std::string_view data = input_.substr(data_begin, cursor - data_begin);
-        if (!emit_comment(data)) {
+        std::string data;
+        if (!collect_comment_data(
+                data_begin,
+                cursor,
+                &data,
+                leading_ascii_control_error_emitted) ||
+            !emit_comment_owned(std::move(data))) {
             return false;
         }
         *next_offset_ = cursor < input_.size() ? cursor + 1U : cursor;
