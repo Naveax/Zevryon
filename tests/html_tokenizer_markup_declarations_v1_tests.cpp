@@ -304,6 +304,114 @@ bool test_utf8_doctype_quoted_identifiers() {
         false);
 }
 
+bool test_utf8_doctype_recovery_states() {
+    const std::string scalar("\xF0\x90\x80\x80", 4U);
+
+    std::string after_name = "<!DOCTYPE a ";
+    after_name += scalar;
+    if (!run_doctype_case(
+            "non-BMP UTF-8 after DOCTYPE name",
+            after_name,
+            "a",
+            true,
+            {ExpectedError{"invalid-character-sequence-after-doctype-name", 1U, 13U}})) {
+        return false;
+    }
+
+    std::string bogus = "<!DOCTYPE a a";
+    bogus += scalar;
+    if (!run_doctype_case(
+            "non-BMP UTF-8 in bogus DOCTYPE recovery",
+            bogus,
+            "a",
+            true,
+            {ExpectedError{"invalid-character-sequence-after-doctype-name", 1U, 13U}})) {
+        return false;
+    }
+
+    std::string after_public_keyword = "<!DOCTYPE a PUBLIC";
+    after_public_keyword += scalar;
+    if (!run_doctype_full_case(
+            "non-BMP UTF-8 after PUBLIC keyword",
+            after_public_keyword,
+            "a",
+            false,
+            {},
+            false,
+            {},
+            true,
+            {ExpectedError{"missing-quote-before-doctype-public-identifier", 1U, 19U}})) {
+        return false;
+    }
+
+    std::string after_public_identifier = "<!DOCTYPE a PUBLIC''";
+    after_public_identifier += scalar;
+    if (!run_doctype_full_case(
+            "non-BMP UTF-8 after PUBLIC identifier",
+            after_public_identifier,
+            "a",
+            true,
+            {},
+            false,
+            {},
+            true,
+            {
+                ExpectedError{"missing-whitespace-after-doctype-public-keyword", 1U, 19U},
+                ExpectedError{"missing-quote-before-doctype-system-identifier", 1U, 21U},
+            })) {
+        return false;
+    }
+
+    std::string after_system_keyword = "<!DOCTYPE a SYSTEM";
+    after_system_keyword += scalar;
+    if (!run_doctype_full_case(
+            "non-BMP UTF-8 after SYSTEM keyword",
+            after_system_keyword,
+            "a",
+            false,
+            {},
+            false,
+            {},
+            true,
+            {ExpectedError{"missing-quote-before-doctype-system-identifier", 1U, 19U}})) {
+        return false;
+    }
+
+    std::string after_system_identifier = "<!DOCTYPE a SYSTEM''";
+    after_system_identifier += scalar;
+    if (!run_doctype_full_case(
+            "non-BMP UTF-8 after SYSTEM identifier",
+            after_system_identifier,
+            "a",
+            false,
+            {},
+            true,
+            {},
+            false,
+            {
+                ExpectedError{"missing-whitespace-after-doctype-system-keyword", 1U, 19U},
+                ExpectedError{"unexpected-character-after-doctype-system-identifier", 1U, 21U},
+            })) {
+        return false;
+    }
+
+    std::string no_space_public = "<!DOCTYPEa PUBLIC";
+    no_space_public += scalar;
+    return run_doctype_full_case(
+        "non-BMP UTF-8 PUBLIC recovery after no-space DOCTYPE name",
+        no_space_public,
+        "a",
+        false,
+        {},
+        false,
+        {},
+        true,
+        {
+            ExpectedError{"missing-whitespace-before-doctype-name", 1U, 10U},
+            ExpectedError{"missing-quote-before-doctype-public-identifier", 1U, 18U},
+        });
+}
+
 bool test_bounded_ascii_doctype_recovery() {
     if (!run_doctype_case(
             "missing whitespace before name",
@@ -581,6 +689,7 @@ int main() {
         !test_missing_doctype_name_recovery() ||
         !test_utf8_doctype_name_bytes() ||
         !test_utf8_doctype_quoted_identifiers() ||
+        !test_utf8_doctype_recovery_states() ||
         !test_bounded_ascii_doctype_recovery() ||
         !test_pinned_test1_comments() ||
         !test_nonzero_offset_preserves_global_location() ||

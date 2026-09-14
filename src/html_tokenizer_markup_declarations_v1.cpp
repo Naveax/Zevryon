@@ -297,10 +297,16 @@ private:
             if (state == DoctypeState::AfterKeyword ||
                 state == DoctypeState::BeforeName ||
                 state == DoctypeState::Name ||
+                state == DoctypeState::AfterName ||
+                state == DoctypeState::AfterPublicKeyword ||
                 state == DoctypeState::PublicIdentifierDoubleQuoted ||
                 state == DoctypeState::PublicIdentifierSingleQuoted ||
+                state == DoctypeState::AfterPublicIdentifier ||
+                state == DoctypeState::AfterSystemKeyword ||
                 state == DoctypeState::SystemIdentifierDoubleQuoted ||
-                state == DoctypeState::SystemIdentifierSingleQuoted) {
+                state == DoctypeState::SystemIdentifierSingleQuoted ||
+                state == DoctypeState::AfterSystemIdentifier ||
+                state == DoctypeState::Bogus) {
                 return true;
             }
             return fail_unsupported_doctype_ascii_boundary(
