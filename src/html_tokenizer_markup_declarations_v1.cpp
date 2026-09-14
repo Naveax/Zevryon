@@ -143,6 +143,9 @@ public:
         if (ascii_iequals_at(input_, offset_, "<!DOCTYPE")) {
             return consume_doctype();
         }
+        if (input_.substr(offset_, 9U) == "<![CDATA[") {
+            return consume_cdata_in_html();
+        }
         return consume_bogus_comment();
     }
 
@@ -242,6 +245,10 @@ private:
                 return fail_markup(
                     error_,
                     "HTML markup declaration non-ASCII comment authority is not implemented");
+            }
+            if (ascii_control_parse_error(value) &&
+                !emit_parse_error(cursor, "control-character-in-input-stream")) {
+                return false;
             }
             if (data->size() >= config_.maximum_token_bytes) {
                 return fail_markup(
@@ -949,8 +956,31 @@ private:
         }
     }
 
+    bool consume_cdata_in_html() {
+        const std::size_t data_begin = offset_ + 2U;
+        if (!emit_parse_error(offset_ + 8U, "cdata-in-html-content")) {
+            return false;
+        }
+        std::size_t cursor = data_begin;
+        while (cursor < input_.size() && input_[cursor] != '>') {
+            ++cursor;
+        }
+        std::string data;
+        if (!collect_comment_data(data_begin, cursor, &data) ||
+            !emit_comment_owned(std::move(data))) {
+            return false;
+        }
+        *next_offset_ = cursor < input_.size() ? cursor + 1U : cursor;
+        return true;
+    }
+
     bool consume_bogus_comment() {
         const std::size_t data_begin = offset_ + 2U;
+        if (data_begin < input_.size() &&
+            ascii_control_parse_error(input_[data_begin]) &&
+            !emit_parse_error(data_begin, "control-character-in-input-stream")) {
+            return false;
+        }
         if (!emit_parse_error(data_begin, "incorrectly-opened-comment")) {
             return false;
         }
@@ -1011,6 +1041,24 @@ private:
         }
 
         const std::size_t close = input_.find("-->", data_begin);
+        const std::size_t bang_close = input_.find("--!>", data_begin);
+        if (bang_close != std::string_view::npos &&
+            (close == std::string_view::npos || bang_close < close)) {
+            const std::size_t nested = input_.find("<!--", data_begin);
+            if (nested != std::string_view::npos && nested + 4U <= bang_close) {
+                if (!emit_parse_error(nested + 4U, "nested-comment")) {
+                    return false;
+                }
+            }
+            std::string data;
+            if (!collect_comment_data(data_begin, bang_close, &data) ||
+                !emit_parse_error(bang_close + 3U, "incorrectly-closed-comment") ||
+                !emit_comment_owned(std::move(data))) {
+                return false;
+            }
+            *next_offset_ = bang_close + 4U;
+            return true;
+        }
         if (close != std::string_view::npos) {
             const std::size_t nested = input_.find("<!--", data_begin);
             if (nested != std::string_view::npos && nested + 4U <= close) {
@@ -1028,9 +1076,18 @@ private:
         }
 
         std::size_t data_end = input_.size();
-        if (data_end >= data_begin + 2U &&
-            input_[data_end - 2U] == '-' && input_[data_end - 1U] == '-') {
-            data_end -= 2U;
+        if (data_end >= data_begin + 3U &&
+            input_[data_end - 3U] == '-' &&
+            input_[data_end - 2U] == '-' &&
+            input_[data_end - 1U] == '!') {
+            data_end -= 3U;
+        } else {
+            std::size_t trailing_dashes = 0U;
+            while (data_end > data_begin && trailing_dashes < 2U &&
+                   input_[data_end - 1U] == '-') {
+                --data_end;
+                ++trailing_dashes;
+            }
         }
         std::string data;
         if (!collect_comment_data(data_begin, data_end, &data) ||

@@ -60,6 +60,12 @@ bool ascii_space(char value) noexcept {
         value == '\r' || value == '\f';
 }
 
+bool ascii_control_parse_error(char value) noexcept {
+    const auto byte = static_cast<unsigned char>(value);
+    return (byte >= 0x01U && byte <= 0x08U) || byte == 0x0BU ||
+        (byte >= 0x0EU && byte <= 0x1FU) || byte == 0x7FU;
+}
+
 char ascii_lower(char value) noexcept {
     if (value >= 'A' && value <= 'Z') {
         return static_cast<char>(value + ('a' - 'A'));
@@ -185,6 +191,14 @@ public:
                 return fail_script(
                     error_,
                     "HTML Script-data non-ASCII preprocessing/location authority is not implemented");
+            }
+            if (ascii_control_parse_error(input_[cursor]) &&
+                observed_control_error_offset_ != cursor) {
+                if (!emit_parse_error(cursor, "control-character-in-input-stream")) {
+                    stats_->bytes_consumed = static_cast<std::uint64_t>(cursor);
+                    return false;
+                }
+                observed_control_error_offset_ = cursor;
             }
             if (!consume_state(&cursor)) {
                 stats_->bytes_consumed = static_cast<std::uint64_t>(cursor);
@@ -826,6 +840,8 @@ private:
     std::string candidate_original_;
     std::string temporary_lower_;
     bool done_{false};
+    std::size_t observed_control_error_offset_{
+        std::numeric_limits<std::size_t>::max()};
 };
 
 } // namespace

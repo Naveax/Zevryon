@@ -701,6 +701,10 @@ public:
                     ++cursor;
                     break;
                 }
+                if (input_control_parse_error(input_[cursor]) &&
+                    !emit_parse_error(cursor, "control-character-in-input-stream")) {
+                    return false;
+                }
                 if (!append_character(input_[cursor])) {
                     return false;
                 }
