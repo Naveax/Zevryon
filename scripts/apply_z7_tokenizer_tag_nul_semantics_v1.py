@@ -34,7 +34,6 @@ constexpr std::string_view kReplacementCharacterUtf8 = "\\xEF\\xBF\\xBD";
     "tag NUL replacement scalar constant",
 )
 
-# Bogus comments entered from <? and invalid end-tag-open bytes replace NUL.
 text = replace_in_region(
     text,
     '''    bool consume_bogus_comment(
@@ -64,12 +63,13 @@ text = replace_in_region(
     "bogus-comment NUL",
 )
 
-# Quoted attribute values.
 text = replace_in_region(
     text,
     '''        if (opening == '\\'' || opening == '"') {
 ''',
     '''        while (*cursor < input_.size()) {
+            const char character = input_[*cursor];
+            if (ascii_space(character) || character == '>') {
 ''',
     '''                if (character == '\\0') {
                     return fail_data_tokenizer(
@@ -94,15 +94,16 @@ text = replace_in_region(
     "quoted attribute-value NUL",
 )
 
-# Unquoted attribute values.
 text = replace_in_region(
     text,
     '''        while (*cursor < input_.size()) {
+            const char character = input_[*cursor];
+            if (ascii_space(character) || character == '>') {
 ''',
     '''        return true;
     }
 
-    bool parse_attributes(
+    bool parse_attribute(
 ''',
     '''            if (character == '\\0') {
                 return fail_data_tokenizer(
@@ -135,10 +136,9 @@ text = replace_in_region(
     "unquoted attribute-value NUL",
 )
 
-# Attribute-name NUL becomes U+FFFD after any already-required whitespace error.
 text = replace_in_region(
     text,
-    '''    bool parse_attributes(
+    '''    bool parse_attribute(
 ''',
     '''    bool emit_tag(
 ''',
@@ -167,8 +167,6 @@ text = replace_in_region(
     "attribute-name NUL",
 )
 
-# Tag-open NUL is an ordinary invalid tag-name starter: emit '<' and reconsume
-# the same byte in Data, where the already-admitted raw-NUL rule applies.
 text = replace_once(
     text,
     '''        if (!ascii_alpha(input_[probe])) {
@@ -185,13 +183,13 @@ text = replace_once(
     "tag-open NUL gate",
 )
 
-# NUL inside a tag name is U+FFFD.
 text = replace_in_region(
     text,
-    '''        while (probe < input_.size()) {
+    '''        std::string name;
+        while (probe < input_.size()) {
             const char character = input_[probe];
 ''',
-    '''        if (probe >= input_.size()) {
+    '''        std::size_t token_bytes = name.size();
 ''',
     '''            if (character == '\\0') {
                 return fail_data_tokenizer(
@@ -218,8 +216,6 @@ text = replace_in_region(
     "tag-name NUL",
 )
 
-# Self-closing-start-tag recovery must emit unexpected-solidus first, then let
-# attribute parsing consume/rewrite NUL.
 text = replace_once(
     text,
     '''                if (reconsume_character == '\\0') {
