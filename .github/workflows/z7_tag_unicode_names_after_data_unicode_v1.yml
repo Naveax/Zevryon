@@ -63,13 +63,12 @@ jobs:
           assert r['tests']==6810,r
           assert r['executions']==7036,r
           assert r['baseline_regression_free'] is True,r
-          assert r['passed']>=6960,r
-          assert r['failed']<=27,r
-          assert r['unsupported']<=49,r
+          assert r['passed']==6959,r
+          assert r['failed']==27,r
+          assert r['unsupported']==50,r
+          assert r['reason_counts'].get('unsupported:production-fail-closed:HTML Data-tag tokenizer first attribute without separating whitespace is outside admitted v1 subset',0)==1,r
+          assert r['reason_counts'].get('unsupported:production-fail-closed:HTML Data-tag tokenizer non-ASCII preprocessing/location authority is not implemented',0)==0,r
           print('TAG_UNICODE_TOTALS',r['passed'],r['failed'],r['unsupported'])
-          for key,value in sorted(r['reason_counts'].items()):
-              if 'first attribute without separating whitespace' in key or 'non-ASCII preprocessing/location' in key:
-                  print('TAG_UNICODE_REASON',key,value)
           PY
       - name: Block diagnostic publication
         run: |
