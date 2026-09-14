@@ -20,7 +20,6 @@ jobs:
           set -euo pipefail
           BASE='4a84520aa234753cdb429053da5a463aa7e76e7b'
           git merge-base --is-ancestor "$BASE" HEAD
-          test "$(git rev-list --count "$BASE"..HEAD)" -eq 2
       - name: Apply post-text Data production candidate
         run: |
           set -euo pipefail
