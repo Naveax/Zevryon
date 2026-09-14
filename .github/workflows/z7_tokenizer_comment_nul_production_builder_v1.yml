@@ -21,8 +21,9 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags origin 099297769ba9da74423b8ca7c36ca0ec3906a556
-          git show 099297769ba9da74423b8ca7c36ca0ec3906a556:scripts/apply_z7_tokenizer_comment_nul_after_data_nul_v1.py > /tmp/apply.py
-          python3 /tmp/apply.py
+          git show 099297769ba9da74423b8ca7c36ca0ec3906a556:scripts/apply_z7_tokenizer_comment_nul_after_data_nul_v1.py > scripts/apply_z7_tokenizer_comment_nul_after_data_nul_v1_tmp.py
+          python3 scripts/apply_z7_tokenizer_comment_nul_after_data_nul_v1_tmp.py
+          rm -f scripts/apply_z7_tokenizer_comment_nul_after_data_nul_v1_tmp.py
           python3 - <<'PY'
           from pathlib import Path
           p=Path('scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py')
