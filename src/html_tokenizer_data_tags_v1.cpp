@@ -75,6 +75,10 @@ bool unicode_noncharacter(std::uint32_t scalar) noexcept {
         (scalar <= 0x10FFFFU && (scalar & 0xFFFFU) >= 0xFFFEU);
 }
 
+bool unicode_control_parse_error(std::uint32_t scalar) noexcept {
+    return scalar >= 0x80U && scalar <= 0x9FU;
+}
+
 char ascii_lower(char value) noexcept {
     if (value >= 'A' && value <= 'Z') {
         return static_cast<char>(value + ('a' - 'A'));
@@ -555,9 +559,36 @@ private:
                     continue;
                 }
                 if (!ascii_byte(character)) {
-                    return fail_data_tokenizer(
-                        error_,
-                        "HTML Data-tag tokenizer non-ASCII attribute-value authority is not implemented");
+                    const std::size_t scalar_bytes =
+                        detail::html_tokenizer_utf8_scalar_bytes_v1(input_, *cursor);
+                    if (scalar_bytes == 0U) {
+                        return fail_data_tokenizer(
+                            error_,
+                            "HTML Data-tag tokenizer attribute value contains invalid UTF-8 scalar encoding");
+                    }
+                    std::uint32_t scalar = 0U;
+                    if (!decode_utf8_scalar_value(
+                            input_, *cursor, scalar_bytes, &scalar)) {
+                        return fail_data_tokenizer(
+                            error_,
+                            "HTML Data-tag tokenizer attribute value scalar decoding failed");
+                    }
+                    if (unicode_control_parse_error(scalar) &&
+                        !emit_parse_error(*cursor, "control-character-in-input-stream")) {
+                        return false;
+                    }
+                    if (unicode_noncharacter(scalar) &&
+                        !emit_parse_error(*cursor, "noncharacter-in-input-stream")) {
+                        return false;
+                    }
+                    if (!append_bounded_bytes(
+                            value,
+                            input_.substr(*cursor, scalar_bytes),
+                            "HTML Data-tag tokenizer attribute value")) {
+                        return false;
+                    }
+                    *cursor += scalar_bytes;
+                    continue;
                 }
                 if (ascii_control_parse_error(character) &&
                     !emit_parse_error(*cursor, "control-character-in-input-stream")) {
@@ -604,9 +635,36 @@ private:
                 continue;
             }
             if (!ascii_byte(character)) {
-                return fail_data_tokenizer(
-                    error_,
-                    "HTML Data-tag tokenizer non-ASCII attribute-value authority is not implemented");
+                const std::size_t scalar_bytes =
+                    detail::html_tokenizer_utf8_scalar_bytes_v1(input_, *cursor);
+                if (scalar_bytes == 0U) {
+                    return fail_data_tokenizer(
+                        error_,
+                        "HTML Data-tag tokenizer attribute value contains invalid UTF-8 scalar encoding");
+                }
+                std::uint32_t scalar = 0U;
+                if (!decode_utf8_scalar_value(
+                        input_, *cursor, scalar_bytes, &scalar)) {
+                    return fail_data_tokenizer(
+                        error_,
+                        "HTML Data-tag tokenizer attribute value scalar decoding failed");
+                }
+                if (unicode_control_parse_error(scalar) &&
+                    !emit_parse_error(*cursor, "control-character-in-input-stream")) {
+                    return false;
+                }
+                if (unicode_noncharacter(scalar) &&
+                    !emit_parse_error(*cursor, "noncharacter-in-input-stream")) {
+                    return false;
+                }
+                if (!append_bounded_bytes(
+                        value,
+                        input_.substr(*cursor, scalar_bytes),
+                        "HTML Data-tag tokenizer attribute value")) {
+                    return false;
+                }
+                *cursor += scalar_bytes;
+                continue;
             }
             if (ascii_control_parse_error(character) &&
                 !emit_parse_error(*cursor, "control-character-in-input-stream")) {
@@ -701,11 +759,37 @@ private:
                     continue;
                 }
                 if (!ascii_byte(character)) {
-                    // Keep the historical v3 census classification stable until
-                    // Unicode preprocessing/location authority is admitted.
-                    return fail_data_tokenizer(
-                        error_,
-                        "HTML Data-tag tokenizer attribute name byte is outside admitted v1 subset");
+                    const std::size_t scalar_bytes =
+                        detail::html_tokenizer_utf8_scalar_bytes_v1(input_, *cursor);
+                    if (scalar_bytes == 0U) {
+                        return fail_data_tokenizer(
+                            error_,
+                            "HTML Data-tag tokenizer attribute name contains invalid UTF-8 scalar encoding");
+                    }
+                    std::uint32_t scalar = 0U;
+                    if (!decode_utf8_scalar_value(
+                            input_, *cursor, scalar_bytes, &scalar)) {
+                        return fail_data_tokenizer(
+                            error_,
+                            "HTML Data-tag tokenizer attribute name scalar decoding failed");
+                    }
+                    if (unicode_control_parse_error(scalar) &&
+                        !(leading_control_error_emitted && *cursor == name_begin) &&
+                        !emit_parse_error(*cursor, "control-character-in-input-stream")) {
+                        return false;
+                    }
+                    if (unicode_noncharacter(scalar) &&
+                        !emit_parse_error(*cursor, "noncharacter-in-input-stream")) {
+                        return false;
+                    }
+                    if (!append_bounded_bytes(
+                            &attribute.name,
+                            input_.substr(*cursor, scalar_bytes),
+                            "HTML Data-tag tokenizer attribute name")) {
+                        return false;
+                    }
+                    *cursor += scalar_bytes;
+                    continue;
                 }
                 if (ascii_control_parse_error(character) &&
                     !(leading_control_error_emitted && *cursor == name_begin) &&
@@ -880,9 +964,24 @@ private:
 
         if (!ascii_alpha(input_[probe])) {
             if (!ascii_byte(input_[probe])) {
-                return fail_data_tokenizer(
-                    error_,
-                    "HTML Data-tag tokenizer non-ASCII preprocessing/location authority is not implemented");
+                const std::size_t scalar_bytes =
+                    detail::html_tokenizer_utf8_scalar_bytes_v1(input_, probe);
+                if (scalar_bytes == 0U) {
+                    return fail_data_tokenizer(
+                        error_,
+                        "HTML Data-tag tokenizer tag-open contains invalid UTF-8 scalar encoding");
+                }
+                std::uint32_t scalar = 0U;
+                if (!decode_utf8_scalar_value(input_, probe, scalar_bytes, &scalar)) {
+                    return fail_data_tokenizer(
+                        error_,
+                        "HTML Data-tag tokenizer tag-open scalar decoding failed");
+                }
+                if (unicode_control_parse_error(scalar) || unicode_noncharacter(scalar)) {
+                    return fail_data_tokenizer(
+                        error_,
+                        "HTML Data-tag tokenizer tag-open Unicode input-error ordering is outside admitted v1 subset");
+                }
             }
             if (end_tag) {
                 const bool leading_control_error_emitted =
@@ -937,11 +1036,35 @@ private:
                 continue;
             }
             if (!ascii_byte(character)) {
-                // Preserve the historical census bucket until Unicode tag-name
-                // preprocessing/location authority is admitted.
-                return fail_data_tokenizer(
-                    error_,
-                    "HTML Data-tag tokenizer first attribute without separating whitespace is outside admitted v1 subset");
+                const std::size_t scalar_bytes =
+                    detail::html_tokenizer_utf8_scalar_bytes_v1(input_, probe);
+                if (scalar_bytes == 0U) {
+                    return fail_data_tokenizer(
+                        error_,
+                        "HTML Data-tag tokenizer tag name contains invalid UTF-8 scalar encoding");
+                }
+                std::uint32_t scalar = 0U;
+                if (!decode_utf8_scalar_value(input_, probe, scalar_bytes, &scalar)) {
+                    return fail_data_tokenizer(
+                        error_,
+                        "HTML Data-tag tokenizer tag name scalar decoding failed");
+                }
+                if (unicode_control_parse_error(scalar) &&
+                    !emit_parse_error(probe, "control-character-in-input-stream")) {
+                    return false;
+                }
+                if (unicode_noncharacter(scalar) &&
+                    !emit_parse_error(probe, "noncharacter-in-input-stream")) {
+                    return false;
+                }
+                if (!append_bounded_bytes(
+                        &name,
+                        input_.substr(probe, scalar_bytes),
+                        "HTML Data-tag tokenizer tag name")) {
+                    return false;
+                }
+                probe += scalar_bytes;
+                continue;
             }
             if (ascii_control_parse_error(character) &&
                 !emit_parse_error(probe, "control-character-in-input-stream")) {
@@ -1037,14 +1160,30 @@ private:
                 const std::size_t reconsume_offset = probe + 1U;
                 const char reconsume_character = input_[reconsume_offset];
                 if (!ascii_byte(reconsume_character)) {
-                    // Do not move the existing non-ASCII debt into a new census
-                    // bucket before Unicode tag-name authority is admitted.
-                    return fail_data_tokenizer(
-                        error_,
-                        "HTML Data-tag tokenizer first attribute without separating whitespace is outside admitted v1 subset");
+                    const std::size_t scalar_bytes =
+                        detail::html_tokenizer_utf8_scalar_bytes_v1(input_, reconsume_offset);
+                    if (scalar_bytes == 0U) {
+                        return fail_data_tokenizer(
+                            error_,
+                            "HTML Data-tag tokenizer solidus reconsume contains invalid UTF-8 scalar encoding");
+                    }
+                    std::uint32_t scalar = 0U;
+                    if (!decode_utf8_scalar_value(
+                            input_, reconsume_offset, scalar_bytes, &scalar)) {
+                        return fail_data_tokenizer(
+                            error_,
+                            "HTML Data-tag tokenizer solidus reconsume scalar decoding failed");
+                    }
+                    if (unicode_control_parse_error(scalar) || unicode_noncharacter(scalar)) {
+                        return fail_data_tokenizer(
+                            error_,
+                            "HTML Data-tag tokenizer solidus-reconsume Unicode input-error ordering is outside admitted v1 subset");
+                    }
+                    leading_control_error_emitted = false;
+                } else {
+                    leading_control_error_emitted =
+                        ascii_control_parse_error(reconsume_character);
                 }
-                leading_control_error_emitted =
-                    ascii_control_parse_error(reconsume_character);
                 if (leading_control_error_emitted &&
                     !emit_parse_error(
                         reconsume_offset,

@@ -733,6 +733,107 @@ bool test_admitted_references_and_fail_closed_boundaries() {
     return true;
 }
 
+bool test_unicode_tag_and_attribute_scalars() {
+    const std::string scalar("\xF4\x80\x80\x80", 4U);
+    {
+        CollectingSink sink;
+        std::string error;
+        const std::string input = "<a" + scalar + ">";
+        if (!require(tokenize_html_data_tags_v1(input, {}, &sink, nullptr, &error),
+                     std::string("Unicode tag name: ") + error) ||
+            !require(sink.tokens.size() == 1U &&
+                         sink.tokens[0].kind == HtmlTokenizerV1TokenKind::StartTag &&
+                         sink.tokens[0].name == "a" + scalar,
+                     "Unicode tag-name scalar retained") ||
+            !require(sink.errors.empty(), "Unicode tag-name scalar has no diagnostics")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string error;
+        const std::string input = "<" + scalar;
+        if (!require(tokenize_html_data_tags_v1(input, {}, &sink, nullptr, &error),
+                     std::string("Unicode tag-open recovery: ") + error) ||
+            !require(sink.tokens.size() == 1U &&
+                         sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Character &&
+                         sink.tokens[0].data == input,
+                     "Unicode tag-open scalar reconsumed in Data") ||
+            !require(sink.errors.size() == 1U &&
+                         sink.errors[0].code == "invalid-first-character-of-tag-name" &&
+                         sink.errors[0].column == 2U,
+                     "Unicode tag-open recovery diagnostic")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string error;
+        const std::string input = "</" + scalar;
+        if (!require(tokenize_html_data_tags_v1(input, {}, &sink, nullptr, &error),
+                     std::string("Unicode end-tag-open recovery: ") + error) ||
+            !require(sink.tokens.size() == 1U &&
+                         sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Comment &&
+                         sink.tokens[0].data == scalar,
+                     "Unicode end-tag-open scalar retained in bogus comment") ||
+            !require(sink.errors.size() == 1U &&
+                         sink.errors[0].code == "invalid-first-character-of-tag-name" &&
+                         sink.errors[0].column == 3U,
+                     "Unicode end-tag-open recovery diagnostic")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string error;
+        const std::string input = "<a " + scalar + "='" + scalar + "' b=" + scalar + ">";
+        if (!require(tokenize_html_data_tags_v1(input, {}, &sink, nullptr, &error),
+                     std::string("Unicode attributes: ") + error) ||
+            !require(sink.tokens.size() == 1U && sink.tokens[0].attributes.size() == 2U,
+                     "Unicode attribute count") ||
+            !require(attribute_is(sink.tokens[0].attributes[0], scalar, scalar),
+                     "Unicode attribute name and quoted value retained") ||
+            !require(attribute_is(sink.tokens[0].attributes[1], "b", scalar),
+                     "Unicode unquoted attribute value retained") ||
+            !require(sink.errors.empty(), "Unicode attributes have no diagnostics")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string error;
+        const std::string input = "<a/" + scalar + ">";
+        if (!require(tokenize_html_data_tags_v1(input, {}, &sink, nullptr, &error),
+                     std::string("Unicode solidus reconsume: ") + error) ||
+            !require(sink.tokens.size() == 1U && sink.tokens[0].attributes.size() == 1U &&
+                         attribute_is(sink.tokens[0].attributes[0], scalar, ""),
+                     "Unicode solidus reconsume becomes attribute") ||
+            !require(sink.errors.size() == 1U &&
+                         sink.errors[0].code == "unexpected-solidus-in-tag" &&
+                         sink.errors[0].column == 4U,
+                     "Unicode solidus reconsume diagnostic")) {
+            return false;
+        }
+    }
+    {
+        CollectingSink sink;
+        std::string error;
+        const std::string input = "<a a=''" + scalar + ">";
+        if (!require(tokenize_html_data_tags_v1(input, {}, &sink, nullptr, &error),
+                     std::string("Unicode missing whitespace: ") + error) ||
+            !require(sink.tokens.size() == 1U && sink.tokens[0].attributes.size() == 2U &&
+                         attribute_is(sink.tokens[0].attributes[1], scalar, ""),
+                     "Unicode missing-whitespace attribute retained") ||
+            !require(sink.errors.size() == 1U &&
+                         sink.errors[0].code == "missing-whitespace-between-attributes" &&
+                         sink.errors[0].column == 8U,
+                     "Unicode missing-whitespace diagnostic")) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool test_token_and_attribute_bounds() {
     {
         CollectingSink sink;
@@ -784,6 +885,7 @@ int main() {
         !test_end_tag_attributes_are_diagnosed_and_dropped() ||
         !test_plaintext_start_tag_does_not_fake_tree_builder_feedback() ||
         !test_admitted_references_and_fail_closed_boundaries() ||
+        !test_unicode_tag_and_attribute_scalars() ||
         !test_token_and_attribute_bounds()) {
         return 1;
     }
