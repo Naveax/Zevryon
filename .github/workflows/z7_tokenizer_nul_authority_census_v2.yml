@@ -1,0 +1,52 @@
+name: Z7 NUL authority census v2
+
+on:
+  push:
+    branches:
+      - candidate/z7-tokenizer-nul-authority-census-v2
+
+jobs:
+  census:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Enumerate every pinned html5lib NUL execution
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path('tests/fixtures/html5lib-tokenizer')
+          rows = []
+          for path in sorted(root.glob('*.test')):
+              doc = json.loads(path.read_text(encoding='utf-8'))
+              for index, test in enumerate(doc.get('tests', [])):
+                  input_text = test.get('input', '')
+                  if '\x00' not in input_text:
+                      continue
+                  states = test.get('initialStates') or ['Data state']
+                  for state in states:
+                      rows.append({
+                          'file': f'tokenizer/{path.name}',
+                          'index': index,
+                          'description': test.get('description', ''),
+                          'state': state,
+                          'input_repr': input_text.encode('unicode_escape').decode('ascii'),
+                          'output': test.get('output'),
+                          'errors': test.get('errors', []),
+                          'doubleEscaped': test.get('doubleEscaped', False),
+                      })
+          print('NUL_EXECUTIONS', len(rows))
+          for row in rows:
+              print('NUL_CASE', json.dumps(row, ensure_ascii=True, sort_keys=True))
+          Path('nul-census.json').write_text(json.dumps(rows, indent=2, ensure_ascii=True), encoding='utf-8')
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: z7-nul-authority-census-v2
+          path: nul-census.json
