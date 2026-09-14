@@ -240,8 +240,8 @@ def classify_pre_execution(
                     item.encode("utf-8")
     except UnicodeEncodeError:
         return "non-utf8-scalar-test-data"
-    # Ordinary Data NUL and the complete pinned DOCTYPE-NUL family are
-    # admitted. Comment/tag NUL remains fail closed.
+    # Ordinary Data NUL, the complete pinned DOCTYPE-NUL family, and
+    # normal HTML-comment NUL are admitted. Tag/bogus-comment NUL remains fail closed.
     if "\x00" in input_text:
         if state_name in {
             "PLAINTEXT state",
@@ -252,7 +252,9 @@ def classify_pre_execution(
         }:
             pass
         elif state_name == "Data state" and (
-            "<" not in input_text or input_text[:9].lower() == "<!doctype"
+            "<" not in input_text or
+            input_text[:9].lower() == "<!doctype" or
+            input_text.startswith("<!--")
         ):
             pass
         else:
