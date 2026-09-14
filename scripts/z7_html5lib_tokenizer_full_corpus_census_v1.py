@@ -240,9 +240,8 @@ def classify_pre_execution(
                     item.encode("utf-8")
     except UnicodeEncodeError:
         return "non-utf8-scalar-test-data"
-    # CDATA preserves raw NUL. PLAINTEXT/RCDATA/RAWTEXT and Script data
-    # admit their state-specific behavior. Data admits only ordinary character
-    # data here; any '<' keeps markup/comment/tag/DOCTYPE NUL fail closed.
+    # Data admits ordinary character-data NUL and normal HTML-comment
+    # NUL. Other markup/tag/DOCTYPE NUL remains fail closed.
     if "\x00" in input_text:
         if state_name in {
             "PLAINTEXT state",
@@ -252,7 +251,9 @@ def classify_pre_execution(
             "CDATA section state",
         }:
             pass
-        elif state_name == "Data state" and "<" not in input_text:
+        elif state_name == "Data state" and (
+            "<" not in input_text or input_text.startswith("<!--")
+        ):
             pass
         else:
             return "input-preprocessing-nul"

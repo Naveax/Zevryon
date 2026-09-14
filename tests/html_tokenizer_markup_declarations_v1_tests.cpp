@@ -669,13 +669,24 @@ bool test_fail_closed_boundaries() {
         HtmlTokenizerMarkupDeclarationsV1Stats stats;
         std::size_t next_offset = 0U;
         std::string error;
+        std::string expected = "a";
+        expected.append("\xEF\xBF\xBD", 3U);
+        expected.push_back('b');
         if (!require(
-                !consume_html_markup_declaration_v1(
+                consume_html_markup_declaration_v1(
                     input, 0U, {}, &sink, &stats, &next_offset, &error),
-                "comment NUL remains fail closed") ||
-            !require(error.find("preprocessing/NUL replacement") != std::string::npos,
-                     "comment NUL failure explicit") ||
-            !require(sink.tokens.empty(), "comment NUL publishes no token")) {
+                std::string("comment NUL replacement: ") + error) ||
+            !require(next_offset == input.size(), "comment NUL consumes input") ||
+            !require(sink.tokens.size() == 1U &&
+                         sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Comment &&
+                         sink.tokens[0].data == expected,
+                     "comment NUL replacement payload") ||
+            !require(sink.errors.size() == 1U &&
+                         sink.errors[0].code == "unexpected-null-character" &&
+                         sink.errors[0].line == 1U && sink.errors[0].column == 6U,
+                     "comment NUL diagnostic") ||
+            !require(stats.parse_errors_emitted == 1U,
+                     "comment NUL parse-error stats")) {
             return false;
         }
     }

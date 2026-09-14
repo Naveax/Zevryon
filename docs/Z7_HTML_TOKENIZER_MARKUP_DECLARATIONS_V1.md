@@ -26,6 +26,7 @@ The external tokenizer authority is the complete pinned `html5lib/html5lib-tests
 - HTML correctness-to-`force_quirks` event mapping;
 - ASCII control-character diagnostics on newly admitted DOCTYPE input;
 - standard and bounded comment / bogus-comment handling already admitted by the component;
+- normal HTML-comment U+0000 replacement with `unexpected-null-character` and U+FFFD token payload;
 - explicit token-byte caps and sink/stat accounting.
 
 DOCTYPE payload accounting covers the name plus public and system identifier payloads. No partially constructed token is published when an unsupported or bounded-resource boundary is hit.
@@ -34,7 +35,7 @@ DOCTYPE payload accounting covers the name plus public and system identifier pay
 
 This slice remains intentionally narrower than full WHATWG input preprocessing. It does not manufacture support for:
 
-- raw NUL replacement/input-stream preprocessing;
+- NUL handling outside normal HTML comments, including bogus comments and DOCTYPE input preprocessing;
 - non-ASCII DOCTYPE authority in the still-unadmitted `BeforePublicIdentifier`, `BetweenPublicAndSystemIdentifiers`, and `BeforeSystemIdentifier` transition states;
 - non-ASCII comment / bogus-comment preprocessing authority;
 - CDATA and unrelated tokenizer-state gaps.
@@ -43,7 +44,7 @@ Non-ASCII bytes are admitted while the DOCTYPE machine is entering or consuming 
 
 ## External regression authority
 
-The frozen v9 authority remains separate from observed production progress. Immediately before this slice, quoted Unicode identifiers measure **6807 pass / 122 fail / 107 unsupported / 7036 total**; this bounded recovery-state admission is accepted only at the measured **6819 pass / 122 fail / 95 unsupported / 7036 total** distribution. The two remaining non-NUL DOCTYPE unsupported buckets measured by the prior slice (`malformed DOCTYPE-name transition` and `PUBLIC/SYSTEM or malformed DOCTYPE recovery`) both fall from six executions to zero. Production tokenizer changes are checked with the census `no-regression` policy:
+The frozen v9 authority remains separate from observed production progress. Immediately before this slice, quoted Unicode identifiers measure **6807 pass / 122 fail / 107 unsupported / 7036 total**; this bounded recovery-state admission measured **6819 pass / 122 fail / 95 unsupported / 7036 total**; after ordinary Data-state NUL, normal HTML-comment NUL is accepted only at **6827 pass / 122 fail / 87 unsupported / 7036 total**. The two remaining non-NUL DOCTYPE unsupported buckets measured by the prior slice (`malformed DOCTYPE-name transition` and `PUBLIC/SYSTEM or malformed DOCTYPE recovery`) both fall from six executions to zero. Production tokenizer changes are checked with the census `no-regression` policy:
 
 - `passed` may only stay equal or increase;
 - `failed` and `unsupported` may only stay equal or decrease;
@@ -71,7 +72,8 @@ The focused markup-declaration tests retain the original pinned `test1.test` DOC
 - non-BMP DOCTYPE-name EOF diagnostics using UTF-16-code-unit columns;
 - quoted UTF-8 public/system identifiers, including non-BMP EOF and closed-identifier cases;
 - non-BMP UTF-8 recovery after a name, in bogus DOCTYPE recovery, after PUBLIC/SYSTEM keywords, and after public/system identifiers;
-- retained unproven before-identifier transition, comment, bogus-comment, and NUL fail-closed boundaries.
+- normal HTML-comment NUL replacement and exact error location;
+- retained unproven before-identifier transition, bogus-comment, DOCTYPE-NUL, and unrelated NUL fail-closed boundaries.
 
 Exact one-based parse-error locations are asserted.
 

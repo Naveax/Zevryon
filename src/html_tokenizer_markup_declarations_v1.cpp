@@ -180,18 +180,15 @@ private:
             "HTML markup declaration parse-error");
     }
 
-    bool emit_comment(std::string_view data) {
+    bool emit_comment_owned(std::string data) {
         if (data.size() > config_.maximum_token_bytes) {
             return fail_markup(
                 error_,
                 "HTML markup declaration comment token exceeds bounded byte limit");
         }
-        if (!validate_ascii_span(data, error_, "comment")) {
-            return false;
-        }
         HtmlTokenizerV1Token token;
         token.kind = HtmlTokenizerV1TokenKind::Comment;
-        token.data.assign(data.data(), data.size());
+        token.data = std::move(data);
         if (!sink_->on_token(token, error_)) {
             if (error_->empty()) {
                 *error_ = "HTML markup declaration sink rejected comment token";
@@ -206,6 +203,53 @@ private:
                 &stats_->comment_tokens_emitted,
                 error_,
                 "HTML markup declaration comment-token");
+    }
+
+    bool emit_comment(std::string_view data) {
+        if (!validate_ascii_span(data, error_, "comment")) {
+            return false;
+        }
+        return emit_comment_owned(std::string(data));
+    }
+
+    bool collect_comment_data(
+        std::size_t begin,
+        std::size_t end,
+        std::string* data) {
+        if (data == nullptr || begin > end || end > input_.size()) {
+            return fail_markup(error_, "HTML markup declaration comment range invariant failed");
+        }
+        data->clear();
+        data->reserve(std::min<std::size_t>(end - begin, config_.maximum_token_bytes));
+        for (std::size_t cursor = begin; cursor < end; ++cursor) {
+            const char value = input_[cursor];
+            if (value == '\0') {
+                if (!emit_parse_error(cursor, "unexpected-null-character")) {
+                    return false;
+                }
+                constexpr std::string_view replacement = "\xEF\xBF\xBD";
+                if (replacement.size() > config_.maximum_token_bytes -
+                        std::min(data->size(), config_.maximum_token_bytes)) {
+                    return fail_markup(
+                        error_,
+                        "HTML markup declaration comment token exceeds bounded byte limit");
+                }
+                data->append(replacement.data(), replacement.size());
+                continue;
+            }
+            if (!ascii_byte(value)) {
+                return fail_markup(
+                    error_,
+                    "HTML markup declaration non-ASCII comment authority is not implemented");
+            }
+            if (data->size() >= config_.maximum_token_bytes) {
+                return fail_markup(
+                    error_,
+                    "HTML markup declaration comment token exceeds bounded byte limit");
+            }
+            data->push_back(value);
+        }
+        return true;
     }
 
     bool emit_doctype(
@@ -899,8 +943,9 @@ private:
                     return false;
                 }
             }
-            const std::string_view data = input_.substr(data_begin, close - data_begin);
-            if (!emit_comment(data)) {
+            std::string data;
+            if (!collect_comment_data(data_begin, close, &data) ||
+                !emit_comment_owned(std::move(data))) {
                 return false;
             }
             *next_offset_ = close + 3U;
@@ -912,9 +957,10 @@ private:
             input_[data_end - 2U] == '-' && input_[data_end - 1U] == '-') {
             data_end -= 2U;
         }
-        const std::string_view data = input_.substr(data_begin, data_end - data_begin);
-        if (!emit_parse_error(input_.size(), "eof-in-comment") ||
-            !emit_comment(data)) {
+        std::string data;
+        if (!collect_comment_data(data_begin, data_end, &data) ||
+            !emit_parse_error(input_.size(), "eof-in-comment") ||
+            !emit_comment_owned(std::move(data))) {
             return false;
         }
         *next_offset_ = input_.size();
