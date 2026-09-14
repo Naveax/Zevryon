@@ -12,73 +12,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-
-      - name: Apply proven bogus-comment NUL source candidate
+      - name: Apply proven bogus-comment NUL candidate
         run: |
           set -euo pipefail
           git fetch --no-tags origin 34ce695763b2bd64293d8a04098d8f56723888ae
-          git show 34ce695763b2bd64293d8a04098d8f56723888ae:scripts/apply_z7_tokenizer_markup_bogus_comment_nul_v1.py > /tmp/full_helper.py
-          python3 - <<'PY'
-          from pathlib import Path
-          s=Path('/tmp/full_helper.py').read_text(encoding='utf-8')
-          marker='path = ROOT / "scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py"'
-          if marker not in s:
-              raise SystemExit('bogus helper census marker missing')
-          Path('/tmp/source_helper.py').write_text(s.split(marker,1)[0] + '\nprint("applied bogus-comment NUL source/test candidate")\n',encoding='utf-8')
-          PY
-          python3 /tmp/source_helper.py
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py')
-          s=p.read_text(encoding='utf-8')
-          old='''    # Ordinary Data NUL and the complete pinned DOCTYPE-NUL family are
-    # admitted. Comment/tag NUL remains fail closed.
-    if "\\x00" in input_text:
-        if state_name in {
-            "PLAINTEXT state",
-            "RCDATA state",
-            "RAWTEXT state",
-            "Script data state",
-            "CDATA section state",
-        }:
-            pass
-        elif state_name == "Data state" and (
-            "<" not in input_text or input_text[:9].lower() == "<!doctype"
-        ):
-            pass
-        else:
-            return "input-preprocessing-nul"
-'''
-          new='''    # Diagnostic admission: ordinary Data, complete pinned DOCTYPE-NUL,
-    # and markup-declaration bogus-comment NUL. Normal comments/tag-family NUL remain fail closed.
-    if "\\x00" in input_text:
-        if state_name in {
-            "PLAINTEXT state",
-            "RCDATA state",
-            "RAWTEXT state",
-            "Script data state",
-            "CDATA section state",
-        }:
-            pass
-        elif state_name == "Data state" and (
-            "<" not in input_text or
-            input_text[:9].lower() == "<!doctype" or
-            (
-                input_text.startswith("<!") and
-                not input_text.startswith("<!--") and
-                input_text[:9].lower() != "<!doctype"
-            )
-        ):
-            pass
-        else:
-            return "input-preprocessing-nul"
-'''
-          if s.count(old)!=1:
-              raise SystemExit(f'classifier anchor count={s.count(old)}')
-          p.write_text(s.replace(old,new,1),encoding='utf-8')
-          PY
+          git show 34ce695763b2bd64293d8a04098d8f56723888ae:scripts/apply_z7_tokenizer_markup_bogus_comment_nul_v1.py > scripts/.bogus_nul_old_helper.py
+          python3 scripts/apply_z7_bogus_comment_nul_after_doctype_diagnostic_v1.py
           git diff --check
-
       - name: Install focused build dependencies
         run: |
           sudo apt-get update
@@ -100,19 +40,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py --probe build/zevryon-html-tokenizer-token-stream-v1-probe > census.json
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          r=json.loads(Path('census.json').read_text(encoding='utf-8'))
-          assert r['executions']==7036,r
-          assert r['failed']<=122,r
-          assert r['reason_counts'].get('failed:parse-error-stream-mismatch',0)<=113,r
-          assert r['reason_counts'].get('failed:token-stream-mismatch',0)<=9,r
-          print('DIAGNOSTIC_TOTALS',r['passed'],r['failed'],r['unsupported'])
-          print('DIAGNOSTIC_NUL',r['reason_counts'].get('unsupported:input-preprocessing-nul',0))
-          print('DIAGNOSTIC_PARSE_MISMATCH',r['reason_counts'].get('failed:parse-error-stream-mismatch',0))
-          print('DIAGNOSTIC_TOKEN_MISMATCH',r['reason_counts'].get('failed:token-stream-mismatch',0))
-          PY
+          python3 -c "import json; r=json.load(open('census.json')); assert r['executions']==7036; assert r['failed']<=122; print('DIAGNOSTIC_TOTALS',r['passed'],r['failed'],r['unsupported']); print('DIAGNOSTIC_NUL',r['reason_counts'].get('unsupported:input-preprocessing-nul',0)); print('DIAGNOSTIC_PARSE_MISMATCH',r['reason_counts'].get('failed:parse-error-stream-mismatch',0)); print('DIAGNOSTIC_TOKEN_MISMATCH',r['reason_counts'].get('failed:token-stream-mismatch',0))"
       - name: Block diagnostic publication
         run: |
           echo 'Diagnostic evidence collected; branch must not be merged.' >&2
