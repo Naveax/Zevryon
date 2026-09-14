@@ -421,7 +421,7 @@ bool test_fail_closed_boundaries() {
         HtmlTokenizerScriptDataV1Result result;
         std::string error;
         if (!require(
-                !consume_html_script_data_v1(
+                consume_html_script_data_v1(
                     input,
                     "script",
                     {},
@@ -429,14 +429,15 @@ bool test_fail_closed_boundaries() {
                     &stats,
                     &result,
                     &error),
-                "non-ASCII remains fail closed") ||
-            !require(error.find("non-ASCII preprocessing/location authority") !=
-                         std::string::npos,
-                     "non-ASCII failure identifies location/preprocessing debt") ||
-            !require(sink.tokens.empty() && sink.errors.empty(),
-                     "non-ASCII failure does not flush partial character data") ||
-            !require(stats.bytes_consumed == 1U,
-                     "non-ASCII failure reports consumed ASCII prefix")) {
+                std::string("Unicode Script-data scalar: ") + error) ||
+            !require(sink.tokens.size() == 1U &&
+                         sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Character &&
+                         sink.tokens[0].data == input,
+                     "Unicode Script-data scalar payload") ||
+            !require(sink.errors.empty(),
+                     "Unicode Script-data scalar has no parse error") ||
+            !require(stats.bytes_consumed == input.size(),
+                     "Unicode Script-data scalar byte accounting")) {
             return false;
         }
     }
