@@ -45,6 +45,35 @@ bool ascii_control_parse_error(char value) noexcept {
         (byte >= 0x0EU && byte <= 0x1FU) || byte == 0x7FU;
 }
 
+
+bool decode_utf8_scalar_value(
+    std::string_view input,
+    std::size_t offset,
+    std::size_t scalar_bytes,
+    std::uint32_t* value) noexcept {
+    if (value == nullptr || scalar_bytes < 2U || scalar_bytes > 4U ||
+        offset > input.size() || scalar_bytes > input.size() - offset) {
+        return false;
+    }
+    const auto first = static_cast<unsigned char>(input[offset]);
+    std::uint32_t scalar = scalar_bytes == 2U
+        ? static_cast<std::uint32_t>(first & 0x1FU)
+        : scalar_bytes == 3U
+            ? static_cast<std::uint32_t>(first & 0x0FU)
+            : static_cast<std::uint32_t>(first & 0x07U);
+    for (std::size_t index = 1U; index < scalar_bytes; ++index) {
+        const auto continuation = static_cast<unsigned char>(input[offset + index]);
+        scalar = (scalar << 6U) | static_cast<std::uint32_t>(continuation & 0x3FU);
+    }
+    *value = scalar;
+    return true;
+}
+
+bool unicode_noncharacter(std::uint32_t scalar) noexcept {
+    return (scalar >= 0xFDD0U && scalar <= 0xFDEFU) ||
+        (scalar <= 0x10FFFFU && (scalar & 0xFFFFU) >= 0xFFFEU);
+}
+
 char ascii_lower(char value) noexcept {
     if (value >= 'A' && value <= 'Z') {
         return static_cast<char>(value + ('a' - 'A'));
@@ -166,6 +195,16 @@ public:
                         error_,
                         "HTML Data-tag tokenizer raw Data text contains invalid UTF-8 scalar encoding");
                 }
+                std::uint32_t scalar = 0U;
+                if (!decode_utf8_scalar_value(input_, cursor, scalar_bytes, &scalar)) {
+                    return fail_data_tokenizer(
+                        error_,
+                        "HTML Data-tag tokenizer raw Data text scalar decoding failed");
+                }
+                if (unicode_noncharacter(scalar) &&
+                    !emit_parse_error(cursor, "noncharacter-in-input-stream")) {
+                    return false;
+                }
                 if (!append_bounded_bytes(
                         &character_buffer_,
                         input_.substr(cursor, scalar_bytes),
@@ -174,6 +213,10 @@ public:
                 }
                 cursor += scalar_bytes;
                 continue;
+            }
+            if (ascii_control_parse_error(character) &&
+                !emit_parse_error(cursor, "control-character-in-input-stream")) {
+                return false;
             }
             if (character == '&') {
                 if (!consume_character_reference(

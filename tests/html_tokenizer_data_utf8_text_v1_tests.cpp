@@ -81,6 +81,57 @@ bool test_scalar_aware_error_columns() {
                 "Unicode-prefix column counts scalar, not UTF-8 bytes");
 }
 
+bool test_data_control_character_error() {
+    const std::string input("A\x0B" "B", 3U);
+    CollectingSink sink;
+    HtmlTokenizerDataTagsV1Stats stats;
+    std::string error;
+    return require(tokenize_html_data_tags_v1(input, {}, &sink, &stats, &error), error) &&
+        require(sink.tokens.size() == 1U &&
+                    sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Character &&
+                    sink.tokens[0].data == input,
+                "Data C0 control payload is preserved") &&
+        require(sink.errors.size() == 1U &&
+                    sink.errors[0].code == "control-character-in-input-stream" &&
+                    sink.errors[0].line == 1U && sink.errors[0].column == 2U,
+                "Data C0 control exact parse error") &&
+        require(stats.parse_errors_emitted == 1U,
+                "Data C0 control parse-error accounting");
+}
+
+bool test_data_noncharacter_error() {
+    const std::string noncharacter("\xEF\xB7\x90", 3U); // U+FDD0
+    const std::string input = "A" + noncharacter + "B";
+    CollectingSink sink;
+    HtmlTokenizerDataTagsV1Stats stats;
+    std::string error;
+    return require(tokenize_html_data_tags_v1(input, {}, &sink, &stats, &error), error) &&
+        require(sink.tokens.size() == 1U &&
+                    sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Character &&
+                    sink.tokens[0].data == input,
+                "Data noncharacter payload is preserved") &&
+        require(sink.errors.size() == 1U &&
+                    sink.errors[0].code == "noncharacter-in-input-stream" &&
+                    sink.errors[0].line == 1U && sink.errors[0].column == 2U,
+                "Data noncharacter exact parse error") &&
+        require(stats.parse_errors_emitted == 1U,
+                "Data noncharacter parse-error accounting");
+}
+
+bool test_plane_end_noncharacter_error() {
+    const std::string input("\xF4\x8F\xBF\xBF", 4U); // U+10FFFF
+    CollectingSink sink;
+    HtmlTokenizerDataTagsV1Stats stats;
+    std::string error;
+    return require(tokenize_html_data_tags_v1(input, {}, &sink, &stats, &error), error) &&
+        require(sink.tokens.size() == 1U && sink.tokens[0].data == input,
+                "plane-end noncharacter payload is preserved") &&
+        require(sink.errors.size() == 1U &&
+                    sink.errors[0].code == "noncharacter-in-input-stream" &&
+                    sink.errors[0].line == 1U && sink.errors[0].column == 1U,
+                "plane-end noncharacter exact parse error");
+}
+
 bool test_invalid_utf8_fails_closed() {
     const std::vector<std::string> invalid = {
         std::string("\x80", 1U),
@@ -182,6 +233,9 @@ int main() {
     return test_valid_scalar_passthrough() &&
             test_non_ascii_after_ampersand_is_literal_data() &&
             test_scalar_aware_error_columns() &&
+            test_data_control_character_error() &&
+            test_data_noncharacter_error() &&
+            test_plane_end_noncharacter_error() &&
             test_invalid_utf8_fails_closed() &&
             test_utf8_respects_token_byte_cap() &&
             test_scope_guards_remain_fail_closed()
