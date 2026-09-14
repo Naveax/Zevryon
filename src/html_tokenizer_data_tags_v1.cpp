@@ -151,9 +151,12 @@ public:
         while (cursor < input_.size()) {
             const char character = input_[cursor];
             if (character == '\0') {
-                return fail_data_tokenizer(
-                    error_,
-                    "HTML Data-tag tokenizer input preprocessing/NUL replacement is not implemented");
+                if (!emit_parse_error(cursor, "unexpected-null-character") ||
+                    !append_character(character)) {
+                    return false;
+                }
+                ++cursor;
+                continue;
             }
             if (!ascii_byte(character)) {
                 const std::size_t scalar_bytes =
