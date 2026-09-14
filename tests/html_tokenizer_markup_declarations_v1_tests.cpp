@@ -412,6 +412,82 @@ bool test_utf8_doctype_recovery_states() {
         });
 }
 
+bool test_doctype_nul_semantics() {
+    const std::string replacement("\xEF\xBF\xBD", 3U);
+    {
+        std::string input = "<!DOCTYPE";
+        input.push_back('\0');
+        if (!run_doctype_case(
+                "NUL reconsumed into DOCTYPE name",
+                input,
+                replacement,
+                true,
+                {
+                    ExpectedError{"missing-whitespace-before-doctype-name", 1U, 10U},
+                    ExpectedError{"unexpected-null-character", 1U, 10U},
+                    ExpectedError{"eof-in-doctype", 1U, 11U},
+                })) {
+            return false;
+        }
+    }
+    {
+        std::string input = "<!DOCTYPE a PUBLIC\"";
+        input.push_back('\0');
+        if (!run_doctype_full_case(
+                "NUL in quoted PUBLIC identifier",
+                input,
+                "a",
+                true,
+                replacement,
+                false,
+                {},
+                true,
+                {
+                    ExpectedError{"missing-whitespace-after-doctype-public-keyword", 1U, 19U},
+                    ExpectedError{"unexpected-null-character", 1U, 20U},
+                    ExpectedError{"eof-in-doctype", 1U, 21U},
+                })) {
+            return false;
+        }
+    }
+    {
+        std::string input = "<!DOCTYPE a ";
+        input.push_back('\0');
+        if (!run_doctype_case(
+                "NUL after DOCTYPE name recovery",
+                input,
+                "a",
+                true,
+                {
+                    ExpectedError{"invalid-character-sequence-after-doctype-name", 1U, 13U},
+                    ExpectedError{"unexpected-null-character", 1U, 13U},
+                })) {
+            return false;
+        }
+    }
+    {
+        std::string input = "<!DOCTYPE a SYSTEM''";
+        input.push_back('\0');
+        if (!run_doctype_full_case(
+                "NUL after SYSTEM identifier recovery",
+                input,
+                "a",
+                false,
+                {},
+                true,
+                {},
+                false,
+                {
+                    ExpectedError{"missing-whitespace-after-doctype-system-keyword", 1U, 19U},
+                    ExpectedError{"unexpected-character-after-doctype-system-identifier", 1U, 21U},
+                    ExpectedError{"unexpected-null-character", 1U, 21U},
+                })) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool test_bounded_ascii_doctype_recovery() {
     if (!run_doctype_case(
             "missing whitespace before name",
@@ -690,6 +766,7 @@ int main() {
         !test_utf8_doctype_name_bytes() ||
         !test_utf8_doctype_quoted_identifiers() ||
         !test_utf8_doctype_recovery_states() ||
+        !test_doctype_nul_semantics() ||
         !test_bounded_ascii_doctype_recovery() ||
         !test_pinned_test1_comments() ||
         !test_nonzero_offset_preserves_global_location() ||

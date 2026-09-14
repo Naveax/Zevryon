@@ -11,6 +11,7 @@ namespace zevryon::massivedoc {
 namespace {
 
 constexpr std::size_t kMaximumConfiguredTokenBytes = 1024U * 1024U;
+constexpr std::string_view kReplacementCharacterUtf8 = "\xEF\xBF\xBD";
 
 bool fail_markup(std::string* error, std::string message) {
     if (error != nullptr) {
@@ -265,6 +266,23 @@ private:
         return true;
     }
 
+    bool append_doctype_replacement(
+        std::string* destination,
+        std::string_view label) {
+        if (destination->size() > config_.maximum_token_bytes ||
+            kReplacementCharacterUtf8.size() >
+                config_.maximum_token_bytes - destination->size()) {
+            return fail_markup(
+                error_,
+                "HTML markup declaration DOCTYPE " + std::string(label) +
+                    " exceeds bounded byte limit");
+        }
+        destination->append(
+            kReplacementCharacterUtf8.data(),
+            kReplacementCharacterUtf8.size());
+        return true;
+    }
+
     bool fail_unsupported_doctype_ascii_boundary(
         bool original_missing_whitespace_before_name,
         DoctypeState state) {
@@ -289,9 +307,10 @@ private:
         DoctypeState state) {
         const char value = input_[cursor];
         if (value == '\0') {
-            return fail_markup(
-                error_,
-                "HTML markup declaration input preprocessing/NUL replacement is not implemented");
+            // NUL ordering is state-specific. Payload states replace it here in
+            // the switch; recovery states first emit their state error and then
+            // reconsume the same byte in Bogus so unexpected-null follows it.
+            return true;
         }
         if (!ascii_byte(value)) {
             if (state == DoctypeState::AfterKeyword ||
@@ -432,6 +451,15 @@ private:
                 break;
 
             case DoctypeState::BeforeName:
+                if (value == '\0') {
+                    if (!emit_parse_error(cursor, "unexpected-null-character") ||
+                        !append_doctype_replacement(&name, "name")) {
+                        return false;
+                    }
+                    state = DoctypeState::Name;
+                    ++cursor;
+                    break;
+                }
                 if (ascii_space(value)) {
                     ++cursor;
                     break;
@@ -459,6 +487,14 @@ private:
                 break;
 
             case DoctypeState::Name:
+                if (value == '\0') {
+                    if (!emit_parse_error(cursor, "unexpected-null-character") ||
+                        !append_doctype_replacement(&name, "name")) {
+                        return false;
+                    }
+                    ++cursor;
+                    break;
+                }
                 if (ascii_space(value)) {
                     state = DoctypeState::AfterName;
                     ++cursor;
@@ -510,7 +546,9 @@ private:
                 }
                 force_quirks = true;
                 state = DoctypeState::Bogus;
-                ++cursor;
+                if (value != '\0') {
+                    ++cursor;
+                }
                 break;
 
             case DoctypeState::AfterPublicKeyword:
@@ -551,7 +589,9 @@ private:
                 }
                 force_quirks = true;
                 state = DoctypeState::Bogus;
-                ++cursor;
+                if (value != '\0') {
+                    ++cursor;
+                }
                 break;
 
             case DoctypeState::BeforePublicIdentifier:
@@ -586,12 +626,22 @@ private:
                 }
                 force_quirks = true;
                 state = DoctypeState::Bogus;
-                ++cursor;
+                if (value != '\0') {
+                    ++cursor;
+                }
                 break;
 
             case DoctypeState::PublicIdentifierDoubleQuoted:
             case DoctypeState::PublicIdentifierSingleQuoted: {
                 const char quote = state == DoctypeState::PublicIdentifierDoubleQuoted ? '"' : '\'';
+                if (value == '\0') {
+                    if (!emit_parse_error(cursor, "unexpected-null-character") ||
+                        !append_doctype_replacement(&public_identifier, "public identifier")) {
+                        return false;
+                    }
+                    ++cursor;
+                    break;
+                }
                 if (value == quote) {
                     state = DoctypeState::AfterPublicIdentifier;
                     ++cursor;
@@ -652,7 +702,9 @@ private:
                 }
                 force_quirks = true;
                 state = DoctypeState::Bogus;
-                ++cursor;
+                if (value != '\0') {
+                    ++cursor;
+                }
                 break;
 
             case DoctypeState::BetweenPublicAndSystemIdentifiers:
@@ -683,7 +735,9 @@ private:
                 }
                 force_quirks = true;
                 state = DoctypeState::Bogus;
-                ++cursor;
+                if (value != '\0') {
+                    ++cursor;
+                }
                 break;
 
             case DoctypeState::AfterSystemKeyword:
@@ -724,7 +778,9 @@ private:
                 }
                 force_quirks = true;
                 state = DoctypeState::Bogus;
-                ++cursor;
+                if (value != '\0') {
+                    ++cursor;
+                }
                 break;
 
             case DoctypeState::BeforeSystemIdentifier:
@@ -759,12 +815,22 @@ private:
                 }
                 force_quirks = true;
                 state = DoctypeState::Bogus;
-                ++cursor;
+                if (value != '\0') {
+                    ++cursor;
+                }
                 break;
 
             case DoctypeState::SystemIdentifierDoubleQuoted:
             case DoctypeState::SystemIdentifierSingleQuoted: {
                 const char quote = state == DoctypeState::SystemIdentifierDoubleQuoted ? '"' : '\'';
+                if (value == '\0') {
+                    if (!emit_parse_error(cursor, "unexpected-null-character") ||
+                        !append_doctype_replacement(&system_identifier, "system identifier")) {
+                        return false;
+                    }
+                    ++cursor;
+                    break;
+                }
                 if (value == quote) {
                     state = DoctypeState::AfterSystemIdentifier;
                     ++cursor;
@@ -810,10 +876,19 @@ private:
                     return false;
                 }
                 state = DoctypeState::Bogus;
-                ++cursor;
+                if (value != '\0') {
+                    ++cursor;
+                }
                 break;
 
             case DoctypeState::Bogus:
+                if (value == '\0') {
+                    if (!emit_parse_error(cursor, "unexpected-null-character")) {
+                        return false;
+                    }
+                    ++cursor;
+                    break;
+                }
                 if (value == '>') {
                     return finish_doctype(
                         cursor + 1U,
