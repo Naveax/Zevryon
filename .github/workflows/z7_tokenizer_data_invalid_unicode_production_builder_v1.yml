@@ -64,9 +64,9 @@ jobs:
           assert r['files'] == 14, r
           assert r['tests'] == 6810, r
           assert r['executions'] == 7036, r
-          assert r['passed'] == 6955, r
+          assert r['passed'] == 6956, r
           assert r['failed'] == 27, r
-          assert r['unsupported'] == 54, r
+          assert r['unsupported'] == 53, r
           assert r['reason_counts'].get('unsupported:input-preprocessing-nul', 0) == 19, r
           assert r['reason_counts'].get('failed:parse-error-stream-mismatch', 0) == 18, r
           assert r['reason_counts'].get('failed:token-stream-mismatch', 0) == 9, r
