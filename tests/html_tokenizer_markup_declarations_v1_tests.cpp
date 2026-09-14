@@ -686,6 +686,57 @@ bool test_nonzero_offset_preserves_global_location() {
         require(next_offset == input.find("tail"), "nonzero offset next cursor");
 }
 
+bool test_bogus_comment_nul_semantics() {
+    const std::string replacement("\xEF\xBF\xBD", 3U);
+    {
+        std::string input = "<!";
+        input.push_back('\0');
+        if (!run_comment_case(
+                "bogus comment NUL",
+                input,
+                replacement,
+                {
+                    ExpectedError{"incorrectly-opened-comment", 1U, 3U},
+                    ExpectedError{"unexpected-null-character", 1U, 3U},
+                })) {
+            return false;
+        }
+    }
+    {
+        std::string input = "<! ";
+        input.push_back('\0');
+        std::string expected = " ";
+        expected += replacement;
+        if (!run_comment_case(
+                "bogus comment spaced NUL",
+                input,
+                expected,
+                {
+                    ExpectedError{"incorrectly-opened-comment", 1U, 3U},
+                    ExpectedError{"unexpected-null-character", 1U, 4U},
+                })) {
+            return false;
+        }
+    }
+    {
+        std::string input = "<!doc";
+        input.push_back('\0');
+        std::string expected = "doc";
+        expected += replacement;
+        if (!run_comment_case(
+                "bogus comment trailing NUL",
+                input,
+                expected,
+                {
+                    ExpectedError{"incorrectly-opened-comment", 1U, 3U},
+                    ExpectedError{"unexpected-null-character", 1U, 6U},
+                })) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool test_fail_closed_boundaries() {
     {
         CollectingSink sink;
@@ -781,6 +832,7 @@ int main() {
         !test_bounded_ascii_doctype_recovery() ||
         !test_pinned_test1_comments() ||
         !test_nonzero_offset_preserves_global_location() ||
+        !test_bogus_comment_nul_semantics() ||
         !test_fail_closed_boundaries()) {
         return 1;
     }

@@ -1055,11 +1055,6 @@ private:
         }
         std::size_t cursor = data_begin;
         while (cursor < input_.size() && input_[cursor] != '>') {
-            if (input_[cursor] == '\0') {
-                return fail_markup(
-                    error_,
-                    "HTML markup declaration input preprocessing/NUL replacement is not implemented");
-            }
             if (!ascii_byte(input_[cursor])) {
                 const std::size_t scalar_bytes =
                     detail::html_tokenizer_utf8_scalar_bytes_v1(input_, cursor);
