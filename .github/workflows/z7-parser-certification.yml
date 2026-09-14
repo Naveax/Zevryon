@@ -17,11 +17,13 @@ permissions:
 
 jobs:
   fuzz-asan-ubsan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build g++
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
       - name: Attach fuzz certification target
         shell: bash
         run: |
@@ -38,12 +40,15 @@ jobs:
           EOF
       - name: Configure sanitizer authority
         run: >-
-          cmake -S . -B build-z7-fuzz -G Ninja -DBUILD_TESTING=ON
+          cmake -S . -B build-z7-fuzz -G Ninja
           -DCMAKE_BUILD_TYPE=Debug
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
           -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer'
           -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
       - name: Build fuzz authority
-        run: cmake --build build-z7-fuzz --target zevryon-streaming-html-parser-fuzz-certification-tests
+        run: cmake --build build-z7-fuzz --parallel 2 --target zevryon-streaming-html-parser-fuzz-certification-tests
       - name: Execute 10000-case sanitizer authority
         env:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
@@ -51,11 +56,13 @@ jobs:
         run: ./build-z7-fuzz/zevryon-streaming-html-parser-fuzz-certification-tests
 
   bounded-large-document:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build g++
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
       - name: Attach large-document certification target
         shell: bash
         run: |
@@ -71,8 +78,13 @@ jobs:
           endif()
           EOF
       - name: Configure release authority
-        run: cmake -S . -B build-z7-large -G Ninja -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Release
+        run: >-
+          cmake -S . -B build-z7-large -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
       - name: Build large-document authority
-        run: cmake --build build-z7-large --target zevryon-streaming-html-large-document-certification-tests
+        run: cmake --build build-z7-large --parallel 2 --target zevryon-streaming-html-large-document-certification-tests
       - name: Execute bounded large-document authority
         run: ./build-z7-large/zevryon-streaming-html-large-document-certification-tests
