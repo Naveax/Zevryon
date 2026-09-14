@@ -1,0 +1,27 @@
+name: Z7 tokenizer applicability
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/z7_html5lib_tokenizer_applicability_v1.py'
+      - 'scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py'
+      - 'scripts/z7_html5lib_tokenizer_corpus_verify.py'
+      - 'config/z7_html5lib_tokenizer_corpus.json'
+      - 'tests/fixtures/html5lib-tokenizer/**'
+      - '.github/workflows/z7-tokenizer-applicability.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  applicability:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify frozen applicability scope
+        run: python3 scripts/z7_html5lib_tokenizer_applicability_v1.py
+      - name: Exercise applicability self-test
+        run: python3 scripts/z7_html5lib_tokenizer_applicability_v1.py --self-test
+      - name: Exercise existing census classifier self-test
+        run: python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py --self-test
