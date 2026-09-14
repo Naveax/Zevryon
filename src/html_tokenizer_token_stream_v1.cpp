@@ -99,15 +99,6 @@ bool tag_name_character(char value) noexcept {
     return ascii_alpha(value) || ascii_digit(value) || value == '-';
 }
 
-std::string ascii_lower_copy(std::string_view value) {
-    std::string output;
-    output.reserve(value.size());
-    for (char character : value) {
-        output.push_back(ascii_lower(character));
-    }
-    return output;
-}
-
 bool ascii_iequals_at(
     std::string_view input,
     std::size_t offset,
@@ -1007,64 +998,39 @@ private:
     }
 
     bool consume_data_state(std::size_t* cursor) {
-        const char character = input_[*cursor];
-        if (character == '\0') {
+        if (cursor == nullptr || *cursor > input_.size()) {
             return fail_tokenizer(
                 error_,
-                "HTML tokenizer post-text-state Data NUL handling is outside admitted v1 subset");
+                "HTML tokenizer post-text Data transition offset is invalid");
         }
-        if (character == '&') {
-            return fail_tokenizer(
-                error_,
-                "HTML tokenizer Data-state character references are outside admitted v1 subset");
+        if (*cursor == input_.size()) {
+            return flush_character();
         }
-        if (character != '<') {
-            if (!append_character(character)) {
-                return false;
-            }
-            ++*cursor;
-            return true;
-        }
-        if (*cursor + 2U >= input_.size() ||
-            input_[*cursor + 1U] != '/') {
-            return fail_tokenizer(
-                error_,
-                "HTML tokenizer Data-state start-tag/markup handling is outside admitted v1 subset");
-        }
-
-        std::size_t probe = *cursor + 2U;
-        const std::size_t name_begin = probe;
-        while (probe < input_.size() && tag_name_character(input_[probe])) {
-            ++probe;
-        }
-        if (probe == name_begin) {
-            return fail_tokenizer(
-                error_,
-                "HTML tokenizer Data-state end tag is missing a name");
-        }
-        const std::string name =
-            ascii_lower_copy(input_.substr(name_begin, probe - name_begin));
-        while (probe < input_.size() && ascii_space(input_[probe])) {
-            ++probe;
-        }
-        if (probe == input_.size()) {
-            if (!flush_character() ||
-                !emit_parse_error(input_.size(), "eof-in-tag")) {
-                return false;
-            }
-            *cursor = input_.size();
-            return true;
-        }
-        if (input_[probe] != '>') {
-            return fail_tokenizer(
-                error_,
-                "HTML tokenizer Data-state end-tag trailing syntax is outside admitted v1 subset");
-        }
-        if (!emit_end_tag(name)) {
+        if (!flush_character()) {
             return false;
         }
-        *cursor = probe + 1U;
-        return true;
+
+        const HtmlTokenizerV1ParseError base =
+            position_error(input_, *cursor, "");
+        OffsetSink translated_sink(sink_, base.line, base.column);
+
+        HtmlTokenizerDataStreamV1Config data_config{};
+        data_config.maximum_input_bytes = config_.maximum_input_bytes;
+        data_config.maximum_token_bytes = config_.maximum_token_bytes;
+        data_config.maximum_attributes = 256U;
+
+        HtmlTokenizerDataStreamV1Stats data_stats{};
+        const bool data_success = tokenize_html_data_stream_v1(
+            input_.substr(*cursor),
+            data_config,
+            &translated_sink,
+            &data_stats,
+            error_);
+        if (!account_data_stats(data_stats, stats_, error_)) {
+            return false;
+        }
+        *cursor = input_.size();
+        return data_success;
     }
 
     std::string_view input_;
