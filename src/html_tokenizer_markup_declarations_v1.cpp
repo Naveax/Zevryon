@@ -180,18 +180,15 @@ private:
             "HTML markup declaration parse-error");
     }
 
-    bool emit_comment(std::string_view data) {
+    bool emit_comment_owned(std::string data) {
         if (data.size() > config_.maximum_token_bytes) {
             return fail_markup(
                 error_,
                 "HTML markup declaration comment token exceeds bounded byte limit");
         }
-        if (!validate_ascii_span(data, error_, "comment")) {
-            return false;
-        }
         HtmlTokenizerV1Token token;
         token.kind = HtmlTokenizerV1TokenKind::Comment;
-        token.data.assign(data.data(), data.size());
+        token.data = std::move(data);
         if (!sink_->on_token(token, error_)) {
             if (error_->empty()) {
                 *error_ = "HTML markup declaration sink rejected comment token";
@@ -206,6 +203,13 @@ private:
                 &stats_->comment_tokens_emitted,
                 error_,
                 "HTML markup declaration comment-token");
+    }
+
+    bool emit_comment(std::string_view data) {
+        if (!validate_ascii_span(data, error_, "comment")) {
+            return false;
+        }
+        return emit_comment_owned(std::string(data));
     }
 
     bool emit_doctype(
@@ -836,21 +840,41 @@ private:
             return false;
         }
         std::size_t cursor = data_begin;
+        std::string data;
+        data.reserve(std::min<std::size_t>(
+            input_.size() - data_begin,
+            config_.maximum_token_bytes));
+        constexpr std::string_view replacement = "\xEF\xBF\xBD";
         while (cursor < input_.size() && input_[cursor] != '>') {
-            if (input_[cursor] == '\0') {
-                return fail_markup(
-                    error_,
-                    "HTML markup declaration input preprocessing/NUL replacement is not implemented");
+            const char character = input_[cursor];
+            if (character == '\0') {
+                if (!emit_parse_error(cursor, "unexpected-null-character")) {
+                    return false;
+                }
+                if (data.size() > config_.maximum_token_bytes ||
+                    replacement.size() > config_.maximum_token_bytes - data.size()) {
+                    return fail_markup(
+                        error_,
+                        "HTML markup declaration comment token exceeds bounded byte limit");
+                }
+                data.append(replacement.data(), replacement.size());
+                ++cursor;
+                continue;
             }
-            if (!ascii_byte(input_[cursor])) {
+            if (!ascii_byte(character)) {
                 return fail_markup(
                     error_,
                     "HTML markup declaration non-ASCII bogus-comment authority is not implemented");
             }
+            if (data.size() >= config_.maximum_token_bytes) {
+                return fail_markup(
+                    error_,
+                    "HTML markup declaration comment token exceeds bounded byte limit");
+            }
+            data.push_back(character);
             ++cursor;
         }
-        const std::string_view data = input_.substr(data_begin, cursor - data_begin);
-        if (!emit_comment(data)) {
+        if (!emit_comment_owned(std::move(data))) {
             return false;
         }
         *next_offset_ = cursor < input_.size() ? cursor + 1U : cursor;

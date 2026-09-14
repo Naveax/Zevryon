@@ -25,7 +25,7 @@ The external tokenizer authority is the complete pinned `html5lib/html5lib-tests
 - EOF-in-DOCTYPE handling with force-quirks;
 - HTML correctness-to-`force_quirks` event mapping;
 - ASCII control-character diagnostics on newly admitted DOCTYPE input;
-- standard and bounded comment / bogus-comment handling already admitted by the component;
+- standard and bounded comment / bogus-comment handling, including proven U+0000 replacement in markup-declaration bogus comments;
 - explicit token-byte caps and sink/stat accounting.
 
 DOCTYPE payload accounting covers the name plus public and system identifier payloads. No partially constructed token is published when an unsupported or bounded-resource boundary is hit.
@@ -34,7 +34,7 @@ DOCTYPE payload accounting covers the name plus public and system identifier pay
 
 This slice remains intentionally narrower than full WHATWG input preprocessing. It does not manufacture support for:
 
-- raw NUL replacement/input-stream preprocessing;
+- raw NUL replacement/input-stream preprocessing outside the separately proven ordinary Data and markup-declaration bogus-comment slices;
 - non-ASCII DOCTYPE authority in the still-unadmitted `BeforePublicIdentifier`, `BetweenPublicAndSystemIdentifiers`, and `BeforeSystemIdentifier` transition states;
 - non-ASCII comment / bogus-comment preprocessing authority;
 - CDATA and unrelated tokenizer-state gaps.
