@@ -1,0 +1,46 @@
+name: Z7 DOCTYPE NUL case census v1
+
+on:
+  push:
+    branches:
+      - candidate/z7-tokenizer-doctype-nul-diagnostic-v1
+
+jobs:
+  census:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enumerate DOCTYPE NUL authority cases
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          rows = []
+          for path in sorted(Path('tests/fixtures/html5lib-tokenizer').glob('*.test')):
+              doc = json.loads(path.read_text(encoding='utf-8'))
+              for index, test in enumerate(doc.get('tests', [])):
+                  s = test.get('input', '')
+                  if '\x00' not in s or not s[:9].lower() == '<!doctype':
+                      continue
+                  states = test.get('initialStates') or ['Data state']
+                  for state in states:
+                      if state != 'Data state':
+                          continue
+                      row = {
+                          'file': f'tokenizer/{path.name}',
+                          'index': index,
+                          'description': test.get('description', ''),
+                          'input_repr': s.encode('unicode_escape').decode('ascii'),
+                          'output': test.get('output'),
+                          'errors': test.get('errors', []),
+                      }
+                      rows.append(row)
+                      print('DOCTYPE_NUL_CASE', json.dumps(row, ensure_ascii=True, sort_keys=True))
+          print('DOCTYPE_NUL_CASES', len(rows))
+          Path('doctype-nul-cases.json').write_text(json.dumps(rows, indent=2, ensure_ascii=True), encoding='utf-8')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: z7-doctype-nul-cases-v1
+          path: doctype-nul-cases.json
