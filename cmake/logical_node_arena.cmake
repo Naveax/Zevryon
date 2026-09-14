@@ -195,6 +195,14 @@ if(BUILD_TESTING)
   zevryon_options(zevryon-html-tokenizer-token-stream-v1-probe)
 
   add_executable(
+    zevryon-html-tree-dump-v1-probe
+    tests/html_tree_dump_v1_probe.cpp)
+  target_link_libraries(
+    zevryon-html-tree-dump-v1-probe
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-html-tree-dump-v1-probe)
+
+  add_executable(
     zevryon-streaming-html-node-source-v2-property-fuzz-tests
     tests/streaming_html_node_source_v2_property_fuzz_tests.cpp)
   target_link_libraries(
@@ -334,6 +342,18 @@ if(BUILD_TESTING)
       COMMAND
         "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/z7_wpt_tree_corpus_verify.py"
+        --self-test)
+    add_test(
+      NAME z7-wpt-tree-runner-v1
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/z7_wpt_tree_runner_v1.py"
+        --probe "$<TARGET_FILE:zevryon-html-tree-dump-v1-probe>")
+    add_test(
+      NAME z7-wpt-tree-runner-v1-self-test
+      COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/z7_wpt_tree_runner_v1.py"
         --self-test)
   endif()
 endif()

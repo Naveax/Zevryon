@@ -77,14 +77,24 @@ Both normal verification and self-test are wired into ordinary CTest when Python
 
 That is useful for authority: the external corpus is allowed to expose unsupported behavior. The corpus must not be curated to contain only cases the current parser already happens to pass.
 
-## Future runner boundary
+## Production tree-dump adapter and runner v1
 
-A real tree-builder conformance runner must consume the frozen `#data` input through an admitted production parser/tree-builder boundary and compare the resulting tree against the WPT `#document` dump. It must also account for expected parse errors, fragment contexts and scripting modes.
+`zevryon-html-tree-dump-v1-probe` is linked directly to `zevryon-massivedoc-core` and drives `produce_streaming_html_node_source()`. It does not contain a second HTML parser. Because the production parser requires native-store `logical_nodes` envelope agreement, the adapter performs a bounded discovery pass, accepts only the parser's exact envelope-mismatch sentinel as node-count discovery, rebuilds an exact-count store, then re-runs the same production parser and reads the published `ZVNSRC01` node stream. Any other production rejection remains explicit `UNSUPPORTED`.
 
-The runner must report explicit pass, fail and unsupported counts. Unsupported or failing cases must not be silently removed from the denominator.
+The probe serializes the currently materialized element/attribute topology into deterministic WPT-style tree lines. Its capability record explicitly keeps parse-error streams, document fragments, text nodes, comment nodes and namespaces disabled until those production surfaces exist.
+
+`scripts/z7_wpt_tree_runner_v1.py`:
+
+- re-verifies the frozen WPT provenance before execution;
+- expands the WPT scripting-mode matrix without removing cases from the denominator;
+- invokes the production C++ probe for every non-fragment execution;
+- distinguishes production fail-closed results, known capability boundaries and actual tree mismatches;
+- reports explicit pass/fail/unsupported totals while keeping `tree_builder_conformance_claim: false`.
+
+On the current difficult `adoption02.dat` authority the runner therefore provides a measurement surface, not a conformance shortcut. The configured eight executions remain in the denominator even when the strict production tree builder rejects adoption-agency/table recovery that it does not implement.
 
 ## Admission boundary
 
-This slice establishes reproducible WPT tree-corpus provenance only. It does not satisfy `tree_builder_conformance`, does not satisfy `html_tokenizer_conformance`, and does not change Z7 from `planned`.
+This slice establishes reproducible WPT tree-corpus provenance plus a production-backed execution/measurement boundary. It does not satisfy `tree_builder_conformance`, does not satisfy `html_tokenizer_conformance`, and does not change Z7 from `planned`.
 
-The next tree-conformance implementation work is a production tree-dump adapter/runner that can execute the frozen cases and report honest pass/fail/unsupported results before the corpus is expanded.
+The next tree-conformance work is to replace explicit runner capability boundaries and production fail-closed recovery classes with real WHATWG tree-builder behavior, while preserving the same frozen denominator and production-probe boundary.
