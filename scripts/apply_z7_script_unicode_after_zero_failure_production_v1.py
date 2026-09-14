@@ -20,16 +20,18 @@ text = replace_once(
 )
 text = replace_once(
     text,
-    '''bool ascii_space(char value) noexcept {
-    return value == ' ' || value == '\\t' || value == '\\n' ||
-        value == '\\r' || value == '\\f';
+    '''bool ascii_control_parse_error(char value) noexcept {
+    const auto byte = static_cast<unsigned char>(value);
+    return (byte >= 0x01U && byte <= 0x08U) || byte == 0x0BU ||
+        (byte >= 0x0EU && byte <= 0x1FU) || byte == 0x7FU;
 }
 
 char ascii_lower(char value) noexcept {
 ''',
-    '''bool ascii_space(char value) noexcept {
-    return value == ' ' || value == '\\t' || value == '\\n' ||
-        value == '\\r' || value == '\\f';
+    '''bool ascii_control_parse_error(char value) noexcept {
+    const auto byte = static_cast<unsigned char>(value);
+    return (byte >= 0x01U && byte <= 0x08U) || byte == 0x0BU ||
+        (byte >= 0x0EU && byte <= 0x1FU) || byte == 0x7FU;
 }
 
 bool decode_utf8_scalar_value(
