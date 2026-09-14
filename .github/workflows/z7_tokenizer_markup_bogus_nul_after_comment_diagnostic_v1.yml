@@ -35,6 +35,36 @@ jobs:
           set -euo pipefail
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py --probe build/zevryon-html-tokenizer-token-stream-v1-probe > census.json
           python3 -c "import json; r=json.load(open('census.json')); assert r['executions']==7036; assert r['failed']<=122; print('DIAGNOSTIC_TOTALS',r['passed'],r['failed'],r['unsupported']); print('DIAGNOSTIC_NUL',r['reason_counts'].get('unsupported:input-preprocessing-nul',0)); print('DIAGNOSTIC_PARSE_MISMATCH',r['reason_counts'].get('failed:parse-error-stream-mismatch',0)); print('DIAGNOSTIC_TOKEN_MISMATCH',r['reason_counts'].get('failed:token-stream-mismatch',0))"
+      - name: Enumerate exact markup NUL cases
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          import z7_html5lib_tokenizer_full_corpus_census_v1 as c
+
+          manifest = json.loads(Path('config/z7_html5lib_tokenizer_corpus.json').read_text(encoding='utf-8'))
+          probe = Path('build/zevryon-html-tokenizer-token-stream-v1-probe').resolve()
+          seen = 0
+          for entry in manifest['files']:
+              payload = json.loads(Path(entry['vendored_path']).read_text(encoding='utf-8'))
+              tests = payload[entry['test_array_key']]
+              for index, raw in enumerate(tests):
+                  test = c.unescape_double_value(raw) if raw.get('doubleEscaped', False) is True else raw
+                  inp = test.get('input', '')
+                  states = test.get('initialStates', ['Data state'])
+                  if '\x00' not in inp or not inp.startswith('<!') or 'Data state' not in states:
+                      continue
+                  label_base = f"{entry['upstream_path']} test[{index}] {test['description']}"
+                  tokens = c.expected_tokens(test, label_base)
+                  errors = c.expected_errors(test, label_base)
+                  status, reason = c.execute_one(probe, 'DATA', test.get('lastStartTag', ''), inp, tokens, errors)
+                  seen += 1
+                  print('MARKUP_NUL_CASE', status, reason, label_base, json.dumps(inp, ensure_ascii=True))
+          print('MARKUP_NUL_CASE_COUNT', seen)
+          PY
       - name: Block diagnostic publication
         run: |
           echo 'Diagnostic evidence collected; branch must not be merged.' >&2
