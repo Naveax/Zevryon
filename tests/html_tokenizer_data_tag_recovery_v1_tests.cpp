@@ -187,17 +187,24 @@ bool test_new_recovery_does_not_admit_preprocessing_debt() {
     }
     {
         CollectingSink sink;
+        HtmlTokenizerDataTagsV1Stats stats;
         const std::string input("<\xC3\xA9>", 4U);
         std::string error;
         if (!require(
-                !tokenize_html_data_tags_v1(input, {}, &sink, nullptr, &error),
-                "tag-open non-ASCII remains fail closed") ||
-            !require(
-                error.find("non-ASCII preprocessing/location authority") !=
-                    std::string::npos,
-                "tag-open non-ASCII failure remains explicit") ||
-            !require(sink.tokens.empty() && sink.errors.empty(),
-                     "tag-open non-ASCII publishes no recovery events")) {
+                tokenize_html_data_tags_v1(input, {}, &sink, &stats, &error),
+                std::string("tag-open non-ASCII recovery: ") + error) ||
+            !require(sink.tokens.size() == 1U &&
+                         sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Character &&
+                         sink.tokens[0].data == input,
+                     "tag-open non-ASCII reconsumes through Data") ||
+            !require(sink.errors.size() == 1U &&
+                         sink.errors[0].code == "invalid-first-character-of-tag-name" &&
+                         sink.errors[0].line == 1U && sink.errors[0].column == 2U,
+                     "tag-open non-ASCII exact recovery error") ||
+            !require(stats.tokens_emitted == 1U &&
+                         stats.character_tokens_emitted == 1U &&
+                         stats.parse_errors_emitted == 1U,
+                     "tag-open non-ASCII recovery stats")) {
             return false;
         }
     }
