@@ -16,11 +16,13 @@ permissions:
 
 jobs:
   linux-authority:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build g++
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
       - name: Attach dedicated authority target
         shell: bash
         run: |
@@ -36,8 +38,45 @@ jobs:
           endif()
           EOF
       - name: Configure
-        run: cmake -S . -B build-z7-chunk -G Ninja -DBUILD_TESTING=ON
+        run: >-
+          cmake -S . -B build-z7-chunk -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
       - name: Build authority target
-        run: cmake --build build-z7-chunk --target zevryon-streaming-html-chunk-size-equivalence-tests
+        run: cmake --build build-z7-chunk --parallel 2 --target zevryon-streaming-html-chunk-size-equivalence-tests
       - name: Execute authority
         run: ./build-z7-chunk/zevryon-streaming-html-chunk-size-equivalence-tests
+
+  windows-authority:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Attach dedicated authority target
+        shell: pwsh
+        run: |
+          @'
+          if(BUILD_TESTING)
+            add_executable(
+              zevryon-streaming-html-chunk-size-equivalence-tests
+              tests/streaming_html_chunk_size_equivalence_tests.cpp)
+            target_link_libraries(
+              zevryon-streaming-html-chunk-size-equivalence-tests
+              PRIVATE zevryon-massivedoc-core)
+            zevryon_options(zevryon-streaming-html-chunk-size-equivalence-tests)
+          endif()
+          '@ | Add-Content -Path cmake/logical_node_arena.cmake
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build-z7-chunk -G "Visual Studio 17 2022" -A x64 `
+            -DBUILD_TESTING=ON `
+            -DZEVRYON_ENABLE_RUST_CORE=OFF `
+            -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build authority target
+        shell: pwsh
+        run: cmake --build build-z7-chunk --config Release --parallel 2 --target zevryon-streaming-html-chunk-size-equivalence-tests
+      - name: Execute authority
+        shell: pwsh
+        run: .\build-z7-chunk\Release\zevryon-streaming-html-chunk-size-equivalence-tests.exe
