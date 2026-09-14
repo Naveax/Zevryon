@@ -3,11 +3,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+
 def replace_once(text: str, old: str, new: str, label: str) -> str:
     count = text.count(old)
     if count != 1:
         raise SystemExit(f"{label}: expected one anchor, found {count}")
     return text.replace(old, new, 1)
+
 
 path = ROOT / "src/html_tokenizer_data_tags_v1.cpp"
 text = path.read_text(encoding="utf-8")
@@ -34,8 +36,9 @@ old = '''        const std::size_t close = input_.find("-->", data_begin);
                     return false;
                 }
             }
-            const std::string_view data = input_.substr(data_begin, close - data_begin);
-            if (!emit_comment(data)) {
+            std::string data;
+            if (!collect_comment_data(data_begin, close, &data) ||
+                !emit_comment_owned(std::move(data))) {
                 return false;
             }
             *next_offset_ = close + 3U;
@@ -47,7 +50,8 @@ old = '''        const std::size_t close = input_.find("-->", data_begin);
             input_[data_end - 2U] == '-' && input_[data_end - 1U] == '-') {
             data_end -= 2U;
         }
-        const std::string_view data = input_.substr(data_begin, data_end - data_begin);
+        std::string data;
+        if (!collect_comment_data(data_begin, data_end, &data) ||
 '''
 new = '''        const std::size_t close = input_.find("-->", data_begin);
         const std::size_t bang_close = input_.find("--!>", data_begin);
@@ -59,11 +63,10 @@ new = '''        const std::size_t close = input_.find("-->", data_begin);
                     return false;
                 }
             }
-            if (!emit_parse_error(bang_close + 3U, "incorrectly-closed-comment")) {
-                return false;
-            }
-            const std::string_view data = input_.substr(data_begin, bang_close - data_begin);
-            if (!emit_comment(data)) {
+            std::string data;
+            if (!collect_comment_data(data_begin, bang_close, &data) ||
+                !emit_parse_error(bang_close + 3U, "incorrectly-closed-comment") ||
+                !emit_comment_owned(std::move(data))) {
                 return false;
             }
             *next_offset_ = bang_close + 4U;
@@ -76,8 +79,9 @@ new = '''        const std::size_t close = input_.find("-->", data_begin);
                     return false;
                 }
             }
-            const std::string_view data = input_.substr(data_begin, close - data_begin);
-            if (!emit_comment(data)) {
+            std::string data;
+            if (!collect_comment_data(data_begin, close, &data) ||
+                !emit_comment_owned(std::move(data))) {
                 return false;
             }
             *next_offset_ = close + 3U;
@@ -98,7 +102,8 @@ new = '''        const std::size_t close = input_.find("-->", data_begin);
                 ++trailing_dashes;
             }
         }
-        const std::string_view data = input_.substr(data_begin, data_end - data_begin);
+        std::string data;
+        if (!collect_comment_data(data_begin, data_end, &data) ||
 '''
 text = replace_once(text, old, new, "comment EOF/end-bang recovery")
 path.write_text(text, encoding="utf-8")
