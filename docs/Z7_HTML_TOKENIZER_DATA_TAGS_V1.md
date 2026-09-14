@@ -8,7 +8,7 @@ This component is a bounded Data-state tag tokenizer that emits the shared `Html
 
 ## Admitted token surface
 
-`tokenize_html_data_tags_v1()` admits ASCII raw Data-state inputs containing:
+`tokenize_html_data_tags_v1()` admits bounded raw Data-state inputs containing:
 
 - ordinary start tags;
 - ordinary end tags;
@@ -19,6 +19,9 @@ This component is a bounded Data-state tag tokenizer that emits the shared `Html
 - empty/boolean attributes;
 - the self-closing start-tag flag;
 - coalesced Character tokens outside tags, including ordinary Data-state U+0000 with `unexpected-null-character` while preserving the raw U+0000 character token payload;
+- well-formed UTF-8 scalar text in ordinary Data, preserving the original UTF-8 bytes;
+- Data-state C0/DEL input controls with `control-character-in-input-stream`, preserving the source byte;
+- Unicode noncharacters in ordinary Data with `noncharacter-in-input-stream`, including U+FDD0..U+FDEF and every plane-ending U+FFFE/U+FFFF scalar;
 - bounded bogus Comment tokens entered from `<?...` tag-open recovery and invalid end-tag-open bytes;
 - literal ampersand fallback;
 - decimal and hexadecimal numeric character references in Data and attribute values;
@@ -55,7 +58,7 @@ The component completes tokenization for the following bounded recovery families
 - numeric references without `;`: `missing-semicolon-after-character-reference` with the terminating byte reconsumed by the caller;
 - numeric end-state diagnostics for null, out-of-range, surrogate, noncharacter and control references, including the WHATWG C1 replacement table.
 
-Parse-error line/column positions are one-based. V1 raw-input location authority remains deliberately ASCII-only, so source byte offsets and source character columns are identical. Non-ASCII raw input remains fail-closed until preprocessing and Unicode location accounting are admitted.
+Parse-error line/column positions are one-based. Ordinary Data text uses UTF-8 scalar-aware source columns, including two UTF-16 code units for non-BMP scalars where html5lib location authority requires it. Tag-name and attribute raw-input authority remains deliberately narrower and continues to fail closed on unadmitted non-ASCII transitions.
 
 ## Bounds
 
@@ -75,7 +78,7 @@ The following remain outside this component:
 
 - `<!...` markup declarations, comments and DOCTYPE, which are owned by the separate Data-stream composition layer;
 - NUL handling in tag, attribute, bogus-comment, markup-declaration, comment and DOCTYPE states, plus complete input-stream preprocessing;
-- non-ASCII raw-input preprocessing/location authority, including non-ASCII tag and attribute names;
+- non-ASCII tag-name, attribute-name and attribute-value transition authority outside the explicitly admitted ordinary Data-text path;
 - remaining malformed tag/attribute recovery not explicitly admitted above;
 - Script-data and CDATA states.
 
@@ -104,6 +107,6 @@ The pinned html5lib `test1.test` runner denominator remains separate authority. 
 
 This slice does not satisfy `html_tokenizer_conformance`. It expands the production token surface required to run more of the pinned external corpus honestly.
 
-The admitted `test1.test` runner remains a separate authority surface, and unsupported cases continue to be counted explicitly rather than converted to passes. Raw-input preprocessing/non-ASCII authority, broader recovery, CDATA and tree-builder conformance remain open.
+The admitted `test1.test` runner remains a separate authority surface, and unsupported cases continue to be counted explicitly rather than converted to passes. Remaining tag/attribute preprocessing authority, broader recovery, CDATA and tree-builder conformance remain open.
 
 `tree_builder_conformance` remains independently outstanding and Z7 remains `planned`.
