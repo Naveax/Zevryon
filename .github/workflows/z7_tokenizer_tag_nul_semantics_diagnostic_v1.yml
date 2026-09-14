@@ -16,6 +16,28 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/apply_z7_tokenizer_tag_nul_semantics_v1.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py')
+          s = p.read_text(encoding='utf-8')
+          old = '''    require(
+              classify_pre_execution("tokenizer/test3.test", "Data state", "<a\\x00>", "", []) == "input-preprocessing-nul",
+              "markup Data NUL remains classified unsupported",
+          )
+          '''
+          new = '''    require(
+              classify_pre_execution("tokenizer/test3.test", "Data state", "<a\\x00>", "", []) is None,
+              "tag-family Data NUL admitted classification",
+          )
+          require(
+              classify_pre_execution("tokenizer/test3.test", "Data state", "<!DOCTYPE a\\x00>", "", []) == "input-preprocessing-nul",
+              "markup declaration Data NUL remains classified unsupported",
+          )
+          '''
+          if s.count(old) != 1:
+              raise SystemExit(f'tag NUL self-test anchor count={s.count(old)}')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          PY
           git diff --check
       - name: Install focused build dependencies
         run: |
