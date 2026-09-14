@@ -214,9 +214,15 @@ public:
                 cursor += scalar_bytes;
                 continue;
             }
-            if (ascii_control_parse_error(character) &&
-                !emit_parse_error(cursor, "control-character-in-input-stream")) {
-                return false;
+            if (ascii_control_parse_error(character)) {
+                if (suppressed_control_error_offset_ == cursor) {
+                    suppressed_control_error_offset_ =
+                        std::numeric_limits<std::size_t>::max();
+                } else if (!emit_parse_error(
+                               cursor,
+                               "control-character-in-input-stream")) {
+                    return false;
+                }
             }
             if (character == '&') {
                 if (!consume_character_reference(
@@ -540,6 +546,10 @@ private:
                         error_,
                         "HTML Data-tag tokenizer non-ASCII attribute-value authority is not implemented");
                 }
+                if (ascii_control_parse_error(character) &&
+                    !emit_parse_error(*cursor, "control-character-in-input-stream")) {
+                    return false;
+                }
                 if (character == '&') {
                     if (!consume_character_reference(
                             cursor,
@@ -569,11 +579,6 @@ private:
             if (ascii_space(character) || character == '>') {
                 break;
             }
-            if (character == '/' &&
-                *cursor + 1U < input_.size() &&
-                input_[*cursor + 1U] == '>') {
-                break;
-            }
             if (character == '\0') {
                 return fail_data_tokenizer(
                     error_,
@@ -583,6 +588,10 @@ private:
                 return fail_data_tokenizer(
                     error_,
                     "HTML Data-tag tokenizer non-ASCII attribute-value authority is not implemented");
+            }
+            if (ascii_control_parse_error(character) &&
+                !emit_parse_error(*cursor, "control-character-in-input-stream")) {
+                return false;
             }
             if (character == '&') {
                 if (!consume_character_reference(
@@ -869,6 +878,15 @@ private:
                     "invalid-first-character-of-tag-name",
                     leading_control_error_emitted);
             }
+            const bool leading_control_error =
+                ascii_control_parse_error(input_[probe]);
+            if (leading_control_error &&
+                !emit_parse_error(probe, "control-character-in-input-stream")) {
+                return false;
+            }
+            if (leading_control_error) {
+                suppressed_control_error_offset_ = probe;
+            }
             if (!emit_parse_error(
                     probe,
                     "invalid-first-character-of-tag-name") ||
@@ -1054,6 +1072,8 @@ private:
     HtmlTokenizerDataTagsV1Stats* stats_{nullptr};
     std::string* error_{nullptr};
     std::string character_buffer_;
+    std::size_t suppressed_control_error_offset_{
+        std::numeric_limits<std::size_t>::max()};
 };
 
 } // namespace
