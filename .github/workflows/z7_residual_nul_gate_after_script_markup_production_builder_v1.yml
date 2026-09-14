@@ -1,0 +1,84 @@
+name: Z7 residual NUL gate after Script/markup production builder v1
+
+on:
+  push:
+    branches:
+      - candidate/z7-residual-nul-gate-after-script-markup-production-v1
+
+permissions:
+  contents: write
+
+jobs:
+  build-production:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require exact stacked base
+        run: |
+          set -euo pipefail
+          BASE='54978a842a890950dce4dd6450e7538a83a8a543'
+          git merge-base --is-ancestor "$BASE" HEAD
+      - name: Apply residual NUL census gate cleanup
+        run: |
+          set -euo pipefail
+          python3 scripts/apply_z7_residual_nul_gate_after_script_markup_production_v1.py
+          git diff --check
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py --self-test
+      - name: Install focused build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+      - name: Configure and build canonical tokenizer probe
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DZEVRYON_ENABLE_RUST_CORE=OFF \
+            -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+          cmake --build build --parallel 2 --target zevryon-html-tokenizer-token-stream-v1-probe
+      - name: Require exact no-regression corpus movement
+        run: |
+          set -euo pipefail
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v9_baseline.py --self-test
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v9_baseline.py \
+            --policy no-regression \
+            --probe build/zevryon-html-tokenizer-token-stream-v1-probe \
+            > census.json
+          python3 - <<'PY'
+          import json
+          r=json.load(open('census.json'))
+          assert (r['files'],r['tests'],r['executions'])==(14,6810,7036),r
+          assert (r['passed'],r['failed'],r['unsupported'])==(7016,0,20),r
+          rc=r['reason_counts']
+          assert rc.get('unsupported:input-preprocessing-nul',0)==0,r
+          assert rc.get('unsupported:non-utf8-scalar-test-data',0)==4,r
+          assert rc.get('unsupported:xml-violation-infoset-coercion',0)==4,r
+          assert sum(v for k,v in rc.items() if k.startswith('unsupported:production-fail-closed:HTML Data-tag tokenizer'))==12,r
+          assert not any(k.startswith('unsupported:production-fail-closed:HTML Script-data') for k in rc),r
+          assert not any(k.startswith('unsupported:production-fail-closed:HTML markup declaration') for k in rc),r
+          assert r['baseline_regression_free'] is True,r
+          assert r['full_corpus_pass_claim'] is False,r
+          assert r['html_tokenizer_conformance_claim'] is False,r
+          assert r['z7_status_change'] is False,r
+          print('RESIDUAL_NUL_GATE_PRODUCTION_TOTALS',r['passed'],r['failed'],r['unsupported'])
+          PY
+      - name: Self-clean and publish production commit
+        run: |
+          set -euo pipefail
+          BASE='54978a842a890950dce4dd6450e7538a83a8a543'
+          rm -f census.json
+          git rm scripts/apply_z7_residual_nul_gate_after_script_markup_production_v1.py
+          git rm .github/workflows/z7_residual_nul_gate_after_script_markup_production_builder_v1.yml
+          mapfile -t changed < <(git diff --name-only "$BASE" -- | sort)
+          printf '%s\n' "${changed[@]}"
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = 'scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py'
+          git diff --check "$BASE"
+          git config user.name 'Naveax'
+          git config user.email 'Omersevik095@gmail.com'
+          git add scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py
+          git commit -m 'Z7: admit residual pinned NUL corpus cases'
+          git push origin HEAD:candidate/z7-residual-nul-gate-after-script-markup-production-v1
