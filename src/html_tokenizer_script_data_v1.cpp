@@ -1,5 +1,7 @@
 #include "html_tokenizer_script_data_v1.hpp"
 
+#include "html_tokenizer_utf8_v1.hpp"
+
 #include <algorithm>
 #include <limits>
 #include <new>
@@ -64,6 +66,35 @@ bool ascii_control_parse_error(char value) noexcept {
     const auto byte = static_cast<unsigned char>(value);
     return (byte >= 0x01U && byte <= 0x08U) || byte == 0x0BU ||
         (byte >= 0x0EU && byte <= 0x1FU) || byte == 0x7FU;
+}
+
+bool decode_utf8_scalar_value(
+    std::string_view input,
+    std::size_t offset,
+    std::size_t scalar_bytes,
+    std::uint32_t* value) noexcept {
+    if (value == nullptr || scalar_bytes < 2U || scalar_bytes > 4U ||
+        offset > input.size() || scalar_bytes > input.size() - offset) {
+        return false;
+    }
+    const auto first = static_cast<unsigned char>(input[offset]);
+    std::uint32_t scalar = scalar_bytes == 2U
+        ? static_cast<std::uint32_t>(first & 0x1FU)
+        : scalar_bytes == 3U
+            ? static_cast<std::uint32_t>(first & 0x0FU)
+            : static_cast<std::uint32_t>(first & 0x07U);
+    for (std::size_t index = 1U; index < scalar_bytes; ++index) {
+        const auto continuation = static_cast<unsigned char>(input[offset + index]);
+        scalar = (scalar << 6U) |
+            static_cast<std::uint32_t>(continuation & 0x3FU);
+    }
+    *value = scalar;
+    return true;
+}
+
+bool unicode_noncharacter(std::uint32_t scalar) noexcept {
+    return (scalar >= 0xFDD0U && scalar <= 0xFDEFU) ||
+        (scalar <= 0x10FFFFU && (scalar & 0xFFFFU) >= 0xFFFEU);
 }
 
 char ascii_lower(char value) noexcept {
@@ -187,10 +218,34 @@ public:
         std::size_t cursor = 0U;
         while (cursor < input_.size() && !done_) {
             if (!ascii_byte(input_[cursor])) {
+                const std::size_t scalar_bytes =
+                    detail::html_tokenizer_utf8_scalar_bytes_v1(input_, cursor);
+                if (scalar_bytes == 0U) {
+                    stats_->bytes_consumed = static_cast<std::uint64_t>(cursor);
+                    return fail_script(
+                        error_,
+                        "HTML Script-data contains invalid UTF-8 scalar encoding");
+                }
+                std::uint32_t scalar = 0U;
+                if (!decode_utf8_scalar_value(
+                        input_, cursor, scalar_bytes, &scalar)) {
+                    stats_->bytes_consumed = static_cast<std::uint64_t>(cursor);
+                    return fail_script(
+                        error_,
+                        "HTML Script-data scalar decoding failed");
+                }
+                if (unicode_noncharacter(scalar) &&
+                    !emit_parse_error(cursor, "noncharacter-in-input-stream")) {
+                    stats_->bytes_consumed = static_cast<std::uint64_t>(cursor);
+                    return false;
+                }
+                if (!append_characters(input_.substr(cursor, scalar_bytes))) {
+                    stats_->bytes_consumed = static_cast<std::uint64_t>(cursor);
+                    return false;
+                }
+                cursor += scalar_bytes;
                 stats_->bytes_consumed = static_cast<std::uint64_t>(cursor);
-                return fail_script(
-                    error_,
-                    "HTML Script-data non-ASCII preprocessing/location authority is not implemented");
+                continue;
             }
             if (ascii_control_parse_error(input_[cursor]) &&
                 observed_control_error_offset_ != cursor) {
