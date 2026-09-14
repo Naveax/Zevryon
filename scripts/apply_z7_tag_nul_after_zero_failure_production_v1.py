@@ -87,6 +87,12 @@ text = replace_once(
     '''        elif state_name == "Data state" and (\n            "<" not in input_text or\n            input_text[:9].lower() == "<!doctype" or\n            input_text.startswith("<!--") or\n            (input_text.startswith("<") and not input_text.startswith("<!"))\n        ):\n            pass\n''',
     "tag-family NUL census admission",
 )
+text = replace_once(
+    text,
+    '''    require(\n        classify_pre_execution("tokenizer/test3.test", "Data state", "<a\\x00>", "", []) == "input-preprocessing-nul",\n        "markup Data NUL remains classified unsupported",\n    )\n''',
+    '''    require(\n        classify_pre_execution("tokenizer/test3.test", "Data state", "<a\\x00>", "", []) is None,\n        "tag-family Data NUL is classified admitted",\n    )\n''',
+    "tag-family NUL census self-test",
+)
 path.write_text(text, encoding="utf-8")
 
 print("applied tag-state NUL production candidate after zero-failure fixes")
