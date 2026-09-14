@@ -11,6 +11,17 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+def replace_in_region(text: str, start_marker: str, end_marker: str, old: str, new: str, label: str) -> str:
+    start = text.index(start_marker)
+    end = text.index(end_marker, start + len(start_marker))
+    region = text[start:end]
+    count = region.count(old)
+    if count != 1:
+        raise SystemExit(f"{label}: expected one region-local anchor, found {count}")
+    region = region.replace(old, new, 1)
+    return text[:start] + region + text[end:]
+
+
 path = ROOT / "src/html_tokenizer_data_tags_v1.cpp"
 text = path.read_text(encoding="utf-8")
 text = replace_once(
@@ -24,8 +35,12 @@ constexpr std::string_view kReplacementCharacterUtf8 = "\\xEF\\xBF\\xBD";
 )
 
 # Bogus comments entered from <? and invalid end-tag-open bytes replace NUL.
-text = replace_once(
+text = replace_in_region(
     text,
+    '''    bool consume_bogus_comment(
+''',
+    '''    bool recover_eof_before_tag_name(
+''',
     '''            if (character == '\\0') {
                 return fail_data_tokenizer(
                     error_,
@@ -50,8 +65,12 @@ text = replace_once(
 )
 
 # Quoted attribute values.
-text = replace_once(
+text = replace_in_region(
     text,
+    '''        if (opening == '\\'' || opening == '"') {
+''',
+    '''        while (*cursor < input_.size()) {
+''',
     '''                if (character == '\\0') {
                     return fail_data_tokenizer(
                         error_,
@@ -76,8 +95,15 @@ text = replace_once(
 )
 
 # Unquoted attribute values.
-text = replace_once(
+text = replace_in_region(
     text,
+    '''        while (*cursor < input_.size()) {
+''',
+    '''        return true;
+    }
+
+    bool parse_attributes(
+''',
     '''            if (character == '\\0') {
                 return fail_data_tokenizer(
                     error_,
@@ -110,8 +136,12 @@ text = replace_once(
 )
 
 # Attribute-name NUL becomes U+FFFD after any already-required whitespace error.
-text = replace_once(
+text = replace_in_region(
     text,
+    '''    bool parse_attributes(
+''',
+    '''    bool emit_tag(
+''',
     '''                if (character == '\\0') {
                     return fail_data_tokenizer(
                         error_,
@@ -156,8 +186,13 @@ text = replace_once(
 )
 
 # NUL inside a tag name is U+FFFD.
-text = replace_once(
+text = replace_in_region(
     text,
+    '''        while (probe < input_.size()) {
+            const char character = input_[probe];
+''',
+    '''        if (probe >= input_.size()) {
+''',
     '''            if (character == '\\0') {
                 return fail_data_tokenizer(
                     error_,
@@ -184,8 +219,7 @@ text = replace_once(
 )
 
 # Self-closing-start-tag recovery must emit unexpected-solidus first, then let
-# attribute parsing consume/rewrite NUL. Removing this early gate preserves that
-# ordering without broadening non-ASCII admission.
+# attribute parsing consume/rewrite NUL.
 text = replace_once(
     text,
     '''                if (reconsume_character == '\\0') {
