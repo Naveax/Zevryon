@@ -122,7 +122,7 @@ text = replace_once(
                 }
                 continue;
             }
-            if (character == '"' || character == '\'' || character == '<' ||
+            if (character == '"' || character == '\\'' || character == '<' ||
 ''',
     '''            if (ascii_control_parse_error(character) &&
                 !emit_parse_error(*cursor, "control-character-in-input-stream")) {
@@ -138,7 +138,7 @@ text = replace_once(
                 }
                 continue;
             }
-            if (character == '"' || character == '\'' || character == '<' ||
+            if (character == '"' || character == '\\'' || character == '<' ||
 ''',
     "unquoted attribute-value controls",
 )
@@ -260,13 +260,13 @@ text = path.read_text(encoding="utf-8")
 text = replace_once(
     text,
     '''bool ascii_space(char value) noexcept {
-    return value == ' ' || value == '\t' || value == '\n' ||
-        value == '\r' || value == '\f';
+    return value == ' ' || value == '\\t' || value == '\\n' ||
+        value == '\\r' || value == '\\f';
 }
 ''',
     '''bool ascii_space(char value) noexcept {
-    return value == ' ' || value == '\t' || value == '\n' ||
-        value == '\r' || value == '\f';
+    return value == ' ' || value == '\\t' || value == '\\n' ||
+        value == '\\r' || value == '\\f';
 }
 
 bool ascii_control_parse_error(char value) noexcept {
