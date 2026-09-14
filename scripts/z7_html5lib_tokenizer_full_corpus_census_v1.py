@@ -254,7 +254,8 @@ def classify_pre_execution(
         elif state_name == "Data state" and (
             "<" not in input_text or
             input_text[:9].lower() == "<!doctype" or
-            input_text.startswith("<!--")
+            input_text.startswith("<!--") or
+            (input_text.startswith("<") and not input_text.startswith("<!"))
         ):
             pass
         else:
@@ -454,8 +455,8 @@ def self_test() -> None:
         "ordinary Data NUL admitted classification",
     )
     require(
-        classify_pre_execution("tokenizer/test3.test", "Data state", "<a\x00>", "", []) == "input-preprocessing-nul",
-        "markup Data NUL remains classified unsupported",
+        classify_pre_execution("tokenizer/test3.test", "Data state", "<a\x00>", "", []) is None,
+        "tag-family Data NUL is classified admitted",
     )
     require(
         classify_pre_execution("tokenizer/xmlViolation.test", "Data state", "x", "", []) == "xml-violation-infoset-coercion",

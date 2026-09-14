@@ -162,16 +162,26 @@ bool test_unquoted_special_bytes_are_diagnosed_and_preserved() {
 bool test_new_recovery_does_not_admit_preprocessing_debt() {
     {
         CollectingSink sink;
+        HtmlTokenizerDataTagsV1Stats stats;
         const std::string input("<\0>", 3U);
         std::string error;
         if (!require(
-                !tokenize_html_data_tags_v1(input, {}, &sink, nullptr, &error),
-                "tag-open NUL remains fail closed") ||
-            !require(
-                error.find("preprocessing/NUL replacement") != std::string::npos,
-                "tag-open NUL failure remains explicit") ||
-            !require(sink.tokens.empty() && sink.errors.empty(),
-                     "tag-open NUL publishes no recovery events")) {
+                tokenize_html_data_tags_v1(input, {}, &sink, &stats, &error),
+                std::string("tag-open NUL reconsume: ") + error) ||
+            !require(sink.tokens.size() == 1U &&
+                         sink.tokens[0].kind == HtmlTokenizerV1TokenKind::Character &&
+                         sink.tokens[0].data == input,
+                     "tag-open NUL preserves Data payload") ||
+            !require(sink.errors.size() == 2U &&
+                         sink.errors[0].code == "invalid-first-character-of-tag-name" &&
+                         sink.errors[0].line == 1U && sink.errors[0].column == 2U &&
+                         sink.errors[1].code == "unexpected-null-character" &&
+                         sink.errors[1].line == 1U && sink.errors[1].column == 2U,
+                     "tag-open NUL exact error order") ||
+            !require(stats.tokens_emitted == 1U &&
+                         stats.character_tokens_emitted == 1U &&
+                         stats.parse_errors_emitted == 2U,
+                     "tag-open NUL recovery stats")) {
             return false;
         }
     }

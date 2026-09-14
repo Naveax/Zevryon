@@ -17,6 +17,7 @@ namespace {
 constexpr std::size_t kMaximumConfiguredInputBytes = 16U * 1024U * 1024U;
 constexpr std::size_t kMaximumConfiguredTokenBytes = 1024U * 1024U;
 constexpr std::size_t kMaximumConfiguredAttributes = 4096U;
+constexpr std::string_view kReplacementCharacterUtf8 = "\xEF\xBF\xBD";
 
 bool fail_data_tokenizer(std::string* error, std::string message) {
     if (error != nullptr) {
@@ -421,9 +422,15 @@ private:
         while (scan < input_.size() && input_[scan] != '>') {
             const char character = input_[scan];
             if (character == '\0') {
-                return fail_data_tokenizer(
-                    error_,
-                    "HTML Data-tag tokenizer input preprocessing/NUL replacement is not implemented");
+                if (!emit_parse_error(scan, "unexpected-null-character") ||
+                    !append_bounded_bytes(
+                        &data,
+                        kReplacementCharacterUtf8,
+                        "HTML Data-tag tokenizer bogus comment token")) {
+                    return false;
+                }
+                ++scan;
+                continue;
             }
             if (!ascii_byte(character)) {
                 const std::size_t scalar_bytes =
@@ -537,9 +544,15 @@ private:
             while (*cursor < input_.size() && input_[*cursor] != opening) {
                 const char character = input_[*cursor];
                 if (character == '\0') {
-                    return fail_data_tokenizer(
-                        error_,
-                        "HTML Data-tag tokenizer input preprocessing/NUL replacement is not implemented");
+                    if (!emit_parse_error(*cursor, "unexpected-null-character") ||
+                        !append_bounded_bytes(
+                            value,
+                            kReplacementCharacterUtf8,
+                            "HTML Data-tag tokenizer attribute value")) {
+                        return false;
+                    }
+                    ++*cursor;
+                    continue;
                 }
                 if (!ascii_byte(character)) {
                     return fail_data_tokenizer(
@@ -580,9 +593,15 @@ private:
                 break;
             }
             if (character == '\0') {
-                return fail_data_tokenizer(
-                    error_,
-                    "HTML Data-tag tokenizer input preprocessing/NUL replacement is not implemented");
+                if (!emit_parse_error(*cursor, "unexpected-null-character") ||
+                    !append_bounded_bytes(
+                        value,
+                        kReplacementCharacterUtf8,
+                        "HTML Data-tag tokenizer attribute value")) {
+                    return false;
+                }
+                ++*cursor;
+                continue;
             }
             if (!ascii_byte(character)) {
                 return fail_data_tokenizer(
@@ -671,9 +690,15 @@ private:
                     break;
                 }
                 if (character == '\0') {
-                    return fail_data_tokenizer(
-                        error_,
-                        "HTML Data-tag tokenizer input preprocessing/NUL replacement is not implemented");
+                    if (!emit_parse_error(*cursor, "unexpected-null-character") ||
+                        !append_bounded_bytes(
+                            &attribute.name,
+                            kReplacementCharacterUtf8,
+                            "HTML Data-tag tokenizer attribute name")) {
+                        return false;
+                    }
+                    ++*cursor;
+                    continue;
                 }
                 if (!ascii_byte(character)) {
                     // Keep the historical v3 census classification stable until
@@ -854,11 +879,6 @@ private:
         }
 
         if (!ascii_alpha(input_[probe])) {
-            if (input_[probe] == '\0') {
-                return fail_data_tokenizer(
-                    error_,
-                    "HTML Data-tag tokenizer input preprocessing/NUL replacement is not implemented");
-            }
             if (!ascii_byte(input_[probe])) {
                 return fail_data_tokenizer(
                     error_,
@@ -906,9 +926,15 @@ private:
                 break;
             }
             if (character == '\0') {
-                return fail_data_tokenizer(
-                    error_,
-                    "HTML Data-tag tokenizer input preprocessing/NUL replacement is not implemented");
+                if (!emit_parse_error(probe, "unexpected-null-character") ||
+                    !append_bounded_bytes(
+                        &name,
+                        kReplacementCharacterUtf8,
+                        "HTML Data-tag tokenizer tag name")) {
+                    return false;
+                }
+                ++probe;
+                continue;
             }
             if (!ascii_byte(character)) {
                 // Preserve the historical census bucket until Unicode tag-name
@@ -1010,11 +1036,6 @@ private:
 
                 const std::size_t reconsume_offset = probe + 1U;
                 const char reconsume_character = input_[reconsume_offset];
-                if (reconsume_character == '\0') {
-                    return fail_data_tokenizer(
-                        error_,
-                        "HTML Data-tag tokenizer input preprocessing/NUL replacement is not implemented");
-                }
                 if (!ascii_byte(reconsume_character)) {
                     // Do not move the existing non-ASCII debt into a new census
                     // bucket before Unicode tag-name authority is admitted.
