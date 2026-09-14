@@ -76,6 +76,14 @@ text = replace_once(
                     error_,
                     "HTML Script-data non-ASCII preprocessing/location authority is not implemented");
             }
+            if (ascii_control_parse_error(input_[cursor]) &&
+                observed_control_error_offset_ != cursor) {
+                if (!emit_parse_error(cursor, "control-character-in-input-stream")) {
+                    stats_->bytes_consumed = static_cast<std::uint64_t>(cursor);
+                    return false;
+                }
+                observed_control_error_offset_ = cursor;
+            }
             if (!consume_state(&cursor)) {
 ''',
     '''        while (cursor < input_.size() && !done_) {
@@ -108,6 +116,14 @@ text = replace_once(
                 cursor += scalar_bytes;
                 stats_->bytes_consumed = static_cast<std::uint64_t>(cursor);
                 continue;
+            }
+            if (ascii_control_parse_error(input_[cursor]) &&
+                observed_control_error_offset_ != cursor) {
+                if (!emit_parse_error(cursor, "control-character-in-input-stream")) {
+                    stats_->bytes_consumed = static_cast<std::uint64_t>(cursor);
+                    return false;
+                }
+                observed_control_error_offset_ = cursor;
             }
             if (!consume_state(&cursor)) {
 ''',
