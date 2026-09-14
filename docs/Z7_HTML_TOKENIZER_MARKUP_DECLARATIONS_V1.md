@@ -26,7 +26,7 @@ The external tokenizer authority is the complete pinned `html5lib/html5lib-tests
 - DOCTYPE U+0000 handling with `unexpected-null-character`, U+FFFD replacement in name/identifier payload states, and recovery-error-before-NUL ordering when reconsumed through bogus DOCTYPE;
 - HTML correctness-to-`force_quirks` event mapping;
 - ASCII control-character diagnostics on newly admitted DOCTYPE input;
-- standard and bounded comment / bogus-comment handling already admitted by the component;
+- standard and bounded comment / bogus-comment handling, including normal HTML-comment U+0000 replacement with `unexpected-null-character` and U+FFFD payload;
 - explicit token-byte caps and sink/stat accounting.
 
 DOCTYPE payload accounting covers the name plus public and system identifier payloads. No partially constructed token is published when an unsupported or bounded-resource boundary is hit.
