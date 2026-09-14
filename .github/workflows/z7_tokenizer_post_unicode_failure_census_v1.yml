@@ -1,0 +1,55 @@
+name: Z7 post-Unicode residual failure census v1
+
+on:
+  push:
+    branches:
+      - diagnostic/z7-tokenizer-post-unicode-failure-census-v1
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Apply candidate and expand census
+        run: |
+          set -euo pipefail
+          python3 scripts/apply_z7_data_invalid_unicode_errors_post_census_v1.py
+          git diff --check
+      - name: Install focused build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DZEVRYON_ENABLE_RUST_CORE=OFF -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build canonical tokenizer probe
+        run: cmake --build build --parallel 2 --target zevryon-html-tokenizer-token-stream-v1-probe
+      - name: Measure remaining failures
+        run: |
+          set -euo pipefail
+          python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py --probe build/zevryon-html-tokenizer-token-stream-v1-probe > census.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('census.json').read_text(encoding='utf-8'))
+          assert r['executions']==7036,r
+          assert r['failed']==27,r
+          assert len(r['failure_samples'])==27,(len(r['failure_samples']),r['failed'])
+          print('POST_UNICODE_TOTALS',r['passed'],r['failed'],r['unsupported'])
+          for item in r['failure_samples']:
+              print('CASE',item['reason'],item['label'])
+          Path('failure-samples.json').write_text(json.dumps(r['failure_samples'],indent=2,ensure_ascii=False),encoding='utf-8')
+          PY
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: z7-post-unicode-residual-failures-v1
+          path: |
+            census.json
+            failure-samples.json
+          if-no-files-found: error
+      - name: Block diagnostic publication
+        run: |
+          echo 'Diagnostic evidence collected; branch must not be merged.' >&2
+          exit 1
