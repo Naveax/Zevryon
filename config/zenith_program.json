@@ -135,7 +135,7 @@
     {
       "id": "Z7",
       "name": "Streaming HTML parser",
-      "status": "planned",
+      "status": "implemented",
       "dependencies": [
         "Z0"
       ],
@@ -146,7 +146,16 @@
         "parser_fuzzing",
         "bounded_large_document_parse"
       ],
-      "evidence": []
+      "evidence": [
+        "github-actions-run:34864693236",
+        "merge-commit:c402ad4c2015cdd06df91a04ecab0c9e00dbaa4b",
+        "github-actions-run:34864744881",
+        "merge-commit:36b1b0382a1f8343eeed1968ed02dc96fe9509a3",
+        "github-actions-run:34949079773",
+        "merge-commit:4a6aa174027961653a89323ec9b34266a9f69ce9",
+        "github-actions-run:34958001841",
+        "merge-commit:99f716732aecef2603071b3e4239a1e7dfeb4f59"
+      ]
     },
     {
       "id": "Z8",
