@@ -184,8 +184,9 @@ def execute_probe(probe: Path, case: TreeCase, scripting: bool) -> tuple[str, st
 def known_capability_boundary(case: TreeCase, capabilities: dict[str, bool]) -> str | None:
     if case.fragment_context is not None and not capabilities.get("fragments", False):
         return "document-fragment-context-not-exposed"
-    if case.errors and not capabilities.get("parse-errors", False):
-        return "parse-error-stream-authority-not-exposed"
+    # The pinned browser WPT wrapper deliberately ignores #errors/#new-errors and
+    # asserts only the serialized tree. Preserve those records as fixture metadata
+    # without manufacturing a non-browser conformance requirement.
     if any(line.lstrip().startswith('| "') for line in case.document) and not capabilities.get("text-nodes", False):
         return "text-node-materialization-not-exposed"
     if any("<!--" in line for line in case.document) and not capabilities.get("comments", False):
@@ -273,6 +274,11 @@ def run(probe: Path, manifest_path: Path) -> dict[str, Any]:
                 reasons["exact-tree-match"] += 1
 
     require(totals["executions"] == provenance["executions_verified"], "runner execution denominator drifted")
+    conformance = (
+        totals["passed"] == totals["executions"] and
+        totals["failed"] == 0 and
+        totals["unsupported"] == 0
+    )
     return {
         "schema": REPORT_SCHEMA,
         "authority": "z7-wpt-tree-production-runner-v1",
@@ -286,7 +292,7 @@ def run(probe: Path, manifest_path: Path) -> dict[str, Any]:
         "reason_counts": dict(sorted(reasons.items())),
         "samples": samples,
         "production_probe": str(probe),
-        "tree_builder_conformance_claim": False,
+        "tree_builder_conformance_claim": conformance,
         "z7_status_change": False,
     }
 
@@ -308,8 +314,17 @@ def self_test(manifest_path: Path) -> dict[str, Any]:
     tree, caps = parse_probe_output(synthetic, False)
     require(tree == ("| <html>",), "self-test probe tree decode drifted")
     require(caps.get("parse-errors") is False, "self-test capability decode drifted")
-    require(known_capability_boundary(cases[0], caps) == "parse-error-stream-authority-not-exposed",
-            "self-test capability boundary drifted")
+    require(known_capability_boundary(cases[0], caps) == "text-node-materialization-not-exposed",
+            "self-test tree capability boundary drifted")
+    browser_caps = {
+        "parse-errors": False,
+        "fragments": True,
+        "text-nodes": True,
+        "comments": True,
+        "namespaces": True,
+    }
+    require(cases[0].errors and known_capability_boundary(cases[0], browser_caps) is None,
+            "self-test WPT #errors records must not block browser tree conformance")
     return {
         "schema": "zevryon.z7.wpt-tree-runner-self-test.v1",
         "tests_verified": len(cases),
