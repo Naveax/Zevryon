@@ -1,0 +1,68 @@
+name: Z2 core authorities
+
+on:
+  pull_request:
+    paths:
+      - 'src/font_*'
+      - 'src/shaping_*'
+      - 'src/harfbuzz_*'
+      - 'src/catalog_harfbuzz_*'
+      - 'src/prepared_harfbuzz_*'
+      - 'src/cached_catalog_harfbuzz_*'
+      - 'src/multi_run_harfbuzz_*'
+      - 'src/glyph_cluster_map.*'
+      - 'src/glyph_atlas_submission.*'
+      - 'src/shader_draw_packet.*'
+      - 'tests/font_catalog_fallback_tests.cpp'
+      - 'tests/glyph_cluster_map_tests.cpp'
+      - 'tests/glyph_atlas_submission_tests.cpp'
+      - 'tests/glyph_atlas_equivalence_tests.cpp'
+      - 'tests/shader_draw_packet_equivalence_tests.cpp'
+      - 'cmake/harfbuzz_shaping.cmake'
+      - 'cmake/glyph_atlas_submission.cmake'
+      - 'cmake/shader_draw_packet.cmake'
+      - '.github/workflows/z2-core-authorities.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-core-authorities:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install focused dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev \
+            fonts-dejavu-core fonts-noto-core
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build exact Z2 authorities
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-font-catalog-fallback-tests
+          zevryon-glyph-cluster-map-tests
+          zevryon-glyph-atlas-submission-tests
+          zevryon-glyph-atlas-equivalence-tests
+          zevryon-shader-draw-packet-equivalence-tests
+      - name: Font fallback correctness
+        run: build/zevryon-font-catalog-fallback-tests
+      - name: Glyph cluster roundtrip
+        run: build/zevryon-glyph-cluster-map-tests
+      - name: Bounded glyph atlas cache
+        run: |
+          build/zevryon-glyph-atlas-submission-tests
+          build/zevryon-glyph-atlas-equivalence-tests
+      - name: Pixel reference equivalence
+        run: build/zevryon-shader-draw-packet-equivalence-tests
