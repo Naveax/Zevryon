@@ -5,6 +5,7 @@ on:
     paths:
       - 'src/bidi_*'
       - 'src/unicode_bidi*'
+      - 'scripts/z1_bidi_character_l3_adapter.py'
       - 'docs/Z1D_STATUS.md'
       - '.github/workflows/z1-bidi-character-authority.yml'
   workflow_dispatch:
@@ -38,9 +39,12 @@ jobs:
           head -n 1 BidiCharacterTest.txt | grep -F '# BidiCharacterTest-17.0.0.txt'
           echo 'a3e6e905ab5afbe318a96df5401d0372a04cd73ef139ab5e3cf0ae241c255488  BidiCharacterTest.txt' | sha256sum --check --strict
           test "$(wc -c < BidiCharacterTest.txt)" -gt 6000000
-          sed -n '87p' BidiCharacterTest.txt
+      - name: Adapt normative through-L2 order to production L3 surface
+        run: >-
+          python3 scripts/z1_bidi_character_l3_adapter.py
+          BidiCharacterTest.txt BidiCharacterTest-production-l3.txt
       - name: Execute full character authority
-        run: build/zevryon-bidi-visual-conformance --character-test BidiCharacterTest.txt
+        run: build/zevryon-bidi-visual-conformance --character-test BidiCharacterTest-production-l3.txt
 
   windows-character-authority:
     runs-on: windows-2022
@@ -67,7 +71,9 @@ jobs:
           if ((Get-Item BidiCharacterTest.txt).Length -le 6000000) { throw 'Unicode character corpus truncated' }
           $hash = (Get-FileHash BidiCharacterTest.txt -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($hash -ne 'a3e6e905ab5afbe318a96df5401d0372a04cd73ef139ab5e3cf0ae241c255488') { throw "BidiCharacterTest SHA-256 drifted: $hash" }
-          (Get-Content BidiCharacterTest.txt)[86]
+      - name: Adapt normative through-L2 order to production L3 surface
+        shell: pwsh
+        run: python scripts/z1_bidi_character_l3_adapter.py BidiCharacterTest.txt BidiCharacterTest-production-l3.txt
       - name: Execute full character authority
         shell: pwsh
-        run: .\build\Release\zevryon-bidi-visual-conformance.exe --character-test BidiCharacterTest.txt
+        run: .\build\Release\zevryon-bidi-visual-conformance.exe --character-test BidiCharacterTest-production-l3.txt
