@@ -1,0 +1,116 @@
+name: Z1 text authorities
+
+on:
+  pull_request:
+    paths:
+      - 'src/unicode_stream*'
+      - 'src/grapheme_*'
+      - 'src/unicode_grapheme*'
+      - 'tests/unicode_stream_tests.cpp'
+      - 'tests/grapheme_segmenter_tests.cpp'
+      - '.github/workflows/z1-text-authorities.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-authority:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install focused build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build production authorities
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-unicode-stream-tests
+          zevryon-grapheme-segmenter-tests
+          zevryon-grapheme-conformance
+      - name: Run UTF-8 and grapheme focused tests
+        run: ctest --test-dir build --output-on-failure -R '^(unicode-stream-tests|grapheme-segmenter-tests)$'
+      - name: Fetch immutable Unicode 17 grapheme corpus
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import urllib.request
+          from pathlib import Path
+          url = ('https://raw.githubusercontent.com/openjdk/jdk/'
+                 '611f186cf3a47258116146d70e405ef483e65e2a/'
+                 'src/java.base/share/data/unicodedata/auxiliary/GraphemeBreakTest.txt')
+          data = urllib.request.urlopen(url, timeout=60).read()
+          blob = hashlib.sha1(b'blob ' + str(len(data)).encode('ascii') + b'\0' + data).hexdigest()
+          if blob != 'e1215547c58f959a0eec9928e1915901c168f6a9':
+              raise RuntimeError(f'GraphemeBreakTest blob drifted: {blob}')
+          if not data.startswith(b'# GraphemeBreakTest-17.0.0.txt'):
+              raise RuntimeError('GraphemeBreakTest Unicode version drifted')
+          Path('GraphemeBreakTest.txt').write_bytes(data)
+          PY
+      - name: Execute complete Unicode 17 grapheme authority
+        run: |
+          build/zevryon-grapheme-conformance GraphemeBreakTest.txt > grapheme.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('grapheme.json').read_text())
+          assert report == {
+              'schema': 'zevryon.grapheme-conformance.v1',
+              'unicode_version': '17.0.0',
+              'data_fingerprint': 'fde26abeb242fbe7c5a3d5ced5d4666286a08baaf15822f71e7a0af9f9ff5a91',
+              'tests': 766,
+              'codepoints': 1990,
+              'clusters': 1391,
+              'passed': True,
+          }, report
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+
+  windows-authority:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Configure
+        shell: pwsh
+        run: >-
+          cmake -S . -B build -A x64
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build production authorities
+        shell: pwsh
+        run: >-
+          cmake --build build --config Release --parallel 2 --target
+          zevryon-unicode-stream-tests
+          zevryon-grapheme-segmenter-tests
+          zevryon-grapheme-conformance
+      - name: Run UTF-8 and grapheme focused tests
+        shell: pwsh
+        run: ctest --test-dir build -C Release --output-on-failure -R '^(unicode-stream-tests|grapheme-segmenter-tests)$'
+      - name: Fetch immutable Unicode 17 grapheme corpus
+        shell: pwsh
+        run: |
+          curl.exe --fail --location --retry 3 --output GraphemeBreakTest.txt https://raw.githubusercontent.com/openjdk/jdk/611f186cf3a47258116146d70e405ef483e65e2a/src/java.base/share/data/unicodedata/auxiliary/GraphemeBreakTest.txt
+          $blob = (git hash-object GraphemeBreakTest.txt).Trim()
+          if ($blob -ne 'e1215547c58f959a0eec9928e1915901c168f6a9') { throw "GraphemeBreakTest blob drifted: $blob" }
+          $first = Get-Content GraphemeBreakTest.txt -TotalCount 1
+          if ($first -ne '# GraphemeBreakTest-17.0.0.txt') { throw "Unicode corpus header drifted: $first" }
+      - name: Execute complete Unicode 17 grapheme authority
+        shell: pwsh
+        run: |
+          .\build\Release\zevryon-grapheme-conformance.exe GraphemeBreakTest.txt | Set-Content grapheme.json
+          $report = Get-Content grapheme.json -Raw | ConvertFrom-Json
+          if ($report.tests -ne 766 -or $report.codepoints -ne 1990 -or $report.clusters -ne 1391 -or -not $report.passed) { throw 'Grapheme authority denominator drifted' }
+          Get-Content grapheme.json
