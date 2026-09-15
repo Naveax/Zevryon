@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <memory_resource>
 #include <sstream>
 #include <string>
@@ -20,6 +21,8 @@
 namespace {
 
 using zevryon::text::BidiClass;
+using zevryon::text::BidiExplicitError;
+using zevryon::text::BidiExplicitStats;
 using zevryon::text::BidiExplicitUnit;
 using zevryon::text::BidiImplicitError;
 using zevryon::text::BidiImplicitStats;
@@ -28,6 +31,9 @@ using zevryon::text::BidiLevelRun;
 using zevryon::text::BidiLineSpan;
 using zevryon::text::BidiNeutralError;
 using zevryon::text::BidiNeutralStats;
+using zevryon::text::BidiParagraphDirection;
+using zevryon::text::BidiSequenceError;
+using zevryon::text::BidiSequenceStats;
 using zevryon::text::BidiSequenceTopology;
 using zevryon::text::BidiVisualError;
 using zevryon::text::BidiVisualOrder;
@@ -35,6 +41,9 @@ using zevryon::text::BidiVisualStats;
 using zevryon::text::BidiWeakError;
 using zevryon::text::BidiWeakStats;
 using zevryon::text::DecodedCodePoint;
+
+constexpr std::size_t kConformanceStageBudget = 64U * 1024U;
+constexpr std::size_t kVisualStageBudget = 128U * 1024U;
 
 std::string trim(std::string value) {
     while (!value.empty() &&
@@ -274,14 +283,271 @@ bool run_case(
     return true;
 }
 
-} // namespace
-
-int main(int argc, char** argv) {
-    if (argc != 2) {
-        std::cerr << "usage: zevryon-bidi-visual-conformance BidiTest.txt\n";
-        return 2;
+bool parse_character_direction(
+    unsigned value,
+    BidiParagraphDirection* direction) noexcept {
+    if (direction == nullptr) {
+        return false;
     }
-    std::ifstream input(argv[1]);
+    if (value == 0U) {
+        *direction = BidiParagraphDirection::Left;
+    } else if (value == 1U) {
+        *direction = BidiParagraphDirection::Right;
+    } else if (value == 2U) {
+        *direction = BidiParagraphDirection::Auto;
+    } else {
+        return false;
+    }
+    return true;
+}
+
+bool run_character_case(
+    const std::vector<DecodedCodePoint>& codepoints,
+    BidiParagraphDirection direction,
+    std::uint8_t expected_paragraph_level,
+    const std::vector<int>& expected_levels,
+    const std::vector<std::uint32_t>& expected_order,
+    std::size_t line_number) {
+    zevryon::core::ResourceLedger explicit_ledger;
+    explicit_ledger.set_hard_limit(
+        zevryon::core::ResourceClass::BidiRun,
+        kConformanceStageBudget);
+    zevryon::core::LedgerMemoryResource explicit_memory(
+        explicit_ledger,
+        zevryon::core::ResourceClass::BidiRun);
+    std::pmr::vector<BidiExplicitUnit> units(&explicit_memory);
+    BidiExplicitStats explicit_stats;
+    BidiExplicitError explicit_error;
+    if (!zevryon::text::resolve_bidi_explicit(
+            codepoints,
+            direction,
+            &units,
+            &explicit_stats,
+            &explicit_error)) {
+        std::cerr << "explicit failure at BidiCharacterTest line " << line_number
+                  << ": " << explicit_error.message << '\n';
+        return false;
+    }
+    if (explicit_stats.paragraph_level != expected_paragraph_level) {
+        std::cerr << "paragraph-level mismatch at BidiCharacterTest line "
+                  << line_number << ": expected "
+                  << static_cast<unsigned>(expected_paragraph_level)
+                  << " got "
+                  << static_cast<unsigned>(explicit_stats.paragraph_level) << '\n';
+        return false;
+    }
+
+    zevryon::core::ResourceLedger sequence_ledger;
+    sequence_ledger.set_hard_limit(
+        zevryon::core::ResourceClass::BidiSequence,
+        kConformanceStageBudget);
+    zevryon::core::LedgerMemoryResource sequence_memory(
+        sequence_ledger,
+        zevryon::core::ResourceClass::BidiSequence);
+    BidiSequenceTopology topology(&sequence_memory);
+    BidiSequenceStats sequence_stats;
+    BidiSequenceError sequence_error;
+    if (!zevryon::text::build_bidi_isolating_run_sequences(
+            units,
+            explicit_stats.paragraph_level,
+            &topology,
+            &sequence_stats,
+            &sequence_error)) {
+        std::cerr << "sequence failure at BidiCharacterTest line " << line_number
+                  << ": " << sequence_error.message << '\n';
+        return false;
+    }
+
+    zevryon::core::ResourceLedger weak_ledger;
+    weak_ledger.set_hard_limit(
+        zevryon::core::ResourceClass::BidiTypeResolution,
+        kConformanceStageBudget);
+    zevryon::core::LedgerMemoryResource weak_memory(
+        weak_ledger,
+        zevryon::core::ResourceClass::BidiTypeResolution);
+    std::pmr::vector<BidiClass> weak_types(&weak_memory);
+    BidiWeakStats weak_stats;
+    BidiWeakError weak_error;
+    if (!zevryon::text::resolve_bidi_weak_types(
+            units,
+            topology,
+            &weak_types,
+            &weak_stats,
+            &weak_error)) {
+        std::cerr << "weak failure at BidiCharacterTest line " << line_number
+                  << ": " << weak_error.message << '\n';
+        return false;
+    }
+
+    zevryon::core::ResourceLedger neutral_ledger;
+    neutral_ledger.set_hard_limit(
+        zevryon::core::ResourceClass::BidiNeutralResolution,
+        kConformanceStageBudget);
+    zevryon::core::LedgerMemoryResource neutral_memory(
+        neutral_ledger,
+        zevryon::core::ResourceClass::BidiNeutralResolution);
+    std::pmr::vector<BidiClass> neutral_types(&neutral_memory);
+    BidiNeutralStats neutral_stats;
+    BidiNeutralError neutral_error;
+    if (!zevryon::text::resolve_bidi_neutral_types(
+            codepoints,
+            units,
+            topology,
+            weak_types,
+            &neutral_types,
+            &neutral_stats,
+            &neutral_error)) {
+        std::cerr << "neutral failure at BidiCharacterTest line " << line_number
+                  << ": " << neutral_error.message << '\n';
+        return false;
+    }
+
+    zevryon::core::ResourceLedger implicit_ledger;
+    implicit_ledger.set_hard_limit(
+        zevryon::core::ResourceClass::BidiImplicitLevel,
+        kConformanceStageBudget);
+    zevryon::core::LedgerMemoryResource implicit_memory(
+        implicit_ledger,
+        zevryon::core::ResourceClass::BidiImplicitLevel);
+    std::pmr::vector<std::uint8_t> implicit_levels(&implicit_memory);
+    BidiImplicitStats implicit_stats;
+    BidiImplicitError implicit_error;
+    if (!zevryon::text::resolve_bidi_implicit_levels(
+            units,
+            topology,
+            neutral_types,
+            &implicit_levels,
+            &implicit_stats,
+            &implicit_error)) {
+        std::cerr << "implicit failure at BidiCharacterTest line " << line_number
+                  << ": " << implicit_error.message << '\n';
+        return false;
+    }
+
+    zevryon::core::ResourceLedger visual_ledger;
+    visual_ledger.set_hard_limit(
+        zevryon::core::ResourceClass::BidiVisualOrder,
+        kVisualStageBudget);
+    zevryon::core::LedgerMemoryResource visual_memory(
+        visual_ledger,
+        zevryon::core::ResourceClass::BidiVisualOrder);
+    BidiVisualOrder visual(&visual_memory);
+    BidiVisualStats visual_stats;
+    BidiVisualError visual_error;
+    const std::array<BidiLineSpan, 1> line{{BidiLineSpan{
+        0U,
+        static_cast<std::uint32_t>(topology.active_unit_indices.size())}}};
+    const std::span<const BidiLineSpan> lines = topology.active_unit_indices.empty()
+        ? std::span<const BidiLineSpan>{}
+        : std::span<const BidiLineSpan>{line};
+    if (!zevryon::text::resolve_bidi_visual_order(
+            units,
+            topology,
+            implicit_levels,
+            explicit_stats.paragraph_level,
+            lines,
+            &visual,
+            &visual_stats,
+            &visual_error)) {
+        std::cerr << "visual failure at BidiCharacterTest line " << line_number
+                  << ": " << visual_error.message << '\n';
+        return false;
+    }
+
+    if (units.size() != codepoints.size() || expected_levels.size() != codepoints.size()) {
+        std::cerr << "input/level cardinality mismatch at BidiCharacterTest line "
+                  << line_number << '\n';
+        return false;
+    }
+
+    std::vector<int> actual_levels(codepoints.size(), -2);
+    for (std::size_t unit_index = 0U; unit_index < units.size(); ++unit_index) {
+        const BidiExplicitUnit& unit = units[unit_index];
+        if (unit.codepoint_index >= actual_levels.size()) {
+            std::cerr << "explicit codepoint index overflow at BidiCharacterTest line "
+                      << line_number << '\n';
+            return false;
+        }
+        if ((unit.flags & zevryon::text::kBidiUnitRemovedByX9) != 0U) {
+            actual_levels[unit.codepoint_index] = -1;
+        }
+    }
+    if (visual.line_levels.size() != topology.active_unit_indices.size()) {
+        std::cerr << "active level cardinality mismatch at BidiCharacterTest line "
+                  << line_number << '\n';
+        return false;
+    }
+    for (std::size_t active = 0U; active < topology.active_unit_indices.size(); ++active) {
+        const std::uint32_t unit_index = topology.active_unit_indices[active];
+        if (unit_index >= units.size()) {
+            std::cerr << "active unit index overflow at BidiCharacterTest line "
+                      << line_number << '\n';
+            return false;
+        }
+        const std::uint32_t codepoint_index = units[unit_index].codepoint_index;
+        if (codepoint_index >= actual_levels.size()) {
+            std::cerr << "active codepoint index overflow at BidiCharacterTest line "
+                      << line_number << '\n';
+            return false;
+        }
+        actual_levels[codepoint_index] = static_cast<int>(visual.line_levels[active]);
+    }
+    for (std::size_t index = 0U; index < expected_levels.size(); ++index) {
+        if (actual_levels[index] != expected_levels[index]) {
+            std::cerr << "level mismatch at BidiCharacterTest line " << line_number
+                      << " index " << index << ": expected "
+                      << expected_levels[index] << " got " << actual_levels[index]
+                      << '\n';
+            return false;
+        }
+    }
+
+    if (visual.visual_to_active.size() != expected_order.size()) {
+        std::cerr << "reorder cardinality mismatch at BidiCharacterTest line "
+                  << line_number << ": expected " << expected_order.size()
+                  << " got " << visual.visual_to_active.size() << '\n';
+        return false;
+    }
+    for (std::size_t visual_index = 0U;
+         visual_index < visual.visual_to_active.size();
+         ++visual_index) {
+        const std::uint32_t active = visual.visual_to_active[visual_index];
+        if (active >= topology.active_unit_indices.size()) {
+            std::cerr << "visual active index overflow at BidiCharacterTest line "
+                      << line_number << '\n';
+            return false;
+        }
+        const std::uint32_t unit_index = topology.active_unit_indices[active];
+        if (unit_index >= units.size()) {
+            std::cerr << "visual unit index overflow at BidiCharacterTest line "
+                      << line_number << '\n';
+            return false;
+        }
+        const std::uint32_t actual = units[unit_index].codepoint_index;
+        if (actual != expected_order[visual_index]) {
+            std::cerr << "reorder mismatch at BidiCharacterTest line " << line_number
+                      << " visual index " << visual_index << ": expected "
+                      << expected_order[visual_index] << " got " << actual << '\n';
+            return false;
+        }
+    }
+
+    return explicit_ledger.within_hard_limits() &&
+           sequence_ledger.within_hard_limits() &&
+           weak_ledger.within_hard_limits() &&
+           neutral_ledger.within_hard_limits() &&
+           implicit_ledger.within_hard_limits() &&
+           visual_ledger.within_hard_limits() &&
+           explicit_ledger.accounting_clean() &&
+           sequence_ledger.accounting_clean() &&
+           weak_ledger.accounting_clean() &&
+           neutral_ledger.accounting_clean() &&
+           implicit_ledger.accounting_clean() &&
+           visual_ledger.accounting_clean();
+}
+
+int run_bidi_test(const char* path) {
+    std::ifstream input(path);
     if (!input) {
         std::cerr << "unable to open BidiTest data\n";
         return 2;
@@ -404,4 +670,191 @@ int main(int argc, char** argv) {
               << "\"rtl_cases\":" << rtl_cases << ','
               << "\"passed\":true}\n";
     return 0;
+}
+
+int run_bidi_character_test(const char* path) {
+    std::ifstream input(path);
+    if (!input) {
+        std::cerr << "unable to open BidiCharacterTest data\n";
+        return 2;
+    }
+
+    std::uint64_t cases = 0U;
+    std::uint64_t codepoints_checked = 0U;
+    std::uint64_t removed_levels_checked = 0U;
+    std::uint64_t ltr_cases = 0U;
+    std::uint64_t rtl_cases = 0U;
+    std::uint64_t auto_cases = 0U;
+    std::string raw;
+    std::size_t line_number = 0U;
+    while (std::getline(input, raw)) {
+        ++line_number;
+        const std::size_t comment = raw.find('#');
+        const std::string line = trim(raw.substr(0U, comment));
+        if (line.empty() || line.front() == '@') {
+            continue;
+        }
+
+        std::array<std::string, 5> fields;
+        std::size_t field = 0U;
+        std::size_t start = 0U;
+        while (field < fields.size()) {
+            const std::size_t separator = line.find(';', start);
+            if (separator == std::string::npos) {
+                fields[field++] = trim(line.substr(start));
+                break;
+            }
+            fields[field++] = trim(line.substr(start, separator - start));
+            start = separator + 1U;
+        }
+        if (field != fields.size() || line.find(';', start) != std::string::npos) {
+            std::cerr << "invalid BidiCharacterTest structure at line "
+                      << line_number << '\n';
+            return 2;
+        }
+
+        std::vector<DecodedCodePoint> codepoints;
+        std::istringstream codepoint_stream(fields[0]);
+        std::string token;
+        std::size_t codepoint_index = 0U;
+        try {
+            while (codepoint_stream >> token) {
+                const unsigned long parsed = std::stoul(token, nullptr, 16);
+                if (parsed > 0x10ffffUL ||
+                    (parsed >= 0xd800UL && parsed <= 0xdfffUL) ||
+                    codepoint_index >
+                        static_cast<std::size_t>(
+                            std::numeric_limits<std::uint32_t>::max())) {
+                    std::cerr << "invalid scalar at BidiCharacterTest line "
+                              << line_number << '\n';
+                    return 2;
+                }
+                codepoints.emplace_back(
+                    static_cast<std::uint32_t>(parsed),
+                    static_cast<std::uint64_t>(codepoint_index),
+                    static_cast<std::uint64_t>(codepoint_index + 1U),
+                    false);
+                ++codepoint_index;
+            }
+        } catch (...) {
+            std::cerr << "invalid scalar token at BidiCharacterTest line "
+                      << line_number << '\n';
+            return 2;
+        }
+        if (codepoints.empty()) {
+            std::cerr << "empty BidiCharacterTest case at line " << line_number << '\n';
+            return 2;
+        }
+
+        unsigned direction_value = 0U;
+        unsigned paragraph_value = 0U;
+        BidiParagraphDirection direction = BidiParagraphDirection::Left;
+        try {
+            direction_value = static_cast<unsigned>(std::stoul(fields[1]));
+            paragraph_value = static_cast<unsigned>(std::stoul(fields[2]));
+        } catch (...) {
+            std::cerr << "invalid paragraph metadata at BidiCharacterTest line "
+                      << line_number << '\n';
+            return 2;
+        }
+        if (!parse_character_direction(direction_value, &direction) ||
+            paragraph_value > 1U) {
+            std::cerr << "invalid paragraph direction/level at BidiCharacterTest line "
+                      << line_number << '\n';
+            return 2;
+        }
+
+        std::vector<int> expected_levels;
+        std::istringstream level_stream(fields[3]);
+        while (level_stream >> token) {
+            if (token == "x") {
+                expected_levels.push_back(-1);
+                ++removed_levels_checked;
+            } else {
+                try {
+                    expected_levels.push_back(std::stoi(token));
+                } catch (...) {
+                    std::cerr << "invalid resolved level at BidiCharacterTest line "
+                              << line_number << '\n';
+                    return 2;
+                }
+            }
+        }
+
+        std::vector<std::uint32_t> expected_order;
+        std::istringstream order_stream(fields[4]);
+        std::uint64_t order_index = 0U;
+        while (order_stream >> order_index) {
+            if (order_index > std::numeric_limits<std::uint32_t>::max()) {
+                std::cerr << "reorder index overflow at BidiCharacterTest line "
+                          << line_number << '\n';
+                return 2;
+            }
+            expected_order.push_back(static_cast<std::uint32_t>(order_index));
+        }
+
+        if (expected_levels.size() != codepoints.size()) {
+            std::cerr << "resolved level count mismatch at BidiCharacterTest line "
+                      << line_number << '\n';
+            return 2;
+        }
+        std::size_t active_expected = 0U;
+        for (const int level : expected_levels) {
+            active_expected += level >= 0 ? 1U : 0U;
+        }
+        if (expected_order.size() != active_expected) {
+            std::cerr << "reorder count mismatch at BidiCharacterTest line "
+                      << line_number << '\n';
+            return 2;
+        }
+
+        if (!run_character_case(
+                codepoints,
+                direction,
+                static_cast<std::uint8_t>(paragraph_value),
+                expected_levels,
+                expected_order,
+                line_number)) {
+            return 1;
+        }
+
+        ++cases;
+        codepoints_checked += static_cast<std::uint64_t>(codepoints.size());
+        ltr_cases += direction_value == 0U ? 1U : 0U;
+        rtl_cases += direction_value == 1U ? 1U : 0U;
+        auto_cases += direction_value == 2U ? 1U : 0U;
+    }
+
+    if (cases == 0U) {
+        std::cerr << "BidiCharacterTest contained no executable cases\n";
+        return 1;
+    }
+    std::cout << '{'
+              << "\"schema\":\"zevryon.bidi-character-conformance.v1\","
+              << "\"unicode_version\":\"17.0.0\","
+              << "\"uax_revision\":51,"
+              << "\"cases\":" << cases << ','
+              << "\"codepoints_checked\":" << codepoints_checked << ','
+              << "\"x9_removed_levels_checked\":" << removed_levels_checked << ','
+              << "\"ltr_cases\":" << ltr_cases << ','
+              << "\"rtl_cases\":" << rtl_cases << ','
+              << "\"auto_cases\":" << auto_cases << ','
+              << "\"pipeline\":\"X1-X8/X9/BD13-X10/W1-W7/N0-N2/I1-I2/L1-L3\","
+              << "\"passed\":true}\n";
+    return 0;
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    if (argc == 2) {
+        return run_bidi_test(argv[1]);
+    }
+    if (argc == 3 && std::string_view(argv[1]) == "--character-test") {
+        return run_bidi_character_test(argv[2]);
+    }
+    std::cerr
+        << "usage: zevryon-bidi-visual-conformance BidiTest.txt\n"
+        << "   or: zevryon-bidi-visual-conformance --character-test BidiCharacterTest.txt\n";
+    return 2;
 }
