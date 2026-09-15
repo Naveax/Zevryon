@@ -1,0 +1,46 @@
+name: Z7 WPT tree conformance
+
+on:
+  pull_request:
+    paths:
+      - 'src/html_tree_builder_v1*'
+      - 'tests/html_tree_builder_v1_tests.cpp'
+      - 'tests/html_tree_dump_v1_probe.cpp'
+      - 'scripts/z7_wpt_tree_*'
+      - 'config/z7_wpt_tree_corpus.json'
+      - 'tests/fixtures/wpt-tree-construction/**'
+      - 'cmake/html_tree_builder_v1.cmake'
+      - '.github/workflows/z7-wpt-tree-conformance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  configured-authority:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install focused build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build production tree probe
+        run: cmake --build build --parallel 2 --target zevryon-html-tree-dump-v1-probe
+      - name: Verify frozen corpus and runner self-test
+        run: |
+          python3 scripts/z7_wpt_tree_corpus_verify.py
+          python3 scripts/z7_wpt_tree_runner_v1.py --self-test
+      - name: Require exact configured tree authority
+        run: >-
+          python3 scripts/z7_wpt_tree_conformance_gate_v1.py
+          --probe build/zevryon-html-tree-dump-v1-probe
