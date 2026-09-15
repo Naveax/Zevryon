@@ -22,8 +22,21 @@ def test_repository_manifest_is_valid() -> None:
     assert result["ok"] is True
     assert result["milestone_count"] == 16
     assert result["active"] == ["Z1"]
-    assert result["status_counts"]["implemented"] == 1
+    assert result["status_counts"]["implemented"] == 2
     assert result["core_gates"]["source_read_bytes_max"] == 65_536
+
+    program = load_manifest()
+    z7 = program["milestones"][7]
+    assert z7["id"] == "Z7"
+    assert z7["status"] == "implemented"
+    assert z7["required_gates"] == [
+        "html_tokenizer_conformance",
+        "tree_builder_conformance",
+        "chunk_size_equivalence",
+        "parser_fuzzing",
+        "bounded_large_document_parse",
+    ]
+    assert len(z7["evidence"]) == 8
 
 
 def test_implemented_milestone_requires_evidence() -> None:
@@ -46,6 +59,8 @@ def test_dependency_cycle_is_rejected() -> None:
     program["milestones"][0]["status"] = "planned"
     program["milestones"][0]["evidence"] = []
     program["milestones"][1]["status"] = "planned"
+    program["milestones"][7]["status"] = "planned"
+    program["milestones"][7]["evidence"] = []
     program["milestones"][0]["dependencies"] = ["Z15"]
     with pytest.raises(ContractError, match="cycle"):
         validate_program(program)
