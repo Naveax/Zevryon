@@ -222,7 +222,7 @@ bool certify_bounded_rejection(const std::filesystem::path& root) {
     StreamingHtmlNodeSourceConfig config;
     config.input_window_bytes = kParserWindowBytes;
     config.maximum_token_bytes = 1024U * 1024U;
-    config.working_set_limit_bytes = 2U * 1024U * 1024U;
+    config.working_set_limit_bytes = 4U * 1024U * 1024U;
     StreamingHtmlNodeSourceV2Stats stats;
     if (!require(!produce_streaming_html_node_source_v2(
                      store, source, config, &stats, &error),
