@@ -2,11 +2,9 @@
 
 ## Status
 
-This is a real parser/import producer slice, not a claim that Z7 is implemented.
+This document records the original strict parser/import producer slice. It is historical component authority, not the final Z7 conformance surface.
 
-`config/zenith_program.json` keeps Z7 `planned` until the full required gate set exists: HTML tokenizer conformance, tree-builder conformance, chunk-size equivalence, parser fuzzing, and bounded large-document parsing.
-
-The purpose of this slice is narrower: connect authoritative native-store HTML bytes to the `ZVNSRC01` semantic-node source without inventing semantics from envelope counts.
+Z7 is now certified separately by the five required gates in `config/zenith_program.json`; see `docs/Z7_MILESTONE_CERTIFICATION.md`. The purpose of this slice remains narrower: connect authoritative native-store HTML bytes to the `ZVNSRC01` semantic-node source without inventing semantics from envelope counts.
 
 ## Production path
 
@@ -75,7 +73,7 @@ The strict profile rejects semantics that would otherwise be easy to misparse:
 - token, depth, or attribute budget violations;
 - final node-count disagreement with native-store metadata.
 
-The next Z7 slices should add proper tokenizer states and WHATWG tree-building behavior instead of weakening these rejections into silent approximations.
+Later Z7 authorities add tokenizer and tree-building behavior without weakening these historical strict-profile rejection guarantees.
 
 ## Current deterministic tests
 
@@ -94,12 +92,12 @@ The focused test target covers:
 - case-folded duplicate-attribute rejection;
 - `logical_nodes` envelope mismatch rejection.
 
-## Remaining Z7 / #145 boundary
+## Historical Z7 / #145 boundary
 
-This producer is meaningful progress toward issue #145 because actual HTML bytes now generate explicit semantic events. It still does not close #145:
+This producer was meaningful progress toward issue #145 because actual HTML bytes generated explicit semantic events. Its limitations remain component-local:
 
-- text nodes and complete browser-node semantics are not produced yet;
-- the full WHATWG tokenizer/tree builder is not implemented;
-- a bounded production layout/accessibility/browser consumer has not yet switched to `LogicalNodeArenaReader`.
+- this v1 source producer does not itself materialize the complete browser DOM surface;
+- later production tokenizer/tree-builder authorities carry the configured Z7 conformance claims;
+- bounded layout/accessibility/browser consumption belongs to downstream milestones such as Z8 and Z14.
 
-Likewise Z7 must remain `planned`; no milestone status or evidence claim is changed by this slice.
+The Z7 milestone status is governed by `config/zenith_program.json` and the frozen evidence in `docs/Z7_MILESTONE_CERTIFICATION.md`, not by this historical slice document.

@@ -17,3 +17,4 @@ if(BUILD_TESTING)
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/z7_wpt_tree_conformance.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/z7_parser_certification.cmake")

@@ -16,6 +16,7 @@ on:
       - 'config/z7_html5lib_tokenizer_full_corpus_census_v7.json'
       - 'config/z7_html5lib_tokenizer_full_corpus_census_v8.json'
       - 'config/z7_html5lib_tokenizer_full_corpus_census_v9.json'
+      - 'config/zenith_program.json'
       - 'tests/fixtures/html5lib-tokenizer/**'
       - 'docs/Z7_HTML5LIB_TOKENIZER_FULL_CORPUS_CENSUS_V1.md'
       - '.github/workflows/z7_html5lib_tokenizer_full_corpus_census_v1.yml'
@@ -30,6 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
 
       - name: Install focused build dependencies

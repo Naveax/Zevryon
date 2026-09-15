@@ -8,6 +8,7 @@ on:
       - 'tests/html_tree_dump_v1_probe.cpp'
       - 'scripts/z7_wpt_tree_*'
       - 'config/z7_wpt_tree_corpus.json'
+      - 'config/zenith_program.json'
       - 'tests/fixtures/wpt-tree-construction/**'
       - 'cmake/html_tree_builder_v1.cmake'
       - 'cmake/z7_wpt_tree_conformance.cmake'
