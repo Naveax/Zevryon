@@ -20,7 +20,7 @@
 ## Full-pipeline authority closure
 
 The existing `zevryon-bidi-visual-conformance` executable retains its historical
-bounded `BidiTest.txt` subset mode and now also supports:
+bounded `BidiTest.txt` subset mode and also supports:
 
 ```text
 zevryon-bidi-visual-conformance --character-test BidiCharacterTest.txt
@@ -45,8 +45,29 @@ all original-position levels including `x` entries removed by X9, and visual
 reorder indices mapped back to original code-point positions. Every allocation
 stage is executed behind an explicit `ResourceLedger` hard cap.
 
-The runner being present is not itself certification credit. Z1D remains active
-until the exact branch/head is compiled on the supported Windows/Linux contract
-and the pinned Unicode 17 `BidiCharacterTest.txt` corpus completes with zero
-mismatches. L4 mirroring remains separately covered because the Unicode
-character conformance file defines levels/order, not glyph substitution.
+## Normative L2/L3 boundary
+
+Unicode 17 `BidiCharacterTest.txt` defines its reorder field through rule L2
+inclusively. L3 and L4 are intentionally outside that corpus because they are
+rendering-dependent. Zevryon's production visual-order API deliberately applies
+L3 after L2, so comparing its final order directly to the corpus would create a
+false mismatch whenever a right-to-left combining sequence requires L3 repair.
+
+`scripts/z1_bidi_character_l3_adapter.py` bridges only that specified boundary:
+
+- the original Unicode 17 corpus remains byte-for-byte pinned by SHA-256;
+- every normative case remains in the denominator;
+- paragraph levels and resolved scalar levels are untouched;
+- only the normative L2 reorder field is advanced through the same L3 combining
+  sequence transformation exposed by the production visual-order surface;
+- Unicode 17 NSM classification comes from the repository's generated
+  `Bidi_Class` authority, not the host Python Unicode database;
+- no mismatch, character class, or test case is filtered or xfailed.
+
+L4 mirroring remains separately covered because the character conformance file
+defines levels/order, not glyph substitution.
+
+The runner and adapter being present are not themselves certification credit.
+Z1D remains active until the exact branch/head is compiled on the supported
+Windows/Linux contract and the full pinned Unicode 17 character corpus completes
+with zero mismatches.
