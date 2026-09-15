@@ -35,6 +35,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Install focused dependencies
         run: |
           sudo apt-get update
@@ -56,6 +59,7 @@ jobs:
           zevryon-glyph-atlas-submission-tests
           zevryon-glyph-atlas-equivalence-tests
           zevryon-shader-draw-packet-equivalence-tests
+          zevryon-cached-catalog-harfbuzz-shaping-benchmark
       - name: Font fallback correctness
         run: build/zevryon-font-catalog-fallback-tests
       - name: Glyph cluster roundtrip
@@ -64,5 +68,40 @@ jobs:
         run: |
           build/zevryon-glyph-atlas-submission-tests
           build/zevryon-glyph-atlas-equivalence-tests
+      - name: Visible cached shaping P95
+        run: |
+          build/zevryon-cached-catalog-harfbuzz-shaping-benchmark \
+            /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
+            > z2-visible-shaping.jsonl
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          reports = [json.loads(line) for line in Path('z2-visible-shaping.jsonl').read_text().splitlines() if line.strip()]
+          assert {r['mode'] for r in reports} == {
+              'plain_binding_call', 'direct_prepared_call', 'cached_prepared_call'
+          }
+          cached = next(r for r in reports if r['mode'] == 'cached_prepared_call')
+          direct = next(r for r in reports if r['mode'] == 'direct_prepared_call')
+          plain = next(r for r in reports if r['mode'] == 'plain_binding_call')
+          for report in reports:
+              assert report['accounting_clean'] is True
+              assert report['within_hard_limits'] is True
+              assert report['output_glyphs'] > 0
+              assert report['output_bytes'] > 0
+          semantic = ('input_utf8_bytes', 'input_codepoints', 'input_clusters', 'output_glyphs', 'output_bytes', 'total_x_advance', 'units_per_em', 'generation_id', 'face_id', 'resource_id')
+          for field in semantic:
+              assert cached[field] == direct[field] == plain[field], (field, cached[field], direct[field], plain[field])
+          assert cached['prepared'] is True and direct['prepared'] is True and plain['prepared'] is False
+          assert float(cached['p95_ms']) <= 1.50, cached
+          assert float(cached['p99_ms']) <= 2.50, cached
+          print(json.dumps({'gate': 'visible_shaping_p95', 'cached': cached}, indent=2, sort_keys=True))
+          PY
       - name: Pixel reference equivalence
         run: build/zevryon-shader-draw-packet-equivalence-tests
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-core-authorities-${{ github.event.pull_request.head.sha || github.sha }}
+          path: z2-visible-shaping.jsonl
+          if-no-files-found: warn
