@@ -15,3 +15,5 @@ if(BUILD_TESTING)
     NAME html-tree-builder-v1-tests
     COMMAND zevryon-html-tree-builder-v1-tests)
 endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/z7_wpt_tree_conformance.cmake")
