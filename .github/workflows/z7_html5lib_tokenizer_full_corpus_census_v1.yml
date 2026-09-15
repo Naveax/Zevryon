@@ -52,6 +52,7 @@ jobs:
         run: |
           python3 scripts/z7_html5lib_tokenizer_corpus_verify.py --self-test
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1.py --self-test
+          python3 scripts/z7_html5lib_tokenizer_applicability_v1.py --self-test
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v1_baseline.py --self-test
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v2_baseline.py --self-test
           python3 scripts/z7_html5lib_tokenizer_full_corpus_census_v3_baseline.py --self-test
@@ -90,3 +91,8 @@ jobs:
           assert report["z7_status_change"] is False, report
           print(json.dumps(report, indent=2, ensure_ascii=False, sort_keys=True))
           PY
+
+      - name: Bind exact native UTF-8 byte tokenizer conformance
+        run: >-
+          python3 scripts/z7_html5lib_tokenizer_byte_conformance_v1.py
+          --probe build/zevryon-html-tokenizer-token-stream-v1-probe
