@@ -1,0 +1,75 @@
+name: Z1 line break conformance
+
+on:
+  pull_request:
+    paths:
+      - 'src/line_break_*'
+      - 'src/unicode_line_break*'
+      - 'cmake/unicode_line_break.cmake'
+      - 'docs/Z1E_LINE_BREAK_GATE.md'
+      - '.github/workflows/z1-line-break-conformance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-authority:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install focused build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build line-break authority
+        run: cmake --build build --parallel 2 --target zevryon-line-break-conformance zevryon-line-break-opportunity-tests
+      - name: Run focused production tests
+        run: ctest --test-dir build --output-on-failure -R '^line-break-opportunity-tests$'
+      - name: Fetch and verify Unicode 17 corpus
+        run: |
+          curl --fail --location --retry 3 --output LineBreakTest.txt https://www.unicode.org/Public/17.0.0/ucd/auxiliary/LineBreakTest.txt
+          echo 'e69884e0dde6a8724873f885d68c52dc14518abf9ae4ca9e2283b8773db3b752  LineBreakTest.txt' | sha256sum --check --strict
+          head -n 1 LineBreakTest.txt | grep -F '# LineBreakTest-17.0.0.txt'
+      - name: Execute Unicode line-break authority
+        run: build/zevryon-line-break-conformance LineBreakTest.txt
+
+  windows-authority:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Configure
+        shell: pwsh
+        run: >-
+          cmake -S . -B build -A x64
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build line-break authority
+        shell: pwsh
+        run: cmake --build build --config Release --target zevryon-line-break-conformance zevryon-line-break-opportunity-tests --parallel 2
+      - name: Run focused production tests
+        shell: pwsh
+        run: ctest --test-dir build -C Release --output-on-failure -R '^line-break-opportunity-tests$'
+      - name: Fetch and verify Unicode 17 corpus
+        shell: pwsh
+        run: |
+          curl.exe --fail --location --retry 3 --output LineBreakTest.txt https://www.unicode.org/Public/17.0.0/ucd/auxiliary/LineBreakTest.txt
+          $hash = (Get-FileHash LineBreakTest.txt -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne 'e69884e0dde6a8724873f885d68c52dc14518abf9ae4ca9e2283b8773db3b752') { throw "LineBreakTest SHA-256 drifted: $hash" }
+          $first = Get-Content LineBreakTest.txt -TotalCount 1
+          if ($first -ne '# LineBreakTest-17.0.0.txt') { throw "Unicode corpus header drifted: $first" }
+      - name: Execute Unicode line-break authority
+        shell: pwsh
+        run: .\build\Release\zevryon-line-break-conformance.exe LineBreakTest.txt
