@@ -9,6 +9,9 @@ on:
       - 'src/streaming_html_node_source_v2.hpp'
       - 'src/logical_node_source_v2.cpp'
       - 'src/logical_node_source_v2.hpp'
+      - 'cmake/html_tree_builder_v1.cmake'
+      - 'cmake/z7_parser_certification.cmake'
+      - 'config/zenith_program.json'
       - '.github/workflows/z7-parser-certification.yml'
   workflow_dispatch:
 
@@ -20,24 +23,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
-      - name: Attach fuzz certification target
-        shell: bash
-        run: |
-          cat >> cmake/logical_node_arena.cmake <<'EOF'
-          if(BUILD_TESTING)
-            add_executable(
-              zevryon-streaming-html-parser-fuzz-certification-tests
-              tests/streaming_html_parser_fuzz_certification_tests.cpp)
-            target_link_libraries(
-              zevryon-streaming-html-parser-fuzz-certification-tests
-              PRIVATE zevryon-massivedoc-core)
-            zevryon_options(zevryon-streaming-html-parser-fuzz-certification-tests)
-          endif()
-          EOF
       - name: Configure sanitizer authority
         run: >-
           cmake -S . -B build-z7-fuzz -G Ninja
@@ -59,24 +50,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
-      - name: Attach large-document certification target
-        shell: bash
-        run: |
-          cat >> cmake/logical_node_arena.cmake <<'EOF'
-          if(BUILD_TESTING)
-            add_executable(
-              zevryon-streaming-html-large-document-certification-tests
-              tests/streaming_html_large_document_certification_tests.cpp)
-            target_link_libraries(
-              zevryon-streaming-html-large-document-certification-tests
-              PRIVATE zevryon-massivedoc-core)
-            zevryon_options(zevryon-streaming-html-large-document-certification-tests)
-          endif()
-          EOF
       - name: Configure release authority
         run: >-
           cmake -S . -B build-z7-large -G Ninja
