@@ -36,8 +36,9 @@ jobs:
         run: |
           curl --fail --location --retry 3 --output BidiCharacterTest.txt https://www.unicode.org/Public/17.0.0/ucd/BidiCharacterTest.txt
           head -n 1 BidiCharacterTest.txt | grep -F '# BidiCharacterTest-17.0.0.txt'
+          echo 'a3e6e905ab5afbe318a96df5401d0372a04cd73ef139ab5e3cf0ae241c255488  BidiCharacterTest.txt' | sha256sum --check --strict
           test "$(wc -c < BidiCharacterTest.txt)" -gt 6000000
-          sha256sum BidiCharacterTest.txt
+          sed -n '87p' BidiCharacterTest.txt
       - name: Execute full character authority
         run: build/zevryon-bidi-visual-conformance --character-test BidiCharacterTest.txt
 
@@ -64,7 +65,9 @@ jobs:
           $first = Get-Content BidiCharacterTest.txt -TotalCount 1
           if ($first -ne '# BidiCharacterTest-17.0.0.txt') { throw "Unicode corpus header drifted: $first" }
           if ((Get-Item BidiCharacterTest.txt).Length -le 6000000) { throw 'Unicode character corpus truncated' }
-          Get-FileHash BidiCharacterTest.txt -Algorithm SHA256
+          $hash = (Get-FileHash BidiCharacterTest.txt -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne 'a3e6e905ab5afbe318a96df5401d0372a04cd73ef139ab5e3cf0ae241c255488') { throw "BidiCharacterTest SHA-256 drifted: $hash" }
+          (Get-Content BidiCharacterTest.txt)[86]
       - name: Execute full character authority
         shell: pwsh
         run: .\build\Release\zevryon-bidi-visual-conformance.exe --character-test BidiCharacterTest.txt
