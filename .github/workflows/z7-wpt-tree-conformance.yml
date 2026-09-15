@@ -10,6 +10,7 @@ on:
       - 'config/z7_wpt_tree_corpus.json'
       - 'tests/fixtures/wpt-tree-construction/**'
       - 'cmake/html_tree_builder_v1.cmake'
+      - 'cmake/z7_wpt_tree_conformance.cmake'
       - '.github/workflows/z7-wpt-tree-conformance.yml'
   workflow_dispatch:
 
@@ -44,3 +45,8 @@ jobs:
         run: >-
           python3 scripts/z7_wpt_tree_conformance_gate_v1.py
           --probe build/zevryon-html-tree-dump-v1-probe
+      - name: Verify registered CTest conformance gate
+        run: >-
+          ctest --test-dir build
+          -R '^z7-wpt-tree-conformance-v1$'
+          --output-on-failure
