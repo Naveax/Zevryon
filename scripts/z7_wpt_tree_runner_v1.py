@@ -181,13 +181,20 @@ def execute_probe(probe: Path, case: TreeCase, scripting: bool) -> tuple[str, st
     return "ok", "", tree, capabilities
 
 
+def expected_tree_has_text(case: TreeCase) -> bool:
+    return any(
+        line.startswith("|") and line[1:].lstrip().startswith('"')
+        for line in case.document
+    )
+
+
 def known_capability_boundary(case: TreeCase, capabilities: dict[str, bool]) -> str | None:
     if case.fragment_context is not None and not capabilities.get("fragments", False):
         return "document-fragment-context-not-exposed"
     # The pinned browser WPT wrapper deliberately ignores #errors/#new-errors and
     # asserts only the serialized tree. Preserve those records as fixture metadata
     # without manufacturing a non-browser conformance requirement.
-    if any(line.lstrip().startswith('| "') for line in case.document) and not capabilities.get("text-nodes", False):
+    if expected_tree_has_text(case) and not capabilities.get("text-nodes", False):
         return "text-node-materialization-not-exposed"
     if any("<!--" in line for line in case.document) and not capabilities.get("comments", False):
         return "comment-node-materialization-not-exposed"
@@ -314,6 +321,7 @@ def self_test(manifest_path: Path) -> dict[str, Any]:
     tree, caps = parse_probe_output(synthetic, False)
     require(tree == ("| <html>",), "self-test probe tree decode drifted")
     require(caps.get("parse-errors") is False, "self-test capability decode drifted")
+    require(expected_tree_has_text(cases[0]), "self-test first fixture must exercise text nodes")
     require(known_capability_boundary(cases[0], caps) == "text-node-materialization-not-exposed",
             "self-test tree capability boundary drifted")
     browser_caps = {
