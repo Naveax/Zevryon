@@ -1,0 +1,116 @@
+name: Z1 core seek regression
+
+on:
+  pull_request:
+    paths:
+      - 'src/massivedoc_*'
+      - 'src/layout_*'
+      - 'src/zenith_hot*'
+      - 'scripts/massivedoc_benchmark.py'
+      - 'scripts/zenith_global_benchmark.py'
+      - 'scripts/zenith_hot_scroll_benchmark.py'
+      - 'docs/Z1_CORE_SEEK_REGRESSION_GATE.md'
+      - '.github/workflows/z1-core-seek-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core-seek-authority:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev fonts-dejavu-core fonts-noto-core
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build production seek authority
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-massivedoc
+          zevryon-zenith-layout
+          zevryon-zenith-hot
+          zevryon-zenith-hot-tests
+      - name: Run focused hot-scroll tests
+        run: ctest --test-dir build --output-on-failure -R '^zenith-hot-scroll-tests$'
+      - name: Build 128 MiB corpus with a real 64 MiB record
+        run: >-
+          python3 scripts/massivedoc_benchmark.py
+          --logical-bytes 134217728
+          --records 131072
+          --segment-mib 16
+          --largest-record-limit-bytes 67108864
+          --giant-record-bytes 67108864
+          --work-dir "${{ runner.temp }}/z1-core-seek"
+          --output evidence/z1/core-seek-corpus.json
+      - name: Certify baseline global layout
+        run: >-
+          python3 scripts/zenith_global_benchmark.py
+          --binary build/zevryon-zenith-layout
+          --store "${{ runner.temp }}/z1-core-seek/store"
+          --layout-report "${{ runner.temp }}/z1-core-seek/layout-window-report.json"
+          --expected-record 65536
+          --output evidence/z1/core-seek-global.json
+      - name: Execute strict core seek gate
+        run: >-
+          python3 scripts/zenith_hot_scroll_benchmark.py
+          --massivedoc-binary build/zevryon-massivedoc
+          --hot-binary build/zevryon-zenith-hot
+          --store "${{ runner.temp }}/z1-core-seek/store"
+          --layout-report "${{ runner.temp }}/z1-core-seek/layout-window-report.json"
+          --expected-record 65536
+          --queries 257
+          --stride-kib 16
+          --random-p95-ms 0.50
+          --adjacent-p95-ms 0.30
+          --max-source-bytes 65536
+          --minimum-adjacent-zero-read-ratio 0.95
+          --maximum-index-overhead-ratio 0.002
+          --output evidence/z1/core-seek.json
+      - name: Enforce Z1 P99 and immutable core gates
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('evidence/z1/core-seek.json').read_text())
+          hot = report['hot_scroll']['result']
+          random = hot['random']
+          adjacent = hot['adjacent']
+          assert float(random['p95_ms']) <= 0.50, random
+          assert float(random['p99_ms']) <= 0.75, random
+          assert float(adjacent['p95_ms']) <= 0.30, adjacent
+          assert int(random['maximum_source_bytes_read']) <= 65536, random
+          assert int(adjacent['maximum_source_bytes_read']) <= 65536, adjacent
+          assert float(report['checkpoint_index_overhead_ratio']) <= 0.002, report
+          assert report['bounded_checkpoint_cache'] is True
+          assert report['bounded_source_window_cache'] is True
+          assert report['zero_payload_data_loss'] is True
+          assert report['verify_after_hot_scroll']['result']['ok'] is True
+          print(json.dumps({
+              'random_p95_ms': random['p95_ms'],
+              'random_p99_ms': random['p99_ms'],
+              'adjacent_p95_ms': adjacent['p95_ms'],
+              'random_max_source_bytes': random['maximum_source_bytes_read'],
+              'adjacent_max_source_bytes': adjacent['maximum_source_bytes_read'],
+              'checkpoint_index_overhead_ratio': report['checkpoint_index_overhead_ratio'],
+              'passed': True,
+          }, indent=2, sort_keys=True))
+          PY
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: z1-core-seek-${{ github.event.pull_request.head.sha || github.sha }}
+          path: evidence/z1
+          if-no-files-found: warn
