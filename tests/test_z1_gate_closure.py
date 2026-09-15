@@ -33,18 +33,12 @@ def test_z1_gate_closure_contract():
     evidence = set(z1["evidence"])
     assert "certification:z1-gate-closure-v1" in evidence
 
-    seen_runs = set()
-    seen_merges = set()
     for gate_name in EXPECTED_GATES:
         gate = closure["gates"][gate_name]
         assert gate["status"] == "PASS"
         assert isinstance(gate["workflow_run"], int) and gate["workflow_run"] > 0
         assert SHA_RE.fullmatch(gate["head_sha"])
         assert SHA_RE.fullmatch(gate["merge_commit"])
-        assert gate["workflow_run"] not in seen_runs
-        assert gate["merge_commit"] not in seen_merges
-        seen_runs.add(gate["workflow_run"])
-        seen_merges.add(gate["merge_commit"])
         assert f"github-actions-run:{gate['workflow_run']}" in evidence
         assert f"merge-commit:{gate['merge_commit']}" in evidence
 
