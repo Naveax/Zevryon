@@ -36,7 +36,7 @@
     {
       "id": "Z1",
       "name": "Unicode text substrate",
-      "status": "active",
+      "status": "implemented",
       "dependencies": [
         "Z0"
       ],
@@ -47,7 +47,17 @@
         "line_break_conformance",
         "core_seek_regression_gate"
       ],
-      "evidence": []
+      "evidence": [
+        "certification:z1-gate-closure-v1",
+        "github-actions-run:34985054927",
+        "merge-commit:c7f52d8450b5bf83800e45ca174a01c4327e7139",
+        "github-actions-run:34989194411",
+        "merge-commit:5a2204f27d1e5f7b2fa67f453c5a186ab898d5f9",
+        "github-actions-run:34984275998",
+        "merge-commit:a4b8ae7662c51687be0a7896160413ddad6c567e",
+        "github-actions-run:34986174221",
+        "merge-commit:94896ef5af398c4f9407e06ceabbda3c75f4a07d"
+      ]
     },
     {
       "id": "Z2",
