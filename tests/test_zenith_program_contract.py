@@ -62,7 +62,7 @@ def test_active_milestone_cannot_skip_dependency() -> None:
     program = load_manifest()
     program["milestones"][0]["status"] = "planned"
     program["milestones"][0]["evidence"] = []
-    with pytest.raises(ContractError, match="dependencies are implemented"):
+    with pytest.raises(ContractError, match="unimplemented dependency"):
         validate_program(program)
 
 
