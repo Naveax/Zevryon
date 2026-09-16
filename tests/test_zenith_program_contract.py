@@ -22,7 +22,7 @@ def test_repository_manifest_is_valid() -> None:
     assert result["ok"] is True
     assert result["milestone_count"] == 16
     assert result["active"] == []
-    assert result["status_counts"]["implemented"] == 4
+    assert result["status_counts"]["implemented"] == 5
     assert result["core_gates"]["source_read_bytes_max"] == 65_536
 
     program = load_manifest()
@@ -37,6 +37,23 @@ def test_repository_manifest_is_valid() -> None:
         "core_seek_regression_gate",
     ]
     assert "certification:z1-gate-closure-v1" in z1["evidence"]
+
+    z2 = program["milestones"][2]
+    assert z2["id"] == "Z2"
+    assert z2["status"] == "implemented"
+    assert z2["dependencies"] == ["Z1"]
+    assert z2["required_gates"] == [
+        "font_fallback_correctness",
+        "glyph_cluster_roundtrip",
+        "bounded_glyph_cache",
+        "visible_shaping_p95",
+        "pixel_reference_tests",
+    ]
+    assert z2["evidence"] == [
+        "certification:z2-gate-closure-v1",
+        "github-actions-run:35079429233",
+        "merge-commit:036e939109800dcf19088ccac9145222e2a77e0b",
+    ]
 
     z7 = program["milestones"][7]
     assert z7["id"] == "Z7"
@@ -86,6 +103,8 @@ def test_dependency_cycle_is_rejected() -> None:
     program["milestones"][0]["evidence"] = []
     program["milestones"][1]["status"] = "planned"
     program["milestones"][1]["evidence"] = []
+    program["milestones"][2]["status"] = "planned"
+    program["milestones"][2]["evidence"] = []
     program["milestones"][7]["status"] = "planned"
     program["milestones"][7]["evidence"] = []
     program["milestones"][8]["status"] = "planned"
