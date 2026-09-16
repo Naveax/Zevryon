@@ -21,11 +21,23 @@ def test_repository_manifest_is_valid() -> None:
     result = load_and_validate(MANIFEST)
     assert result["ok"] is True
     assert result["milestone_count"] == 16
-    assert result["active"] == ["Z1"]
-    assert result["status_counts"]["implemented"] == 2
+    assert result["active"] == []
+    assert result["status_counts"]["implemented"] == 3
     assert result["core_gates"]["source_read_bytes_max"] == 65_536
 
     program = load_manifest()
+    z1 = program["milestones"][1]
+    assert z1["id"] == "Z1"
+    assert z1["status"] == "implemented"
+    assert z1["required_gates"] == [
+        "streaming_utf8_chunk_equivalence",
+        "grapheme_segmentation_conformance",
+        "bidi_run_conformance",
+        "line_break_conformance",
+        "core_seek_regression_gate",
+    ]
+    assert "certification:z1-gate-closure-v1" in z1["evidence"]
+
     z7 = program["milestones"][7]
     assert z7["id"] == "Z7"
     assert z7["status"] == "implemented"
@@ -50,7 +62,7 @@ def test_active_milestone_cannot_skip_dependency() -> None:
     program = load_manifest()
     program["milestones"][0]["status"] = "planned"
     program["milestones"][0]["evidence"] = []
-    with pytest.raises(ContractError, match="dependencies are implemented"):
+    with pytest.raises(ContractError, match="unimplemented dependency"):
         validate_program(program)
 
 
@@ -59,6 +71,7 @@ def test_dependency_cycle_is_rejected() -> None:
     program["milestones"][0]["status"] = "planned"
     program["milestones"][0]["evidence"] = []
     program["milestones"][1]["status"] = "planned"
+    program["milestones"][1]["evidence"] = []
     program["milestones"][7]["status"] = "planned"
     program["milestones"][7]["evidence"] = []
     program["milestones"][0]["dependencies"] = ["Z15"]
