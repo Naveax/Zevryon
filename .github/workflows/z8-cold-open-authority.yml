@@ -1,0 +1,132 @@
+name: Z8 cold DOM open authority
+
+on:
+  pull_request:
+    paths:
+      - 'src/logical_node_arena*'
+      - 'src/logical_node_v2_import*'
+      - 'src/zenith_semantic_node_window*'
+      - 'src/zenith_semantic_runtime_consumer*'
+      - 'tests/logical_node_arena_v2_tests.cpp'
+      - 'tests/logical_node_v2_import_tests.cpp'
+      - 'tests/zenith_semantic_node_window_tests.cpp'
+      - 'tests/zenith_semantic_runtime_consumer_tests.cpp'
+      - 'tests/z8_million_node_open_tests.cpp'
+      - 'tests/test_z8_cold_open_scope.py'
+      - 'certification/z8_cold_open_scope.json'
+      - 'cmake/logical_node_arena.cmake'
+      - '.github/workflows/z8-cold-open-authority.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: z8-cold-dom-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-authority:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install focused build dependency
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+      - name: Register focused million-node authority target
+        shell: bash
+        run: |
+          cat >> cmake/logical_node_arena.cmake <<'CMAKE'
+          if(BUILD_TESTING)
+            add_executable(
+              zevryon-z8-million-node-open-tests
+              tests/z8_million_node_open_tests.cpp)
+            target_link_libraries(
+              zevryon-z8-million-node-open-tests
+              PRIVATE zevryon-massivedoc-core)
+            zevryon_options(zevryon-z8-million-node-open-tests)
+          endif()
+          CMAKE
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build focused Z8 authorities
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-logical-node-arena-v2-tests
+          zevryon-logical-node-v2-import-tests
+          zevryon-zenith-semantic-node-window-tests
+          zevryon-zenith-semantic-runtime-consumer-tests
+          zevryon-z8-million-node-open-tests
+      - name: Stable node identity and source binding
+        run: |
+          build/zevryon-logical-node-arena-v2-tests
+          build/zevryon-logical-node-v2-import-tests
+      - name: Lazy bounded semantic projection
+        run: |
+          build/zevryon-zenith-semantic-node-window-tests
+          build/zevryon-zenith-semantic-runtime-consumer-tests
+      - name: Million-node cold-open and byte budget
+        run: build/zevryon-z8-million-node-open-tests
+      - name: Frozen scope contract
+        run: python3 tests/test_z8_cold_open_scope.py
+
+  windows-authority:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Register focused million-node authority target
+        shell: pwsh
+        run: |
+          @'
+          if(BUILD_TESTING)
+            add_executable(
+              zevryon-z8-million-node-open-tests
+              tests/z8_million_node_open_tests.cpp)
+            target_link_libraries(
+              zevryon-z8-million-node-open-tests
+              PRIVATE zevryon-massivedoc-core)
+            zevryon_options(zevryon-z8-million-node-open-tests)
+          endif()
+          '@ | Add-Content cmake/logical_node_arena.cmake
+      - name: Configure
+        shell: pwsh
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build focused Z8 authorities
+        shell: pwsh
+        run: >-
+          cmake --build build --config Release --parallel 2 --target
+          zevryon-logical-node-arena-v2-tests
+          zevryon-logical-node-v2-import-tests
+          zevryon-zenith-semantic-node-window-tests
+          zevryon-zenith-semantic-runtime-consumer-tests
+          zevryon-z8-million-node-open-tests
+      - name: Stable node identity and source binding
+        shell: pwsh
+        run: |
+          build/Release/zevryon-logical-node-arena-v2-tests.exe
+          build/Release/zevryon-logical-node-v2-import-tests.exe
+      - name: Lazy bounded semantic projection
+        shell: pwsh
+        run: |
+          build/Release/zevryon-zenith-semantic-node-window-tests.exe
+          build/Release/zevryon-zenith-semantic-runtime-consumer-tests.exe
+      - name: Million-node cold-open and byte budget
+        shell: pwsh
+        run: build/Release/zevryon-z8-million-node-open-tests.exe
+      - name: Frozen scope contract
+        shell: pwsh
+        run: python tests/test_z8_cold_open_scope.py
