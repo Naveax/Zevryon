@@ -1,0 +1,20 @@
+{
+  "schema": "zevryon.z2-core-authority-scope.v1",
+  "milestone": "Z2",
+  "status_change": false,
+  "admitted_gates": [
+    "font_fallback_correctness",
+    "glyph_cluster_roundtrip",
+    "bounded_glyph_cache",
+    "visible_shaping_p95",
+    "pixel_reference_tests"
+  ],
+  "visible_shaping": {
+    "production_path": "cache-backed prepared HarfBuzz catalog shaping",
+    "p95_ms_max": 1.5,
+    "p99_ms_max": 2.5,
+    "requires_semantic_equivalence_with_plain_and_direct_prepared_paths": true
+  },
+  "pixel_reference_surface": "shader draw packet equivalence oracle",
+  "full_browser_text_stack_claim": false
+}
