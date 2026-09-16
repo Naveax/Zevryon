@@ -23,6 +23,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install validator dependency
+        run: python -m pip install --disable-pip-version-check pytest==8.3.5
       - name: Validate Z1 gate closure and program contract
         run: >-
           python -m pytest -q
@@ -40,6 +42,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install validator dependency
+        shell: pwsh
+        run: python -m pip install --disable-pip-version-check pytest==8.3.5
       - name: Validate Z1 gate closure and program contract
         shell: pwsh
         run: >-
