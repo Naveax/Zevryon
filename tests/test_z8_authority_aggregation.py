@@ -8,15 +8,17 @@ ROOT = Path(__file__).resolve().parents[1]
 PROGRAM = ROOT / "config" / "zenith_program.json"
 COLD = ROOT / "certification" / "z8_cold_open_scope.json"
 TRAVERSAL = ROOT / "certification" / "z8_dom_traversal_scope.json"
+CLOSURE = ROOT / "certification" / "z8_gate_closure.json"
 
 
-def test_z8_authorities_cover_exact_program_gates_without_promotion() -> None:
+def test_z8_authorities_cover_exact_program_gates_after_promotion() -> None:
     program = json.loads(PROGRAM.read_text(encoding="utf-8"))
     cold = json.loads(COLD.read_text(encoding="utf-8"))
     traversal = json.loads(TRAVERSAL.read_text(encoding="utf-8"))
+    closure = json.loads(CLOSURE.read_text(encoding="utf-8"))
 
     z8 = next(item for item in program["milestones"] if item["id"] == "Z8")
-    assert z8["status"] == "planned"
+    assert z8["status"] == "implemented"
     assert z8["dependencies"] == ["Z7"]
     assert z8["required_gates"] == [
         "stable_node_identity",
@@ -37,7 +39,11 @@ def test_z8_authorities_cover_exact_program_gates_without_promotion() -> None:
     assert traversal["webidl_dom_claim"] is False
     assert traversal["javascript_wrapper_claim"] is False
 
+    assert closure["all_required_gates_passed"] is True
+    assert list(closure["gates"]) == z8["required_gates"]
+    assert "certification:z8-gate-closure-v1" in z8["evidence"]
+
 
 if __name__ == "__main__":
-    test_z8_authorities_cover_exact_program_gates_without_promotion()
-    print("Z8 authority aggregation contract passed")
+    test_z8_authorities_cover_exact_program_gates_after_promotion()
+    print("Z8 authority aggregation and promotion contract passed")

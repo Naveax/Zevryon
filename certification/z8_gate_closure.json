@@ -1,0 +1,44 @@
+{
+  "schema": "zevryon.z8-gate-closure.v1",
+  "milestone": "Z8",
+  "status": "implemented",
+  "scope": "logical-dom-hot-projection",
+  "all_required_gates_passed": true,
+  "gates": {
+    "stable_node_identity": {
+      "status": "PASS",
+      "workflow_run": 35083523834,
+      "head_sha": "49306ffccf95aa8a6fc42e6c1eedf6972f340676",
+      "merge_commit": "e15dd42fed72b05728aaa680c2f39e9086821dbe",
+      "authority": "z8-cold-open-scope-v1"
+    },
+    "cold_node_byte_budget": {
+      "status": "PASS",
+      "workflow_run": 35083523834,
+      "head_sha": "49306ffccf95aa8a6fc42e6c1eedf6972f340676",
+      "merge_commit": "e15dd42fed72b05728aaa680c2f39e9086821dbe",
+      "authority": "z8-cold-open-scope-v1"
+    },
+    "lazy_wrapper_projection": {
+      "status": "PASS",
+      "workflow_run": 35083523834,
+      "head_sha": "49306ffccf95aa8a6fc42e6c1eedf6972f340676",
+      "merge_commit": "e15dd42fed72b05728aaa680c2f39e9086821dbe",
+      "authority": "z8-cold-open-scope-v1"
+    },
+    "dom_traversal_conformance": {
+      "status": "PASS",
+      "workflow_run": 35109724227,
+      "head_sha": "8fd7f27fe2d5df83db374b47c39ada18b0501815",
+      "merge_commit": "8288cd421157f07e8f4a12b6f14d1d223e54d2bd",
+      "authority": "z8-dom-traversal-scope-v1"
+    },
+    "bounded_million_node_open": {
+      "status": "PASS",
+      "workflow_run": 35083523834,
+      "head_sha": "49306ffccf95aa8a6fc42e6c1eedf6972f340676",
+      "merge_commit": "e15dd42fed72b05728aaa680c2f39e9086821dbe",
+      "authority": "z8-cold-open-scope-v1"
+    }
+  }
+}
