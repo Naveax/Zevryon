@@ -1,0 +1,26 @@
+{
+  "schema": "zevryon.z8-cold-open-scope.v1",
+  "milestone": "Z8",
+  "status_change": false,
+  "admitted_gates": [
+    "stable_node_identity",
+    "cold_node_byte_budget",
+    "lazy_wrapper_projection",
+    "bounded_million_node_open"
+  ],
+  "remaining_gates": [
+    "dom_traversal_conformance"
+  ],
+  "million_node_fixture": {
+    "node_count": 1000000,
+    "cold_sidecar_bytes_per_node_max": 97,
+    "cold_open_ms_max": 2000,
+    "tail_lookup_ms_max": 2000
+  },
+  "platforms": [
+    "ubuntu-24.04",
+    "windows-2022"
+  ],
+  "tree_scope": "production logical-node arena reader plus store-bound v2 identity and bounded semantic projection",
+  "full_dom_conformance_claim": false
+}
