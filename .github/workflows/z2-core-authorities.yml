@@ -18,6 +18,8 @@ on:
       - 'tests/glyph_atlas_submission_tests.cpp'
       - 'tests/glyph_atlas_equivalence_tests.cpp'
       - 'tests/shader_draw_packet_equivalence_tests.cpp'
+      - 'tests/test_z2_core_authority_scope.py'
+      - 'certification/z2_core_authority_scope.json'
       - 'cmake/harfbuzz_shaping.cmake'
       - 'cmake/glyph_atlas_submission.cmake'
       - 'cmake/shader_draw_packet.cmake'
@@ -99,6 +101,8 @@ jobs:
           PY
       - name: Pixel reference equivalence
         run: build/zevryon-shader-draw-packet-equivalence-tests
+      - name: Frozen Z2 authority scope
+        run: python3 tests/test_z2_core_authority_scope.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
