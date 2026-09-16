@@ -170,7 +170,7 @@
     {
       "id": "Z8",
       "name": "Logical DOM and hot projection",
-      "status": "planned",
+      "status": "implemented",
       "dependencies": [
         "Z7"
       ],
@@ -181,7 +181,13 @@
         "dom_traversal_conformance",
         "bounded_million_node_open"
       ],
-      "evidence": []
+      "evidence": [
+        "certification:z8-gate-closure-v1",
+        "github-actions-run:35083523834",
+        "merge-commit:e15dd42fed72b05728aaa680c2f39e9086821dbe",
+        "github-actions-run:35109724227",
+        "merge-commit:8288cd421157f07e8f4a12b6f14d1d223e54d2bd"
+      ]
     },
     {
       "id": "Z9",

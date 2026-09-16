@@ -22,7 +22,7 @@ def test_repository_manifest_is_valid() -> None:
     assert result["ok"] is True
     assert result["milestone_count"] == 16
     assert result["active"] == []
-    assert result["status_counts"]["implemented"] == 3
+    assert result["status_counts"]["implemented"] == 4
     assert result["core_gates"]["source_read_bytes_max"] == 65_536
 
     program = load_manifest()
@@ -50,6 +50,20 @@ def test_repository_manifest_is_valid() -> None:
     ]
     assert len(z7["evidence"]) == 8
 
+    z8 = program["milestones"][8]
+    assert z8["id"] == "Z8"
+    assert z8["status"] == "implemented"
+    assert z8["dependencies"] == ["Z7"]
+    assert z8["required_gates"] == [
+        "stable_node_identity",
+        "cold_node_byte_budget",
+        "lazy_wrapper_projection",
+        "dom_traversal_conformance",
+        "bounded_million_node_open",
+    ]
+    assert z8["evidence"][0] == "certification:z8-gate-closure-v1"
+    assert len(z8["evidence"]) == 5
+
 
 def test_implemented_milestone_requires_evidence() -> None:
     program = load_manifest()
@@ -74,6 +88,8 @@ def test_dependency_cycle_is_rejected() -> None:
     program["milestones"][1]["evidence"] = []
     program["milestones"][7]["status"] = "planned"
     program["milestones"][7]["evidence"] = []
+    program["milestones"][8]["status"] = "planned"
+    program["milestones"][8]["evidence"] = []
     program["milestones"][0]["dependencies"] = ["Z15"]
     with pytest.raises(ContractError, match="cycle"):
         validate_program(program)
