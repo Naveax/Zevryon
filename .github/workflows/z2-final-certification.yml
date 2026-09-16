@@ -1,0 +1,70 @@
+name: Z2 final certification
+
+on:
+  pull_request:
+    paths:
+      - 'config/zenith_program.json'
+      - 'certification/z2_core_authority_scope.json'
+      - 'certification/z2_gate_closure.json'
+      - 'tests/test_z2_core_authority_scope.py'
+      - 'tests/test_z2_gate_closure.py'
+      - 'tests/test_zenith_program_contract.py'
+      - '.github/workflows/z2-final-certification.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: z2-final-certification-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  closure-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install validator dependency
+        run: python -m pip install --disable-pip-version-check pytest==8.3.5
+      - name: Validate Z2 closure and program contract
+        run: >-
+          python -m pytest -q
+          tests/test_z2_core_authority_scope.py
+          tests/test_z2_gate_closure.py
+          tests/test_zenith_program_contract.py
+      - name: Validate closure JSON syntax
+        run: |
+          python -m json.tool certification/z2_core_authority_scope.json > /dev/null
+          python -m json.tool certification/z2_gate_closure.json > /dev/null
+
+  closure-windows:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install validator dependency
+        shell: pwsh
+        run: python -m pip install --disable-pip-version-check pytest==8.3.5
+      - name: Validate Z2 closure and program contract
+        shell: pwsh
+        run: >-
+          python -m pytest -q
+          tests/test_z2_core_authority_scope.py
+          tests/test_z2_gate_closure.py
+          tests/test_zenith_program_contract.py
+      - name: Validate closure JSON syntax
+        shell: pwsh
+        run: |
+          python -m json.tool certification/z2_core_authority_scope.json > $null
+          python -m json.tool certification/z2_gate_closure.json > $null

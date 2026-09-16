@@ -62,7 +62,7 @@
     {
       "id": "Z2",
       "name": "Font discovery and shaping",
-      "status": "planned",
+      "status": "implemented",
       "dependencies": [
         "Z1"
       ],
@@ -73,7 +73,11 @@
         "visible_shaping_p95",
         "pixel_reference_tests"
       ],
-      "evidence": []
+      "evidence": [
+        "certification:z2-gate-closure-v1",
+        "github-actions-run:35079429233",
+        "merge-commit:036e939109800dcf19088ccac9145222e2a77e0b"
+      ]
     },
     {
       "id": "Z3",

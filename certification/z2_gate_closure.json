@@ -1,0 +1,46 @@
+{
+  "schema": "zevryon.z2-gate-closure.v1",
+  "milestone": "Z2",
+  "status": "implemented",
+  "scope": "font-discovery-and-shaping",
+  "source_scope": "certification/z2_core_authority_scope.json",
+  "supporting_general_ci_run": 35079429249,
+  "all_required_gates_passed": true,
+  "gates": {
+    "font_fallback_correctness": {
+      "status": "PASS",
+      "authority": "z2-core-authority-scope-v1",
+      "workflow_run": 35079429233,
+      "head_sha": "8ebb326360ed477efc6ba52c14d89ff402ce7406",
+      "merge_commit": "036e939109800dcf19088ccac9145222e2a77e0b"
+    },
+    "glyph_cluster_roundtrip": {
+      "status": "PASS",
+      "authority": "z2-core-authority-scope-v1",
+      "workflow_run": 35079429233,
+      "head_sha": "8ebb326360ed477efc6ba52c14d89ff402ce7406",
+      "merge_commit": "036e939109800dcf19088ccac9145222e2a77e0b"
+    },
+    "bounded_glyph_cache": {
+      "status": "PASS",
+      "authority": "z2-core-authority-scope-v1",
+      "workflow_run": 35079429233,
+      "head_sha": "8ebb326360ed477efc6ba52c14d89ff402ce7406",
+      "merge_commit": "036e939109800dcf19088ccac9145222e2a77e0b"
+    },
+    "visible_shaping_p95": {
+      "status": "PASS",
+      "authority": "z2-core-authority-scope-v1",
+      "workflow_run": 35079429233,
+      "head_sha": "8ebb326360ed477efc6ba52c14d89ff402ce7406",
+      "merge_commit": "036e939109800dcf19088ccac9145222e2a77e0b"
+    },
+    "pixel_reference_tests": {
+      "status": "PASS",
+      "authority": "z2-core-authority-scope-v1",
+      "workflow_run": 35079429233,
+      "head_sha": "8ebb326360ed477efc6ba52c14d89ff402ce7406",
+      "merge_commit": "036e939109800dcf19088ccac9145222e2a77e0b"
+    }
+  }
+}
