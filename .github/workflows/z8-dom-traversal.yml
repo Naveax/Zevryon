@@ -1,0 +1,103 @@
+name: Z8 DOM traversal authority
+
+on:
+  pull_request:
+    paths:
+      - 'src/logical_dom_traversal.hpp'
+      - 'src/logical_node_arena*'
+      - 'tests/logical_dom_traversal_tests.cpp'
+      - 'tests/test_z8_dom_traversal_scope.py'
+      - 'tests/test_z8_authority_aggregation.py'
+      - 'certification/z8_dom_traversal_scope.json'
+      - 'certification/z8_cold_open_scope.json'
+      - 'config/zenith_program.json'
+      - '.github/workflows/z8-dom-traversal.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: z8-dom-traversal-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-traversal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install focused build dependency
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+      - name: Register focused traversal target
+        shell: bash
+        run: |
+          cat >> cmake/logical_node_arena.cmake <<'CMAKE'
+          if(BUILD_TESTING)
+            add_executable(
+              zevryon-logical-dom-traversal-tests
+              tests/logical_dom_traversal_tests.cpp)
+            target_link_libraries(
+              zevryon-logical-dom-traversal-tests
+              PRIVATE zevryon-massivedoc-core)
+            zevryon_options(zevryon-logical-dom-traversal-tests)
+          endif()
+          CMAKE
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build traversal authority
+        run: cmake --build build --parallel 2 --target zevryon-logical-dom-traversal-tests
+      - name: Run traversal authority
+        run: build/zevryon-logical-dom-traversal-tests
+      - name: Validate frozen scope
+        run: python3 tests/test_z8_dom_traversal_scope.py
+      - name: Validate exact Z8 gate aggregation
+        run: python3 tests/test_z8_authority_aggregation.py
+
+  windows-traversal:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Register focused traversal target
+        shell: pwsh
+        run: |
+          @'
+          if(BUILD_TESTING)
+            add_executable(
+              zevryon-logical-dom-traversal-tests
+              tests/logical_dom_traversal_tests.cpp)
+            target_link_libraries(
+              zevryon-logical-dom-traversal-tests
+              PRIVATE zevryon-massivedoc-core)
+            zevryon_options(zevryon-logical-dom-traversal-tests)
+          endif()
+          '@ | Add-Content cmake/logical_node_arena.cmake
+      - name: Configure
+        shell: pwsh
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build traversal authority
+        shell: pwsh
+        run: cmake --build build --config Release --parallel 2 --target zevryon-logical-dom-traversal-tests
+      - name: Run traversal authority
+        shell: pwsh
+        run: build/Release/zevryon-logical-dom-traversal-tests.exe
+      - name: Validate frozen scope
+        shell: pwsh
+        run: python tests/test_z8_dom_traversal_scope.py
+      - name: Validate exact Z8 gate aggregation
+        shell: pwsh
+        run: python tests/test_z8_authority_aggregation.py

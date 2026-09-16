@@ -1,0 +1,27 @@
+{
+  "schema": "zevryon.z8-dom-traversal-scope.v1",
+  "milestone": "Z8",
+  "gate": "dom_traversal_conformance",
+  "status_change": false,
+  "production_surface": "LogicalDomTraversal over LogicalNodeArenaV2StoreBoundReader",
+  "certified_relations": [
+    "parent",
+    "first_child",
+    "next_sibling",
+    "previous_sibling",
+    "next_preorder",
+    "previous_preorder",
+    "strict_descendant",
+    "document_order"
+  ],
+  "bounded_hop_policy": {
+    "default_maximum_hops": 1048576,
+    "absolute_maximum_hops": 16777216
+  },
+  "platforms": [
+    "ubuntu-24.04",
+    "windows-2022"
+  ],
+  "webidl_dom_claim": false,
+  "javascript_wrapper_claim": false
+}
