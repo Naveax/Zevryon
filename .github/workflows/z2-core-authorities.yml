@@ -1,0 +1,107 @@
+name: Z2 core authorities
+
+on:
+  pull_request:
+    paths:
+      - 'src/font_*'
+      - 'src/shaping_*'
+      - 'src/harfbuzz_*'
+      - 'src/catalog_harfbuzz_*'
+      - 'src/prepared_harfbuzz_*'
+      - 'src/cached_catalog_harfbuzz_*'
+      - 'src/multi_run_harfbuzz_*'
+      - 'src/glyph_cluster_map.*'
+      - 'src/glyph_atlas_submission.*'
+      - 'src/shader_draw_packet.*'
+      - 'tests/font_catalog_fallback_tests.cpp'
+      - 'tests/glyph_cluster_map_tests.cpp'
+      - 'tests/glyph_atlas_submission_tests.cpp'
+      - 'tests/glyph_atlas_equivalence_tests.cpp'
+      - 'tests/shader_draw_packet_equivalence_tests.cpp'
+      - 'cmake/harfbuzz_shaping.cmake'
+      - 'cmake/glyph_atlas_submission.cmake'
+      - 'cmake/shader_draw_packet.cmake'
+      - '.github/workflows/z2-core-authorities.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-core-authorities:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install focused dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build pkg-config libfontconfig1-dev libharfbuzz-dev \
+            fonts-dejavu-core fonts-noto-core
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build exact Z2 authorities
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-font-catalog-fallback-tests
+          zevryon-glyph-cluster-map-tests
+          zevryon-glyph-atlas-submission-tests
+          zevryon-glyph-atlas-equivalence-tests
+          zevryon-shader-draw-packet-equivalence-tests
+          zevryon-cached-catalog-harfbuzz-shaping-benchmark
+      - name: Font fallback correctness
+        run: build/zevryon-font-catalog-fallback-tests
+      - name: Glyph cluster roundtrip
+        run: build/zevryon-glyph-cluster-map-tests
+      - name: Bounded glyph atlas cache
+        run: |
+          build/zevryon-glyph-atlas-submission-tests
+          build/zevryon-glyph-atlas-equivalence-tests
+      - name: Visible cached shaping P95
+        run: |
+          build/zevryon-cached-catalog-harfbuzz-shaping-benchmark \
+            /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
+            > z2-visible-shaping.jsonl
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          reports = [json.loads(line) for line in Path('z2-visible-shaping.jsonl').read_text().splitlines() if line.strip()]
+          assert {r['mode'] for r in reports} == {
+              'plain_binding_call', 'direct_prepared_call', 'cached_prepared_call'
+          }
+          cached = next(r for r in reports if r['mode'] == 'cached_prepared_call')
+          direct = next(r for r in reports if r['mode'] == 'direct_prepared_call')
+          plain = next(r for r in reports if r['mode'] == 'plain_binding_call')
+          for report in reports:
+              assert report['accounting_clean'] is True
+              assert report['within_hard_limits'] is True
+              assert report['output_glyphs'] > 0
+              assert report['output_bytes'] > 0
+          semantic = ('input_utf8_bytes', 'input_codepoints', 'input_clusters', 'output_glyphs', 'output_bytes', 'total_x_advance', 'units_per_em', 'generation_id', 'face_id', 'resource_id')
+          for field in semantic:
+              assert cached[field] == direct[field] == plain[field], (field, cached[field], direct[field], plain[field])
+          assert cached['prepared'] is True and direct['prepared'] is True and plain['prepared'] is False
+          assert float(cached['p95_ms']) <= 1.50, cached
+          assert float(cached['p99_ms']) <= 2.50, cached
+          print(json.dumps({'gate': 'visible_shaping_p95', 'cached': cached}, indent=2, sort_keys=True))
+          PY
+      - name: Pixel reference equivalence
+        run: build/zevryon-shader-draw-packet-equivalence-tests
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: z2-core-authorities-${{ github.event.pull_request.head.sha || github.sha }}
+          path: z2-visible-shaping.jsonl
+          if-no-files-found: warn
