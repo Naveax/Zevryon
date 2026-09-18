@@ -55,6 +55,11 @@ bool test_basic_rules_and_canonical_properties() {
     ok &= expect(sheet.declarations[3].important, "important marker must be detected case-insensitively");
     ok &= expect(stats.rules == 2U && stats.declarations == 4U, "basic stats must be exact");
     ok &= expect(stats.important_declarations == 1U, "important stats must be exact");
+    ok &= expect(stats.input_bytes == source.size(), "raw input byte stats must be exact");
+    ok &= expect(stats.preprocessed_input_bytes == source.size(), "clean UTF-8 preprocessing must preserve byte count");
+    ok &= expect(stats.null_replacements == 0U, "clean input must not replace NUL");
+    ok &= expect(stats.newline_normalizations == 0U, "clean input must not normalize newlines");
+    ok &= expect(stats.invalid_utf8_replacements == 0U, "clean input must not replace UTF-8");
     ok &= expect(stats.output_text_bytes == sheet.text.size(), "text byte stats must match retained text");
     ok &= expect(ledger.accounting_clean(), "basic parser accounting must remain clean");
     ok &= expect(ledger.within_hard_limits(), "basic parser must remain inside ledger limit");
@@ -84,6 +89,74 @@ bool test_comments_functions_custom_properties_and_balancing() {
     ok &= expect(stats.comments == 2U, "only real comments must be counted");
     ok &= expect(stats.maximum_nesting_depth >= 2U, "nested functions must update depth stats");
     ok &= expect(ledger.accounting_clean(), "nested parser accounting must remain clean");
+    return ok;
+}
+
+bool test_css_input_preprocessing() {
+    ResourceLedger ledger;
+    ledger.set_hard_limit(ResourceClass::ComputedStyle, 1U << 20U);
+    LedgerMemoryResource memory(ledger, ResourceClass::ComputedStyle);
+    CssStylesheetV1 sheet(&memory);
+    CssParserV1Stats stats;
+    CssParserV1Error error;
+    const std::string replacement("\xef\xbf\xbd", 3U);
+    bool ok = true;
+
+    auto check_null_case = [&](std::string selector, const std::string& expected, std::uint64_t expected_replacements) {
+        const std::string source = selector + " { x: 1; }";
+        bool local = expect(parse(source, &sheet, &stats, &error), "WPT NUL preprocessing case must parse");
+        local &= expect(sheet.rules.size() == 1U, "WPT NUL case must emit one rule");
+        if (!sheet.rules.empty()) {
+            local &= expect(sheet.resolve(sheet.rules[0].selector) == expected, "WPT NUL selector preprocessing must match");
+        }
+        local &= expect(stats.input_bytes == source.size(), "WPT NUL raw byte count must match");
+        local &= expect(stats.null_replacements == expected_replacements, "WPT NUL replacement count must match");
+        local &= expect(stats.invalid_utf8_replacements == 0U, "WPT NUL case must not classify as invalid UTF-8");
+        local &= expect(
+            stats.preprocessed_input_bytes ==
+                stats.input_bytes + (2U * expected_replacements),
+            "WPT NUL expansion byte count must match");
+        return local;
+    };
+
+    std::string selector = "foo";
+    selector.push_back('\0');
+    ok &= check_null_case(selector, std::string("foo") + replacement, 1U);
+
+    selector = "f";
+    selector.push_back('\0');
+    selector += "oo";
+    ok &= check_null_case(selector, std::string("f") + replacement + "oo", 1U);
+
+    selector.clear();
+    selector.push_back('\0');
+    selector += "foo";
+    ok &= check_null_case(selector, replacement + "foo", 1U);
+
+    selector.assign(1U, '\0');
+    ok &= check_null_case(selector, replacement, 1U);
+
+    selector.assign(3U, '\0');
+    ok &= check_null_case(selector, replacement + replacement + replacement, 3U);
+
+    const std::string newline_source = ".a\r\n.b\r.c\f.d { x: 1; }";
+    ok &= expect(parse(newline_source, &sheet, &stats, &error), "CSS newline preprocessing case must parse");
+    ok &= expect(sheet.resolve(sheet.rules[0].selector) == ".a\n.b\n.c\n.d", "CRLF CR and FF must normalize to LF");
+    ok &= expect(stats.newline_normalizations == 3U, "newline normalization count must be exact");
+    ok &= expect(stats.preprocessed_input_bytes + 1U == stats.input_bytes, "CRLF normalization must remove exactly one byte");
+
+    std::string invalid_source = ".x";
+    invalid_source.push_back(static_cast<char>(0xedU));
+    invalid_source.push_back(static_cast<char>(0xa0U));
+    invalid_source.push_back(static_cast<char>(0x80U));
+    invalid_source += " { x: 1; }";
+    ok &= expect(parse(invalid_source, &sheet, &stats, &error), "surrogate-encoded UTF-8 must be replaced and parsed");
+    ok &= expect(sheet.resolve(sheet.rules[0].selector) == std::string(".x") + replacement, "surrogate sequence must become one replacement character");
+    ok &= expect(stats.invalid_utf8_replacements == 1U, "surrogate sequence replacement count must be exact");
+    ok &= expect(stats.null_replacements == 0U, "surrogate sequence must not affect NUL count");
+
+    ok &= expect(ledger.accounting_clean(), "preprocessing accounting must remain clean");
+    ok &= expect(ledger.within_hard_limits(), "preprocessing must remain inside ledger limit");
     return ok;
 }
 
@@ -193,6 +266,7 @@ int main() {
     bool ok = true;
     ok &= test_basic_rules_and_canonical_properties();
     ok &= test_comments_functions_custom_properties_and_balancing();
+    ok &= test_css_input_preprocessing();
     ok &= test_failure_is_atomic();
     ok &= test_strict_syntax_boundaries();
     ok &= test_explicit_limits();

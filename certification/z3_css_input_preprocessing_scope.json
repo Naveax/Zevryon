@@ -1,0 +1,41 @@
+{
+  "schema": "zevryon.z3-css-input-preprocessing-scope.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "gate_progress": [
+    "css_parser_conformance"
+  ],
+  "admitted_gates": [],
+  "production_surface": "parse_css_stylesheet_v1 in zevryon-massivedoc-core",
+  "resource_class": "ComputedStyle",
+  "wpt_reference": {
+    "repository": "web-platform-tests/wpt",
+    "upstream_commit": "15df54d4459b78242d32ae36f9c094a96972bedc",
+    "upstream_path": "css/css-syntax/input-preprocessing.html",
+    "upstream_blob_sha": "9ef9a730820d85a015b51cb230aa09f397a78400",
+    "null_cases_admitted": 5,
+    "surrogate_cssom_cases_admitted": 0,
+    "surrogate_cssom_exclusion": "production API accepts UTF-8 bytes, not JavaScript UTF-16 code units"
+  },
+  "certified_preprocessing": [
+    "NUL bytes become U+FFFD before CSS parsing",
+    "CRLF CR and form-feed become LF before CSS parsing",
+    "malformed UTF-8 becomes deterministic U+FFFD replacement",
+    "WTF-8 surrogate sequences become one U+FFFD replacement",
+    "preprocessing allocations are charged to ComputedStyle",
+    "raw and preprocessed byte counts are reported separately"
+  ],
+  "authority_cases": {
+    "wpt_null_cases": 5,
+    "newline_normalization_cases": 1,
+    "invalid_utf8_cases": 1
+  },
+  "deliberate_exclusions": [
+    "JavaScript CSSOM UTF-16 surrogate-input conformance",
+    "at-rules",
+    "nested-rule recovery",
+    "selector matching semantics",
+    "cascade and specificity",
+    "full CSS Syntax or WPT conformance claim"
+  ]
+}
