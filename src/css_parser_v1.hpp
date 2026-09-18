@@ -67,6 +67,10 @@ struct CssParserV1Config {
 
 struct CssParserV1Stats {
     std::uint64_t input_bytes{0U};
+    std::uint64_t preprocessed_input_bytes{0U};
+    std::uint64_t null_replacements{0U};
+    std::uint64_t newline_normalizations{0U};
+    std::uint64_t invalid_utf8_replacements{0U};
     std::uint64_t rules{0U};
     std::uint64_t declarations{0U};
     std::uint64_t important_declarations{0U};
@@ -89,10 +93,12 @@ struct CssStylesheetV1 {
 
 const char* css_parser_v1_error_kind_name(CssParserV1ErrorKind kind) noexcept;
 
-// Strict, bounded CSS syntax foundation. This production slice parses qualified
-// style rules and declaration lists, including comments, strings, escapes,
-// balanced (), [] and {} value blocks, custom properties and !important.
-// At-rules and selector semantics intentionally remain outside this foundation.
+// Strict, bounded CSS syntax foundation. Raw UTF-8 input is preprocessed before
+// parsing: NUL becomes U+FFFD, CRLF/CR/FF become LF, and malformed UTF-8 is
+// replaced deterministically. The production slice then parses qualified style
+// rules and declaration lists, including comments, strings, escapes, balanced
+// (), [] and {} value blocks, custom properties and !important. At-rules and
+// selector semantics intentionally remain outside this foundation.
 bool parse_css_stylesheet_v1(
     std::string_view input,
     CssParserV1Config config,
