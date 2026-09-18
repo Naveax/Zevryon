@@ -52,7 +52,7 @@ def test_z3_css_input_preprocessing_scope() -> None:
         assert field in header
     assert "preprocess_css_input" in source
     assert "std::pmr::string preprocessed(output->resource())" in source
-    assert r'output->append("\\xef\\xbf\\xbd", 3U)' in source
+    assert r'output->append("\xef\xbf\xbd", 3U)' in source
 
 
 if __name__ == "__main__":
