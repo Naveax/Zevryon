@@ -1,0 +1,55 @@
+{
+  "schema": "zevryon.z3-css-selector-invalidation-foundation.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "gate_progress": [
+    "selector_dependency_invalidation"
+  ],
+  "admitted_gates": [],
+  "production_surface": "build_css_selector_dependency_set_v1 plus css_selector_dependencies_invalidated_v1",
+  "resource_class": "ComputedStyle",
+  "dependency_model": [
+    "type selectors depend on tag identity",
+    "ID selectors depend on the id attribute",
+    "class selectors depend on the class attribute",
+    "attribute selectors depend on their ASCII-case-insensitive attribute name",
+    "universal selectors add no semantic dependency",
+    "named attribute dependencies own canonical keys in dependency-set PMR storage"
+  ],
+  "mutation_model": {
+    "tag_change": "explicit boolean",
+    "attribute_change": "ASCII-case-insensitive changed attribute names",
+    "rename_contract": "attribute rename reports both old and new names",
+    "decision": "conservative may-affect-match invalidation"
+  },
+  "hard_bounds": {
+    "maximum_dependencies_limit": 65536,
+    "maximum_changed_attributes_limit": 65536,
+    "maximum_semantic_bytes_limit": 16777216,
+    "maximum_work_units_limit": 67108864
+  },
+  "certified_foundation": [
+    "bounded dependency extraction from compiled compound selectors",
+    "deduplication of fixed and named attribute dependencies",
+    "dependency sets remain valid after source selector replacement or release",
+    "tag id class and named-attribute mutation decisions",
+    "ASCII-case-insensitive HTML attribute-name matching",
+    "atomic dependency-set replacement on failure",
+    "corrupt selector and dependency records fail closed",
+    "real ComputedStyle ledger allocation rejection",
+    "changed-attribute semantic-byte and comparison work budgets"
+  ],
+  "deliberate_exclusions": [
+    "store-bound mutation delivery",
+    "ancestor or sibling dependency propagation for combinators",
+    "pseudo-class state invalidation",
+    "pseudo-element invalidation",
+    "selector-list invalidation",
+    "stylesheet or rule replacement invalidation",
+    "subtree invalidation propagation",
+    "cascade recomputation",
+    "computed-style DAG invalidation",
+    "offscreen materialization policy",
+    "full selector dependency invalidation gate claim"
+  ]
+}
