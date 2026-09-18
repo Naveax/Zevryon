@@ -81,6 +81,119 @@ bool set_error(
     return false;
 }
 
+bool continuation_byte(unsigned char value) noexcept {
+    return (value & 0xc0U) == 0x80U;
+}
+
+void append_replacement_character(std::pmr::string* output) {
+    output->append("\xef\xbf\xbd", 3U);
+}
+
+void preprocess_css_input(
+    std::string_view input,
+    std::pmr::string* output,
+    CssParserV1Stats* stats) {
+    output->clear();
+    output->reserve(input.size());
+
+    std::size_t index = 0U;
+    while (index < input.size()) {
+        const unsigned char first =
+            static_cast<unsigned char>(input[index]);
+
+        if (first == 0U) {
+            append_replacement_character(output);
+            ++stats->null_replacements;
+            ++index;
+            continue;
+        }
+        if (first == static_cast<unsigned char>('\r')) {
+            output->push_back('\n');
+            ++stats->newline_normalizations;
+            ++index;
+            if (index < input.size() && input[index] == '\n') {
+                ++index;
+            }
+            continue;
+        }
+        if (first == static_cast<unsigned char>('\f')) {
+            output->push_back('\n');
+            ++stats->newline_normalizations;
+            ++index;
+            continue;
+        }
+        if (first < 0x80U) {
+            output->push_back(static_cast<char>(first));
+            ++index;
+            continue;
+        }
+
+        std::size_t sequence_length = 0U;
+        std::uint32_t codepoint = 0U;
+        if (first >= 0xc2U && first <= 0xdfU) {
+            sequence_length = 2U;
+            codepoint = static_cast<std::uint32_t>(first & 0x1fU);
+        } else if (first >= 0xe0U && first <= 0xefU) {
+            sequence_length = 3U;
+            codepoint = static_cast<std::uint32_t>(first & 0x0fU);
+        } else if (first >= 0xf0U && first <= 0xf4U) {
+            sequence_length = 4U;
+            codepoint = static_cast<std::uint32_t>(first & 0x07U);
+        } else {
+            append_replacement_character(output);
+            ++stats->invalid_utf8_replacements;
+            ++index;
+            continue;
+        }
+
+        if (sequence_length > input.size() - index) {
+            append_replacement_character(output);
+            ++stats->invalid_utf8_replacements;
+            ++index;
+            continue;
+        }
+
+        bool continuations_valid = true;
+        for (std::size_t offset = 1U; offset < sequence_length; ++offset) {
+            const unsigned char next =
+                static_cast<unsigned char>(input[index + offset]);
+            if (!continuation_byte(next)) {
+                continuations_valid = false;
+                break;
+            }
+            codepoint =
+                (codepoint << 6U) |
+                static_cast<std::uint32_t>(next & 0x3fU);
+        }
+        if (!continuations_valid) {
+            append_replacement_character(output);
+            ++stats->invalid_utf8_replacements;
+            ++index;
+            continue;
+        }
+
+        const bool overlong =
+            (sequence_length == 2U && codepoint < 0x80U) ||
+            (sequence_length == 3U && codepoint < 0x800U) ||
+            (sequence_length == 4U && codepoint < 0x10000U);
+        const bool surrogate =
+            codepoint >= 0xd800U && codepoint <= 0xdfffU;
+        const bool out_of_range = codepoint > 0x10ffffU;
+        if (overlong || surrogate || out_of_range) {
+            append_replacement_character(output);
+            ++stats->invalid_utf8_replacements;
+            index += sequence_length;
+            continue;
+        }
+
+        output->append(input.data() + index, sequence_length);
+        index += sequence_length;
+    }
+
+    stats->preprocessed_input_bytes =
+        static_cast<std::uint64_t>(output->size());
+}
+
 bool valid_property_name(std::string_view property) noexcept {
     if (property.empty()) {
         return false;
@@ -565,7 +678,11 @@ bool parse_css_stylesheet_v1(
     CssParserV1Stats candidate_stats;
     candidate_stats.input_bytes = static_cast<std::uint64_t>(input.size());
     try {
-        Parser parser(input, config, &candidate, &candidate_stats, error);
+        std::pmr::string preprocessed(output->resource());
+        preprocess_css_input(input, &preprocessed, &candidate_stats);
+        const std::string_view parser_input(
+            preprocessed.data(), preprocessed.size());
+        Parser parser(parser_input, config, &candidate, &candidate_stats, error);
         if (!parser.run()) {
             *stats = candidate_stats;
             return false;
