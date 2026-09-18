@@ -216,6 +216,23 @@ bool test_invalidation_decisions() {
         unrelated_change,
         false,
         "unrelated attribute change must not invalidate selector");
+
+    const std::array<std::string_view, 1> empty_change{{""}};
+    bool invalid = true;
+    ok &= expect(
+        !invalidated(
+            dependencies,
+            false,
+            empty_change,
+            &invalid,
+            &stats,
+            &error),
+        "empty changed attribute name must fail closed");
+    ok &= expect(
+        error.kind == CssSelectorDependencyErrorKindV1::InvalidChange,
+        "empty changed attribute name must report invalid-change");
+    ok &= expect(!invalid,
+                 "failed invalidation decision must leave output false");
     return ok;
 }
 
@@ -394,6 +411,15 @@ bool test_limits() {
         error.kind ==
             CssSelectorDependencyErrorKindV1::SemanticBudgetExceeded,
         "retained dependency semantic-byte limit must report exact error");
+
+    config = CssSelectorDependencyConfigV1{};
+    config.maximum_work_units = 1U;
+    ok &= expect(
+        !build(selector, &dependencies, &stats, &error, config),
+        "dependency extraction work budget must fail closed");
+    ok &= expect(
+        error.kind == CssSelectorDependencyErrorKindV1::WorkBudgetExceeded,
+        "dependency extraction work budget must report exact error");
 
     config = CssSelectorDependencyConfigV1{};
     ok &= expect(
