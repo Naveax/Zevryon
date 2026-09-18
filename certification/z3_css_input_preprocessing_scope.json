@@ -12,6 +12,7 @@
     "repository": "web-platform-tests/wpt",
     "upstream_commit": "15df54d4459b78242d32ae36f9c094a96972bedc",
     "upstream_path": "css/css-syntax/input-preprocessing.html",
+    "upstream_blob_sha": "9ef9a730820d85a015b51cb230aa09f397a78400",
     "null_cases_admitted": 5,
     "surrogate_cssom_cases_admitted": 0,
     "surrogate_cssom_exclusion": "production API accepts UTF-8 bytes, not JavaScript UTF-16 code units"
