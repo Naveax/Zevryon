@@ -160,6 +160,88 @@ bool test_css_input_preprocessing() {
     return ok;
 }
 
+bool test_wpt_declaration_list_authority() {
+    ResourceLedger ledger;
+    ledger.set_hard_limit(ResourceClass::ComputedStyle, 1U << 20U);
+    LedgerMemoryResource memory(ledger, ResourceClass::ComputedStyle);
+    CssStylesheetV1 sheet(&memory);
+    CssParserV1Stats stats;
+    CssParserV1Error error;
+    bool ok = true;
+
+    const std::string_view whitespace_source =
+        "#foo {"
+        " --foo-1:bar;"
+        " --foo-2: bar;"
+        " --foo-3:bar ;"
+        " --foo-4: bar ;"
+        " --foo-5: bar !important;"
+        " --foo-6: bar !important ;"
+        " --foo-7:bar!important;"
+        " --foo-8:bar!important ;"
+        " --foo-9:bar"
+        "}";
+
+    ok &= expect(
+        parse(whitespace_source, &sheet, &stats, &error),
+        "WPT declaration whitespace authority must parse");
+    ok &= expect(
+        sheet.rules.size() == 1U,
+        "WPT declaration whitespace authority must emit one rule");
+    ok &= expect(
+        sheet.declarations.size() == 9U,
+        "WPT declaration whitespace authority must emit nine declarations");
+    for (std::size_t index = 0U; index < sheet.declarations.size(); ++index) {
+        const CssDeclarationV1& declaration = sheet.declarations[index];
+        ok &= expect(
+            sheet.resolve(declaration.value) == "bar",
+            "WPT declaration values must trim surrounding whitespace and important");
+        const bool expected_important = index >= 4U && index <= 7U;
+        ok &= expect(
+            declaration.important == expected_important,
+            "WPT important markers must match the frozen nine-case matrix");
+    }
+    ok &= expect(
+        stats.declarations == 9U,
+        "WPT declaration whitespace stats must report nine declarations");
+    ok &= expect(
+        stats.important_declarations == 4U,
+        "WPT declaration whitespace stats must report four important declarations");
+
+    const std::string_view missing_semicolon_source =
+        ".c {"
+        " /* This { needs to be there to send Chromium into a different path. */"
+        " color: red;"
+        " color: green"
+        "}";
+    ok &= expect(
+        parse(missing_semicolon_source, &sheet, &stats, &error),
+        "WPT missing-semicolon authority must parse");
+    ok &= expect(
+        sheet.rules.size() == 1U && sheet.declarations.size() == 2U,
+        "WPT missing-semicolon authority must retain both declarations");
+    if (sheet.declarations.size() == 2U) {
+        ok &= expect(
+            sheet.resolve(sheet.declarations[0].property) == "color" &&
+                sheet.resolve(sheet.declarations[0].value) == "red",
+            "first missing-semicolon fixture declaration must remain red");
+        ok &= expect(
+            sheet.resolve(sheet.declarations[1].property) == "color" &&
+                sheet.resolve(sheet.declarations[1].value) == "green",
+            "final declaration without semicolon must remain green");
+    }
+    ok &= expect(
+        stats.comments == 1U,
+        "brace inside WPT fixture comment must not alter block parsing");
+    ok &= expect(
+        ledger.accounting_clean(),
+        "WPT declaration-list authority accounting must remain clean");
+    ok &= expect(
+        ledger.within_hard_limits(),
+        "WPT declaration-list authority must remain within ledger limit");
+    return ok;
+}
+
 bool test_failure_is_atomic() {
     ResourceLedger ledger;
     ledger.set_hard_limit(ResourceClass::ComputedStyle, 1U << 20U);
@@ -267,6 +349,7 @@ int main() {
     ok &= test_basic_rules_and_canonical_properties();
     ok &= test_comments_functions_custom_properties_and_balancing();
     ok &= test_css_input_preprocessing();
+    ok &= test_wpt_declaration_list_authority();
     ok &= test_failure_is_atomic();
     ok &= test_strict_syntax_boundaries();
     ok &= test_explicit_limits();

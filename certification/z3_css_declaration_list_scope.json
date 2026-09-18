@@ -1,0 +1,53 @@
+{
+  "schema": "zevryon.z3-css-declaration-list-authority.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "gate_progress": [
+    "css_parser_conformance"
+  ],
+  "admitted_gates": [],
+  "production_surface": "parse_css_stylesheet_v1 in zevryon-massivedoc-core",
+  "resource_class": "ComputedStyle",
+  "wpt_reference": {
+    "repository": "web-platform-tests/wpt",
+    "upstream_commit": "15df54d4459b78242d32ae36f9c094a96972bedc",
+    "files": [
+      {
+        "path": "css/css-syntax/declarations-trim-whitespace.html",
+        "blob_sha": "a7d69d149e7bbf854efc2ef19af132af372ff521",
+        "admitted_cases": 9
+      },
+      {
+        "path": "css/css-syntax/missing-semicolon.html",
+        "blob_sha": "d8e70e631591c05d2025d1800b1201ce80550fed",
+        "admitted_cases": 1
+      },
+      {
+        "path": "css/css-syntax/support/missing-semicolon.css",
+        "blob_sha": "0d9a0bbda757b8b4197d6e060f08657d12cf9e93",
+        "fixture_for": "missing-semicolon.html"
+      }
+    ]
+  },
+  "certified_declaration_behavior": [
+    "leading and trailing declaration value whitespace is trimmed",
+    "case-insensitive important suffix is stripped from retained value",
+    "important suffix spacing variants preserve the important flag",
+    "custom-property declaration values retain canonical content",
+    "final declaration before a closing brace does not require a semicolon",
+    "braces inside comments do not terminate the declaration block"
+  ],
+  "authority_cases": {
+    "whitespace_and_important": 9,
+    "missing_final_semicolon": 1
+  },
+  "deliberate_exclusions": [
+    "property grammar validation",
+    "computed-value semantics",
+    "selector matching semantics",
+    "cascade winner selection",
+    "at-rules in declaration lists",
+    "nested-rule recovery",
+    "full CSS Syntax or WPT conformance claim"
+  ]
+}

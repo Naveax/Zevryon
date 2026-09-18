@@ -7,8 +7,10 @@ on:
       - 'tests/css_parser_v1_tests.cpp'
       - 'tests/test_z3_css_parser_foundation_scope.py'
       - 'tests/test_z3_css_input_preprocessing_scope.py'
+      - 'tests/test_z3_css_declaration_list_scope.py'
       - 'certification/z3_css_parser_foundation_scope.json'
       - 'certification/z3_css_input_preprocessing_scope.json'
+      - 'certification/z3_css_declaration_list_scope.json'
       - 'cmake/css_parser_v1.cmake'
       - 'cmake/coretext_discovery.cmake'
       - '.github/workflows/z3-css-parser-foundation.yml'
@@ -47,10 +49,12 @@ jobs:
         run: |
           python3 tests/test_z3_css_parser_foundation_scope.py
           python3 tests/test_z3_css_input_preprocessing_scope.py
+          python3 tests/test_z3_css_declaration_list_scope.py
       - name: Validate scope JSON syntax
         run: |
           python3 -m json.tool certification/z3_css_parser_foundation_scope.json > /dev/null
           python3 -m json.tool certification/z3_css_input_preprocessing_scope.json > /dev/null
+          python3 -m json.tool certification/z3_css_declaration_list_scope.json > /dev/null
 
   windows-parser:
     runs-on: windows-2022
@@ -78,8 +82,10 @@ jobs:
         run: |
           python tests/test_z3_css_parser_foundation_scope.py
           python tests/test_z3_css_input_preprocessing_scope.py
+          python tests/test_z3_css_declaration_list_scope.py
       - name: Validate scope JSON syntax
         shell: pwsh
         run: |
           python -m json.tool certification/z3_css_parser_foundation_scope.json > $null
           python -m json.tool certification/z3_css_input_preprocessing_scope.json > $null
+          python -m json.tool certification/z3_css_declaration_list_scope.json > $null
