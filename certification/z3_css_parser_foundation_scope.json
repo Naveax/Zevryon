@@ -1,0 +1,39 @@
+{
+  "schema": "zevryon.z3-css-parser-foundation-scope.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "gate_progress": [
+    "css_parser_conformance"
+  ],
+  "admitted_gates": [],
+  "production_surface": "parse_css_stylesheet_v1 in zevryon-massivedoc-core",
+  "resource_class": "ComputedStyle",
+  "certified_foundation": [
+    "bounded qualified style rules",
+    "bounded declaration lists",
+    "ascii property canonicalization",
+    "custom property case preservation",
+    "comments outside strings",
+    "quoted strings and escapes",
+    "balanced parentheses brackets and value blocks",
+    "case-insensitive important suffix",
+    "atomic failure semantics",
+    "hard resource-ledger rejection"
+  ],
+  "configuration_hard_maxima": {
+    "input_bytes": 16777216,
+    "rules": 1048576,
+    "declarations": 4194304,
+    "nesting_depth": 256,
+    "output_text_bytes": 134217728
+  },
+  "deliberate_exclusions": [
+    "at-rules",
+    "selector matching semantics",
+    "cascade and specificity",
+    "selector dependency invalidation",
+    "computed-style DAG sharing",
+    "offscreen style materialization policy",
+    "full CSS Syntax or WPT conformance claim"
+  ]
+}
