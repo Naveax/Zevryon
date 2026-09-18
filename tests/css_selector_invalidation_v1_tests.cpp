@@ -504,7 +504,6 @@ bool test_real_ledger_rejection() {
     ledger.set_hard_limit(ResourceClass::ComputedStyle, 1U << 20U);
     LedgerMemoryResource memory(ledger, ResourceClass::ComputedStyle);
     CssCompoundSelectorV1 selector(&memory);
-    CssSelectorDependencySetV1 dependencies(&memory);
     CssSelectorDependencyStatsV1 stats;
     CssSelectorDependencyErrorV1 error;
 
