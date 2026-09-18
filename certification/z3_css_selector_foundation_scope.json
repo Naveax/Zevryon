@@ -1,0 +1,56 @@
+{
+  "schema": "zevryon.z3-css-selector-foundation.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "gate_progress": [
+    "cascade_conformance",
+    "selector_dependency_invalidation"
+  ],
+  "admitted_gates": [],
+  "production_surface": "compile_css_compound_selector_v1 plus match_css_compound_selector_v1",
+  "resource_class": "ComputedStyle",
+  "supported_simple_selectors": [
+    "universal",
+    "type",
+    "id",
+    "class",
+    "attribute-exists",
+    "attribute-equals"
+  ],
+  "specificity_model": {
+    "id_component": "ID selectors",
+    "class_component": "class and attribute selectors",
+    "type_component": "type selectors",
+    "universal_contribution": 0,
+    "comparison": "lexicographic id then class then type"
+  },
+  "matching_model": [
+    "HTML type names compare ASCII-case-insensitively",
+    "HTML attribute names compare ASCII-case-insensitively",
+    "ID values compare case-sensitively",
+    "class values use ASCII-whitespace token matching",
+    "attribute equality values compare case-sensitively",
+    "matching fails closed when attribute semantic-byte or work-unit budgets are exceeded"
+  ],
+  "hard_bounds": {
+    "maximum_input_bytes_limit": 1048576,
+    "maximum_simple_selectors_limit": 65536,
+    "maximum_output_text_bytes_limit": 4194304,
+    "maximum_match_attributes_limit": 65536,
+    "maximum_match_semantic_bytes_limit": 16777216,
+    "maximum_match_work_units_limit": 67108864
+  },
+  "deliberate_exclusions": [
+    "descendant child adjacent or general-sibling combinators",
+    "pseudo-classes and pseudo-elements",
+    "selector lists",
+    "namespace-qualified selectors",
+    "attribute substring or token operators",
+    "attribute case-sensitivity flags",
+    "CSS identifier escape conformance",
+    "store-bound logical DOM adapter",
+    "cascade winner selection",
+    "selector dependency invalidation",
+    "full Selectors or WPT conformance claim"
+  ]
+}
