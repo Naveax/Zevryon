@@ -24,6 +24,7 @@ def test_z3_css_input_preprocessing_scope() -> None:
     assert wpt["repository"] == "web-platform-tests/wpt"
     assert wpt["upstream_commit"] == "15df54d4459b78242d32ae36f9c094a96972bedc"
     assert wpt["upstream_path"] == "css/css-syntax/input-preprocessing.html"
+    assert wpt["upstream_blob_sha"] == "9ef9a730820d85a015b51cb230aa09f397a78400"
     assert wpt["null_cases_admitted"] == 5
     assert wpt["surrogate_cssom_cases_admitted"] == 0
 
@@ -51,7 +52,7 @@ def test_z3_css_input_preprocessing_scope() -> None:
         assert field in header
     assert "preprocess_css_input" in source
     assert "std::pmr::string preprocessed(output->resource())" in source
-    assert 'output->append("\\xef\\xbf\\xbd", 3U)' in source
+    assert r'output->append("\\xef\\xbf\\xbd", 3U)' in source
 
 
 if __name__ == "__main__":
