@@ -1,0 +1,70 @@
+{
+  "schema": "zevryon.z3-css-cascade-foundation.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "gate_progress": [
+    "cascade_conformance"
+  ],
+  "admitted_gates": [],
+  "production_surface": "cascade_css_author_rules_v1",
+  "resource_class": "ComputedStyle",
+  "cascade_scope": "single author-origin stylesheet against one semantic node",
+  "precedence_order": [
+    "important",
+    "specificity",
+    "source-order"
+  ],
+  "frozen_wpt_provenance": {
+    "repository": "web-platform-tests/wpt",
+    "commit": "15df54d4459b78242d32ae36f9c094a96972bedc",
+    "cases": [
+      {
+        "path": "css/CSS2/cascade/specificity-001.xht",
+        "blob": "d0044ad1b4784e69e1c84b97752e5f7794798dbc",
+        "authority": "attribute selector outranks later type selector"
+      },
+      {
+        "path": "css/CSS2/cascade/specificity-007.xht",
+        "blob": "3d4bd830c5f40974221533a20627ab0fa417ff4e",
+        "authority": "type selector outranks later universal selector"
+      },
+      {
+        "path": "css/CSS2/cascade/cascade-005.xht",
+        "blob": "e6011975c90bfb7601482457d101c083fd442262",
+        "authority": "later declaration wins at equal importance and specificity"
+      }
+    ]
+  },
+  "certified_foundation": [
+    "matched qualified author rules only",
+    "important beats normal declarations within the author origin",
+    "selector specificity breaks equal-importance ties",
+    "later declaration source order breaks equal-specificity ties",
+    "normal property names inherit parser lowercase canonicalization",
+    "custom property names retain parser case sensitivity",
+    "unmatched rules do not contribute declarations",
+    "candidate output is atomic on failure",
+    "property lookup and aggregate selector matching share a hard work-unit budget",
+    "retained winner records use the caller PMR resource"
+  ],
+  "hard_bounds": {
+    "maximum_rules_limit": 1048576,
+    "maximum_declarations_limit": 4194304,
+    "maximum_properties_limit": 1048576,
+    "maximum_work_units_limit": 67108864
+  },
+  "deliberate_exclusions": [
+    "user and user-agent origins",
+    "cascade layers",
+    "inline style origin precedence",
+    "inheritance and initial unset revert semantics",
+    "shorthand expansion",
+    "selector syntax outside the bounded compound-selector foundation",
+    "computed-value normalization",
+    "store-bound logical DOM adapter",
+    "selector dependency invalidation",
+    "computed-style DAG sharing",
+    "offscreen materialization",
+    "full CSS Cascade or WPT conformance claim"
+  ]
+}
