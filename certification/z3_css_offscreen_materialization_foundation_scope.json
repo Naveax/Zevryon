@@ -1,0 +1,50 @@
+{
+  "schema": "zevryon.z3-css-offscreen-materialization-foundation.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "gate_progress": [
+    "offscreen_materialization_bound"
+  ],
+  "admitted_gates": [],
+  "production_surface": "materialize_css_style_nodes_v1",
+  "resource_class": "ComputedStyle",
+  "request_model": [
+    "caller supplies explicit terminal style node identities",
+    "each unique terminal style is flattened at most once per batch",
+    "duplicate requests map to the same materialized style record",
+    "root style materializes as an empty property range"
+  ],
+  "ownership_model": [
+    "materialized property and value text is copied into batch-owned PMR storage",
+    "materialized output remains valid after the source style DAG is released",
+    "failed materialization leaves prior output unchanged"
+  ],
+  "hard_bounds": {
+    "maximum_requests_limit": 65536,
+    "maximum_unique_styles_limit": 65536,
+    "maximum_properties_limit": 1048576,
+    "maximum_text_bytes_limit": 134217728,
+    "maximum_properties_per_style_limit": 65536,
+    "maximum_work_units_limit": 67108864
+  },
+  "certified_foundation": [
+    "requested-path materialization does not scan unrelated DAG nodes",
+    "duplicate terminal requests are deduplicated inside one batch",
+    "requested DAG chains are validated for topology depth text slices and canonical property order",
+    "request style property text and traversal work consume one shared work budget",
+    "request unique-style property-count and output-text limits fail closed",
+    "invalid terminal identities and corrupt DAG paths fail closed",
+    "candidate output replacement is atomic",
+    "real ComputedStyle ledger allocation rejection"
+  ],
+  "deliberate_exclusions": [
+    "viewport or offscreen-node selection policy",
+    "scroll-distance or lookahead policy",
+    "automatic DOM-to-style terminal discovery",
+    "cross-batch materialization cache",
+    "materialization eviction or aging",
+    "computed-value normalization",
+    "layout or paint object creation",
+    "full offscreen_materialization_bound gate claim"
+  ]
+}
