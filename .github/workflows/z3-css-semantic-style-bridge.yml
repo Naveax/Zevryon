@@ -1,0 +1,78 @@
+name: Z3 CSS semantic style bridge foundation
+
+on:
+  pull_request:
+    paths:
+      - 'src/css_semantic_style_bridge_v1.*'
+      - 'tests/css_semantic_style_bridge_v1_tests.cpp'
+      - 'tests/test_z3_css_semantic_style_bridge_foundation_scope.py'
+      - 'certification/z3_css_semantic_style_bridge_foundation_scope.json'
+      - 'docs/Z3_CSS_SEMANTIC_STYLE_BRIDGE_FOUNDATION.md'
+      - 'cmake/css_semantic_style_bridge_v1.cmake'
+      - 'cmake/css_style_materialization_v1.cmake'
+      - '.github/workflows/z3-css-semantic-style-bridge.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: z3-css-semantic-style-bridge-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-bridge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install focused build dependency
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DZEVRYON_ENABLE_FONTCONFIG_DISCOVERY=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build semantic style bridge oracle
+        run: >-
+          cmake --build build --parallel 2
+          --target zevryon-css-semantic-style-bridge-v1-tests
+      - name: Execute semantic style bridge oracle
+        run: build/zevryon-css-semantic-style-bridge-v1-tests
+      - name: Validate frozen scope
+        run: python3 tests/test_z3_css_semantic_style_bridge_foundation_scope.py
+      - name: Validate scope JSON
+        run: python3 -m json.tool certification/z3_css_semantic_style_bridge_foundation_scope.json > /dev/null
+
+  windows-bridge:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Configure
+        shell: pwsh
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build semantic style bridge oracle
+        shell: pwsh
+        run: cmake --build build --config Release --parallel 2 --target zevryon-css-semantic-style-bridge-v1-tests
+      - name: Execute semantic style bridge oracle
+        shell: pwsh
+        run: build/Release/zevryon-css-semantic-style-bridge-v1-tests.exe
+      - name: Validate frozen scope
+        shell: pwsh
+        run: python tests/test_z3_css_semantic_style_bridge_foundation_scope.py
+      - name: Validate scope JSON
+        shell: pwsh
+        run: python -m json.tool certification/z3_css_semantic_style_bridge_foundation_scope.json > $null
