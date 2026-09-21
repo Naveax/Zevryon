@@ -1,0 +1,52 @@
+{
+  "schema": "zevryon.z3-css-style-dag-foundation.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "gate_progress": [
+    "bounded_style_dag"
+  ],
+  "admitted_gates": [],
+  "production_surface": "intern_css_cascade_style_v1",
+  "resource_class": "ComputedStyle",
+  "identity_model": [
+    "style identity is the final winning property/value set",
+    "cascade provenance is excluded after winner selection",
+    "properties are canonicalized by bytewise property order before interning",
+    "empty computed style is root node zero"
+  ],
+  "sharing_model": [
+    "each node is parent style plus one property/value assignment",
+    "equal canonical prefixes reuse the same node",
+    "equal complete computed styles return the same terminal node",
+    "different styles may share canonical prefixes"
+  ],
+  "hard_bounds": {
+    "maximum_properties_per_style_limit": 65536,
+    "maximum_nodes_limit": 1048576,
+    "maximum_text_bytes_limit": 134217728,
+    "maximum_style_semantic_bytes_limit": 16777216,
+    "maximum_work_units_limit": 67108864
+  },
+  "certified_foundation": [
+    "persistent root plus canonical property/value prefix nodes",
+    "cross-cascade sharing ignores important specificity and source-order provenance",
+    "retained DAG topology and canonical property-order validation consume work budget",
+    "canonical ordering comparisons consume work budget",
+    "every child lookup node scan consumes work budget",
+    "child lookup property/value comparisons consume work budget",
+    "duplicate winning properties fail closed",
+    "corrupt parent topology and text slices fail closed",
+    "logical DAG size and text state roll back on failed extension",
+    "real ComputedStyle ledger allocation rejection"
+  ],
+  "deliberate_exclusions": [
+    "inheritance and inherited-value propagation",
+    "initial unset revert and shorthand expansion",
+    "computed-value normalization beyond retained winning text",
+    "style invalidation propagation",
+    "DAG eviction or compaction",
+    "persistent on-disk style DAG format",
+    "offscreen style materialization",
+    "full bounded_style_dag gate claim"
+  ]
+}
