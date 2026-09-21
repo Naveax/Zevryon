@@ -51,7 +51,10 @@ def test_z3_css_semantic_style_bridge_foundation_scope() -> None:
     assert "cascade_css_author_rules_v1" in source
     assert "intern_css_cascade_style_v1" in source
     assert "node.style.empty()" in source
-    assert "maximum_work_units - candidate_stats.work_units" in source
+    assert "cascade_remaining" in source
+    assert "dag_remaining" in source
+    assert "candidate_stats.work_units" in source
+    assert source.count("config.maximum_work_units") >= 3
     assert "zevryon-css-semantic-style-bridge-v1-tests" in cmake
     assert "css_semantic_style_bridge_v1.cmake" in parent_cmake
     assert "arena_node_count = 1'000'000U" in oracle
