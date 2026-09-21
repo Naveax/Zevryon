@@ -1,23 +1,27 @@
-name: Z3 CSS parser selector and cascade foundation
+name: Z3 CSS parser selector cascade and invalidation foundation
 
 on:
   pull_request:
     paths:
       - 'src/css_parser_v1.*'
       - 'src/css_selector_v1.*'
+      - 'src/css_selector_invalidation_v1.*'
       - 'src/css_cascade_v1.*'
       - 'tests/css_parser_v1_tests.cpp'
       - 'tests/css_selector_v1_tests.cpp'
+      - 'tests/css_selector_invalidation_v1_tests.cpp'
       - 'tests/css_cascade_v1_tests.cpp'
       - 'tests/test_z3_css_parser_foundation_scope.py'
       - 'tests/test_z3_css_input_preprocessing_scope.py'
       - 'tests/test_z3_css_declaration_list_scope.py'
       - 'tests/test_z3_css_selector_foundation_scope.py'
+      - 'tests/test_z3_css_selector_invalidation_foundation_scope.py'
       - 'tests/test_z3_css_cascade_foundation_scope.py'
       - 'certification/z3_css_parser_foundation_scope.json'
       - 'certification/z3_css_input_preprocessing_scope.json'
       - 'certification/z3_css_declaration_list_scope.json'
       - 'certification/z3_css_selector_foundation_scope.json'
+      - 'certification/z3_css_selector_invalidation_foundation_scope.json'
       - 'certification/z3_css_cascade_foundation_scope.json'
       - 'cmake/css_parser_v1.cmake'
       - 'cmake/css_selector_v1.cmake'
@@ -54,11 +58,12 @@ jobs:
       - name: Build production CSS oracles
         run: >-
           cmake --build build --parallel 2
-          --target zevryon-css-parser-v1-tests zevryon-css-selector-v1-tests zevryon-css-cascade-v1-tests
+          --target zevryon-css-parser-v1-tests zevryon-css-selector-v1-tests zevryon-css-selector-invalidation-v1-tests zevryon-css-cascade-v1-tests
       - name: Execute CSS oracles
         run: |
           build/zevryon-css-parser-v1-tests
           build/zevryon-css-selector-v1-tests
+          build/zevryon-css-selector-invalidation-v1-tests
           build/zevryon-css-cascade-v1-tests
       - name: Validate frozen scopes
         run: |
@@ -66,6 +71,7 @@ jobs:
           python3 tests/test_z3_css_input_preprocessing_scope.py
           python3 tests/test_z3_css_declaration_list_scope.py
           python3 tests/test_z3_css_selector_foundation_scope.py
+          python3 tests/test_z3_css_selector_invalidation_foundation_scope.py
           python3 tests/test_z3_css_cascade_foundation_scope.py
       - name: Validate scope JSON syntax
         run: |
@@ -73,6 +79,7 @@ jobs:
           python3 -m json.tool certification/z3_css_input_preprocessing_scope.json > /dev/null
           python3 -m json.tool certification/z3_css_declaration_list_scope.json > /dev/null
           python3 -m json.tool certification/z3_css_selector_foundation_scope.json > /dev/null
+          python3 -m json.tool certification/z3_css_selector_invalidation_foundation_scope.json > /dev/null
           python3 -m json.tool certification/z3_css_cascade_foundation_scope.json > /dev/null
 
   windows-parser:
@@ -98,6 +105,7 @@ jobs:
         run: |
           build/Release/zevryon-css-parser-v1-tests.exe
           build/Release/zevryon-css-selector-v1-tests.exe
+          build/Release/zevryon-css-selector-invalidation-v1-tests.exe
           build/Release/zevryon-css-cascade-v1-tests.exe
       - name: Validate frozen scopes
         shell: pwsh
@@ -106,6 +114,7 @@ jobs:
           python tests/test_z3_css_input_preprocessing_scope.py
           python tests/test_z3_css_declaration_list_scope.py
           python tests/test_z3_css_selector_foundation_scope.py
+          python tests/test_z3_css_selector_invalidation_foundation_scope.py
           python tests/test_z3_css_cascade_foundation_scope.py
       - name: Validate scope JSON syntax
         shell: pwsh
@@ -114,4 +123,5 @@ jobs:
           python -m json.tool certification/z3_css_input_preprocessing_scope.json > $null
           python -m json.tool certification/z3_css_declaration_list_scope.json > $null
           python -m json.tool certification/z3_css_selector_foundation_scope.json > $null
+          python -m json.tool certification/z3_css_selector_invalidation_foundation_scope.json > $null
           python -m json.tool certification/z3_css_cascade_foundation_scope.json > $null
