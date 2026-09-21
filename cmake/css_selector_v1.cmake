@@ -26,4 +26,15 @@ if(BUILD_TESTING)
   add_test(
     NAME css-selector-invalidation-v1-foundation-tests
     COMMAND zevryon-css-selector-invalidation-v1-tests)
+
+  add_executable(
+    zevryon-z3-selector-invalidation-authority-tests
+    tests/z3_selector_invalidation_authority_tests.cpp)
+  target_link_libraries(
+    zevryon-z3-selector-invalidation-authority-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-z3-selector-invalidation-authority-tests)
+  add_test(
+    NAME z3-selector-invalidation-authority-v1
+    COMMAND zevryon-z3-selector-invalidation-authority-tests)
 endif()

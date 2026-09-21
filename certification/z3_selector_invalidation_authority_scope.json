@@ -1,0 +1,56 @@
+{
+  "schema": "zevryon.z3-selector-invalidation-authority-scope.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "admitted_gates": [
+    "selector_dependency_invalidation"
+  ],
+  "remaining_gates": [
+    "css_parser_conformance",
+    "cascade_conformance",
+    "bounded_style_dag",
+    "offscreen_materialization_bound"
+  ],
+  "production_path": "compile_css_compound_selector_v1 -> build_css_selector_dependency_set_v1 -> css_selector_dependencies_invalidated_v1",
+  "authority_denominator": {
+    "selector_profiles": 32,
+    "mutations_per_profile": 8,
+    "exact_invalidation_decisions": 256,
+    "dependency_dimensions": [
+      "tag",
+      "id",
+      "class",
+      "data-a",
+      "data-b"
+    ],
+    "deduplication_case_collapsed_dependencies": 3
+  },
+  "mutation_matrix": [
+    "tag identity change",
+    "id attribute change",
+    "class attribute change",
+    "data-a attribute change",
+    "mixed-case data-b attribute change",
+    "unrelated title attribute change",
+    "combined id plus unrelated attribute change",
+    "data-b rename-style old plus new attribute-name summary"
+  ],
+  "required_properties": [
+    "every selector profile compiles through the production compound-selector compiler",
+    "dependency count equals the exact profile dependency-mask population",
+    "named dependencies are retained with HTML ASCII-case-insensitive canonical names",
+    "dependency sets remain valid after the source compiled selector is replaced",
+    "all 256 mutation decisions exactly equal the frozen dependency-mask expectation",
+    "class ID and repeated named-attribute selector dependencies deduplicate exactly",
+    "dependency-count ceiling fails closed before publication",
+    "work-budget exhaustion fails closed and does not publish a positive invalidation decision"
+  ],
+  "required_platforms": [
+    "ubuntu-24.04",
+    "windows-2022"
+  ],
+  "supported_selector_profile_claim": true,
+  "combinator_dependency_claim": false,
+  "pseudo_class_dependency_claim": false,
+  "ancestor_sibling_propagation_claim": false
+}

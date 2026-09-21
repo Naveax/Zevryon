@@ -1,0 +1,91 @@
+name: Z3 selector invalidation authority
+
+on:
+  pull_request:
+    paths:
+      - 'src/css_selector_v1.*'
+      - 'src/css_selector_invalidation_v1.*'
+      - 'tests/css_selector_v1_tests.cpp'
+      - 'tests/css_selector_invalidation_v1_tests.cpp'
+      - 'tests/z3_selector_invalidation_authority_tests.cpp'
+      - 'tests/test_z3_selector_invalidation_authority_scope.py'
+      - 'certification/z3_selector_invalidation_authority_scope.json'
+      - 'cmake/css_selector_v1.cmake'
+      - '.github/workflows/z3-selector-invalidation-authority.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: z3-selector-invalidation-authority-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-authority:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install focused build dependency
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DZEVRYON_ENABLE_FONTCONFIG_DISCOVERY=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build selector invalidation authorities
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-css-selector-v1-tests
+          zevryon-css-selector-invalidation-v1-tests
+          zevryon-z3-selector-invalidation-authority-tests
+      - name: Execute selector invalidation authority
+        run: |
+          build/zevryon-css-selector-v1-tests
+          build/zevryon-css-selector-invalidation-v1-tests
+          build/zevryon-z3-selector-invalidation-authority-tests
+      - name: Validate frozen authority scope
+        run: python3 tests/test_z3_selector_invalidation_authority_scope.py
+      - name: Validate authority JSON syntax
+        run: python3 -m json.tool certification/z3_selector_invalidation_authority_scope.json > /dev/null
+
+  windows-authority:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Configure
+        shell: pwsh
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build selector invalidation authorities
+        shell: pwsh
+        run: >-
+          cmake --build build --config Release --parallel 2 --target
+          zevryon-css-selector-v1-tests
+          zevryon-css-selector-invalidation-v1-tests
+          zevryon-z3-selector-invalidation-authority-tests
+      - name: Execute selector invalidation authority
+        shell: pwsh
+        run: |
+          build/Release/zevryon-css-selector-v1-tests.exe
+          build/Release/zevryon-css-selector-invalidation-v1-tests.exe
+          build/Release/zevryon-z3-selector-invalidation-authority-tests.exe
+      - name: Validate frozen authority scope
+        shell: pwsh
+        run: python tests/test_z3_selector_invalidation_authority_scope.py
+      - name: Validate authority JSON syntax
+        shell: pwsh
+        run: python -m json.tool certification/z3_selector_invalidation_authority_scope.json > $null
