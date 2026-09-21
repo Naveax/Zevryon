@@ -1,0 +1,41 @@
+{
+  "schema": "zevryon.z3-css-materialization-window-foundation.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "gate_progress": [
+    "offscreen_materialization_bound"
+  ],
+  "admitted_gates": [],
+  "production_surface": "materialize_css_style_window_v1",
+  "resource_class": "ComputedStyle",
+  "selection_model": [
+    "caller supplies document-order terminal style identities",
+    "visible range is half-open [visible_begin, visible_end)",
+    "before and after lookahead are clipped at document boundaries",
+    "selection is one contiguous subspan and does not scan unrelated document nodes",
+    "request mapping index i corresponds to selected_document_begin plus i"
+  ],
+  "hard_bounds": {
+    "maximum_visible_nodes_limit": 65536,
+    "maximum_offscreen_nodes_per_side_limit": 65536,
+    "maximum_selection_work_units_limit": 65536
+  },
+  "certified_foundation": [
+    "100000-node document span selects and charges exactly five requests for a one-visible plus two-before plus two-after window",
+    "leading and trailing lookahead clip without index underflow or overflow",
+    "visible-node and selection-work bounds fail before materialization",
+    "window maxima must fit nested materializer request capacity",
+    "nested materialization failures preserve prior output and map exact document index",
+    "wrapper failures preserve prior materialized output",
+    "selection delegates only the computed contiguous subspan to bounded materialization"
+  ],
+  "deliberate_exclusions": [
+    "pixel geometry based viewport classification",
+    "scroll velocity or time-based prefetch policy",
+    "distance-ranked non-contiguous lookahead",
+    "automatic DOM-to-terminal-style discovery",
+    "cross-window materialization cache",
+    "layout or paint object creation",
+    "full offscreen_materialization_bound gate claim"
+  ]
+}
