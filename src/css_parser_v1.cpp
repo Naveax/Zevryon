@@ -14,6 +14,7 @@ namespace {
 constexpr std::size_t kMaximumConfiguredInputBytes = 16U * 1024U * 1024U;
 constexpr std::uint32_t kMaximumConfiguredRules = 1'048'576U;
 constexpr std::uint32_t kMaximumConfiguredDeclarations = 4'194'304U;
+constexpr std::uint32_t kMaximumConfiguredAtRules = 1'048'576U;
 constexpr std::uint32_t kMaximumConfiguredNestingDepth = 256U;
 constexpr std::size_t kMaximumConfiguredOutputTextBytes = 128U * 1024U * 1024U;
 
@@ -265,7 +266,12 @@ public:
                 return fail(CssParserV1ErrorKind::UnbalancedBlock, cursor_, "unexpected top-level CSS closing brace");
             }
             if (input_[cursor_] == '@') {
-                return fail(CssParserV1ErrorKind::UnsupportedSyntax, cursor_, "CSS at-rules are outside the parser foundation scope");
+                if (!parse_at_rule(
+                        CssAtRuleContextV1::TopLevel,
+                        kCssAtRuleNoOwnerV1)) {
+                    return false;
+                }
+                continue;
             }
             if (!parse_style_rule()) {
                 return false;
@@ -367,6 +373,423 @@ private:
             output_->text.append(value.data(), value.size());
         }
         return true;
+    }
+
+    void clear_error_after_recovery() noexcept {
+        error_->kind = CssParserV1ErrorKind::None;
+        error_->byte_offset = 0U;
+        error_->message.clear();
+    }
+
+    bool parse_at_rule_name(std::string_view* name) {
+        if (name == nullptr || cursor_ >= input_.size()) {
+            return fail(
+                CssParserV1ErrorKind::InvalidAtRule,
+                cursor_,
+                "CSS at-rule name is missing");
+        }
+
+        const std::size_t start = cursor_;
+        const auto name_start_byte = [&](std::size_t index) noexcept {
+            if (index >= input_.size()) {
+                return false;
+            }
+            const char value = input_[index];
+            const unsigned char byte =
+                static_cast<unsigned char>(value);
+            return ascii_alpha(value) || value == '_' ||
+                byte >= 0x80U;
+        };
+
+        const char first = input_[cursor_];
+        if (first == '\\') {
+            return fail(
+                CssParserV1ErrorKind::UnsupportedSyntax,
+                cursor_,
+                "escaped CSS at-rule names are outside this foundation");
+        }
+        if (first == '-') {
+            if (cursor_ + 1U >= input_.size()) {
+                return fail(
+                    CssParserV1ErrorKind::InvalidAtRule,
+                    cursor_,
+                    "CSS at-rule hyphen name is incomplete");
+            }
+            const char second = input_[cursor_ + 1U];
+            if (second == '\\') {
+                return fail(
+                    CssParserV1ErrorKind::UnsupportedSyntax,
+                    cursor_ + 1U,
+                    "escaped CSS at-rule names are outside this foundation");
+            }
+            if (!(second == '-' ||
+                  name_start_byte(cursor_ + 1U))) {
+                return fail(
+                    CssParserV1ErrorKind::InvalidAtRule,
+                    cursor_,
+                    "CSS at-rule hyphen name does not start an identifier");
+            }
+        } else if (!name_start_byte(cursor_)) {
+            return fail(
+                CssParserV1ErrorKind::InvalidAtRule,
+                cursor_,
+                "CSS at-rule name has invalid initial byte");
+        }
+
+        while (cursor_ < input_.size()) {
+            const char value = input_[cursor_];
+            const unsigned char byte =
+                static_cast<unsigned char>(value);
+            if (ascii_alpha(value) || ascii_digit(value) ||
+                value == '_' || value == '-' || byte >= 0x80U) {
+                ++cursor_;
+                continue;
+            }
+            if (value == '\\') {
+                return fail(
+                    CssParserV1ErrorKind::UnsupportedSyntax,
+                    cursor_,
+                    "escaped CSS at-rule names are outside this foundation");
+            }
+            break;
+        }
+
+        *name = input_.substr(start, cursor_ - start);
+        return !name->empty();
+    }
+
+    bool consume_at_rule_block(std::string_view* block) {
+        if (block == nullptr) {
+            return fail(
+                CssParserV1ErrorKind::InvalidConfiguration,
+                cursor_,
+                "CSS at-rule block output is null");
+        }
+        const std::size_t start = cursor_;
+        std::array<char, kMaximumConfiguredNestingDepth> stack{};
+        std::uint32_t depth = 0U;
+        if (!push_nesting(
+                '}',
+                start == 0U ? 0U : start - 1U,
+                &stack,
+                &depth)) {
+            return false;
+        }
+
+        while (cursor_ < input_.size()) {
+            const char value = input_[cursor_];
+            if (value == '"' || value == '\'') {
+                if (!consume_string(value)) {
+                    return false;
+                }
+                continue;
+            }
+            if (cursor_ + 1U < input_.size() &&
+                value == '/' && input_[cursor_ + 1U] == '*') {
+                if (!skip_comment()) {
+                    return false;
+                }
+                continue;
+            }
+            if (value == '\\') {
+                ++cursor_;
+                if (cursor_ == input_.size()) {
+                    return fail(
+                        CssParserV1ErrorKind::InvalidAtRule,
+                        start,
+                        "CSS at-rule block has dangling escape");
+                }
+                ++cursor_;
+                continue;
+            }
+            if (value == '(' || value == '[' || value == '{') {
+                const char closer =
+                    value == '(' ? ')' :
+                    (value == '[' ? ']' : '}');
+                if (!push_nesting(
+                        closer,
+                        cursor_,
+                        &stack,
+                        &depth)) {
+                    return false;
+                }
+                ++cursor_;
+                continue;
+            }
+            if (value == ')' || value == ']' || value == '}') {
+                if (depth == 0U || stack[depth - 1U] != value) {
+                    return fail(
+                        CssParserV1ErrorKind::InvalidAtRule,
+                        cursor_,
+                        "mismatched CSS at-rule block delimiter");
+                }
+                --depth;
+                if (depth == 0U) {
+                    *block = input_.substr(start, cursor_ - start);
+                    ++cursor_;
+                    return true;
+                }
+                ++cursor_;
+                continue;
+            }
+            ++cursor_;
+        }
+        return fail(
+            CssParserV1ErrorKind::UnbalancedBlock,
+            start,
+            "CSS at-rule block is unterminated");
+    }
+
+    bool emit_at_rule(
+        std::string_view name,
+        std::string_view prelude,
+        std::string_view block,
+        bool has_block,
+        CssAtRuleContextV1 context,
+        std::uint32_t owner_rule_index,
+        std::size_t start) {
+        if (context == CssAtRuleContextV1::TopLevel &&
+            ascii_iequals(name, "charset")) {
+            ++stats_->dropped_charset_rules;
+            return true;
+        }
+        if (output_->at_rules.size() >= config_.maximum_at_rules) {
+            return fail(
+                CssParserV1ErrorKind::AtRuleLimitExceeded,
+                start,
+                "CSS at-rule count exceeds configured limit");
+        }
+
+        CssAtRuleV1 rule;
+        if (!append_slice(name, true, &rule.name) ||
+            !append_slice(prelude, false, &rule.prelude)) {
+            return false;
+        }
+        if (has_block &&
+            !append_slice(block, false, &rule.block)) {
+            return false;
+        }
+        rule.context = context;
+        rule.owner_rule_index = owner_rule_index;
+        rule.has_block = has_block;
+        output_->at_rules.push_back(rule);
+        ++stats_->at_rules;
+        return true;
+    }
+
+    bool parse_at_rule(
+        CssAtRuleContextV1 context,
+        std::uint32_t owner_rule_index) {
+        const std::size_t start = cursor_;
+        if (input_[cursor_] != '@') {
+            return fail(
+                CssParserV1ErrorKind::InvalidAtRule,
+                cursor_,
+                "CSS at-rule parser did not start at @");
+        }
+        ++cursor_;
+        std::string_view name;
+        if (!parse_at_rule_name(&name)) {
+            return false;
+        }
+
+        const std::size_t prelude_start = cursor_;
+        std::array<char, kMaximumConfiguredNestingDepth> stack{};
+        std::uint32_t depth = 0U;
+        while (cursor_ < input_.size()) {
+            const char value = input_[cursor_];
+            if (value == '"' || value == '\'') {
+                if (!consume_string(value)) {
+                    return false;
+                }
+                continue;
+            }
+            if (cursor_ + 1U < input_.size() &&
+                value == '/' && input_[cursor_ + 1U] == '*') {
+                if (!skip_comment()) {
+                    return false;
+                }
+                continue;
+            }
+            if (value == '\\') {
+                ++cursor_;
+                if (cursor_ == input_.size()) {
+                    return fail(
+                        CssParserV1ErrorKind::InvalidAtRule,
+                        start,
+                        "CSS at-rule prelude has dangling escape");
+                }
+                ++cursor_;
+                continue;
+            }
+            if (value == '(' || value == '[' ||
+                (value == '{' && depth != 0U)) {
+                const char closer =
+                    value == '(' ? ')' : (value == '[' ? ']' : '}');
+                if (!push_nesting(
+                        closer,
+                        cursor_,
+                        &stack,
+                        &depth)) {
+                    return false;
+                }
+                ++cursor_;
+                continue;
+            }
+            if (value == ')' || value == ']' ||
+                (value == '}' && depth != 0U)) {
+                if (depth == 0U || stack[depth - 1U] != value) {
+                    return fail(
+                        CssParserV1ErrorKind::InvalidAtRule,
+                        cursor_,
+                        "mismatched CSS at-rule prelude delimiter");
+                }
+                --depth;
+                ++cursor_;
+                continue;
+            }
+            if (value == ';' && depth == 0U) {
+                const std::string_view prelude =
+                    trim_ascii(input_.substr(
+                        prelude_start,
+                        cursor_ - prelude_start));
+                ++cursor_;
+                return emit_at_rule(
+                    name,
+                    prelude,
+                    {},
+                    false,
+                    context,
+                    owner_rule_index,
+                    start);
+            }
+            if (value == '{' && depth == 0U) {
+                const std::string_view prelude =
+                    trim_ascii(input_.substr(
+                        prelude_start,
+                        cursor_ - prelude_start));
+                ++cursor_;
+                std::string_view block;
+                if (!consume_at_rule_block(&block)) {
+                    return false;
+                }
+                return emit_at_rule(
+                    name,
+                    prelude,
+                    block,
+                    true,
+                    context,
+                    owner_rule_index,
+                    start);
+            }
+            if (value == '}' && depth == 0U) {
+                return fail(
+                    CssParserV1ErrorKind::InvalidAtRule,
+                    cursor_,
+                    "CSS at-rule prelude closed by declaration block");
+            }
+            ++cursor_;
+        }
+
+        if (depth != 0U) {
+            return fail(
+                CssParserV1ErrorKind::UnbalancedBlock,
+                start,
+                "CSS at-rule prelude is unterminated");
+        }
+        const std::string_view prelude =
+            trim_ascii(input_.substr(
+                prelude_start,
+                cursor_ - prelude_start));
+        return emit_at_rule(
+            name,
+            prelude,
+            {},
+            false,
+            context,
+            owner_rule_index,
+            start);
+    }
+
+    bool recover_bad_declaration(bool* closed_rule) {
+        if (closed_rule == nullptr) {
+            return fail(
+                CssParserV1ErrorKind::InvalidConfiguration,
+                cursor_,
+                "CSS recovery closed-rule output is null");
+        }
+        *closed_rule = false;
+        std::array<char, kMaximumConfiguredNestingDepth> stack{};
+        std::uint32_t depth = 0U;
+
+        while (cursor_ < input_.size()) {
+            const char current = input_[cursor_];
+            if (current == '"' || current == '\'') {
+                if (!consume_string(current)) {
+                    return false;
+                }
+                continue;
+            }
+            if (cursor_ + 1U < input_.size() &&
+                current == '/' &&
+                input_[cursor_ + 1U] == '*') {
+                if (!skip_comment()) {
+                    return false;
+                }
+                continue;
+            }
+            if (current == '\\') {
+                ++cursor_;
+                if (cursor_ < input_.size()) {
+                    ++cursor_;
+                }
+                continue;
+            }
+            if (current == '(' || current == '[' ||
+                current == '{') {
+                const char closer =
+                    current == '(' ? ')' :
+                    (current == '[' ? ']' : '}');
+                if (!push_nesting(
+                        closer,
+                        cursor_,
+                        &stack,
+                        &depth)) {
+                    return false;
+                }
+                ++cursor_;
+                continue;
+            }
+            if (current == ')' || current == ']') {
+                if (depth != 0U &&
+                    stack[depth - 1U] == current) {
+                    --depth;
+                }
+                ++cursor_;
+                continue;
+            }
+            if (current == '}') {
+                if (depth != 0U) {
+                    if (stack[depth - 1U] == '}') {
+                        --depth;
+                    }
+                    ++cursor_;
+                    continue;
+                }
+                ++cursor_;
+                *closed_rule = true;
+                return true;
+            }
+            if (current == ';' && depth == 0U) {
+                ++cursor_;
+                return true;
+            }
+            ++cursor_;
+        }
+        return fail(
+            CssParserV1ErrorKind::UnbalancedBlock,
+            cursor_,
+            "CSS declaration recovery reached EOF before rule close");
     }
 
     bool parse_selector(std::string_view* selector) {
@@ -571,8 +994,33 @@ private:
                 ++cursor_;
                 continue;
             }
+            if (input_[cursor_] == '@') {
+                if (output_->rules.size() >
+                    static_cast<std::size_t>(
+                        std::numeric_limits<std::uint32_t>::max())) {
+                    return fail(
+                        CssParserV1ErrorKind::RuleLimitExceeded,
+                        rule_start,
+                        "CSS at-rule owner rule index exceeds 32-bit representation");
+                }
+                if (!parse_at_rule(
+                        CssAtRuleContextV1::DeclarationList,
+                        static_cast<std::uint32_t>(
+                            output_->rules.size()))) {
+                    return false;
+                }
+                continue;
+            }
             if (!parse_declaration(&closed_rule)) {
-                return false;
+                if (error_->kind !=
+                    CssParserV1ErrorKind::InvalidDeclaration) {
+                    return false;
+                }
+                ++stats_->recovered_invalid_declarations;
+                clear_error_after_recovery();
+                if (!recover_bad_declaration(&closed_rule)) {
+                    return false;
+                }
             }
         }
         const std::size_t declaration_count = output_->declarations.size() - static_cast<std::size_t>(rule.declaration_offset);
@@ -599,6 +1047,7 @@ bool CssParserV1Config::valid() const noexcept {
     return maximum_input_bytes > 0U && maximum_input_bytes <= kMaximumConfiguredInputBytes &&
         maximum_rules > 0U && maximum_rules <= kMaximumConfiguredRules &&
         maximum_declarations > 0U && maximum_declarations <= kMaximumConfiguredDeclarations &&
+        maximum_at_rules > 0U && maximum_at_rules <= kMaximumConfiguredAtRules &&
         maximum_nesting_depth > 0U && maximum_nesting_depth <= kMaximumConfiguredNestingDepth &&
         maximum_output_text_bytes > 0U &&
         maximum_output_text_bytes <= kMaximumConfiguredOutputTextBytes &&
@@ -606,7 +1055,7 @@ bool CssParserV1Config::valid() const noexcept {
 }
 
 CssStylesheetV1::CssStylesheetV1(std::pmr::memory_resource* memory)
-    : text(memory), rules(memory), declarations(memory) {}
+    : text(memory), rules(memory), declarations(memory), at_rules(memory) {}
 
 std::pmr::memory_resource* CssStylesheetV1::resource() const noexcept {
     return text.get_allocator().resource();
@@ -625,9 +1074,11 @@ void CssStylesheetV1::release() noexcept {
     std::pmr::string empty_text(resource());
     std::pmr::vector<CssStyleRuleV1> empty_rules(resource());
     std::pmr::vector<CssDeclarationV1> empty_declarations(resource());
+    std::pmr::vector<CssAtRuleV1> empty_at_rules(resource());
     text.swap(empty_text);
     rules.swap(empty_rules);
     declarations.swap(empty_declarations);
+    at_rules.swap(empty_at_rules);
 }
 
 const char* css_parser_v1_error_kind_name(CssParserV1ErrorKind kind) noexcept {
@@ -638,12 +1089,14 @@ const char* css_parser_v1_error_kind_name(CssParserV1ErrorKind kind) noexcept {
     case CssParserV1ErrorKind::UnsupportedSyntax: return "unsupported-syntax";
     case CssParserV1ErrorKind::InvalidSelector: return "invalid-selector";
     case CssParserV1ErrorKind::InvalidDeclaration: return "invalid-declaration";
+    case CssParserV1ErrorKind::InvalidAtRule: return "invalid-at-rule";
     case CssParserV1ErrorKind::UnterminatedComment: return "unterminated-comment";
     case CssParserV1ErrorKind::UnterminatedString: return "unterminated-string";
     case CssParserV1ErrorKind::UnbalancedBlock: return "unbalanced-block";
     case CssParserV1ErrorKind::NestingLimitExceeded: return "nesting-limit-exceeded";
     case CssParserV1ErrorKind::RuleLimitExceeded: return "rule-limit-exceeded";
     case CssParserV1ErrorKind::DeclarationLimitExceeded: return "declaration-limit-exceeded";
+    case CssParserV1ErrorKind::AtRuleLimitExceeded: return "at-rule-limit-exceeded";
     case CssParserV1ErrorKind::OutputBudgetExceeded: return "output-budget-exceeded";
     case CssParserV1ErrorKind::AllocationFailure: return "allocation-failure";
     }
@@ -691,6 +1144,7 @@ bool parse_css_stylesheet_v1(
         output->text.swap(candidate.text);
         output->rules.swap(candidate.rules);
         output->declarations.swap(candidate.declarations);
+        output->at_rules.swap(candidate.at_rules);
         *stats = candidate_stats;
         return true;
     } catch (const std::bad_alloc&) {
