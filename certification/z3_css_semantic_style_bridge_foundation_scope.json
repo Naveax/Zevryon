@@ -1,0 +1,42 @@
+{
+  "schema": "zevryon.z3-css-semantic-style-bridge-foundation.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "gate_progress": [
+    "cascade_conformance",
+    "bounded_style_dag",
+    "offscreen_materialization_bound"
+  ],
+  "admitted_gates": [],
+  "production_surface": "compute_css_style_terminals_for_semantic_window_v1",
+  "store_facing_input": "ZenithSemanticNodeWindowResult",
+  "production_path": "bounded Z8 semantic window -> CssSelectorNodeV1 views -> cascade_css_author_rules_v1 -> intern_css_cascade_style_v1 -> bounded absolute terminal window",
+  "hard_bounds": {
+    "maximum_nodes_limit": 65536,
+    "maximum_attributes_per_node_limit": 65536,
+    "maximum_total_attributes_limit": 1048576,
+    "maximum_node_semantic_bytes_limit": 16777216,
+    "maximum_total_semantic_bytes_limit": 268435456,
+    "maximum_work_units_limit": 134217728
+  },
+  "certified_foundation": [
+    "semantic window ordinal range must exactly match the supplied node payload",
+    "authoritative per-node and total attribute counts are revalidated before cascade work",
+    "tag and original HTML attributes are exposed as non-owning selector views only for the bounded window",
+    "one shared work budget covers bridge preflight cascade and style-DAG work",
+    "equal semantic nodes reuse the same canonical style-DAG terminal identity",
+    "unmatched nodes map to the empty style root",
+    "published terminal output preserves absolute document begin end and total logical node count",
+    "non-empty HTML style attribute fails before any DAG mutation because inline-origin cascade is not yet authoritative",
+    "preflight and nested failures preserve the prior published terminal window"
+  ],
+  "deliberate_exclusions": [
+    "inline style origin and inline important precedence",
+    "CSS inheritance and computed-value normalization",
+    "selector combinators and pseudo classes outside the current selector profile",
+    "automatic stylesheet discovery from HTML link or style elements",
+    "mutation-driven recomputation",
+    "direct layout or paint object construction",
+    "Z3 milestone promotion"
+  ]
+}

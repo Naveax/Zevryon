@@ -15,3 +15,5 @@ if(BUILD_TESTING)
     NAME css-style-materialization-v1-foundation-tests
     COMMAND zevryon-css-style-materialization-v1-tests)
 endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/css_semantic_style_bridge_v1.cmake")
