@@ -255,8 +255,8 @@ bool test_failure_is_atomic() {
     const std::size_t previous_rules = sheet.rules.size();
     const std::size_t previous_declarations = sheet.declarations.size();
 
-    ok &= expect(!parse(".broken { color red; }", &sheet, &stats, &error), "missing colon must fail");
-    ok &= expect(error.kind == CssParserV1ErrorKind::InvalidDeclaration, "missing colon error kind must be exact");
+    ok &= expect(!parse(".broken { content: \"unterminated; }", &sheet, &stats, &error), "structural string failure must remain fatal");
+    ok &= expect(error.kind == CssParserV1ErrorKind::UnterminatedString, "fatal string error kind must be exact");
     ok &= expect(std::string_view(sheet.text.data(), sheet.text.size()) == previous_text, "failed parse must preserve previous text");
     ok &= expect(sheet.rules.size() == previous_rules, "failed parse must preserve previous rules");
     ok &= expect(sheet.declarations.size() == previous_declarations, "failed parse must preserve previous declarations");
@@ -273,16 +273,19 @@ bool test_strict_syntax_boundaries() {
     CssParserV1Error error;
     bool ok = true;
 
-    ok &= expect(!parse("@media screen { .x { color: red; } }", &sheet, &stats, &error), "at-rules must fail outside foundation scope");
-    ok &= expect(error.kind == CssParserV1ErrorKind::UnsupportedSyntax, "at-rule failure kind must be exact");
+    ok &= expect(parse("@media screen { .x { color: red; } }", &sheet, &stats, &error), "generic top-level at-rule must be retained");
+    ok &= expect(sheet.at_rules.size() == 1U && sheet.resolve(sheet.at_rules.front().name) == "media", "retained top-level at-rule must be media");
     ok &= expect(!parse(".x { content: \"unterminated; }", &sheet, &stats, &error), "unterminated string must fail");
     ok &= expect(error.kind == CssParserV1ErrorKind::UnterminatedString, "unterminated string kind must be exact");
     ok &= expect(!parse("/* unterminated", &sheet, &stats, &error), "unterminated comment must fail");
     ok &= expect(error.kind == CssParserV1ErrorKind::UnterminatedComment, "unterminated comment kind must be exact");
     ok &= expect(!parse(".x[a=(b] { color: red; }", &sheet, &stats, &error), "mismatched selector delimiters must fail");
     ok &= expect(error.kind == CssParserV1ErrorKind::InvalidSelector, "selector mismatch kind must be exact");
-    ok &= expect(!parse(".x { color: rgb(1, 2]; }", &sheet, &stats, &error), "mismatched value delimiters must fail");
-    ok &= expect(error.kind == CssParserV1ErrorKind::InvalidDeclaration, "value mismatch kind must be exact");
+    ok &= expect(parse(".x { color: rgb(1, 2]; width: 2px; }", &sheet, &stats, &error), "mismatched declaration value must recover");
+    ok &= expect(error.kind == CssParserV1ErrorKind::None, "recovered value mismatch must clear error");
+    ok &= expect(stats.recovered_invalid_declarations == 1U, "value mismatch recovery count must be exact");
+    ok &= expect(sheet.rules.size() == 1U && sheet.rules.front().declaration_count == 1U, "only declaration after recovered mismatch must survive");
+    ok &= expect(sheet.resolve(sheet.declarations.front().property) == "width", "width declaration must survive recovered mismatch");
     return ok;
 }
 

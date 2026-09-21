@@ -1,0 +1,62 @@
+{
+  "schema": "zevryon.z3-css-at-rule-recovery-foundation.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "gate_progress": [
+    "css_parser_conformance"
+  ],
+  "admitted_gates": [],
+  "production_surface": "parse_css_stylesheet_v1 in zevryon-massivedoc-core",
+  "resource_class": "ComputedStyle",
+  "wpt_reference": {
+    "repository": "web-platform-tests/wpt",
+    "upstream_commit": "15df54d4459b78242d32ae36f9c094a96972bedc",
+    "files": [
+      {
+        "path": "css/css-syntax/charset-is-not-a-rule.html",
+        "blob_sha": "ff8d3298b6216f7cedb29939554a30c65eac4bf0",
+        "admitted_cases": 1,
+        "authority": "top-level @charset directives are dropped"
+      },
+      {
+        "path": "css/css-syntax/at-rule-in-declaration-list.html",
+        "blob_sha": "f40975d27eadf436634491b4a158cee4f9c268ef",
+        "admitted_cases": 2,
+        "authority": "style-rule declaration lists continue after block and semicolon at-rules"
+      }
+    ]
+  },
+  "certified_foundation": [
+    "bounded generic top-level at-rule retention",
+    "bounded declaration-list at-rule retention with owning style-rule index",
+    "ASCII lowercase canonicalization of retained at-rule names",
+    "trimmed retained at-rule preludes",
+    "raw bounded at-rule block payload retention",
+    "top-level @charset directives are consumed and dropped",
+    "invalid declaration remnants can recover to semicolon or rule close",
+    "recoverable invalid declarations do not erase following valid declarations",
+    "successful declaration recovery clears transient parser error state",
+    "fatal structural errors preserve atomic stylesheet output"
+  ],
+  "configuration_hard_maxima": {
+    "at_rules": 1048576,
+    "nesting_depth": 256
+  },
+  "authority_cases": {
+    "wpt_cases": 3,
+    "local_recovery_cases": 5,
+    "local_at_rule_boundary_cases": 3,
+    "local_owner_identity_cases": 1
+  },
+  "deliberate_exclusions": [
+    "@page and @font-face declaration semantics inside retained at-rule blocks",
+    "@media and conditional-rule evaluation",
+    "escaped at-keyword semantic normalization",
+    "nested qualified-rule recovery",
+    "bad-string and unterminated-comment recovery",
+    "property grammar validation",
+    "selector grammar validation",
+    "full CSS Syntax error-recovery corpus authority",
+    "full css_parser_conformance gate claim"
+  ]
+}
