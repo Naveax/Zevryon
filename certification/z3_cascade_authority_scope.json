@@ -1,0 +1,86 @@
+{
+  "schema": "zevryon.z3-cascade-authority-scope.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "admitted_gates": [
+    "cascade_conformance"
+  ],
+  "remaining_gates": [
+    "css_parser_conformance",
+    "selector_dependency_invalidation",
+    "bounded_style_dag",
+    "offscreen_materialization_bound"
+  ],
+  "production_path": "parse_css_stylesheet_v1 -> compile_css_compound_selector_v1 -> match_css_compound_selector_v1 -> cascade_css_author_rules_v1",
+  "authority_denominator": {
+    "specificity_profiles": 4,
+    "importance_states_per_side": 2,
+    "exact_winner_decisions": 64,
+    "importance_replacements": 16,
+    "specificity_replacements": 12,
+    "source_order_replacements": 8,
+    "bound_failure_kinds": [
+      "RuleLimitExceeded",
+      "DeclarationLimitExceeded",
+      "PropertyLimitExceeded",
+      "WorkBudgetExceeded"
+    ]
+  },
+  "specificity_profiles": [
+    {
+      "selector": "*",
+      "specificity": [0, 0, 0]
+    },
+    {
+      "selector": "div",
+      "specificity": [0, 0, 1]
+    },
+    {
+      "selector": ".card",
+      "specificity": [0, 1, 0]
+    },
+    {
+      "selector": "#hero",
+      "specificity": [1, 0, 0]
+    }
+  ],
+  "frozen_wpt_provenance": {
+    "repository": "web-platform-tests/wpt",
+    "commit": "15df54d4459b78242d32ae36f9c094a96972bedc",
+    "cases": [
+      {
+        "path": "css/CSS2/cascade/specificity-001.xht",
+        "blob": "d0044ad1b4784e69e1c84b97752e5f7794798dbc"
+      },
+      {
+        "path": "css/CSS2/cascade/specificity-007.xht",
+        "blob": "3d4bd830c5f40974221533a20627ab0fa417ff4e"
+      },
+      {
+        "path": "css/CSS2/cascade/cascade-005.xht",
+        "blob": "e6011975c90bfb7601482457d101c083fd442262"
+      }
+    ]
+  },
+  "required_properties": [
+    "every authority selector profile matches the same semantic node through the production selector compiler and matcher",
+    "importance outranks specificity and source order",
+    "specificity outranks source order at equal importance",
+    "later source order wins only at equal importance and specificity",
+    "winner value important bit specificity and source_order are compared exactly for all 64 decisions",
+    "rule declaration property and work limits fail closed with exact error kind",
+    "all bound failures preserve the prior cascade result atomically",
+    "component cascade oracle including frozen WPT slices passes on the same exact head"
+  ],
+  "required_platforms": [
+    "ubuntu-24.04",
+    "windows-2022"
+  ],
+  "configured_author_origin_profile_claim": true,
+  "user_origin_claim": false,
+  "user_agent_origin_claim": false,
+  "cascade_layers_claim": false,
+  "inline_style_origin_claim": false,
+  "inheritance_claim": false,
+  "shorthand_claim": false
+}
