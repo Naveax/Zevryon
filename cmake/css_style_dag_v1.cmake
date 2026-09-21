@@ -14,4 +14,15 @@ if(BUILD_TESTING)
   add_test(
     NAME css-style-dag-v1-foundation-tests
     COMMAND zevryon-css-style-dag-v1-tests)
+
+  add_executable(
+    zevryon-z3-style-dag-authority-tests
+    tests/z3_style_dag_authority_tests.cpp)
+  target_link_libraries(
+    zevryon-z3-style-dag-authority-tests
+    PRIVATE zevryon-massivedoc-core)
+  zevryon_options(zevryon-z3-style-dag-authority-tests)
+  add_test(
+    NAME z3-style-dag-authority-v1
+    COMMAND zevryon-z3-style-dag-authority-tests)
 endif()

@@ -1,0 +1,38 @@
+{
+  "schema": "zevryon.z3-style-dag-authority-scope.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "admitted_gates": [
+    "bounded_style_dag"
+  ],
+  "remaining_gates": [
+    "css_parser_conformance",
+    "cascade_conformance",
+    "selector_dependency_invalidation",
+    "offscreen_materialization_bound"
+  ],
+  "production_path": "parse_css_stylesheet_v1 -> cascade_css_author_rules_v1 -> intern_css_cascade_style_v1",
+  "authority_fixture": {
+    "unique_styles": 32,
+    "properties_per_style": 8,
+    "total_intern_requests": 4096,
+    "shared_prefix_properties": 7,
+    "expected_retained_nodes": 40,
+    "node_limit_rejection_ceiling": 39,
+    "computed_style_ledger_hard_limit_bytes": 1048576
+  },
+  "required_properties": [
+    "declaration order does not change canonical computed-style identity",
+    "32 unique computed styles retain exactly root plus seven shared prefix nodes plus 32 terminal nodes",
+    "4064 repeated requests reuse exact terminal identity and create zero retained nodes",
+    "repeated requests do not grow the retained DAG beyond 40 nodes",
+    "a 39-node configured ceiling accepts the first 31 unique styles and rejects the 32nd before logical publication",
+    "node-limit rejection preserves 39 logical nodes and publishes no terminal identity",
+    "the complete authority run stays inside a one-mebibyte ComputedStyle ledger without allocation rejection"
+  ],
+  "platforms": [
+    "ubuntu-24.04",
+    "windows-2022"
+  ],
+  "full_computed_style_semantics_claim": false
+}
