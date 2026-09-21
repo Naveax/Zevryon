@@ -1,0 +1,42 @@
+{
+  "schema": "zevryon.z3-bounded-style-dag-authority-scope.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "admitted_gates": [
+    "bounded_style_dag"
+  ],
+  "remaining_gates": [
+    "css_parser_conformance",
+    "cascade_conformance",
+    "selector_dependency_invalidation",
+    "offscreen_materialization_bound"
+  ],
+  "production_surface": "intern_css_cascade_style_v1",
+  "resource_class": "ComputedStyle",
+  "authority_denominator": {
+    "foundation_oracle_cases": 5,
+    "fanout_styles": 512,
+    "provenance_replays": 512,
+    "expected_retained_nodes": 515,
+    "expected_retained_text_bytes": 3880,
+    "boundary_authority_cases": 7
+  },
+  "required_platforms": [
+    "ubuntu-24.04",
+    "windows-2022"
+  ],
+  "authority_contract": [
+    "equal final property/value sets reuse one terminal style identity across different cascade provenance",
+    "512 unique three-property styles share the exact two-node canonical prefix",
+    "the 512-style authority retains exactly 515 DAG nodes",
+    "the 512-style authority retains exactly 3880 property/value text bytes",
+    "replayed equivalent styles append zero retained text and create zero nodes",
+    "node-limit and text-limit partial extensions roll logical DAG state back",
+    "property-count semantic-byte and work-unit bounds fail closed",
+    "corrupt retained topology fails closed",
+    "real ComputedStyle hard-limit rejection is observable and accounting-clean"
+  ],
+  "full_css_computed_style_claim": false,
+  "inheritance_claim": false,
+  "computed_value_normalization_claim": false
+}
