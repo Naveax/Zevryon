@@ -1,0 +1,48 @@
+{
+  "schema": "zevryon.z3-css-offscreen-selection-foundation.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "gate_progress": [
+    "offscreen_materialization_bound"
+  ],
+  "admitted_gates": [],
+  "production_surface": "select_css_offscreen_style_nodes_v1",
+  "resource_class": "ComputedStyle",
+  "input_contract": [
+    "caller supplies precomputed viewport intersection state",
+    "caller supplies nonnegative CSS-pixel distance from the viewport for non-intersecting candidates",
+    "terminal style identity comes from the bounded computed-style DAG"
+  ],
+  "selection_policy": [
+    "viewport-intersecting candidates are excluded from offscreen pre-materialization",
+    "offscreen candidates beyond the configured lookahead are excluded",
+    "duplicate terminal styles collapse to their nearest offscreen occurrence",
+    "eligible unique styles are ordered by distance then terminal node identity",
+    "selection is truncated to maximum_selected_styles",
+    "zero lookahead remains valid and admits zero-distance offscreen candidates only"
+  ],
+  "hard_bounds": {
+    "maximum_candidates_limit": 16384,
+    "maximum_selected_styles_limit": 16384,
+    "maximum_lookahead_css_px_limit": 1000000,
+    "maximum_work_units_limit": 67108864
+  },
+  "certified_foundation": [
+    "candidate scanning consumes the shared work budget",
+    "duplicate terminal lookup consumes the shared work budget",
+    "deterministic ordering consumes the shared work budget",
+    "candidate-count and work-budget failures preserve prior output atomically",
+    "selection output feeds materialize_css_style_nodes_v1 directly",
+    "temporary and retained selection storage use caller PMR",
+    "real ComputedStyle ledger allocation rejection"
+  ],
+  "deliberate_exclusions": [
+    "layout-engine viewport geometry calculation",
+    "DOM-to-terminal-style discovery",
+    "scroll velocity prediction",
+    "adaptive lookahead tuning",
+    "cross-frame selection cache",
+    "selection aging or eviction",
+    "full offscreen_materialization_bound gate claim"
+  ]
+}
