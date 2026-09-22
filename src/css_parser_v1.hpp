@@ -32,6 +32,25 @@ struct CssStyleRuleV1 {
     bool operator==(const CssStyleRuleV1&) const noexcept = default;
 };
 
+enum class CssAtRuleContextV1 : std::uint8_t {
+    TopLevel = 0,
+    DeclarationList,
+};
+
+inline constexpr std::uint32_t kCssAtRuleNoOwnerV1 =
+    ~std::uint32_t{0};
+
+struct CssAtRuleV1 {
+    CssTextSliceV1 name{};
+    CssTextSliceV1 prelude{};
+    CssTextSliceV1 block{};
+    CssAtRuleContextV1 context{CssAtRuleContextV1::TopLevel};
+    std::uint32_t owner_rule_index{kCssAtRuleNoOwnerV1};
+    bool has_block{false};
+
+    bool operator==(const CssAtRuleV1&) const noexcept = default;
+};
+
 enum class CssParserV1ErrorKind : std::uint8_t {
     None = 0,
     InvalidConfiguration,
@@ -47,6 +66,8 @@ enum class CssParserV1ErrorKind : std::uint8_t {
     DeclarationLimitExceeded,
     OutputBudgetExceeded,
     AllocationFailure,
+    InvalidAtRule,
+    AtRuleLimitExceeded,
 };
 
 struct CssParserV1Error {
@@ -61,6 +82,7 @@ struct CssParserV1Config {
     std::uint32_t maximum_declarations{262'144U};
     std::uint32_t maximum_nesting_depth{64U};
     std::size_t maximum_output_text_bytes{8U * 1024U * 1024U};
+    std::uint32_t maximum_at_rules{65'536U};
 
     bool valid() const noexcept;
 };
@@ -77,6 +99,9 @@ struct CssParserV1Stats {
     std::uint64_t comments{0U};
     std::uint32_t maximum_nesting_depth{0U};
     std::uint64_t output_text_bytes{0U};
+    std::uint64_t at_rules{0U};
+    std::uint64_t dropped_charset_rules{0U};
+    std::uint64_t recovered_invalid_declarations{0U};
 };
 
 struct CssStylesheetV1 {
@@ -85,6 +110,7 @@ struct CssStylesheetV1 {
     std::pmr::string text;
     std::pmr::vector<CssStyleRuleV1> rules;
     std::pmr::vector<CssDeclarationV1> declarations;
+    std::pmr::vector<CssAtRuleV1> at_rules;
 
     std::pmr::memory_resource* resource() const noexcept;
     std::string_view resolve(CssTextSliceV1 slice) const noexcept;
@@ -97,8 +123,11 @@ const char* css_parser_v1_error_kind_name(CssParserV1ErrorKind kind) noexcept;
 // parsing: NUL becomes U+FFFD, CRLF/CR/FF become LF, and malformed UTF-8 is
 // replaced deterministically. The production slice then parses qualified style
 // rules and declaration lists, including comments, strings, escapes, balanced
-// (), [] and {} value blocks, custom properties and !important. At-rules and
-// selector semantics intentionally remain outside this foundation.
+// (), [] and {} value blocks, custom properties and !important. Generic
+// at-rules are retained in a bounded sidecar and at-rules inside declaration
+// lists are consumed without corrupting following declarations. Invalid
+// declarations may be skipped with bounded remnant recovery. At-rule semantics,
+// selector semantics and full CSS Syntax recovery remain separate authority.
 bool parse_css_stylesheet_v1(
     std::string_view input,
     CssParserV1Config config,

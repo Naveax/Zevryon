@@ -1,0 +1,50 @@
+{
+  "schema": "zevryon.z3-css-parser-authority-scope.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "admitted_gates": [
+    "css_parser_conformance"
+  ],
+  "production_surface": "parse_css_stylesheet_v1 through zevryon-css-parser-v1-probe",
+  "authority": "z3-css-parser-conformance-v1",
+  "corpus": {
+    "manifest": "config/z3_css_parser_corpus_v1.json",
+    "configured_cases": 33,
+    "success_cases": 27,
+    "error_cases": 6,
+    "wpt_provenance_cases": 18,
+    "local_boundary_cases": 15,
+    "required_passed": 33,
+    "required_failed": 0,
+    "required_unsupported": 0
+  },
+  "coverage_partitions": {
+    "input_preprocessing": 8,
+    "declaration_lists": 10,
+    "at_rules": 5,
+    "declaration_recovery": 4,
+    "fail_closed_boundaries": 6
+  },
+  "upstream": {
+    "repository": "web-platform-tests/wpt",
+    "commit": "15df54d4459b78242d32ae36f9c094a96972bedc"
+  },
+  "required_platforms": [
+    "ubuntu-24.04",
+    "windows-2022"
+  ],
+  "authority_contract": [
+    "the complete configured 33-case denominator executes through the production parser probe",
+    "no configured case may be skipped or marked unsupported",
+    "rule declaration and retained at-rule records are compared exactly",
+    "selected preprocessing and recovery statistics are compared exactly",
+    "expected parser failures compare exact error kind",
+    "WPT source path blob and upstream commit identities are frozen in the runner",
+    "component parser and at-rule recovery oracles pass on the same exact head",
+    "Windows probe stdin is forced to binary mode so CRLF and carriage-return bytes reach preprocessing unchanged"
+  ],
+  "configured_parser_profile_claim": true,
+  "full_css_syntax_wpt_claim": false,
+  "cssom_property_grammar_claim": false,
+  "selector_grammar_claim": false
+}

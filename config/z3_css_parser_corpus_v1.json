@@ -1,0 +1,735 @@
+{
+  "schema": "zevryon.z3-css-parser-corpus.v1",
+  "authority": "z3-css-parser-conformance-v1",
+  "upstream": {
+    "repository": "web-platform-tests/wpt",
+    "commit": "15df54d4459b78242d32ae36f9c094a96972bedc",
+    "sources": {
+      "input-preprocessing": {
+        "path": "css/css-syntax/input-preprocessing.html",
+        "blob_sha": "9ef9a730820d85a015b51cb230aa09f397a78400"
+      },
+      "declaration-whitespace": {
+        "path": "css/css-syntax/declarations-trim-whitespace.html",
+        "blob_sha": "a7d69d149e7bbf854efc2ef19af132af372ff521"
+      },
+      "missing-semicolon": {
+        "path": "css/css-syntax/missing-semicolon.html",
+        "blob_sha": "d8e70e631591c05d2025d1800b1201ce80550fed"
+      },
+      "charset": {
+        "path": "css/css-syntax/charset-is-not-a-rule.html",
+        "blob_sha": "ff8d3298b6216f7cedb29939554a30c65eac4bf0"
+      },
+      "at-rule-declaration-list": {
+        "path": "css/css-syntax/at-rule-in-declaration-list.html",
+        "blob_sha": "f40975d27eadf436634491b4a158cee4f9c268ef"
+      }
+    }
+  },
+  "case_count": 33,
+  "cases": [
+    {
+      "id": "nul-selector-tail",
+      "source": "input-preprocessing",
+      "input_utf8": "foo\u0000{x:1}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "foo�",
+            "declarations": [
+              {
+                "property": "x",
+                "value": "1",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": [],
+        "stats": {
+          "null_replacements": 1
+        }
+      }
+    },
+    {
+      "id": "nul-selector-middle",
+      "source": "input-preprocessing",
+      "input_utf8": "f\u0000oo{x:1}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "f�oo",
+            "declarations": [
+              {
+                "property": "x",
+                "value": "1",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": [],
+        "stats": {
+          "null_replacements": 1
+        }
+      }
+    },
+    {
+      "id": "nul-selector-head",
+      "source": "input-preprocessing",
+      "input_utf8": "\u0000foo{x:1}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "�foo",
+            "declarations": [
+              {
+                "property": "x",
+                "value": "1",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": [],
+        "stats": {
+          "null_replacements": 1
+        }
+      }
+    },
+    {
+      "id": "nul-selector-only",
+      "source": "input-preprocessing",
+      "input_utf8": "\u0000{x:1}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "�",
+            "declarations": [
+              {
+                "property": "x",
+                "value": "1",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": [],
+        "stats": {
+          "null_replacements": 1
+        }
+      }
+    },
+    {
+      "id": "nul-selector-triple",
+      "source": "input-preprocessing",
+      "input_utf8": "\u0000\u0000\u0000{x:1}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "���",
+            "declarations": [
+              {
+                "property": "x",
+                "value": "1",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": [],
+        "stats": {
+          "null_replacements": 3
+        }
+      }
+    },
+    {
+      "id": "newline-normalization",
+      "source": "local",
+      "input_utf8": "x{\r\na:1;\rb:2;\fc:3}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "x",
+            "declarations": [
+              {
+                "property": "a",
+                "value": "1",
+                "important": false
+              },
+              {
+                "property": "b",
+                "value": "2",
+                "important": false
+              },
+              {
+                "property": "c",
+                "value": "3",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": [],
+        "stats": {
+          "newline_normalizations": 3
+        }
+      }
+    },
+    {
+      "id": "invalid-utf8-replacement",
+      "source": "local",
+      "input_bytes": [
+        46,
+        120,
+        255,
+        123,
+        97,
+        58,
+        49,
+        125
+      ],
+      "expect": {
+        "rules": [
+          {
+            "selector": ".x�",
+            "declarations": [
+              {
+                "property": "a",
+                "value": "1",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": [],
+        "stats": {
+          "invalid_utf8_replacements": 1
+        }
+      }
+    },
+    {
+      "id": "surrogate-wtf8-replacement",
+      "source": "local",
+      "input_bytes": [
+        46,
+        120,
+        237,
+        160,
+        128,
+        123,
+        97,
+        58,
+        49,
+        125
+      ],
+      "expect": {
+        "rules": [
+          {
+            "selector": ".x�",
+            "declarations": [
+              {
+                "property": "a",
+                "value": "1",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": [],
+        "stats": {
+          "invalid_utf8_replacements": 1
+        }
+      }
+    },
+    {
+      "id": "decl-whitespace-1",
+      "source": "declaration-whitespace",
+      "input_utf8": "x{--foo-1:bar;}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "x",
+            "declarations": [
+              {
+                "property": "--foo-1",
+                "value": "bar",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": []
+      }
+    },
+    {
+      "id": "decl-whitespace-2",
+      "source": "declaration-whitespace",
+      "input_utf8": "x{--foo-2: bar;}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "x",
+            "declarations": [
+              {
+                "property": "--foo-2",
+                "value": "bar",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": []
+      }
+    },
+    {
+      "id": "decl-whitespace-3",
+      "source": "declaration-whitespace",
+      "input_utf8": "x{--foo-3:bar ;}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "x",
+            "declarations": [
+              {
+                "property": "--foo-3",
+                "value": "bar",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": []
+      }
+    },
+    {
+      "id": "decl-whitespace-4",
+      "source": "declaration-whitespace",
+      "input_utf8": "x{--foo-4: bar ;}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "x",
+            "declarations": [
+              {
+                "property": "--foo-4",
+                "value": "bar",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": []
+      }
+    },
+    {
+      "id": "decl-important-5",
+      "source": "declaration-whitespace",
+      "input_utf8": "x{--foo-5: bar !important;}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "x",
+            "declarations": [
+              {
+                "property": "--foo-5",
+                "value": "bar",
+                "important": true
+              }
+            ]
+          }
+        ],
+        "at_rules": []
+      }
+    },
+    {
+      "id": "decl-important-6",
+      "source": "declaration-whitespace",
+      "input_utf8": "x{--foo-6: bar !important ;}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "x",
+            "declarations": [
+              {
+                "property": "--foo-6",
+                "value": "bar",
+                "important": true
+              }
+            ]
+          }
+        ],
+        "at_rules": []
+      }
+    },
+    {
+      "id": "decl-important-7",
+      "source": "declaration-whitespace",
+      "input_utf8": "x{--foo-7:bar!important;}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "x",
+            "declarations": [
+              {
+                "property": "--foo-7",
+                "value": "bar",
+                "important": true
+              }
+            ]
+          }
+        ],
+        "at_rules": []
+      }
+    },
+    {
+      "id": "decl-important-8",
+      "source": "declaration-whitespace",
+      "input_utf8": "x{--foo-8:bar!important ;}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "x",
+            "declarations": [
+              {
+                "property": "--foo-8",
+                "value": "bar",
+                "important": true
+              }
+            ]
+          }
+        ],
+        "at_rules": []
+      }
+    },
+    {
+      "id": "decl-whitespace-9",
+      "source": "declaration-whitespace",
+      "input_utf8": "x{--foo-9:bar}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "x",
+            "declarations": [
+              {
+                "property": "--foo-9",
+                "value": "bar",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": []
+      }
+    },
+    {
+      "id": "missing-final-semicolon",
+      "source": "missing-semicolon",
+      "input_utf8": "x{/* { */color:red;color:green}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "x",
+            "declarations": [
+              {
+                "property": "color",
+                "value": "red",
+                "important": false
+              },
+              {
+                "property": "color",
+                "value": "green",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": [],
+        "stats": {
+          "comments": 1
+        }
+      }
+    },
+    {
+      "id": "charset-drop",
+      "source": "charset",
+      "input_utf8": "@charset \"utf-8\";@charset \"utf-8\";foo{color:blue;}@charset \"utf-8\";",
+      "expect": {
+        "rules": [
+          {
+            "selector": "foo",
+            "declarations": [
+              {
+                "property": "color",
+                "value": "blue",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": [],
+        "stats": {
+          "dropped_charset_rules": 3
+        }
+      }
+    },
+    {
+      "id": "declaration-list-block-at-rule",
+      "source": "at-rule-declaration-list",
+      "input_utf8": "div{@at {}color:green;}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "div",
+            "declarations": [
+              {
+                "property": "color",
+                "value": "green",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": [
+          {
+            "context": "declaration-list",
+            "owner": 0,
+            "has_block": true,
+            "name": "at",
+            "prelude": "",
+            "block": ""
+          }
+        ]
+      }
+    },
+    {
+      "id": "declaration-list-semicolon-at-rule",
+      "source": "at-rule-declaration-list",
+      "input_utf8": "div{@at at;color:green;}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "div",
+            "declarations": [
+              {
+                "property": "color",
+                "value": "green",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": [
+          {
+            "context": "declaration-list",
+            "owner": 0,
+            "has_block": false,
+            "name": "at",
+            "prelude": "at",
+            "block": ""
+          }
+        ]
+      }
+    },
+    {
+      "id": "top-level-block-at-rule",
+      "source": "local",
+      "input_utf8": "@media screen{.a{color:red;}}div{color:green;}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "div",
+            "declarations": [
+              {
+                "property": "color",
+                "value": "green",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": [
+          {
+            "context": "top",
+            "owner": 4294967295,
+            "has_block": true,
+            "name": "media",
+            "prelude": "screen",
+            "block": ".a{color:red;}"
+          }
+        ]
+      }
+    },
+    {
+      "id": "top-level-semicolon-at-rule",
+      "source": "local",
+      "input_utf8": "@foo x;div{a:1}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "div",
+            "declarations": [
+              {
+                "property": "a",
+                "value": "1",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": [
+          {
+            "context": "top",
+            "owner": 4294967295,
+            "has_block": false,
+            "name": "foo",
+            "prelude": "x",
+            "block": ""
+          }
+        ]
+      }
+    },
+    {
+      "id": "recover-missing-colon",
+      "source": "local",
+      "input_utf8": "x{broken;color:green;}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "x",
+            "declarations": [
+              {
+                "property": "color",
+                "value": "green",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": [],
+        "stats": {
+          "recovered_invalid_declarations": 1
+        }
+      }
+    },
+    {
+      "id": "recover-mismatched-value",
+      "source": "local",
+      "input_utf8": "x{a:rgb(1,2];width:2px;}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "x",
+            "declarations": [
+              {
+                "property": "width",
+                "value": "2px",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": [],
+        "stats": {
+          "recovered_invalid_declarations": 1
+        }
+      }
+    },
+    {
+      "id": "recover-invalid-property-start",
+      "source": "local",
+      "input_utf8": "x{1bad:v;width:2px;}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "x",
+            "declarations": [
+              {
+                "property": "width",
+                "value": "2px",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": [],
+        "stats": {
+          "recovered_invalid_declarations": 1
+        }
+      }
+    },
+    {
+      "id": "recover-comment-split-property",
+      "source": "local",
+      "input_utf8": "x{co/*x*/lor:red;width:2px;}",
+      "expect": {
+        "rules": [
+          {
+            "selector": "x",
+            "declarations": [
+              {
+                "property": "width",
+                "value": "2px",
+                "important": false
+              }
+            ]
+          }
+        ],
+        "at_rules": [],
+        "stats": {
+          "recovered_invalid_declarations": 1,
+          "comments": 1
+        }
+      }
+    },
+    {
+      "id": "error-escaped-at-rule-name",
+      "source": "local",
+      "input_utf8": "@\\6d edia;",
+      "expect": {
+        "error_kind": "unsupported-syntax"
+      }
+    },
+    {
+      "id": "error-hyphen-at-rule-name",
+      "source": "local",
+      "input_utf8": "@-;",
+      "expect": {
+        "error_kind": "invalid-at-rule"
+      }
+    },
+    {
+      "id": "error-unterminated-at-rule-prelude",
+      "source": "local",
+      "input_utf8": "@media (screen",
+      "expect": {
+        "error_kind": "unbalanced-block"
+      }
+    },
+    {
+      "id": "error-unterminated-string",
+      "source": "local",
+      "input_utf8": "x{a:\"unterminated;}",
+      "expect": {
+        "error_kind": "unterminated-string"
+      }
+    },
+    {
+      "id": "error-unterminated-comment",
+      "source": "local",
+      "input_utf8": "/*unterminated",
+      "expect": {
+        "error_kind": "unterminated-comment"
+      }
+    },
+    {
+      "id": "error-mismatched-selector-delimiter",
+      "source": "local",
+      "input_utf8": ".x[a=(b]{color:red;}",
+      "expect": {
+        "error_kind": "invalid-selector"
+      }
+    }
+  ]
+}

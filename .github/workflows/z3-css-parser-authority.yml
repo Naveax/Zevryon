@@ -1,0 +1,103 @@
+name: Z3 CSS parser authority
+
+on:
+  pull_request:
+    paths:
+      - 'src/css_parser_v1.*'
+      - 'tests/css_parser_v1_tests.cpp'
+      - 'tests/css_parser_at_rule_recovery_v1_tests.cpp'
+      - 'tests/css_parser_v1_probe.cpp'
+      - 'tests/test_z3_css_parser_authority_scope.py'
+      - 'config/z3_css_parser_corpus_v1.json'
+      - 'certification/z3_css_parser_authority_scope.json'
+      - 'scripts/z3_css_parser_runner_v1.py'
+      - 'cmake/css_parser_v1.cmake'
+      - '.github/workflows/z3-css-parser-authority.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: z3-css-parser-authority-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-authority:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install focused build dependency
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DZEVRYON_ENABLE_FONTCONFIG_DISCOVERY=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build CSS parser authorities
+        run: >-
+          cmake --build build --parallel 2 --target
+          zevryon-css-parser-v1-tests
+          zevryon-css-parser-at-rule-recovery-v1-tests
+          zevryon-css-parser-v1-probe
+      - name: Execute component parser oracles
+        run: |
+          build/zevryon-css-parser-v1-tests
+          build/zevryon-css-parser-at-rule-recovery-v1-tests
+      - name: Execute complete frozen parser corpus
+        run: >-
+          python3 scripts/z3_css_parser_runner_v1.py
+          --probe build/zevryon-css-parser-v1-probe
+      - name: Validate frozen parser authority scope
+        run: python3 tests/test_z3_css_parser_authority_scope.py
+      - name: Validate authority JSON syntax
+        run: |
+          python3 -m json.tool config/z3_css_parser_corpus_v1.json > /dev/null
+          python3 -m json.tool certification/z3_css_parser_authority_scope.json > /dev/null
+
+  windows-authority:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Configure
+        shell: pwsh
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build CSS parser authorities
+        shell: pwsh
+        run: >-
+          cmake --build build --config Release --parallel 2 --target
+          zevryon-css-parser-v1-tests
+          zevryon-css-parser-at-rule-recovery-v1-tests
+          zevryon-css-parser-v1-probe
+      - name: Execute component parser oracles
+        shell: pwsh
+        run: |
+          build/Release/zevryon-css-parser-v1-tests.exe
+          build/Release/zevryon-css-parser-at-rule-recovery-v1-tests.exe
+      - name: Execute complete frozen parser corpus
+        shell: pwsh
+        run: >-
+          python scripts/z3_css_parser_runner_v1.py
+          --probe build/Release/zevryon-css-parser-v1-probe.exe
+      - name: Validate frozen parser authority scope
+        shell: pwsh
+        run: python tests/test_z3_css_parser_authority_scope.py
+      - name: Validate authority JSON syntax
+        shell: pwsh
+        run: |
+          python -m json.tool config/z3_css_parser_corpus_v1.json > $null
+          python -m json.tool certification/z3_css_parser_authority_scope.json > $null
