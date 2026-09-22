@@ -1,0 +1,32 @@
+{
+  "schema": "zevryon.z3-css-declaration-list-entrypoint-foundation.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "admitted_gates": [],
+  "production_surface": "parse_css_declaration_list_v1",
+  "parser_reuse_contract": [
+    "standalone declaration lists use the same CSS input preprocessing as stylesheet parsing",
+    "standalone declaration lists reuse the same declaration scanner important split at-rule parser and bounded invalid-declaration recovery",
+    "one internal closing-brace sentinel is appended after preprocessing and is excluded from input and preprocessing statistics",
+    "a user-provided raw closing brace closes before the sentinel and therefore fails closed",
+    "successful standalone output contains no synthetic qualified rule"
+  ],
+  "certified_foundation": [
+    "EOF terminates the final valid declaration without requiring a synthetic qualified-rule wrapper",
+    "normal property names retain parser lowercase canonicalization",
+    "custom property names retain case-sensitive spelling",
+    "important declarations survive",
+    "invalid declarations recover with the same bounded recovery path as stylesheet declaration blocks",
+    "declaration-list at-rules retain declaration context with no synthetic owner rule",
+    "mismatched value recovery can preserve a following final EOF-terminated declaration",
+    "failed parses preserve prior output atomically"
+  ],
+  "deliberate_exclusions": [
+    "inline author-origin precedence",
+    "HTML style attribute integration",
+    "CSSOM setAttribute or style declaration APIs",
+    "full CSS Syntax declaration-list WPT claim",
+    "property grammar and computed-value validation",
+    "Z3 milestone promotion"
+  ]
+}

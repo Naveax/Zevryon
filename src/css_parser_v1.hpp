@@ -135,4 +135,16 @@ bool parse_css_stylesheet_v1(
     CssParserV1Stats* stats,
     CssParserV1Error* error) noexcept;
 
+// Parses a standalone bounded CSS declaration list without synthesizing a
+// qualified rule. The same preprocessing, declaration grammar, at-rule
+// sidecar and bounded invalid-declaration recovery used by stylesheet parsing
+// are reused. Successful output has no qualified rules; declarations borrow
+// slices from output->text and declaration-list at-rules use no owner rule.
+bool parse_css_declaration_list_v1(
+    std::string_view input,
+    CssParserV1Config config,
+    CssStylesheetV1* output,
+    CssParserV1Stats* stats,
+    CssParserV1Error* error) noexcept;
+
 } // namespace zevryon::style
