@@ -279,6 +279,60 @@ public:
         }
     }
 
+    bool run_declaration_list() {
+        bool closed_list = false;
+        while (!closed_list) {
+            if (!skip_trivia()) {
+                return false;
+            }
+            if (cursor_ == input_.size()) {
+                return fail(
+                    CssParserV1ErrorKind::UnbalancedBlock,
+                    cursor_,
+                    "standalone CSS declaration list lost its internal close sentinel");
+            }
+            if (input_[cursor_] == '}') {
+                ++cursor_;
+                closed_list = true;
+                break;
+            }
+            if (input_[cursor_] == ';') {
+                ++cursor_;
+                continue;
+            }
+            if (input_[cursor_] == '@') {
+                if (!parse_at_rule(
+                        CssAtRuleContextV1::DeclarationList,
+                        kCssAtRuleNoOwnerV1)) {
+                    return false;
+                }
+                continue;
+            }
+            if (!parse_declaration(&closed_list)) {
+                if (error_->kind !=
+                    CssParserV1ErrorKind::InvalidDeclaration) {
+                    return false;
+                }
+                ++stats_->recovered_invalid_declarations;
+                clear_error_after_recovery();
+                if (!recover_bad_declaration(&closed_list)) {
+                    return false;
+                }
+            }
+        }
+
+        if (cursor_ != input_.size()) {
+            return fail(
+                CssParserV1ErrorKind::UnbalancedBlock,
+                cursor_ == 0U ? 0U : cursor_ - 1U,
+                "standalone CSS declaration list contains an unexpected closing brace");
+        }
+        stats_->output_text_bytes =
+            static_cast<std::uint64_t>(output_->text.size());
+        return true;
+    }
+
+
 private:
     bool fail(CssParserV1ErrorKind kind, std::size_t offset, const char* message) noexcept {
         return set_error(error_, kind, offset, message);
@@ -1155,5 +1209,99 @@ bool parse_css_stylesheet_v1(
         return set_error(error, CssParserV1ErrorKind::AllocationFailure, 0U, "CSS parser allocation or container operation failed");
     }
 }
+
+bool parse_css_declaration_list_v1(
+    std::string_view input,
+    CssParserV1Config config,
+    CssStylesheetV1* output,
+    CssParserV1Stats* stats,
+    CssParserV1Error* error) noexcept {
+    if (stats != nullptr) {
+        *stats = CssParserV1Stats{};
+    }
+    if (error != nullptr) {
+        error->kind = CssParserV1ErrorKind::None;
+        error->byte_offset = 0U;
+        error->message.clear();
+    }
+    if (output == nullptr || stats == nullptr || error == nullptr ||
+        output->resource() == nullptr) {
+        return set_error(
+            error,
+            CssParserV1ErrorKind::InvalidConfiguration,
+            0U,
+            "CSS declaration-list parser output, stats, error and memory resource are required");
+    }
+    if (!config.valid()) {
+        return set_error(
+            error,
+            CssParserV1ErrorKind::InvalidConfiguration,
+            0U,
+            "CSS declaration-list parser configuration is invalid");
+    }
+    if (input.size() > config.maximum_input_bytes) {
+        return set_error(
+            error,
+            CssParserV1ErrorKind::InputTooLarge,
+            config.maximum_input_bytes,
+            "CSS declaration-list input exceeds configured byte limit");
+    }
+
+    CssStylesheetV1 candidate(output->resource());
+    CssParserV1Stats candidate_stats;
+    candidate_stats.input_bytes =
+        static_cast<std::uint64_t>(input.size());
+    try {
+        std::pmr::string preprocessed(output->resource());
+        preprocess_css_input(
+            input,
+            &preprocessed,
+            &candidate_stats);
+
+        // The existing declaration parser is intentionally block-aware. Add
+        // one internal close sentinel after preprocessing so EOF termination
+        // reuses the exact same value scanning and recovery path. The sentinel
+        // is not counted in input/preprocessed statistics and any user-provided
+        // closing brace is detected because it closes before this final byte.
+        preprocessed.push_back('}');
+
+        const std::string_view parser_input(
+            preprocessed.data(),
+            preprocessed.size());
+        Parser parser(
+            parser_input,
+            config,
+            &candidate,
+            &candidate_stats,
+            error);
+        if (!parser.run_declaration_list()) {
+            *stats = candidate_stats;
+            return false;
+        }
+
+        output->release();
+        output->text.swap(candidate.text);
+        output->rules.swap(candidate.rules);
+        output->declarations.swap(candidate.declarations);
+        output->at_rules.swap(candidate.at_rules);
+        *stats = candidate_stats;
+        return true;
+    } catch (const std::bad_alloc&) {
+        *stats = candidate_stats;
+        return set_error(
+            error,
+            CssParserV1ErrorKind::AllocationFailure,
+            0U,
+            "CSS declaration-list parser allocation rejected by bounded memory resource");
+    } catch (...) {
+        *stats = candidate_stats;
+        return set_error(
+            error,
+            CssParserV1ErrorKind::AllocationFailure,
+            0U,
+            "CSS declaration-list parser allocation or container operation failed");
+    }
+}
+
 
 } // namespace zevryon::style

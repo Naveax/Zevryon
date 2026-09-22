@@ -1,0 +1,89 @@
+name: Z3 CSS declaration-list entrypoint foundation
+
+on:
+  pull_request:
+    paths:
+      - 'src/css_parser_v1.*'
+      - 'tests/css_declaration_list_v1_tests.cpp'
+      - 'tests/test_z3_css_declaration_list_entrypoint_scope.py'
+      - 'certification/z3_css_declaration_list_entrypoint_scope.json'
+      - 'docs/Z3_CSS_DECLARATION_LIST_ENTRYPOINT_FOUNDATION.md'
+      - 'cmake/css_parser_v1.cmake'
+      - '.github/workflows/z3-css-declaration-list-entrypoint.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: z3-css-declaration-list-entrypoint-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-declaration-list:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install focused build dependency
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DZEVRYON_ENABLE_FONTCONFIG_DISCOVERY=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build declaration-list and parser oracles
+        run: >-
+          cmake --build build --parallel 2
+          --target zevryon-css-declaration-list-v1-tests
+          zevryon-css-parser-v1-tests
+          zevryon-css-parser-at-rule-recovery-v1-tests
+      - name: Execute declaration-list and parser oracles
+        run: |
+          build/zevryon-css-declaration-list-v1-tests
+          build/zevryon-css-parser-v1-tests
+          build/zevryon-css-parser-at-rule-recovery-v1-tests
+      - name: Validate frozen scope
+        run: python3 tests/test_z3_css_declaration_list_entrypoint_scope.py
+      - name: Validate scope JSON
+        run: python3 -m json.tool certification/z3_css_declaration_list_entrypoint_scope.json > /dev/null
+
+  windows-declaration-list:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Configure
+        shell: pwsh
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build declaration-list and parser oracles
+        shell: pwsh
+        run: >-
+          cmake --build build --config Release --parallel 2
+          --target zevryon-css-declaration-list-v1-tests
+          zevryon-css-parser-v1-tests
+          zevryon-css-parser-at-rule-recovery-v1-tests
+      - name: Execute declaration-list and parser oracles
+        shell: pwsh
+        run: |
+          build/Release/zevryon-css-declaration-list-v1-tests.exe
+          build/Release/zevryon-css-parser-v1-tests.exe
+          build/Release/zevryon-css-parser-at-rule-recovery-v1-tests.exe
+      - name: Validate frozen scope
+        shell: pwsh
+        run: python tests/test_z3_css_declaration_list_entrypoint_scope.py
+      - name: Validate scope JSON
+        shell: pwsh
+        run: python -m json.tool certification/z3_css_declaration_list_entrypoint_scope.json > $null
