@@ -1,0 +1,52 @@
+{
+  "schema": "zevryon.z3-css-inline-cascade-merge-foundation.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "gate_progress": [
+    "cascade_conformance",
+    "bounded_style_dag"
+  ],
+  "admitted_gates": [],
+  "production_surface": "merge_css_author_and_inline_cascade_v1",
+  "input_contract": [
+    "author stylesheet cascade is already resolved through cascade_css_author_rules_v1",
+    "inline declarations are already parsed CssDeclarationV1 records borrowing one inline CssStylesheetV1 text store",
+    "normal property names rely on parser lowercase canonicalization",
+    "custom property names remain case-sensitive"
+  ],
+  "precedence_contract": [
+    "important beats non-important",
+    "at equal importance inline declarations beat author stylesheet winners",
+    "duplicate inline declarations resolve by importance then later source order",
+    "author important is preserved against inline normal",
+    "inline important replaces author normal",
+    "merged output provenance fields are not cascade authority and exist only to feed the style DAG"
+  ],
+  "hard_bounds": {
+    "maximum_author_properties_limit": 1048576,
+    "maximum_inline_declarations_limit": 1048576,
+    "maximum_output_properties_limit": 1048576,
+    "maximum_output_text_bytes_limit": 134217728,
+    "maximum_work_units_limit": 67108864
+  },
+  "certified_foundation": [
+    "author important beats inline normal",
+    "inline important beats author normal",
+    "inline normal beats author normal at equal importance",
+    "inline-only properties are retained",
+    "inline duplicate important survives a later normal duplicate",
+    "custom property identity remains case-sensitive",
+    "merged final winner set feeds intern_css_cascade_style_v1 directly",
+    "text and work bounds fail closed",
+    "failure preserves prior published merged output"
+  ],
+  "deliberate_exclusions": [
+    "parsing raw HTML style attribute text",
+    "user or user-agent origins",
+    "cascade layers",
+    "animations and transitions",
+    "CSS-wide keyword computed semantics",
+    "inheritance",
+    "Z3 milestone promotion"
+  ]
+}
