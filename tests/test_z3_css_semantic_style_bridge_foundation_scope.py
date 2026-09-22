@@ -30,14 +30,24 @@ def test_z3_css_semantic_style_bridge_foundation_scope() -> None:
         "maximum_work_units_limit": 134_217_728,
     }
     assert (
-        "non-empty HTML style attribute fails before any DAG mutation because inline-origin cascade is not yet authoritative"
+        "non-empty HTML style attributes use the native standalone declaration-list parser"
+        in scope["certified_foundation"]
+    )
+    assert (
+        "inline important and author important precedence is resolved by the dedicated inline author-cascade merge layer"
+        in scope["certified_foundation"]
+    )
+    assert (
+        "inline merge hard-limit failures expose the nested merge error kind before style-DAG mutation"
+        in scope["certified_foundation"]
+    )
+    assert (
+        "the separate semantic style field is charged to semantic-byte budgets in addition to the retained style attribute payload"
         in scope["certified_foundation"]
     )
 
     program = json.loads(PROGRAM.read_text(encoding="utf-8"))
     z3 = next(item for item in program["milestones"] if item["id"] == "Z3")
-    assert z3["status"] == "planned"
-    assert z3["evidence"] == []
 
     header = HEADER.read_text(encoding="utf-8")
     source = SOURCE.read_text(encoding="utf-8")
@@ -47,18 +57,31 @@ def test_z3_css_semantic_style_bridge_foundation_scope() -> None:
 
     assert "compute_css_style_terminals_for_semantic_window_v1" in header
     assert "ZenithSemanticNodeWindowResult" in header
-    assert "InlineStyleUnsupported" in header
+    assert "CssParserV1Config inline_parser" in header
+    assert '#include "css_parser_v1.hpp"' in header
+    assert "CssInlineCascadeMergeConfigV1 inline_merge" in header
+    assert "InlineStyleParseFailure" in header
+    assert "InlineStyleAtRuleUnsupported" in header
+    assert "InlineCascadeMergeFailure" in header
+
     assert "cascade_css_author_rules_v1" in source
+    assert "parse_css_declaration_list_v1" in source
+    assert "merge_css_author_and_inline_cascade_v1" in source
     assert "intern_css_cascade_style_v1" in source
-    assert "node.style.empty()" in source
+    assert "style_attribute_matches" in source
+    assert "node.style.size()" in source
+    assert "inline-style field exceeds CSS bridge semantic-byte budget" in source
+    assert "inline_parse_work_units" in source
+    assert "inline_merge_work_units" in source
     assert "cascade_remaining" in source
     assert "dag_remaining" in source
-    assert "candidate_stats.work_units" in source
-    assert source.count("config.maximum_work_units") >= 3
+
     assert "zevryon-css-semantic-style-bridge-v1-tests" in cmake
     assert "css_semantic_style_bridge_v1.cmake" in parent_cmake
     assert "arena_node_count = 1'000'000U" in oracle
-    assert "output.terminal_nodes[0] ==" in oracle
+    assert "inline important must beat author important" in oracle
+    assert "InlineStyleAtRuleUnsupported" in oracle
+    assert "InlineDeclarationLimitExceeded" in oracle
 
 
 if __name__ == "__main__":

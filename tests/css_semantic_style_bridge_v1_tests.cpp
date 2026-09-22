@@ -56,6 +56,22 @@ bool parse_sheet(
         &error);
 }
 
+std::string_view dag_value_for(
+    const CssComputedStyleDagV1& dag,
+    std::uint32_t terminal,
+    std::string_view property) {
+    while (terminal != kCssStyleDagNoNodeV1 &&
+           static_cast<std::size_t>(terminal) < dag.nodes.size()) {
+        const CssStyleDagNodeV1& node =
+            dag.nodes[static_cast<std::size_t>(terminal)];
+        if (dag.resolve(node.property) == property) {
+            return dag.resolve(node.value);
+        }
+        terminal = node.parent;
+    }
+    return {};
+}
+
 bool test_bounded_semantic_window_to_terminal_styles() {
     std::pmr::monotonic_buffer_resource stylesheet_memory;
     CssStylesheetV1 sheet(&stylesheet_memory);
@@ -138,14 +154,39 @@ bool test_bounded_semantic_window_to_terminal_styles() {
     return true;
 }
 
-bool test_inline_style_rejects_before_dag_mutation() {
+bool test_inline_style_precedence_and_dag_integration() {
     std::pmr::monotonic_buffer_resource stylesheet_memory;
     CssStylesheetV1 sheet(&stylesheet_memory);
     if (!require(
-            parse_sheet("div{color:red;}", &sheet),
-            "inline rejection stylesheet must parse")) {
+            parse_sheet(
+                "div{"
+                "color:red!important;"
+                "margin:1px;"
+                "padding:3px;"
+                "outline:1px!important;"
+                "}",
+                &sheet),
+            "inline precedence stylesheet must parse")) {
         return false;
     }
+
+    constexpr std::string_view inline_style =
+        "color:blue;"
+        "margin:2px!important;"
+        "padding:4px;"
+        "outline:2px!important;"
+        "border:5px";
+
+    ZenithSemanticNodeWindowResult window;
+    window.start_ordinal = 5U;
+    window.next_ordinal = 6U;
+    window.arena_node_count = 10U;
+    window.nodes.push_back(
+        make_node(
+            "div",
+            {{"style", std::string(inline_style)}},
+            std::string(inline_style)));
+    window.attribute_count = 1U;
 
     std::pmr::monotonic_buffer_resource style_memory;
     CssComputedStyleDagV1 dag(&style_memory);
@@ -153,73 +194,214 @@ bool test_inline_style_rejects_before_dag_mutation() {
     CssSemanticStyleBridgeStatsV1 stats;
     CssSemanticStyleBridgeErrorV1 error;
 
-    ZenithSemanticNodeWindowResult baseline;
-    baseline.start_ordinal = 0U;
-    baseline.next_ordinal = 1U;
-    baseline.arena_node_count = 10U;
-    baseline.nodes.push_back(make_node("div", {}));
     if (!require(
             compute_css_style_terminals_for_semantic_window_v1(
                 sheet,
-                baseline,
+                window,
                 CssSemanticStyleBridgeConfigV1{},
                 &dag,
                 &output,
                 &stats,
                 &error),
-            "inline rejection baseline must succeed")) {
+            "non-empty inline style must parse merge and intern")) {
+        return false;
+    }
+    if (!require(
+            output.terminal_nodes.size() == 1U &&
+                output.terminal_nodes[0] !=
+                    kCssStyleDagNoNodeV1,
+            "inline style must publish one terminal identity")) {
         return false;
     }
 
+    const std::uint32_t terminal =
+        output.terminal_nodes[0];
+    if (!require(
+            dag.nodes[static_cast<std::size_t>(terminal)].depth == 5U,
+            "merged author plus inline style must contain five winners")) {
+        return false;
+    }
+    if (!require(
+            dag_value_for(dag, terminal, "color") == "red",
+            "author important must beat inline normal")) {
+        return false;
+    }
+    if (!require(
+            dag_value_for(dag, terminal, "margin") == "2px",
+            "inline important must beat author normal")) {
+        return false;
+    }
+    if (!require(
+            dag_value_for(dag, terminal, "padding") == "4px",
+            "inline normal must beat author normal at equal importance")) {
+        return false;
+    }
+    if (!require(
+            dag_value_for(dag, terminal, "outline") == "2px",
+            "inline important must beat author important at equal importance")) {
+        return false;
+    }
+    if (!require(
+            dag_value_for(dag, terminal, "border") == "5px",
+            "inline-only property must reach the style DAG")) {
+        return false;
+    }
+
+    return require(
+        stats.inline_styles_parsed == 1U &&
+            stats.inline_declarations == 5U &&
+            stats.inline_parse_work_units > 0U &&
+            stats.inline_merge_work_units > 0U &&
+            stats.nodes_styled == 1U,
+        "inline parse and merge accounting must be published");
+}
+
+bool test_inline_style_fail_closed_boundaries() {
+    std::pmr::monotonic_buffer_resource stylesheet_memory;
+    CssStylesheetV1 sheet(&stylesheet_memory);
+    if (!require(
+            parse_sheet("div{color:red;}", &sheet),
+            "inline failure stylesheet must parse")) {
+        return false;
+    }
+
+    std::pmr::monotonic_buffer_resource style_memory;
+    CssComputedStyleDagV1 dag(&style_memory);
+    CssSemanticStyleWindowV1 output(&style_memory);
+    output.document_begin = 900U;
+    output.document_end = 901U;
+    output.document_node_count = 1000U;
+    output.terminal_nodes.push_back(777U);
+
+    CssSemanticStyleBridgeStatsV1 stats;
+    CssSemanticStyleBridgeErrorV1 error;
     const std::size_t nodes_before = dag.nodes.size();
     const std::size_t text_before = dag.text.size();
-    const std::vector<std::uint32_t> output_before(
-        output.terminal_nodes.begin(),
-        output.terminal_nodes.end());
 
-    ZenithSemanticNodeWindowResult invalid;
-    invalid.start_ordinal = 5U;
-    invalid.next_ordinal = 7U;
-    invalid.arena_node_count = 10U;
-    invalid.nodes.push_back(make_node("div", {}));
-    invalid.nodes.push_back(
+    ZenithSemanticNodeWindowResult mismatch;
+    mismatch.start_ordinal = 10U;
+    mismatch.next_ordinal = 11U;
+    mismatch.arena_node_count = 100U;
+    mismatch.nodes.push_back(
         make_node(
             "div",
-            {{"style", "color:green"}},
-            "color:green"));
-    invalid.attribute_count = 1U;
-
+            {{"style", "color:blue"}},
+            "color:red"));
+    mismatch.attribute_count = 1U;
     if (!require(
             !compute_css_style_terminals_for_semantic_window_v1(
                 sheet,
-                invalid,
+                mismatch,
                 CssSemanticStyleBridgeConfigV1{},
                 &dag,
                 &output,
                 &stats,
-                &error),
-            "non-empty inline style must fail closed")) {
+                &error) &&
+                error.kind ==
+                    CssSemanticStyleBridgeErrorKindV1::InvalidWindow,
+            "semantic style field mismatch must fail in preflight")) {
         return false;
     }
+
+    constexpr std::string_view malformed_style =
+        "color:\"unterminated";
+    ZenithSemanticNodeWindowResult malformed;
+    malformed.start_ordinal = 20U;
+    malformed.next_ordinal = 21U;
+    malformed.arena_node_count = 100U;
+    malformed.nodes.push_back(
+        make_node(
+            "div",
+            {{"style", std::string(malformed_style)}},
+            std::string(malformed_style)));
+    malformed.attribute_count = 1U;
     if (!require(
-            error.kind ==
-                    CssSemanticStyleBridgeErrorKindV1::InlineStyleUnsupported &&
-                error.node_index == 1U &&
-                error.document_ordinal == 6U,
-            "inline style rejection must identify exact bounded node")) {
+            !compute_css_style_terminals_for_semantic_window_v1(
+                sheet,
+                malformed,
+                CssSemanticStyleBridgeConfigV1{},
+                &dag,
+                &output,
+                &stats,
+                &error) &&
+                error.kind ==
+                    CssSemanticStyleBridgeErrorKindV1::InlineStyleParseFailure &&
+                error.parser_kind ==
+                    CssParserV1ErrorKind::UnterminatedString,
+            "fatal inline declaration-list syntax must expose parser error kind")) {
         return false;
     }
+
+    constexpr std::string_view at_rule_style =
+        "@foo x;color:green";
+    ZenithSemanticNodeWindowResult at_rule;
+    at_rule.start_ordinal = 30U;
+    at_rule.next_ordinal = 31U;
+    at_rule.arena_node_count = 100U;
+    at_rule.nodes.push_back(
+        make_node(
+            "div",
+            {{"style", std::string(at_rule_style)}},
+            std::string(at_rule_style)));
+    at_rule.attribute_count = 1U;
     if (!require(
-            dag.nodes.size() == nodes_before &&
-                dag.text.size() == text_before &&
-                std::vector<std::uint32_t>(
-                    output.terminal_nodes.begin(),
-                    output.terminal_nodes.end()) ==
-                    output_before,
-            "preflight inline rejection must preserve DAG and prior output")) {
+            !compute_css_style_terminals_for_semantic_window_v1(
+                sheet,
+                at_rule,
+                CssSemanticStyleBridgeConfigV1{},
+                &dag,
+                &output,
+                &stats,
+                &error) &&
+                error.kind ==
+                    CssSemanticStyleBridgeErrorKindV1::InlineStyleAtRuleUnsupported,
+            "style-attribute at-rules must fail closed at bridge boundary")) {
         return false;
     }
-    return true;
+
+    constexpr std::string_view merge_limited_style =
+        "color:blue;margin:2px";
+    ZenithSemanticNodeWindowResult merge_limited;
+    merge_limited.start_ordinal = 40U;
+    merge_limited.next_ordinal = 41U;
+    merge_limited.arena_node_count = 100U;
+    merge_limited.nodes.push_back(
+        make_node(
+            "div",
+            {{"style", std::string(merge_limited_style)}},
+            std::string(merge_limited_style)));
+    merge_limited.attribute_count = 1U;
+
+    CssSemanticStyleBridgeConfigV1 merge_limited_config;
+    merge_limited_config.inline_merge.maximum_inline_declarations = 1U;
+    if (!require(
+            !compute_css_style_terminals_for_semantic_window_v1(
+                sheet,
+                merge_limited,
+                merge_limited_config,
+                &dag,
+                &output,
+                &stats,
+                &error) &&
+                error.kind ==
+                    CssSemanticStyleBridgeErrorKindV1::InlineCascadeMergeFailure &&
+                error.inline_merge_kind ==
+                    CssInlineCascadeMergeErrorKindV1::InlineDeclarationLimitExceeded &&
+                stats.inline_styles_parsed == 1U &&
+                stats.inline_declarations == 2U,
+            "inline merge hard-limit failure must preserve nested error kind")) {
+        return false;
+    }
+
+    return require(
+        dag.nodes.size() == nodes_before &&
+            dag.text.size() == text_before &&
+            output.document_begin == 900U &&
+            output.document_end == 901U &&
+            output.document_node_count == 1000U &&
+            output.terminal_nodes.size() == 1U &&
+            output.terminal_nodes[0] == 777U,
+        "inline pre-DAG failures must preserve DAG and prior published window");
 }
 
 bool test_window_and_shared_work_bounds_fail_closed() {
@@ -301,7 +483,8 @@ bool test_window_and_shared_work_bounds_fail_closed() {
 
 int main() {
     if (!test_bounded_semantic_window_to_terminal_styles() ||
-        !test_inline_style_rejects_before_dag_mutation() ||
+        !test_inline_style_precedence_and_dag_integration() ||
+        !test_inline_style_fail_closed_boundaries() ||
         !test_window_and_shared_work_bounds_fail_closed()) {
         return 1;
     }
