@@ -1,0 +1,53 @@
+{
+  "schema": "zevryon.z3-offscreen-materialization-authority-scope.v1",
+  "milestone": "Z3",
+  "status_change": false,
+  "admitted_gates": [
+    "offscreen_materialization_bound"
+  ],
+  "remaining_gates": [
+    "css_parser_conformance",
+    "cascade_conformance",
+    "selector_dependency_invalidation",
+    "bounded_style_dag"
+  ],
+  "production_surface": "materialize_css_style_window_v1 plus materialize_css_style_nodes_v1",
+  "resource_class": "ComputedStyle",
+  "authority_denominator": {
+    "document_nodes": 1000000,
+    "candidate_terminal_nodes": 1536,
+    "candidate_terminal_bytes": 6144,
+    "visible_nodes": 1024,
+    "offscreen_before_nodes": 256,
+    "offscreen_after_nodes": 256,
+    "selected_requests": 1536,
+    "unique_styles": 64,
+    "duplicate_requests": 1472,
+    "materialized_properties": 128,
+    "materialized_text_bytes": 492,
+    "retained_dag_nodes": 66,
+    "retained_dag_text_bytes": 366,
+    "materializer_foundation_cases": 6,
+    "window_foundation_cases": 6
+  },
+  "required_platforms": [
+    "ubuntu-24.04",
+    "windows-2022"
+  ],
+  "authority_contract": [
+    "one-million-node logical document is represented by a scalar node count rather than a resident million-entry terminal-style array",
+    "only the exact 1536-entry bounded candidate terminal window is supplied to the production window API",
+    "candidate terminal storage is exactly 6144 bytes for uint32 terminal identities",
+    "selection work units equal selected request count rather than total document nodes",
+    "only 64 unique terminal styles are materialized from 1536 selected requests",
+    "1472 repeated selected requests reuse per-batch materialized style records",
+    "selected request mapping preserves exact bounded candidate terminal identity",
+    "materialized property and text denominators are exact",
+    "ComputedStyle allocations release with clean ledger accounting"
+  ],
+  "z8_bounded_projection_shape_compatible": true,
+  "automatic_dom_to_terminal_discovery_claim": false,
+  "pixel_viewport_geometry_claim": false,
+  "layout_materialization_claim": false,
+  "paint_materialization_claim": false
+}
