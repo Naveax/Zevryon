@@ -88,6 +88,44 @@ bool test_unchanged_window_emits_no_ranges() {
         "unchanged canonical style identities must produce no invalidation");
 }
 
+bool test_window_and_node_bounds_fail_closed() {
+    std::pmr::monotonic_buffer_resource memory;
+    CssComputedStyleDagV1 dag(&memory);
+    dag.nodes.resize(3U);
+
+    auto previous = make_window(&memory, 5U, 20U, {0U, 1U, 2U});
+    auto shifted = make_window(&memory, 6U, 20U, {0U, 1U, 2U});
+
+    LayoutStyleInvalidationResultV1 output(&memory);
+    output.ranges.push_back({700U, 701U});
+    LayoutStyleInvalidationStatsV1 stats;
+    LayoutStyleInvalidationErrorV1 error;
+
+    if (!require(
+            !compute_layout_style_invalidation_v1(
+                dag, previous, shifted, {}, &output, &stats, &error) &&
+                error.kind ==
+                    LayoutStyleInvalidationErrorKindV1::InvalidWindow &&
+                output.ranges.size() == 1U &&
+                output.ranges[0] ==
+                    LayoutStyleInvalidationRangeV1{700U, 701U},
+            "different absolute style windows must fail atomically")) {
+        return false;
+    }
+
+    auto current = make_window(&memory, 5U, 20U, {0U, 2U, 1U});
+    LayoutStyleInvalidationConfigV1 tiny_nodes;
+    tiny_nodes.maximum_nodes = 2U;
+    return require(
+        !compute_layout_style_invalidation_v1(
+            dag, previous, current, tiny_nodes, &output, &stats, &error) &&
+            error.kind ==
+                LayoutStyleInvalidationErrorKindV1::NodeLimitExceeded &&
+            stats.nodes_considered == 0U &&
+            output.ranges.size() == 1U,
+        "node limit must fail before the bounded comparison scan");
+}
+
 bool test_failures_preserve_prior_output() {
     std::pmr::monotonic_buffer_resource memory;
     CssComputedStyleDagV1 dag(&memory);
@@ -144,6 +182,7 @@ bool test_failures_preserve_prior_output() {
 int main() {
     if (!test_exact_changed_ranges_and_stats() ||
         !test_unchanged_window_emits_no_ranges() ||
+        !test_window_and_node_bounds_fail_closed() ||
         !test_failures_preserve_prior_output()) {
         return 1;
     }
