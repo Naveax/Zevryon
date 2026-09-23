@@ -1,72 +1,85 @@
 # Z3 bounded semantic-window to style-DAG bridge foundation
 
-This slice connects the already authoritative bounded Z8 semantic-node
-projection to the Z3 selector, author-cascade and computed-style DAG surfaces.
-It does not promote Z3 and does not admit a new gate.
+This slice connects the bounded Z8 semantic-node projection to the Z3 selector,
+author cascade, inline author-style precedence and computed-style DAG surfaces.
+It does not promote Z3 and does not independently admit a gate.
 
 ## Production path
 
 `compute_css_style_terminals_for_semantic_window_v1` consumes one
-`ZenithSemanticNodeWindowResult`. It never opens the logical-node arena and it
-never requests the full DOM. For each node in that bounded window it exposes
-the node tag and original HTML attributes as `CssSelectorNodeV1` views, runs
-the existing bounded author cascade, and interns the winning property/value set
-into the canonical computed-style DAG.
+`ZenithSemanticNodeWindowResult`. It never opens the logical-node arena and
+never scans the complete DOM.
 
-The published result contains:
+For each bounded node it:
 
-- the absolute document begin ordinal;
-- the absolute document end ordinal;
-- the total logical document node count;
-- exactly one style-DAG terminal ID per bounded semantic node.
+1. exposes tag and retained HTML attributes as `CssSelectorNodeV1` views;
+2. resolves matching author stylesheet rules with
+   `cascade_css_author_rules_v1`;
+3. when `node.style` is non-empty, parses it with the native standalone
+   `parse_css_declaration_list_v1` entrypoint;
+4. rejects declaration-list at-rules at the HTML style-attribute boundary;
+5. merges author winners and parsed inline declarations through
+   `merge_css_author_and_inline_cascade_v1`;
+6. interns the final property/value winner set through
+   `intern_css_cascade_style_v1`.
 
-That shape is intentionally compatible with the bounded terminal candidate
-input used by the offscreen materialization window.
+The result publishes one style-DAG terminal ID for each bounded semantic node
+plus the absolute document begin/end ordinals and total logical node count.
+
+## Semantic payload consistency
+
+The strict HTML producer stores a decoded style semantic and retains the
+original `style` attribute in the attribute vector. The bridge revalidates
+that split representation. Because those are two resident payloads, the
+semantic style bytes are charged separately from the retained attribute
+name/value bytes rather than being counted only once. A non-empty semantic style requires exactly one
+retained style attribute with the same decoded value. An empty retained style
+attribute must likewise agree with the empty semantic style. Contradictory
+payloads fail as `InvalidWindow` before cascade work.
+
+## Inline precedence
+
+Inline declarations are not faked as a high-specificity stylesheet selector.
+The dedicated merge layer applies the current author-origin profile:
+
+- important beats non-important;
+- at equal importance inline declarations beat author stylesheet winners;
+- duplicate inline declarations resolve by importance and then later source
+  order;
+- normal properties use parser lowercase canonicalization;
+- custom property names remain case-sensitive.
+
+This preserves the required cases including author-important vs inline-normal,
+inline-important vs author-normal, inline-normal vs author-normal, and
+inline-important vs author-important.
 
 ## Shared bounds
 
-The bridge revalidates the Z8 window before any cascade work:
-
-- ordinal range and node count must agree exactly;
-- each semantic node's authoritative attribute count must equal its payload;
-- per-node and total attribute ceilings are explicit;
-- per-node and total selector-semantic byte budgets are explicit;
-- one work counter covers bridge preflight, cascade work and style-DAG work.
-
-The cascade and style-DAG calls receive only their remaining share of the
-bridge work budget. A nested layer therefore cannot quietly spend its own full
-budget once the outer bounded operation is nearly exhausted.
+The bridge keeps explicit node, attribute, semantic-byte and work ceilings.
+Nested cascade, inline merge and style-DAG operations receive only the remaining
+shared work budget. Inline parsing is charged by bounded input bytes before the
+parser is invoked, while the parser's own input/declaration/nesting/output caps
+remain authoritative.
 
 Published terminal output is candidate-built and swapped only after every node
 succeeds.
 
-## Inline style boundary
+## Failure semantics
 
-The Z7/Z8 semantic node has a decoded `style=""` field while also preserving
-the original attribute entry. This bridge does **not** ignore it.
+Input-shape failures and style-payload disagreement occur before DAG mutation.
+For a single node, inline parse, at-rule-policy and inline-merge failures occur
+before that node is interned. Nested inline-merge limit failures retain the
+specific merge error kind so callers can distinguish configuration ceilings
+from parser or DAG failures.
 
-A non-empty inline style fails in preflight, before any DAG mutation. The
-current cascade authority models author stylesheet rules but does not yet model
-the separate inline-style precedence level. Pretending an inline declaration
-is merely a high-specificity stylesheet rule would produce incorrect
-`!important` and origin ordering, so this slice fails closed instead.
-
-Inline-origin declaration parsing and precedence is the next distinct CSS
-integration slice.
-
-## Cache-like DAG side effects
-
-Simple input-shape failures, inline-style rejection and bridge preflight-budget
-failure occur before the DAG is touched. Once cascade/style interning begins,
-an error on a later node may leave canonical styles from earlier successful
-nodes interned in the persistent DAG. Those nodes are deterministic,
-content-addressed cache state and do not publish a partial terminal window.
-The output contract remains atomic.
+As with the pre-existing bridge contract, once execution has interned styles
+for earlier nodes, a failure on a later node may leave deterministic canonical
+cache nodes in the persistent DAG. It never publishes a partial terminal
+window. The output window remains atomic.
 
 ## Deliberate exclusions
 
 This bridge does not claim CSS inheritance, computed-value normalization,
-combinators or pseudo classes outside the current selector profile, stylesheet
-discovery from HTML, mutation propagation, layout construction, or paint
-construction. Those remain separate authority work rather than being smuggled
-through an integration adapter.
+unsupported selector profiles, stylesheet discovery from HTML, style-attribute
+at-rules, CSSOM style mutation APIs, mutation propagation, layout construction
+or paint construction.

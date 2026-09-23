@@ -1,5 +1,7 @@
 #pragma once
 
+#include "css_inline_cascade_merge_v1.hpp"
+#include "css_parser_v1.hpp"
 #include "css_style_dag_v1.hpp"
 #include "zenith_semantic_node_window.hpp"
 
@@ -29,6 +31,8 @@ struct CssSemanticStyleBridgeConfigV1 {
     std::size_t maximum_total_semantic_bytes{16U * 1024U * 1024U};
     std::uint64_t maximum_work_units{16U * 1024U * 1024U};
     CssCascadeConfigV1 cascade{};
+    CssParserV1Config inline_parser{};
+    CssInlineCascadeMergeConfigV1 inline_merge{};
     CssStyleDagConfigV1 style_dag{};
 
     bool valid() const noexcept;
@@ -41,7 +45,9 @@ enum class CssSemanticStyleBridgeErrorKindV1 : std::uint8_t {
     NodeLimitExceeded,
     AttributeLimitExceeded,
     SemanticBudgetExceeded,
-    InlineStyleUnsupported,
+    InlineStyleParseFailure,
+    InlineStyleAtRuleUnsupported,
+    InlineCascadeMergeFailure,
     WorkBudgetExceeded,
     CascadeFailure,
     StyleDagFailure,
@@ -54,6 +60,9 @@ struct CssSemanticStyleBridgeErrorV1 {
     std::size_t node_index{0U};
     std::uint64_t document_ordinal{0U};
     CssCascadeErrorKindV1 cascade_kind{CssCascadeErrorKindV1::None};
+    CssParserV1ErrorKind parser_kind{CssParserV1ErrorKind::None};
+    CssInlineCascadeMergeErrorKindV1 inline_merge_kind{
+        CssInlineCascadeMergeErrorKindV1::None};
     CssStyleDagErrorKindV1 style_dag_kind{
         CssStyleDagErrorKindV1::None};
     std::string message;
@@ -64,8 +73,12 @@ struct CssSemanticStyleBridgeStatsV1 {
     std::uint64_t nodes_styled{0U};
     std::uint64_t attributes_considered{0U};
     std::uint64_t semantic_bytes{0U};
+    std::uint64_t inline_styles_parsed{0U};
+    std::uint64_t inline_declarations{0U};
     std::uint64_t preflight_work_units{0U};
+    std::uint64_t inline_parse_work_units{0U};
     std::uint64_t cascade_work_units{0U};
+    std::uint64_t inline_merge_work_units{0U};
     std::uint64_t style_dag_work_units{0U};
     std::uint64_t work_units{0U};
 };
@@ -94,9 +107,12 @@ const char* css_semantic_style_bridge_error_kind_name_v1(
 // attributes from the bounded window and publishes one terminal identity per
 // node.
 //
-// Non-empty HTML style="" semantics fail closed in this version. Treating the
-// style attribute as ordinary author stylesheet specificity would be wrong;
-// inline-origin cascade support is a separate authority slice.
+// Non-empty HTML style="" payloads are parsed through the native standalone
+// declaration-list parser, merged with the already-resolved author stylesheet
+// cascade using inline-origin precedence, then interned into the same bounded
+// style DAG. The semantic style field must agree exactly with the retained
+// style attribute payload. Declaration-list at-rules are rejected at this HTML
+// style-attribute boundary rather than being silently reinterpreted.
 bool compute_css_style_terminals_for_semantic_window_v1(
     const CssStylesheetV1& stylesheet,
     const zevryon::massivedoc::ZenithSemanticNodeWindowResult& window,

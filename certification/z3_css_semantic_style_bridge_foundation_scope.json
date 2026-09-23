@@ -3,6 +3,7 @@
   "milestone": "Z3",
   "status_change": false,
   "gate_progress": [
+    "css_parser_conformance",
     "cascade_conformance",
     "bounded_style_dag",
     "offscreen_materialization_bound"
@@ -10,7 +11,7 @@
   "admitted_gates": [],
   "production_surface": "compute_css_style_terminals_for_semantic_window_v1",
   "store_facing_input": "ZenithSemanticNodeWindowResult",
-  "production_path": "bounded Z8 semantic window -> CssSelectorNodeV1 views -> cascade_css_author_rules_v1 -> intern_css_cascade_style_v1 -> bounded absolute terminal window",
+  "production_path": "bounded Z8 semantic window -> CssSelectorNodeV1 views -> cascade_css_author_rules_v1 -> parse_css_declaration_list_v1 for non-empty style -> merge_css_author_and_inline_cascade_v1 -> intern_css_cascade_style_v1 -> bounded absolute terminal window",
   "hard_bounds": {
     "maximum_nodes_limit": 65536,
     "maximum_attributes_per_node_limit": 65536,
@@ -22,19 +23,25 @@
   "certified_foundation": [
     "semantic window ordinal range must exactly match the supplied node payload",
     "authoritative per-node and total attribute counts are revalidated before cascade work",
+    "the semantic style field must exactly match the retained style attribute payload when present",
+    "the separate semantic style field is charged to semantic-byte budgets in addition to the retained style attribute payload",
     "tag and original HTML attributes are exposed as non-owning selector views only for the bounded window",
-    "one shared work budget covers bridge preflight cascade and style-DAG work",
+    "non-empty HTML style attributes use the native standalone declaration-list parser",
+    "HTML style-attribute at-rules fail closed instead of being silently reinterpreted",
+    "inline important and author important precedence is resolved by the dedicated inline author-cascade merge layer",
+    "one shared work budget covers bridge preflight inline parsing cascade inline merge and style-DAG work",
     "equal semantic nodes reuse the same canonical style-DAG terminal identity",
     "unmatched nodes map to the empty style root",
     "published terminal output preserves absolute document begin end and total logical node count",
-    "non-empty HTML style attribute fails before any DAG mutation because inline-origin cascade is not yet authoritative",
-    "preflight and nested failures preserve the prior published terminal window"
+    "preflight and nested failures preserve the prior published terminal window; canonical DAG cache nodes from earlier successful execution-phase nodes may remain interned",
+    "inline merge hard-limit failures expose the nested merge error kind before style-DAG mutation"
   ],
   "deliberate_exclusions": [
-    "inline style origin and inline important precedence",
     "CSS inheritance and computed-value normalization",
     "selector combinators and pseudo classes outside the current selector profile",
     "automatic stylesheet discovery from HTML link or style elements",
+    "style-attribute at-rules",
+    "CSSOM style declaration mutation APIs",
     "mutation-driven recomputation",
     "direct layout or paint object construction",
     "Z3 milestone promotion"
