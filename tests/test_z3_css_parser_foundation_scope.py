@@ -13,7 +13,6 @@ def test_z3_css_parser_foundation_scope_is_exact() -> None:
     scope = json.loads(SCOPE.read_text(encoding="utf-8"))
 
     z3 = next(item for item in program["milestones"] if item["id"] == "Z3")
-    assert z3["status"] == "planned"
     assert z3["dependencies"] == ["Z0", "Z8"]
     assert z3["required_gates"] == [
         "css_parser_conformance",

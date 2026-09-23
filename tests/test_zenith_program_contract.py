@@ -22,7 +22,7 @@ def test_repository_manifest_is_valid() -> None:
     assert result["ok"] is True
     assert result["milestone_count"] == 16
     assert result["active"] == []
-    assert result["status_counts"]["implemented"] == 5
+    assert result["status_counts"]["implemented"] == 6
     assert result["core_gates"]["source_read_bytes_max"] == 65_536
 
     program = load_manifest()
@@ -54,6 +54,20 @@ def test_repository_manifest_is_valid() -> None:
         "github-actions-run:35079429233",
         "merge-commit:036e939109800dcf19088ccac9145222e2a77e0b",
     ]
+
+    z3 = program["milestones"][3]
+    assert z3["id"] == "Z3"
+    assert z3["status"] == "implemented"
+    assert z3["dependencies"] == ["Z0", "Z8"]
+    assert z3["required_gates"] == [
+        "css_parser_conformance",
+        "cascade_conformance",
+        "selector_dependency_invalidation",
+        "bounded_style_dag",
+        "offscreen_materialization_bound",
+    ]
+    assert z3["evidence"][0] == "certification:z3-gate-closure-v1"
+    assert len(z3["evidence"]) == 11
 
     z7 = program["milestones"][7]
     assert z7["id"] == "Z7"

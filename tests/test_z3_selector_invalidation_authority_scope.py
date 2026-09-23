@@ -44,8 +44,6 @@ def test_z3_selector_invalidation_authority_scope() -> None:
 
     program = json.loads(PROGRAM.read_text(encoding="utf-8"))
     z3 = next(item for item in program["milestones"] if item["id"] == "Z3")
-    assert z3["status"] == "planned"
-    assert z3["evidence"] == []
     assert "selector_dependency_invalidation" in z3["required_gates"]
 
     test = TEST.read_text(encoding="utf-8")

@@ -82,7 +82,7 @@
     {
       "id": "Z3",
       "name": "CSS parser cascade and style sharing",
-      "status": "planned",
+      "status": "implemented",
       "dependencies": [
         "Z0",
         "Z8"
@@ -94,7 +94,19 @@
         "bounded_style_dag",
         "offscreen_materialization_bound"
       ],
-      "evidence": []
+      "evidence": [
+        "certification:z3-gate-closure-v1",
+        "github-actions-run:35615407455",
+        "merge-commit:422876b6eda538ccd2b8a008a81eb2fd45d393ad",
+        "github-actions-run:35596502764",
+        "merge-commit:0638d7d5d749a08b546d0e14a1216045afe1b89c",
+        "github-actions-run:35596466760",
+        "merge-commit:f270f1260e7b44cd966f3d352d0765261f971b54",
+        "github-actions-run:35596454060",
+        "merge-commit:f9619e9df3afb338f853ae047fc66f64aecce640",
+        "github-actions-run:35735167445",
+        "merge-commit:e3de35c8c68835f469376d2c9fab6479736d5727"
+      ]
     },
     {
       "id": "Z4",

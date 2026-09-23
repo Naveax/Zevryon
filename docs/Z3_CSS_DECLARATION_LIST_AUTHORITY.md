@@ -28,4 +28,4 @@ that braces inside comments do not corrupt block boundaries.
 This is deliberately a declaration-list parser authority. It does not claim
 property grammar validation, computed-value semantics, selector matching,
 cascade winner selection, at-rule handling, nested recovery or full WPT
-conformance. Z3 remains `planned`.
+conformance. This slice does not change milestone status by itself; current Z3 status is owned by `config/zenith_program.json`.

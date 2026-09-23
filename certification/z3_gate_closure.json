@@ -1,0 +1,54 @@
+{
+  "schema": "zevryon.z3-gate-closure.v1",
+  "milestone": "Z3",
+  "status": "implemented",
+  "scope": "css-parser-cascade-style-sharing",
+  "all_required_gates_passed": true,
+  "gates": {
+    "css_parser_conformance": {
+      "status": "PASS",
+      "workflow_run": 35615407455,
+      "head_sha": "610f2d10d21d8bbdb3c20fe9323b7509760cabb9",
+      "merge_commit": "422876b6eda538ccd2b8a008a81eb2fd45d393ad",
+      "authority": "z3-css-parser-conformance-v1",
+      "authority_scope": "zevryon.z3-css-parser-authority-scope.v1",
+      "source_pr": 266
+    },
+    "cascade_conformance": {
+      "status": "PASS",
+      "workflow_run": 35596502764,
+      "head_sha": "de9a75a0ac41a388c28a37c892ac31e589107523",
+      "merge_commit": "0638d7d5d749a08b546d0e14a1216045afe1b89c",
+      "authority": "zevryon.z3-cascade-authority-scope.v1",
+      "authority_scope": "zevryon.z3-cascade-authority-scope.v1",
+      "source_pr": 264
+    },
+    "selector_dependency_invalidation": {
+      "status": "PASS",
+      "workflow_run": 35596466760,
+      "head_sha": "ac09640c5f1000a86532005fd0ebfbd7b7bd05a2",
+      "merge_commit": "f270f1260e7b44cd966f3d352d0765261f971b54",
+      "authority": "zevryon.z3-selector-invalidation-authority-scope.v1",
+      "authority_scope": "zevryon.z3-selector-invalidation-authority-scope.v1",
+      "source_pr": 263
+    },
+    "bounded_style_dag": {
+      "status": "PASS",
+      "workflow_run": 35596454060,
+      "head_sha": "714792719c881c23877a9b8bc3d76331c51b9aa4",
+      "merge_commit": "f9619e9df3afb338f853ae047fc66f64aecce640",
+      "authority": "zevryon.z3-style-dag-authority-scope.v1",
+      "authority_scope": "zevryon.z3-style-dag-authority-scope.v1",
+      "source_pr": 262
+    },
+    "offscreen_materialization_bound": {
+      "status": "PASS",
+      "workflow_run": 35735167445,
+      "head_sha": "f92bb11ae77dfe8a976d7a513489bff831b5d7eb",
+      "merge_commit": "e3de35c8c68835f469376d2c9fab6479736d5727",
+      "authority": "zevryon.z3-offscreen-materialization-authority-scope.v1",
+      "authority_scope": "zevryon.z3-offscreen-materialization-authority-scope.v1",
+      "source_pr": 265
+    }
+  }
+}
