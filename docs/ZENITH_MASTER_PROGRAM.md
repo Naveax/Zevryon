@@ -7,9 +7,12 @@ This document is an execution contract, not a claim that a complete browser alre
 | Milestone | Current state |
 |---|---|
 | Z0 — resource ledger and benchmark contract | Implemented |
-| Z1 — Unicode text substrate | Active |
+| Z1 — Unicode text substrate | Implemented |
+| Z2 — font discovery and shaping | Implemented |
+| Z3 — CSS parser, cascade and style sharing | Implemented; five required gates certified in `certification/z3_gate_closure.json` |
 | Z7 — streaming HTML parser | Implemented; five configured gates certified in `docs/Z7_MILESTONE_CERTIFICATION.md` |
-| Z2–Z6, Z8–Z15 | Planned and dependency-gated |
+| Z8 — logical DOM and hot projection | Implemented; five required gates certified in `certification/z8_gate_closure.json` |
+| Z4–Z6, Z9–Z15 | Planned and dependency-gated |
 
 The machine-readable source of truth is `config/zenith_program.json`. CI rejects missing milestones, dependency cycles, skipped implemented dependencies, evidence-free completion claims, and weakened MassiveDoc core gates.
 

@@ -33,8 +33,6 @@ def test_z3_css_inline_cascade_merge_foundation_scope() -> None:
 
     program = json.loads(PROGRAM.read_text(encoding="utf-8"))
     z3 = next(item for item in program["milestones"] if item["id"] == "Z3")
-    assert z3["status"] == "planned"
-    assert z3["evidence"] == []
 
     header = HEADER.read_text(encoding="utf-8")
     source = SOURCE.read_text(encoding="utf-8")

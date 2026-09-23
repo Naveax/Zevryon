@@ -42,8 +42,6 @@ def test_z3_css_selector_foundation_scope() -> None:
 
     program = json.loads(PROGRAM.read_text(encoding="utf-8"))
     z3 = next(item for item in program["milestones"] if item["id"] == "Z3")
-    assert z3["status"] == "planned"
-    assert z3["evidence"] == []
     assert "cascade_conformance" in z3["required_gates"]
     assert "selector_dependency_invalidation" in z3["required_gates"]
 

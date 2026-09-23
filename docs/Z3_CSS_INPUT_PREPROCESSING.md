@@ -36,4 +36,4 @@ same CSSOM API contract.
 
 At-rules, CSS error recovery, nested rules, selector matching, cascade,
 specificity, dependency invalidation, bounded style-DAG sharing and offscreen
-materialization remain outside this slice. Z3 therefore remains `planned`.
+materialization remain outside this slice. This preprocessing slice does not change milestone status by itself; current Z3 status is owned by `config/zenith_program.json`.

@@ -55,5 +55,4 @@ rejection for the production computed-style DAG. It does not claim inheritance,
 shorthand expansion, computed-value normalization, invalidation propagation,
 offscreen materialization or full browser computed-style semantics.
 
-Z3 remains `planned` until its other configured gates are independently
-admitted.
+This authority does not change milestone status by itself. Current Z3 status is owned by `config/zenith_program.json` and the gate-closure certification.

@@ -37,8 +37,6 @@ def test_z3_css_materialization_window_foundation_scope() -> None:
 
     program = json.loads(PROGRAM.read_text(encoding="utf-8"))
     z3 = next(item for item in program["milestones"] if item["id"] == "Z3")
-    assert z3["status"] == "planned"
-    assert z3["evidence"] == []
     assert "offscreen_materialization_bound" in z3["required_gates"]
 
     header = HEADER.read_text(encoding="utf-8")
