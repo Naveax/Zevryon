@@ -1,0 +1,71 @@
+name: Z4 layout style invalidation foundation
+
+on:
+  pull_request:
+    paths:
+      - 'src/z4_layout_style_invalidation_v1.*'
+      - 'tests/z4_layout_style_invalidation_v1_tests.cpp'
+      - 'tests/test_z4_layout_style_invalidation_foundation_scope.py'
+      - 'certification/z4_layout_style_invalidation_foundation_scope.json'
+      - 'docs/Z4_LAYOUT_STYLE_INVALIDATION_FOUNDATION.md'
+      - 'cmake/z4_layout_style_invalidation_v1.cmake'
+      - 'cmake/coretext_discovery.cmake'
+      - '.github/workflows/z4-layout-style-invalidation-foundation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: z4-layout-style-invalidation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-invalidation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install focused build dependency
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DZEVRYON_ENABLE_FONTCONFIG_DISCOVERY=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build invalidation oracle
+        run: cmake --build build --parallel 2 --target zevryon-z4-layout-style-invalidation-v1-tests
+      - name: Execute invalidation oracle
+        run: build/zevryon-z4-layout-style-invalidation-v1-tests
+      - name: Validate frozen scope
+        run: python3 tests/test_z4_layout_style_invalidation_foundation_scope.py
+
+  windows-invalidation:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Configure
+        shell: pwsh
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DBUILD_TESTING=ON
+          -DZEVRYON_ENABLE_RUST_CORE=OFF
+          -DZEVRYON_ENABLE_DIRECTWRITE_DISCOVERY=OFF
+          -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+      - name: Build invalidation oracle
+        shell: pwsh
+        run: cmake --build build --config Release --parallel 2 --target zevryon-z4-layout-style-invalidation-v1-tests
+      - name: Execute invalidation oracle
+        shell: pwsh
+        run: build/Release/zevryon-z4-layout-style-invalidation-v1-tests.exe
+      - name: Validate frozen scope
+        shell: pwsh
+        run: python tests/test_z4_layout_style_invalidation_foundation_scope.py

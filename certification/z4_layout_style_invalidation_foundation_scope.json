@@ -1,0 +1,35 @@
+{
+  "schema": "zevryon.z4-layout-style-invalidation-foundation.v1",
+  "milestone": "Z4",
+  "status_change": false,
+  "gate_progress": [
+    "incremental_invalidation"
+  ],
+  "admitted_gates": [],
+  "production_surface": "compute_layout_style_invalidation_v1",
+  "resource_class": "Layout",
+  "hard_bounds": {
+    "maximum_nodes_limit": 65536,
+    "maximum_ranges_limit": 65536,
+    "maximum_work_units_limit": 131072
+  },
+  "certified_foundation": [
+    "previous and current snapshots must describe the same bounded document range",
+    "terminal IDs must resolve inside one supplied canonical computed-style DAG identity space",
+    "changed terminal identities are emitted as exact absolute half-open document ranges",
+    "adjacent changed nodes coalesce without scanning unrelated document nodes",
+    "unchanged windows emit no invalidation ranges",
+    "node range and work limits fail closed",
+    "failed computations preserve prior published invalidation output"
+  ],
+  "deliberate_exclusions": [
+    "descendant or ancestor propagation",
+    "formatting-context invalidation",
+    "layout dependency graph propagation",
+    "inline and block layout reference conformance",
+    "scroll-anchor correction",
+    "warm-scroll allocation authority",
+    "Z4 gate admission",
+    "Z4 milestone promotion"
+  ]
+}
